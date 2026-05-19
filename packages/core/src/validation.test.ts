@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+  validateTrailStream,
+  validateTrailString,
   validateWriterStrictRecord,
   validateWriterStrictSchemaJsonlStream,
   validateWriterStrictSchemaJsonlString,
@@ -141,6 +143,85 @@ test("reports invalid events through the schema JSONL stream wrapper", async () 
     severity: "error",
     code: "required",
     message: "must have required property 'path'",
+  });
+});
+
+test("validateTrailString returns no diagnostics for a valid linear trail", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"evta2","parent_id":"evta1","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("validateTrailString reports both per-line and whole-file diagnostics", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"evta1","ts":"not-a-timestamp","payload":{"text":"hi"}}',
+    ].join("\n"),
+  );
+
+  const codes = diagnostics.map((d) => d.code);
+  expect(codes).toContain("pattern");
+  expect(codes).toContain("duplicate_id");
+
+  const duplicate = diagnostics.find((d) => d.code === "duplicate_id");
+  expect(duplicate).toEqual({
+    line: 3,
+    path: "/id",
+    severity: "error",
+    code: "duplicate_id",
+    message: 'Duplicate id "evta1"; first seen on line 2',
+  });
+});
+
+test("validateTrailStream emits graph diagnostics after schema diagnostics", async () => {
+  const diagnostics = await collect(
+    validateTrailStream(
+      chunks([
+        '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}\n',
+        '{"type":"agent_message","id":"node-a","parent_id":"node-b","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"a"}}\n',
+        '{"type":"agent_message","id":"node-b","parent_id":"node-a","ts":"2026-05-17T14:00:06.000Z","payload":{"text":"b"}}',
+      ]),
+    ),
+  );
+
+  expect(diagnostics.map((d) => d.code)).toEqual(["parent_cycle", "parent_cycle"]);
+  expect(diagnostics.map((d) => d.line)).toEqual([2, 3]);
+});
+
+test("validateTrailString surfaces JSONL parse errors and still runs graph checks on prior records", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+      '{"type":"user_message"',
+    ].join("\n"),
+  );
+
+  const parseError = diagnostics.find((d) => d.code === "invalid_json");
+  expect(parseError).toEqual({
+    line: 4,
+    path: "",
+    severity: "error",
+    code: "invalid_json",
+    message: "Invalid JSON on line 4",
+  });
+
+  const duplicate = diagnostics.find((d) => d.code === "duplicate_id");
+  expect(duplicate).toEqual({
+    line: 3,
+    path: "/id",
+    severity: "error",
+    code: "duplicate_id",
+    message: 'Duplicate id "evta1"; first seen on line 2',
   });
 });
 

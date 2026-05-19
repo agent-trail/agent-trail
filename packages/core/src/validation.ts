@@ -2,6 +2,7 @@ import schema from "@agent-trail/schema" with { type: "json" };
 import type { ErrorObject, ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
 import { createDiagnostic, type Diagnostic, diagnosticFromJsonlParseError } from "./diagnostics.ts";
+import { validateTrailGraph } from "./graph.ts";
 import { type JsonlChunk, JsonlParseError, type JsonlRecord, parseJsonlStream } from "./jsonl.ts";
 
 const schemaId = schemaIdFrom(schema);
@@ -43,6 +44,37 @@ export async function validateWriterStrictSchemaJsonlString(text: string): Promi
   const diagnostics: Diagnostic[] = [];
 
   for await (const diagnostic of validateWriterStrictSchemaJsonlStream(asyncIterableFrom([text]))) {
+    diagnostics.push(diagnostic);
+  }
+
+  return diagnostics;
+}
+
+export async function* validateTrailStream(
+  input: AsyncIterable<JsonlChunk>,
+): AsyncGenerator<Diagnostic> {
+  const records: JsonlRecord[] = [];
+
+  try {
+    for await (const record of parseJsonlStream(input)) {
+      records.push(record);
+      yield* validateWriterStrictRecord(record);
+    }
+  } catch (error) {
+    if (error instanceof JsonlParseError) {
+      yield diagnosticFromJsonlParseError(error);
+    } else {
+      throw error;
+    }
+  }
+
+  yield* validateTrailGraph(records);
+}
+
+export async function validateTrailString(text: string): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+
+  for await (const diagnostic of validateTrailStream(asyncIterableFrom([text]))) {
     diagnostics.push(diagnostic);
   }
 

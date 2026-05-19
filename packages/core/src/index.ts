@@ -6,6 +6,7 @@ export {
   formatDiagnosticsText,
   formatDiagnosticText,
 } from "./diagnostics.ts";
+export { validateTrailGraph } from "./graph.ts";
 export type { JsonlChunk, JsonlParseErrorCode, JsonlRecord } from "./jsonl.ts";
 export {
   JsonlParseError,
@@ -13,6 +14,8 @@ export {
   parseJsonlString,
 } from "./jsonl.ts";
 export {
+  validateTrailStream,
+  validateTrailString,
   validateWriterStrictRecord,
   validateWriterStrictSchemaJsonlStream,
   validateWriterStrictSchemaJsonlString,
