@@ -5,6 +5,16 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "types": "./index.d.ts",
+  "files": [
+    "index.d.ts"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agent-trail/agent-trail.git",
@@ -18,6 +28,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "check": "bun --version >/dev/null"
+    "check": "bun ../../scripts/generate-types.ts --check && tsc --noEmit --project ../../tsconfig.json",
+    "generate": "bun ../../scripts/generate-types.ts"
   }
 }
