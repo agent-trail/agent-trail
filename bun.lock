@@ -1,0 +1,52 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "agent-trail",
+    },
+    "apps/website": {
+      "name": "@agent-trail/website",
+      "version": "0.0.0",
+    },
+    "packages/adapters": {
+      "name": "@agent-trail/adapters",
+      "version": "0.0.0",
+    },
+    "packages/cli": {
+      "name": "@agent-trail/cli",
+      "version": "0.0.0",
+    },
+    "packages/core": {
+      "name": "@agent-trail/core",
+      "version": "0.0.0",
+    },
+    "packages/redact": {
+      "name": "@agent-trail/redact",
+      "version": "0.0.0",
+    },
+    "packages/schema": {
+      "name": "@agent-trail/schema",
+      "version": "0.0.0",
+    },
+    "packages/types": {
+      "name": "@agent-trail/types",
+      "version": "0.0.0",
+    },
+  },
+  "packages": {
+    "@agent-trail/adapters": ["@agent-trail/adapters@workspace:packages/adapters"],
+
+    "@agent-trail/cli": ["@agent-trail/cli@workspace:packages/cli"],
+
+    "@agent-trail/core": ["@agent-trail/core@workspace:packages/core"],
+
+    "@agent-trail/redact": ["@agent-trail/redact@workspace:packages/redact"],
+
+    "@agent-trail/schema": ["@agent-trail/schema@workspace:packages/schema"],
+
+    "@agent-trail/types": ["@agent-trail/types@workspace:packages/types"],
+
+    "@agent-trail/website": ["@agent-trail/website@workspace:apps/website"],
+  }
+}

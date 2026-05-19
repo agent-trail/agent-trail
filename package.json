@@ -1,0 +1,14 @@
+{
+  "name": "agent-trail",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "check": "bun pm ls --all >/dev/null && bun run --workspaces --sequential check",
+    "test": "bun run check"
+  }
+}
