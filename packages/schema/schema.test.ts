@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 import defaultSchema from "@agent-trail/schema" with { type: "json" };
 import latestSchema from "@agent-trail/schema/latest" with { type: "json" };
