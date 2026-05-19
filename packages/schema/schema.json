@@ -1,0 +1,717 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/schema/v0.1.0.json",
+  "title": "Agent Trail v0.1.0",
+  "description": "Validates a single JSONL line: either a header (line 1) or an event (lines 2+). Top-level oneOf chooses header vs entry; per-event-type payload shapes are enforced via the events subschemas.",
+
+  "oneOf": [
+    { "$ref": "#/$defs/header" },
+    { "$ref": "#/$defs/entry" }
+  ],
+
+  "$defs": {
+
+    "iso8601": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "Writer timestamp: UTC ISO-8601 with millisecond precision"
+    },
+
+    "id": {
+      "type": "string",
+      "minLength": 4,
+      "description": "Unique within the file. 8+ chars hex or alphanumeric recommended."
+    },
+
+    "sha256Hex": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hash as lowercase hex (64 chars)"
+    },
+
+    "agentName": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "pi",
+            "openclaw",
+            "codex-cli",
+            "gemini-cli",
+            "cursor",
+            "opencode",
+            "aider",
+            "amp",
+            "cline",
+            "crush",
+            "kimi-code",
+            "qwen-code",
+            "factory",
+            "vibe",
+            "copilot-cli",
+            "copilot-chat",
+            "chatgpt",
+            "clawdbot"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9][a-z0-9-]*$",
+          "description": "Custom unregistered agent using a reverse-domain style x- prefix, e.g. x-com-example-myagent"
+        }
+      ]
+    },
+
+    "toolKind": {
+      "type": "string",
+      "enum": [
+        "file_read",
+        "file_write",
+        "file_edit",
+        "file_search",
+        "shell_command",
+        "shell_output",
+        "mcp_call",
+        "web_fetch",
+        "web_search",
+        "notebook_edit",
+        "task_plan",
+        "subagent_invoke",
+        "other"
+      ]
+    },
+
+    "vcs": {
+      "type": "object",
+      "required": ["type", "revision"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["git", "jj", "hg", "svn"]
+        },
+        "revision": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "sourceMetadata": {
+      "type": "object",
+      "description": "Adapter-provided metadata about the source event.",
+      "properties": {
+        "agent": { "$ref": "#/$defs/agentName" },
+        "original_type": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "raw": { "description": "Opaque source object preserved verbatim" },
+        "synthesized": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    },
+
+    "semanticMetadata": {
+      "type": "object",
+      "description": "Semantic linking for cross-event references when explicit IDs are unreliable.",
+      "properties": {
+        "group_id": { "type": "string" },
+        "call_id": { "type": "string" },
+        "tool_kind": { "$ref": "#/$defs/toolKind" }
+      },
+      "additionalProperties": false
+    },
+
+    "header": {
+      "type": "object",
+      "description": "Session header (line 1). Not part of the event graph.",
+      "required": ["type", "schema_version", "id", "ts", "agent"],
+      "properties": {
+        "type": { "const": "session" },
+        "schema_version": {
+          "const": "0.1.0"
+        },
+        "id": { "$ref": "#/$defs/id" },
+        "content_hash": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha256Hex" },
+            { "const": "<pending>" }
+          ]
+        },
+        "ts": { "$ref": "#/$defs/iso8601" },
+        "agent": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "$ref": "#/$defs/agentName" },
+            "version": { "type": "string" },
+            "model_default": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "cwd": { "type": "string" },
+        "vcs": { "$ref": "#/$defs/vcs" },
+        "fork_from": {
+          "type": "object",
+          "required": ["session_id"],
+          "properties": {
+            "session_id": { "type": "string" },
+            "content_hash": { "$ref": "#/$defs/sha256Hex" },
+            "entry_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "redacted_from": {
+          "type": "object",
+          "required": ["content_hash"],
+          "properties": {
+            "content_hash": { "$ref": "#/$defs/sha256Hex" }
+          },
+          "additionalProperties": false
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "agent": { "$ref": "#/$defs/agentName" },
+            "path": { "type": "string" },
+            "format_version": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Vendor extensions with reverse-domain keys (e.g., com.example.field)"
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "entryBase": {
+      "type": "object",
+      "required": ["type", "id", "ts", "payload"],
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "$ref": "#/$defs/id" },
+        "parent_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/id" },
+            { "type": "null" }
+          ]
+        },
+        "ts": { "$ref": "#/$defs/iso8601" },
+        "payload": { "type": "object" },
+        "semantic": { "$ref": "#/$defs/semanticMetadata" },
+        "source": { "$ref": "#/$defs/sourceMetadata" },
+        "metadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+
+    "entry": {
+      "allOf": [
+        { "$ref": "#/$defs/entryBase" },
+        {
+          "oneOf": [
+            { "$ref": "#/$defs/events/user_message" },
+            { "$ref": "#/$defs/events/agent_message" },
+            { "$ref": "#/$defs/events/tool_call" },
+            { "$ref": "#/$defs/events/tool_result" },
+            { "$ref": "#/$defs/events/session_summary" },
+            { "$ref": "#/$defs/events/agent_thinking" },
+            { "$ref": "#/$defs/events/user_interrupt" },
+            { "$ref": "#/$defs/events/context_compact" },
+            { "$ref": "#/$defs/events/branch_point" },
+            { "$ref": "#/$defs/events/branch_summary" },
+            { "$ref": "#/$defs/events/model_change" },
+            { "$ref": "#/$defs/events/session_terminated" },
+            { "$ref": "#/$defs/events/unknown" }
+          ]
+        }
+      ]
+    },
+
+    "events": {
+
+      "user_message": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_message" },
+          "payload": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string" },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["kind"],
+                  "properties": {
+                    "kind": { "type": "string", "enum": ["image", "file", "other"] },
+                    "media_type": { "type": "string" },
+                    "uri": {
+                      "type": "string",
+                      "pattern": "^(https:|file:|sha256:)"
+                    },
+                    "name": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "agent_message": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "agent_message" },
+          "payload": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string" },
+              "model": { "type": "string" },
+              "stop_reason": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "tool_call": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "tool_call" },
+          "payload": {
+            "type": "object",
+            "required": ["tool", "args"],
+            "properties": {
+              "tool": { "$ref": "#/$defs/toolKind" },
+              "args": { "type": "object" }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": { "properties": { "tool": { "const": "file_read" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["path"],
+                      "properties": {
+                        "path": { "type": "string" },
+                        "range": {
+                          "type": "array",
+                          "items": { "type": "integer" },
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "file_write" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["path", "content"],
+                      "properties": {
+                        "path": { "type": "string" },
+                        "content": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "file_edit" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["path", "diff"],
+                      "properties": {
+                        "path": { "type": "string" },
+                        "diff": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "file_search" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["query"],
+                      "properties": {
+                        "query": { "type": "string" },
+                        "path": { "type": "string" },
+                        "glob": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "shell_command" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["command"],
+                      "properties": {
+                        "command": { "type": "string" },
+                        "cwd": { "type": "string" },
+                        "timeout": { "type": "integer" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "shell_output" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "properties": {
+                        "command_id": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "mcp_call" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["server", "tool"],
+                      "properties": {
+                        "server": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "args": { "type": "object" },
+                        "headers": { "type": "object" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "web_fetch" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["url"],
+                      "properties": {
+                        "url": { "type": "string" },
+                        "method": { "type": "string" },
+                        "headers": { "type": "object" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "web_search" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["query"],
+                      "properties": {
+                        "query": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "notebook_edit" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["path"],
+                      "properties": {
+                        "path": { "type": "string" },
+                        "cell_id": { "type": "string" },
+                        "diff": { "type": "string" },
+                        "content": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "task_plan" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "properties": {
+                        "text": { "type": "string" },
+                        "items": {
+                          "type": "array",
+                          "items": { "type": "string" }
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "subagent_invoke" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["task"],
+                      "properties": {
+                        "task": { "type": "string" },
+                        "agent_type": { "type": "string" },
+                        "session_id": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "other" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["name"],
+                      "properties": {
+                        "name": { "type": "string" },
+                        "args": { "type": "object" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+
+      "tool_result": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "tool_result" },
+          "payload": {
+            "type": "object",
+            "required": ["ok"],
+            "properties": {
+              "for_id": {
+                "$ref": "#/$defs/id"
+              },
+              "ok": { "type": "boolean" },
+              "output": { "type": "string" },
+              "truncated": { "type": "boolean" },
+              "overflow_ref": {
+                "oneOf": [{ "type": "string" }, { "type": "null" }]
+              },
+              "error": {
+                "oneOf": [{ "type": "string" }, { "type": "null" }]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "session_summary": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "session_summary" },
+          "payload": {
+            "type": "object",
+            "required": ["scope", "text"],
+            "properties": {
+              "scope": { "type": "string", "enum": ["session"] },
+              "text": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "agent_thinking": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "agent_thinking" },
+          "payload": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string" },
+              "model": { "type": "string" },
+              "level": { "type": "string", "enum": ["low", "medium", "high", "xhigh"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "user_interrupt": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_interrupt" },
+          "payload": {
+            "type": "object",
+            "properties": { "reason": { "type": "string" } },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "context_compact": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "context_compact" },
+          "payload": {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {
+              "summary": { "type": "string" },
+              "trigger": { "type": "string", "enum": ["manual", "auto"] },
+              "tokens_before": { "type": "integer", "minimum": 0 },
+              "tokens_after": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "branch_point": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "branch_point" },
+          "payload": {
+            "type": "object",
+            "required": ["from_id"],
+            "properties": {
+              "from_id": { "$ref": "#/$defs/id" },
+              "reason": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "branch_summary": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "branch_summary" },
+          "payload": {
+            "type": "object",
+            "required": ["abandoned_branch_id", "summary"],
+            "properties": {
+              "abandoned_branch_id": { "$ref": "#/$defs/id" },
+              "summary": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "model_change": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "model_change" },
+          "payload": {
+            "type": "object",
+            "required": ["to_model"],
+            "properties": {
+              "from_model": { "type": "string" },
+              "to_model": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "session_terminated": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "session_terminated" },
+          "payload": {
+            "type": "object",
+            "required": ["reason"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": ["eof_with_open_tool_calls", "process_terminated", "truncated", "user_abort"]
+              },
+              "open_call_ids": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/id" }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "unknown": {
+        "type": "object",
+        "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "not": {
+              "enum": [
+                "session",
+                "user_message",
+                "agent_message",
+                "tool_call",
+                "tool_result",
+                "session_summary",
+                "agent_thinking",
+                "user_interrupt",
+                "context_compact",
+                "branch_point",
+                "branch_summary",
+                "model_change",
+                "session_terminated",
+                "session_metadata_update",
+                "attachment_uploaded",
+                "error",
+                "system_message",
+                "permission_request",
+                "permission_response",
+                "cost_report",
+                "signature"
+              ]
+            }
+          },
+          "payload": { "type": "object" }
+        }
+      }
+    }
+  }
+}
