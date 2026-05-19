@@ -24,6 +24,10 @@
   "engines": {
     "node": ">=20"
   },
+  "dependencies": {
+    "@agent-trail/schema": "workspace:*",
+    "ajv": "catalog:"
+  },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",
     "test": "bun test"

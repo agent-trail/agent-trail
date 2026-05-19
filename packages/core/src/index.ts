@@ -12,3 +12,8 @@ export {
   parseJsonlStream,
   parseJsonlString,
 } from "./jsonl.ts";
+export {
+  validateWriterStrictRecord,
+  validateWriterStrictSchemaJsonlStream,
+  validateWriterStrictSchemaJsonlString,
+} from "./validation.ts";
