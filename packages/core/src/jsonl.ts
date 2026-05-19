@@ -1,4 +1,4 @@
-export type JsonlChunk = string | Uint8Array;
+export type JsonlChunk = string | Uint8Array<ArrayBufferLike>;
 
 export type JsonlParseErrorCode = "empty_line" | "invalid_json" | "invalid_utf8" | "non_object";
 
@@ -25,38 +25,29 @@ export class JsonlParseError extends Error {
 export async function* parseJsonlStream(
   input: AsyncIterable<JsonlChunk>,
 ): AsyncGenerator<JsonlRecord> {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let pending = "";
+  const encoder = new TextEncoder();
+  let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let line = 1;
 
-  try {
-    for await (const chunk of input) {
-      pending += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+  for await (const chunk of input) {
+    pending = appendBytes(pending, typeof chunk === "string" ? encoder.encode(chunk) : chunk);
 
-      let newlineIndex = pending.indexOf("\n");
-      while (newlineIndex !== -1) {
-        const raw = pending.slice(0, newlineIndex);
-        yield parseLine(stripTrailingCarriageReturn(raw), line);
-        pending = pending.slice(newlineIndex + 1);
-        line += 1;
-        newlineIndex = pending.indexOf("\n");
-      }
+    let newlineIndex = pending.indexOf(0x0a);
+    while (newlineIndex !== -1) {
+      const raw = decodeLine(
+        stripTrailingCarriageReturnByte(pending.subarray(0, newlineIndex)),
+        line,
+      );
+      yield parseLine(raw, line);
+      pending = pending.subarray(newlineIndex + 1);
+      line += 1;
+      newlineIndex = pending.indexOf(0x0a);
     }
-
-    const flushed = decoder.decode();
-    if (flushed.length > 0) {
-      pending += flushed;
-    }
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new JsonlParseError("invalid_utf8", line, `Invalid UTF-8 on line ${line}`, pending);
-    }
-
-    throw error;
   }
 
-  if (pending.length > 0) {
-    yield parseLine(stripTrailingCarriageReturn(pending), line);
+  if (pending.byteLength > 0) {
+    const raw = decodeLine(stripTrailingCarriageReturnByte(pending), line);
+    yield parseLine(raw, line);
   }
 }
 
@@ -94,8 +85,40 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stripTrailingCarriageReturn(raw: string): string {
-  return raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+function appendBytes(
+  left: Uint8Array<ArrayBufferLike>,
+  right: Uint8Array<ArrayBufferLike>,
+): Uint8Array<ArrayBufferLike> {
+  if (left.byteLength === 0) {
+    return right;
+  }
+
+  if (right.byteLength === 0) {
+    return left;
+  }
+
+  const combined = new Uint8Array(left.byteLength + right.byteLength);
+  combined.set(left, 0);
+  combined.set(right, left.byteLength);
+  return combined;
+}
+
+function decodeLine(bytes: Uint8Array<ArrayBufferLike>, line: number): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new JsonlParseError("invalid_utf8", line, `Invalid UTF-8 on line ${line}`);
+    }
+
+    throw error;
+  }
+}
+
+function stripTrailingCarriageReturnByte(
+  bytes: Uint8Array<ArrayBufferLike>,
+): Uint8Array<ArrayBufferLike> {
+  return bytes.at(-1) === 0x0d ? bytes.subarray(0, -1) : bytes;
 }
 
 async function* asyncIterableFrom<T>(values: Iterable<T>): AsyncGenerator<T> {

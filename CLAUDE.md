@@ -28,7 +28,7 @@ Workspace packages:
 
 - [`packages/schema`](./packages/schema) — JSON Schema package.
 - [`packages/types`](./packages/types) — generated TypeScript types.
-- [`packages/core`](./packages/core) — planned parser, validation, hashing, and canonicalization utilities.
+- [`packages/core`](./packages/core) — initial JSONL parser; planned validation, hashing, and canonicalization utilities.
 - [`packages/adapters`](./packages/adapters) — planned source-agent adapter interfaces and parsers.
 - [`packages/redact`](./packages/redact) — planned redaction utilities.
 - [`packages/cli`](./packages/cli) — planned `trail` CLI.

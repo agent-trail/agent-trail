@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { JsonlParseError, parseJsonlStream, parseJsonlString } from "@agent-trail/core";
+import { JsonlParseError, parseJsonlStream, parseJsonlString } from "./index.ts";
 
 test("parses one-line JSONL", async () => {
   const records = await parseJsonlString('{"type":"session"}');
@@ -106,6 +106,45 @@ test("invalid UTF-8 reports a parse error", async () => {
   });
 });
 
+test("invalid UTF-8 after a valid line reports the second line", async () => {
+  const validFirstLine = new TextEncoder().encode('{"ok":true}\n');
+  const invalidSecondLine = new Uint8Array([0xc3, 0x28]);
+  const bytes = new Uint8Array(validFirstLine.byteLength + invalidSecondLine.byteLength);
+  bytes.set(validFirstLine, 0);
+  bytes.set(invalidSecondLine, validFirstLine.byteLength);
+
+  await expectJsonlError(chunks([bytes]), {
+    code: "invalid_utf8",
+    line: 2,
+    raw: "",
+  });
+});
+
+test("invalid UTF-8 after a valid line across chunks reports the second line", async () => {
+  const validFirstLine = new TextEncoder().encode('{"ok":true}\n');
+  const invalidSecondLine = new Uint8Array([0xc3, 0x28]);
+
+  await expectJsonlError(chunks([validFirstLine, invalidSecondLine]), {
+    code: "invalid_utf8",
+    line: 2,
+    raw: "",
+  });
+});
+
+test("caller async iterable TypeError propagates unchanged", async () => {
+  const upstreamError = new TypeError("upstream failed");
+
+  try {
+    await collect(parseJsonlStream(throwingChunks(upstreamError)));
+  } catch (error) {
+    expect(error).toBe(upstreamError);
+    expect(error).not.toBeInstanceOf(JsonlParseError);
+    return;
+  }
+
+  throw new Error("Expected upstream TypeError");
+});
+
 async function expectJsonlError(
   input: string | AsyncIterable<string | Uint8Array>,
   expected: { code: string; line: number; raw: string },
@@ -137,4 +176,9 @@ async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
 
 async function* chunks(values: Iterable<string | Uint8Array>): AsyncGenerator<string | Uint8Array> {
   yield* values;
+}
+
+async function* throwingChunks(error: Error): AsyncGenerator<string | Uint8Array> {
+  yield '{"ok":true}\n';
+  throw error;
 }
