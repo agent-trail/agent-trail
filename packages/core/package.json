@@ -5,6 +5,14 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agent-trail/agent-trail.git",
@@ -18,6 +26,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "check": "bun --version >/dev/null"
+    "check": "bun test && tsc --noEmit --project ../../tsconfig.json",
+    "test": "bun test"
   }
 }
