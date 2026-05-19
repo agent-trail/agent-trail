@@ -7,14 +7,19 @@ export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
 
   const headerRecord = records[0];
-  if (headerRecord === undefined || headerRecord.value.type !== "session") {
+  const headerValid =
+    headerRecord !== undefined &&
+    headerRecord.value.type === "session" &&
+    headerRecord.value.schema_version === "0.1.0";
+  if (!headerValid) {
     diagnostics.push(
       createDiagnostic({
         line: headerRecord?.line ?? 0,
         path: "",
         severity: "error",
         code: "missing_header",
-        message: 'First line must be a session header with type "session"',
+        message:
+          'First line must be a session header with type "session" and schema_version "0.1.0"',
       }),
     );
   } else if (headerRecord.value.parent_id !== undefined && headerRecord.value.parent_id !== null) {
@@ -31,10 +36,27 @@ export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
 
   const entries = records.slice(1);
 
+  const headerId =
+    headerRecord !== undefined && typeof headerRecord.value.id === "string"
+      ? headerRecord.value.id
+      : undefined;
+
   const idLines = new Map<string, number>();
   for (const entry of entries) {
     const id = entry.value.id;
     if (typeof id !== "string") {
+      continue;
+    }
+    if (id === headerId) {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/id",
+          severity: "error",
+          code: "duplicate_id",
+          message: `Duplicate id "${id}"; first seen on line ${headerRecord?.line ?? 1}`,
+        }),
+      );
       continue;
     }
     const firstLine = idLines.get(id);

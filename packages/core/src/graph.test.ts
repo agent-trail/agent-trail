@@ -46,7 +46,7 @@ test("emits missing_header at line 0 when the record list is empty", () => {
       path: "",
       severity: "error",
       code: "missing_header",
-      message: 'First line must be a session header with type "session"',
+      message: 'First line must be a session header with type "session" and schema_version "0.1.0"',
     },
   ]);
 });
@@ -67,7 +67,29 @@ test("emits missing_header when line 1 is not a session header", () => {
       path: "",
       severity: "error",
       code: "missing_header",
-      message: 'First line must be a session header with type "session"',
+      message: 'First line must be a session header with type "session" and schema_version "0.1.0"',
+    },
+  ]);
+});
+
+test("emits missing_header when line 1 has the wrong schema_version", () => {
+  const diagnostics = validateTrailGraph([
+    record(1, {
+      type: "session",
+      schema_version: "0.2.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    }),
+  ]);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "",
+      severity: "error",
+      code: "missing_header",
+      message: 'First line must be a session header with type "session" and schema_version "0.1.0"',
     },
   ]);
 });
@@ -264,6 +286,51 @@ test("does not flag entries with unknown parent_id as cyclic", () => {
       severity: "error",
       code: "unknown_parent_id",
       message: 'parent_id "ghost" does not reference an id in this file',
+    },
+  ]);
+});
+
+test("flags duplicate_id when an entry reuses the session header id", () => {
+  const diagnostics = validateTrailGraph([
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "sess1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hello" },
+    }),
+  ]);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 2,
+      path: "/id",
+      severity: "error",
+      code: "duplicate_id",
+      message: 'Duplicate id "sess1"; first seen on line 1',
+    },
+  ]);
+});
+
+test("treats parent_id pointing at the session header as an unknown reference", () => {
+  const diagnostics = validateTrailGraph([
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evta1",
+      parent_id: "sess1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hi" },
+    }),
+  ]);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 2,
+      path: "/parent_id",
+      severity: "error",
+      code: "unknown_parent_id",
+      message: 'parent_id "sess1" does not reference an id in this file',
     },
   ]);
 });
