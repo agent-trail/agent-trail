@@ -1,8 +1,22 @@
 {
   "name": "@agent-trail/core",
   "version": "0.0.0",
+  "description": "Core Agent Trail parsing, validation, hashing, and canonicalization utilities.",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "bun --version >/dev/null"
   }

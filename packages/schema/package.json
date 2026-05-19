@@ -1,8 +1,22 @@
 {
   "name": "@agent-trail/schema",
   "version": "0.0.0",
+  "description": "Agent Trail JSON Schema package.",
   "private": true,
   "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/schema"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "bun --version >/dev/null"
   }

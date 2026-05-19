@@ -1,8 +1,22 @@
 {
   "name": "@agent-trail/types",
   "version": "0.0.0",
+  "description": "TypeScript types generated from the Agent Trail schema.",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/types"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "bun --version >/dev/null"
   }

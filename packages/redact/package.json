@@ -1,8 +1,22 @@
 {
   "name": "@agent-trail/redact",
   "version": "0.0.0",
+  "description": "Agent Trail redaction utilities.",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/redact"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "check": "bun --version >/dev/null"
   }
