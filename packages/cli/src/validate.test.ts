@@ -102,6 +102,15 @@ test("--json prints a JSON array of diagnostics", async () => {
   });
 });
 
+test("--json on valid file emits an empty JSON array with exit 0", async () => {
+  const path = await writeFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
+
+  const result = await runValidate([path, "--json"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual([]);
+});
+
 test("invalid trail exits 1 with line-aware text diagnostic", async () => {
   const badHeader =
     '{"type":"session","schema_version":"0.2.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
@@ -111,4 +120,69 @@ test("invalid trail exits 1 with line-aware text diagnostic", async () => {
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toContain("error const line 1 /schema_version:");
+});
+
+test("same unknown payload field fails strict but passes reader-tolerant", async () => {
+  const messageWithExtra =
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
+  const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
+
+  const strict = await runValidate([path, "--profile", "strict"]);
+  expect(strict.exitCode).toBe(1);
+  expect(strict.stdout).toContain("error additionalProperties line 2 /payload/extra:");
+
+  const tolerant = await runValidate([path, "--profile", "reader-tolerant"]);
+  expect(tolerant.exitCode).toBe(0);
+  expect(tolerant.stdout).toContain(
+    "warning reader_tolerant_unknown_payload_field line 2 /payload/extra:",
+  );
+});
+
+test("patch-compatible schema_version fails strict but warns under reader-tolerant", async () => {
+  const patchHeader =
+    '{"type":"session","schema_version":"0.1.1","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
+  const path = await writeFixture(`${patchHeader}\n`);
+
+  const strict = await runValidate([path, "--profile", "strict", "--json"]);
+  expect(strict.exitCode).toBe(1);
+  const strictDiagnostics = JSON.parse(strict.stdout);
+  expect(strictDiagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 1,
+      path: "/schema_version",
+      severity: "error",
+      code: "const",
+    }),
+  );
+
+  const tolerant = await runValidate([path, "--profile", "reader-tolerant", "--json"]);
+  expect(tolerant.exitCode).toBe(0);
+  expect(JSON.parse(tolerant.stdout)).toEqual([
+    {
+      line: 1,
+      path: "/schema_version",
+      severity: "warning",
+      code: "reader_tolerant_schema_version",
+      message: 'schema_version "0.1.1" accepted by reader-tolerant patch compatibility',
+    },
+  ]);
+});
+
+test("--json under reader-tolerant serializes warnings with full diagnostic shape", async () => {
+  const messageWithExtra =
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
+  const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
+
+  const result = await runValidate([path, "--profile", "reader-tolerant", "--json"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual([
+    {
+      line: 2,
+      path: "/payload/extra",
+      severity: "warning",
+      code: "reader_tolerant_unknown_payload_field",
+      message: 'Unknown payload field "extra" preserved for reader-tolerant parsing',
+    },
+  ]);
 });
