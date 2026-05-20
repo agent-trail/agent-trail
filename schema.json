@@ -38,7 +38,6 @@
             "pi",
             "openclaw",
             "codex-cli",
-            "gemini-cli",
             "cursor",
             "opencode",
             "aider",
@@ -214,6 +213,7 @@
             { "$ref": "#/$defs/events/tool_call" },
             { "$ref": "#/$defs/events/tool_result" },
             { "$ref": "#/$defs/events/session_summary" },
+            { "$ref": "#/$defs/events/system_event" },
             { "$ref": "#/$defs/events/agent_thinking" },
             { "$ref": "#/$defs/events/user_interrupt" },
             { "$ref": "#/$defs/events/context_compact" },
@@ -559,6 +559,23 @@
         }
       },
 
+      "system_event": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "system_event" },
+          "payload": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string" },
+              "text": { "type": "string" },
+              "data": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
       "agent_thinking": {
         "type": "object",
         "properties": {
@@ -691,6 +708,7 @@
                 "tool_call",
                 "tool_result",
                 "session_summary",
+                "system_event",
                 "agent_thinking",
                 "user_interrupt",
                 "context_compact",

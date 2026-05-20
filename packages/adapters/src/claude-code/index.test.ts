@@ -56,12 +56,24 @@ test("detectSessions() returns empty when project dir is missing", async () => {
 
 const FIXTURE_PATH = new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url)
   .pathname;
+const FIDELITY_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
     id: "basic-flow",
     adapter: "claude-code",
     path: FIXTURE_PATH,
+  });
+}
+
+async function parseFidelityFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "fidelity-edge-cases",
+    adapter: "claude-code",
+    path: FIDELITY_FIXTURE_PATH,
   });
 }
 
@@ -99,10 +111,10 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   expect(toolCall?.type).toBe("tool_call");
   expect(toolCall?.parent_id).toBe("cc-evt-1");
   expect(toolCall?.payload).toEqual({
-    tool: "other",
-    args: { name: "Bash", args: { command: "ls" } },
+    tool: "shell_command",
+    args: { command: "ls" },
   });
-  expect(toolCall?.semantic).toEqual({ call_id: "tooluse-1" });
+  expect(toolCall?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
 });
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call event id", async () => {
@@ -116,7 +128,7 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
     ok: true,
     output: "file-a\nfile-b",
   });
-  expect(toolResult?.semantic).toEqual({ call_id: "tooluse-1" });
+  expect(toolResult?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
 });
 
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
@@ -128,6 +140,7 @@ test("parseSession() emits an agent_message for assistant text records with mode
   expect(agentMsg?.payload).toEqual({
     text: "two files: file-a, file-b",
     model: "claude-opus-4-7",
+    stop_reason: "end_turn",
   });
 });
 
@@ -145,57 +158,136 @@ test("parseSession() emits a session_summary for summary records", async () => {
 
 test("parent_id walks through filtered ancestors to the nearest surviving event", async () => {
   const { parseClaudeCodeJsonl } = await import("./parser.ts");
-  const text =
-    [
-      JSON.stringify({
-        parentUuid: null,
-        isSidechain: false,
-        type: "user",
-        message: { role: "user", content: "first" },
-        uuid: "u-1",
-        timestamp: "2026-05-17T14:00:01.000Z",
-        sessionId: "s",
-        version: "v",
-      }),
-      JSON.stringify({
-        parentUuid: "u-1",
-        isSidechain: false,
-        type: "attachment",
-        uuid: "att-1",
-        timestamp: "2026-05-17T14:00:02.000Z",
-        sessionId: "s",
-      }),
-      JSON.stringify({
-        parentUuid: "att-1",
-        isSidechain: false,
-        type: "queue-operation",
-        uuid: "qop-1",
-        timestamp: "2026-05-17T14:00:03.000Z",
-        sessionId: "s",
-      }),
-      JSON.stringify({
-        parentUuid: "qop-1",
-        isSidechain: false,
-        type: "user",
-        message: { role: "user", content: "second" },
-        uuid: "u-2",
-        timestamp: "2026-05-17T14:00:04.000Z",
-        sessionId: "s",
-        version: "v",
-      }),
-    ].join("\n") + "\n";
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "first" },
+      uuid: "u-1",
+      timestamp: "2026-05-17T14:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-1",
+      isSidechain: false,
+      type: "attachment",
+      uuid: "att-1",
+      timestamp: "2026-05-17T14:00:02.000Z",
+      sessionId: "s",
+    }),
+    JSON.stringify({
+      parentUuid: "att-1",
+      isSidechain: false,
+      type: "file-history-snapshot",
+      uuid: "snap-1",
+      timestamp: "2026-05-17T14:00:03.000Z",
+      sessionId: "s",
+    }),
+    JSON.stringify({
+      parentUuid: "snap-1",
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "second" },
+      uuid: "u-2",
+      timestamp: "2026-05-17T14:00:04.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
   const u2 = trail.entries.find((e) => e.id === "u-2");
   expect(u2?.parent_id).toBe("u-1");
 });
 
-test("parseSession() filters queue-operation, attachment, sidechain, and isMeta records", async () => {
+test("parseSession() filters attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
   expect(trail.entries).toHaveLength(5);
   const ids = trail.entries.map((e) => e.id);
   expect(ids).not.toContain("cc-att-1");
   expect(ids).not.toContain("cc-sidechain-1");
   expect(ids).not.toContain("cc-meta-1");
+});
+
+test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {
+  const trail = await parseFidelityFixture();
+  const ids = trail.entries.map((e) => e.id);
+  expect(ids.slice(0, 6)).toEqual([
+    "cc-adv-1",
+    "cc-adv-2-text-0",
+    "cc-adv-2-thinking-1",
+    "cc-adv-2-redacted_thinking-2",
+    "cc-adv-2-tool_use-3",
+    "cc-adv-2-tool_use-4",
+  ]);
+
+  const text = trail.entries.find((e) => e.id === "cc-adv-2-text-0");
+  expect(text?.type).toBe("agent_message");
+  expect(text?.parent_id).toBe("cc-adv-1");
+
+  const thinking = trail.entries.find((e) => e.id === "cc-adv-2-thinking-1");
+  expect(thinking?.type).toBe("agent_thinking");
+  expect(thinking?.parent_id).toBe("cc-adv-2-text-0");
+
+  const read = trail.entries.find((e) => e.id === "cc-adv-2-tool_use-3");
+  expect(read?.type).toBe("tool_call");
+  expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
+  expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
+
+  const bash = trail.entries.find((e) => e.id === "cc-adv-2-tool_use-4");
+  expect(bash?.type).toBe("tool_call");
+  expect(bash?.payload).toEqual({ tool: "shell_command", args: { command: "bun run check" } });
+  expect(bash?.parent_id).toBe("cc-adv-2-tool_use-3");
+});
+
+test("parseSession() emits multiple tool_results with error state and semantic pairing", async () => {
+  const trail = await parseFidelityFixture();
+  const readResult = trail.entries.find((e) => e.id === "cc-adv-3-tool_result-1");
+  expect(readResult?.type).toBe("tool_result");
+  expect(readResult?.payload).toEqual({
+    for_id: "cc-adv-2-tool_use-3",
+    ok: true,
+    output: '{"name":"agent-trail"}',
+  });
+  expect(readResult?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
+
+  const bashResult = trail.entries.find((e) => e.id === "cc-adv-3-tool_result-2");
+  expect(bashResult?.type).toBe("tool_result");
+  expect(bashResult?.payload).toEqual({
+    for_id: "cc-adv-2-tool_use-4",
+    ok: false,
+    output: "error: synthetic check failure",
+    error: "error: synthetic check failure",
+  });
+  expect(bashResult?.semantic).toEqual({ call_id: "tooluse-bash", tool_kind: "shell_command" });
+});
+
+test("parseSession() maps system, progress, queue, resume preamble, summary, and compact records", async () => {
+  const trail = await parseFidelityFixture();
+  expect(trail.entries.find((e) => e.id === "cc-adv-4")?.payload).toEqual({
+    kind: "system",
+    text: "<command-name>/model</command-name>",
+  });
+  expect(trail.entries.find((e) => e.id === "cc-adv-5")?.payload).toEqual({
+    kind: "hook_progress",
+    text: "Hook progress: PreToolUse (PreToolUse:Bash)",
+    data: { type: "hook_progress", hookEvent: "PreToolUse", hookName: "PreToolUse:Bash" },
+  });
+  expect(trail.entries.find((e) => e.id === "cc-adv-6")?.payload).toEqual({
+    kind: "queue_operation",
+    text: "Queued input: queued follow-up while tool is running",
+  });
+  expect(trail.entries.find((e) => e.id === "cc-adv-7")?.type).toBe("system_event");
+  expect(trail.entries.find((e) => e.id === "cc-adv-8")?.type).toBe("session_summary");
+  expect(trail.entries.find((e) => e.id === "cc-adv-9")?.type).toBe("context_compact");
+});
+
+test("fidelity fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseFidelityFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
 });
 
 test("parsed fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
@@ -212,7 +304,6 @@ test("every entry has source metadata: agent='claude-code', original_type popula
     expect(typeof entry.source?.original_type).toBe("string");
     expect(entry.source?.schema_version).toBe("1.0.0-synthetic");
     expect(entry.source?.raw).toBeDefined();
-    expect((entry.source?.raw as { uuid?: unknown }).uuid).toBe(entry.id);
   }
 });
 
