@@ -44,10 +44,17 @@ export async function runValidate(argv: string[]): Promise<RunValidateResult> {
     return { exitCode: 1, stdout: "", stderr: `${message}\n` };
   }
 
-  const path = positionals[0];
-  if (path === undefined) {
+  if (positionals.length === 0) {
     return { exitCode: 1, stdout: "", stderr: `missing required argument: <file>\n${USAGE}\n` };
   }
+  if (positionals.length > 1) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `expected exactly one <file> argument, received ${positionals.length}\n${USAGE}\n`,
+    };
+  }
+  const path = positionals[0] as string;
   const file = Bun.file(path);
   if (!(await file.exists())) {
     return { exitCode: 1, stdout: "", stderr: `file not found: ${path}\n` };

@@ -25,6 +25,18 @@ test("valid trail exits 0 with empty stdout", async () => {
   expect(result.stdout).toBe("");
 });
 
+test("multiple positional file arguments exit 1 with usage on stderr", async () => {
+  const a = await writeFixture(`${VALID_HEADER}\n`);
+  const b = await writeFixture(`${VALID_HEADER}\n`);
+
+  const result = await runValidate([a, b]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("expected exactly one <file> argument");
+  expect(result.stderr).toContain("Usage: trail validate");
+});
+
 test("missing file argument exits 1 with usage on stderr", async () => {
   const result = await runValidate(["--json"]);
 
