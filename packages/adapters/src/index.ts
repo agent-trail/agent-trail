@@ -1,6 +1,8 @@
 import { type Diagnostic, type ValidationProfile, validateTrailString } from "@agent-trail/core";
 import type { Entry, Header } from "@agent-trail/types";
 
+export type { Diagnostic, ValidationProfile } from "@agent-trail/core";
+
 export type TrailFile = { header: Header; entries: Entry[] };
 
 export type SessionRef = {

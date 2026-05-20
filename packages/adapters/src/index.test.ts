@@ -100,3 +100,56 @@ test("validateAdapterTrail is exported and callable", async () => {
 
   expect(Array.isArray(result)).toBe(true);
 });
+
+test("validateAdapterTrail JSONL round-trip preserves every record byte-for-byte", async () => {
+  const diagnostics = await validateAdapterTrail(validTrail);
+  expect(diagnostics).toEqual([]);
+
+  const lines = [validTrail.header, ...validTrail.entries].map((record) => JSON.stringify(record));
+  const jsonl = `${lines.join("\n")}\n`;
+
+  expect(jsonl.endsWith("\n")).toBe(true);
+  const parts = jsonl.slice(0, -1).split("\n");
+  expect(parts.length).toBe(1 + validTrail.entries.length);
+  expect(JSON.parse(parts[0] as string)).toEqual(validTrail.header);
+  for (let i = 0; i < validTrail.entries.length; i++) {
+    expect(JSON.parse(parts[i + 1] as string)).toEqual(validTrail.entries[i]);
+  }
+});
+
+test("validateAdapterTrail handles multiple entries with no error diagnostics", async () => {
+  const multi: TrailFile = {
+    header: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess-multi",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "pi" },
+    },
+    entries: [
+      {
+        type: "user_message",
+        id: "evt-1",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      },
+      {
+        type: "agent_message",
+        id: "evt-2",
+        parent_id: "evt-1",
+        ts: "2026-05-17T14:00:06.000Z",
+        payload: { text: "hi back" },
+      },
+      {
+        type: "user_message",
+        id: "evt-3",
+        parent_id: "evt-2",
+        ts: "2026-05-17T14:00:07.000Z",
+        payload: { text: "thanks" },
+      },
+    ],
+  };
+
+  const diagnostics = await validateAdapterTrail(multi);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
