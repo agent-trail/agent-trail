@@ -189,12 +189,13 @@ test("parent_id walks through filtered ancestors to the nearest surviving event"
   expect(u2?.parent_id).toBe("u-1");
 });
 
-test("parseSession() filters queue-operation, attachment, and sidechain records", async () => {
+test("parseSession() filters queue-operation, attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
   expect(trail.entries).toHaveLength(5);
   const ids = trail.entries.map((e) => e.id);
   expect(ids).not.toContain("cc-att-1");
   expect(ids).not.toContain("cc-sidechain-1");
+  expect(ids).not.toContain("cc-meta-1");
 });
 
 test("parsed fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {

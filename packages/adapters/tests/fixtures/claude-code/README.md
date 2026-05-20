@@ -9,7 +9,7 @@ secrets, no contributor file paths, no real session ids. Real local sessions sta
 
 | File | Scenario | Records | Mapped entries |
 |---|---|---|---|
-| `basic-flow.jsonl` | Linear user → assistant tool_use → user tool_result → assistant text → summary, with `queue-operation`, `attachment`, and `isSidechain: true` records mixed in as noise | 8 source records | 5 entries (user_message, tool_call, tool_result, agent_message, session_summary) |
+| `basic-flow.jsonl` | Linear user → assistant tool_use → user tool_result → assistant text → summary. Envelope fields mirror real Claude Code session shape (`promptId`, `userType`, `entrypoint`, `gitBranch`, `slug`, assistant `message.id`/`type`/`stop_reason`/`stop_details`/`usage`, `requestId`, tool_use `caller`, attachment `hookName`/`stdout`/`stderr`/`exitCode`/`durationMs`). Noise records exercise every filter: `queue-operation`, `attachment` (with realistic hook payload), `isSidechain: true`, `isMeta: true` slash-command body. | 9 source records | 5 entries (user_message, tool_call, tool_result, agent_message, session_summary) |
 
 ## Adding a fixture
 
