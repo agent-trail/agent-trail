@@ -84,6 +84,7 @@ Run the strongest relevant check for the change:
 | Type generation script | [`scripts/generate-types.ts`](./scripts/generate-types.ts) |
 | CI checks | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) |
 | Local hooks | [`lefthook.yml`](./lefthook.yml) |
+| Validation fixtures | [`tests/fixtures/validation/`](./tests/fixtures/validation/) (see [`README.md`](./tests/fixtures/validation/README.md)) |
 
 ## Quick rules for PRs
 

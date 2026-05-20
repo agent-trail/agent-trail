@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runValidate } from "./validate.ts";
+
+const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
+const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
 
 const VALID_HEADER =
   '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
@@ -166,6 +170,20 @@ test("patch-compatible schema_version fails strict but warns under reader-tolera
       message: 'schema_version "0.1.1" accepted by reader-tolerant patch compatibility',
     },
   ]);
+});
+
+test("committed valid fixture passes via trail validate", async () => {
+  const result = await runValidate([fixturePath("valid/minimal-with-content-hash.trail.jsonl")]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+test("committed invalid-schema fixture fails via trail validate with a /schema_version diagnostic", async () => {
+  const result = await runValidate([
+    fixturePath("invalid-schema/header-wrong-schema-version.trail.jsonl"),
+  ]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toContain("error const line 1 /schema_version:");
 });
 
 test("--json under reader-tolerant serializes warnings with full diagnostic shape", async () => {
