@@ -632,6 +632,161 @@ test("parseSession() does not update prevModel for assistant envelopes missing m
   });
 });
 
+test("parseSession() does not throw or emit model_change when an assistant envelope is missing uuid mid-shift", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-no-1",
+      timestamp: "2026-05-17T21:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-no-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-no-2",
+      timestamp: "2026-05-17T21:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-no-2",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "two" }],
+      },
+      // uuid intentionally missing
+      timestamp: "2026-05-17T21:00:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  expect(() => parseClaudeCodeJsonl(text)).not.toThrow();
+  const trail = parseClaudeCodeJsonl(text);
+  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(0);
+});
+
+test("parseSession() does not advance prevModel when an assistant envelope produces no entries (e.g. missing timestamp)", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-pv-0",
+      timestamp: "2026-05-17T21:10:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-pv-0",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-pv-1",
+      timestamp: "2026-05-17T21:10:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    // Sonnet envelope dropped: missing timestamp -> buildEntries returns [].
+    JSON.stringify({
+      parentUuid: "u-pv-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "lost" }],
+      },
+      uuid: "u-pv-2",
+      sessionId: "s",
+      version: "v",
+    }),
+    // Next opus envelope must NOT emit a model_change because sonnet was never visible.
+    JSON.stringify({
+      parentUuid: "u-pv-2",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "three" }],
+      },
+      uuid: "u-pv-3",
+      timestamp: "2026-05-17T21:10:03.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(0);
+});
+
+test("parseSession() records the synthesized model_change with source.original_type = 'assistant'", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-ot-0",
+      timestamp: "2026-05-17T21:20:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-ot-0",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-ot-1",
+      timestamp: "2026-05-17T21:20:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-ot-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "two" }],
+      },
+      uuid: "u-ot-2",
+      timestamp: "2026-05-17T21:20:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const modelChange = trail.entries.find((e) => e.type === "model_change");
+  expect(modelChange?.source?.original_type).toBe("assistant");
+});
+
 test("parseSession() emits agent_thinking for a thinking block with empty text but a signature", async () => {
   const { parseClaudeCodeJsonl } = await import("./parser.ts");
   const text = `${[

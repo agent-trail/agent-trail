@@ -57,17 +57,22 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
     if (!isTracerEnvelope(envelope)) continue;
     const currentModel =
       envelope.type === "assistant" ? stringValue(envelope.message?.model) : undefined;
+    const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind);
     if (
       envelope.type === "assistant" &&
       currentModel !== undefined &&
       prevModel !== undefined &&
-      currentModel !== prevModel
+      currentModel !== prevModel &&
+      typeof envelope.uuid === "string" &&
+      entries.length > 0
     ) {
       // parent_id inherits the new assistant's parentUuid (spec §12.1: tree topology, not sequencing).
+      // original_type is "assistant" because this entry is synthesized from an assistant envelope;
+      // Claude Code itself never emits a model_change source record.
       const mcBase = baseEntry(
         envelope,
         entryId(envelope, "model_change"),
-        "model_change",
+        "assistant",
         undefined,
         undefined,
         { synthesized: true },
@@ -83,7 +88,6 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
         });
       }
     }
-    const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind);
     entries.forEach((entry, index) => {
       built.push({
         entry,
@@ -93,8 +97,8 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
     });
     if (typeof envelope.uuid === "string" && entries.length > 0) {
       sourceUuidToLastEntryId.set(envelope.uuid, entries[entries.length - 1]?.id ?? envelope.uuid);
+      if (currentModel !== undefined) prevModel = currentModel;
     }
-    if (currentModel !== undefined) prevModel = currentModel;
   }
 
   return {
