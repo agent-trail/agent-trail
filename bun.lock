@@ -20,6 +20,10 @@
     "packages/adapters": {
       "name": "@agent-trail/adapters",
       "version": "0.0.0",
+      "dependencies": {
+        "@agent-trail/core": "workspace:*",
+        "@agent-trail/types": "workspace:*",
+      },
     },
     "packages/cli": {
       "name": "@agent-trail/cli",

@@ -350,7 +350,7 @@ export interface TrailAdapter {
 
 **Adapter quality requirements:**
 
-- Each adapter must validate its output against the JSON Schema in tests.
+- Each adapter must validate its output against the JSON Schema in tests via `validateAdapterTrail` from `@agent-trail/adapters`, which wraps the writer-strict validator from `@agent-trail/core`.
 - Each adapter must have at least 3 synthetic or redacted fixture sessions checked in as test cases.
 - Each adapter must be locked to a specific source-agent package version in its test setup; tests document which version was verified.
 - Tests must run real local-session fixtures (`--ignored` style, opt-in) to catch silent schema drift. Real sessions must not be committed.
