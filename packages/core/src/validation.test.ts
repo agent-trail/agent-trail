@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import schema from "@agent-trail/schema" with { type: "json" };
 import { computeContentHash } from "./hash.ts";
 import {
+  parseJsonlString,
   validateTrailStream,
   validateTrailString,
   validateWriterStrictRecord,
@@ -8,6 +10,7 @@ import {
   validateWriterStrictSchemaJsonlString,
 } from "./index.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { implementedEventTypes } from "./validation.ts";
 
 test("accepts the minimal writer-strict session header", () => {
   const diagnostics = validateWriterStrictRecord({
@@ -160,6 +163,170 @@ test("validateTrailString returns no diagnostics for a valid linear trail", asyn
   expect(diagnostics).toEqual([]);
 });
 
+test("implemented event validator list stays aligned with schema event refs", () => {
+  const actual: string[] = [...implementedEventTypes].sort();
+
+  expect(actual).toEqual(schemaImplementedEventRefs().sort());
+});
+
+test("invalid validation profiles throw instead of changing validation behavior", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
+  ].join("\n");
+
+  await expect(validateTrailString(text, { profile: "reader_tolerant" as never })).rejects.toThrow(
+    'Validation profile must be "strict" or "reader-tolerant"',
+  );
+  await expect(
+    collect(validateTrailStream(chunks([text]), { profile: "reader_tolerant" as never })),
+  ).rejects.toThrow('Validation profile must be "strict" or "reader-tolerant"');
+});
+
+test("reader-tolerant profile accepts compatible patch schema versions with a warning", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.1","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+  ].join("\n");
+
+  const strictDiagnostics = await validateTrailString(text);
+  expect(strictDiagnostics).toContainEqual({
+    line: 1,
+    path: "/schema_version",
+    severity: "error",
+    code: "const",
+    message: "must be equal to constant",
+  });
+  expect(strictDiagnostics).toContainEqual({
+    line: 1,
+    path: "",
+    severity: "error",
+    code: "missing_header",
+    message: 'First line must be a session header with type "session" and schema_version "0.1.0"',
+  });
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toEqual([
+    {
+      line: 1,
+      path: "/schema_version",
+      severity: "warning",
+      code: "reader_tolerant_schema_version",
+      message: 'schema_version "0.1.1" accepted by reader-tolerant patch compatibility',
+    },
+  ]);
+});
+
+test("reader-tolerant profile warns for unknown payload fields that strict rejects", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
+  ].join("\n");
+
+  const strictDiagnostics = await validateTrailString(text);
+  expect(strictDiagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/future_field",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/future_field",
+    severity: "warning",
+    code: "reader_tolerant_unknown_payload_field",
+    message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
+  });
+  expect(tolerantDiagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(false);
+});
+
+test("reader-tolerant profile warns for nested unknown payload fields", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","future_field":true}]}}',
+  ].join("\n");
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toEqual([
+    {
+      line: 2,
+      path: "/payload/attachments/0/future_field",
+      severity: "warning",
+      code: "reader_tolerant_unknown_payload_field",
+      message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
+    },
+  ]);
+});
+
+test("reader-tolerant profile keeps non-extension payload errors strict", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":42}}',
+    ].join("\n"),
+    { profile: "reader-tolerant" },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/text",
+    severity: "error",
+    code: "type",
+    message: "must be string",
+  });
+});
+
+test("reader-tolerant profile preserves and warns for unknown future records", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"future_event","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+  ].join("\n");
+
+  const records = await parseJsonlString(text);
+  expect(records[1]).toEqual({
+    line: 2,
+    raw: '{"type":"future_event","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+    value: {
+      type: "future_event",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { future: true },
+    },
+  });
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toEqual([
+    {
+      line: 2,
+      path: "/type",
+      severity: "warning",
+      code: "reader_tolerant_unknown_record",
+      message: 'Unknown event type "future_event" preserved for reader-tolerant parsing',
+    },
+  ]);
+});
+
+test("reader-tolerant profile preserves reserved future event types", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"error","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+  ].join("\n");
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toEqual([
+    {
+      line: 2,
+      path: "/type",
+      severity: "warning",
+      code: "reader_tolerant_unknown_record",
+      message: 'Unknown event type "error" preserved for reader-tolerant parsing',
+    },
+  ]);
+});
+
 test("validateTrailString reports both per-line and whole-file diagnostics", async () => {
   const diagnostics = await validateTrailString(
     [
@@ -302,3 +469,28 @@ async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
 async function* chunks(values: Iterable<string>): AsyncGenerator<string> {
   yield* values;
 }
+
+function schemaImplementedEventRefs(): string[] {
+  const entry = (schema as SchemaValue).$defs.entry;
+  const eventBranch = entry.allOf.find((branch) => "oneOf" in branch);
+  if (eventBranch === undefined || !("oneOf" in eventBranch)) {
+    throw new Error("Schema entry is missing event oneOf refs");
+  }
+
+  return eventBranch.oneOf
+    .map((branch) => branch.$ref.split("/").at(-1))
+    .filter((eventType): eventType is string => eventType !== undefined && eventType !== "unknown");
+}
+
+type SchemaValue = {
+  $defs: {
+    entry: {
+      allOf: Array<
+        | { $ref: string }
+        | {
+            oneOf: Array<{ $ref: string }>;
+          }
+      >;
+    };
+  };
+};
