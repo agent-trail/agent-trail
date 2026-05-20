@@ -1,13 +1,22 @@
 #!/usr/bin/env bun
 import { runValidate } from "./validate.ts";
 
+const USAGE = "Usage: trail validate <file> [--json] [--profile strict|reader-tolerant]\n";
+
 const [subcommand, ...rest] = Bun.argv.slice(2);
 
+if (
+  subcommand === undefined ||
+  subcommand === "help" ||
+  subcommand === "--help" ||
+  subcommand === "-h"
+) {
+  await Bun.write(Bun.stdout, USAGE);
+  process.exit(0);
+}
+
 if (subcommand !== "validate") {
-  await Bun.write(
-    Bun.stderr,
-    "Usage: trail validate <file> [--json] [--profile strict|reader-tolerant]\n",
-  );
+  await Bun.write(Bun.stderr, USAGE);
   process.exit(1);
 }
 

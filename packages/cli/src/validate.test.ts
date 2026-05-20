@@ -25,6 +25,15 @@ test("valid trail exits 0 with empty stdout", async () => {
   expect(result.stdout).toBe("");
 });
 
+test("missing file argument exits 1 with usage on stderr", async () => {
+  const result = await runValidate(["--json"]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("missing required argument: <file>");
+  expect(result.stderr).toContain("Usage: trail validate");
+});
+
 test("unknown flag exits 1 with usage on stderr", async () => {
   const result = await runValidate(["--nope"]);
 

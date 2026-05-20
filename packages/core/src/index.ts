@@ -17,6 +17,7 @@ export {
   parseJsonlString,
 } from "./jsonl.ts";
 export type { ValidationProfile } from "./profile.ts";
+export { resolveValidationProfile } from "./profile.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
   validateTrailStream,

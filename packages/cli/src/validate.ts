@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import {
   formatDiagnosticsJsonValue,
   formatDiagnosticsText,
+  resolveValidationProfile,
   type ValidationProfile,
   validateTrailStream,
 } from "@agent-trail/core";
@@ -35,16 +36,18 @@ export async function runValidate(argv: string[]): Promise<RunValidateResult> {
     return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
   }
 
-  if (values.profile !== "strict" && values.profile !== "reader-tolerant") {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `invalid --profile "${values.profile}" (must be "strict" or "reader-tolerant")\n`,
-    };
+  let profile: ValidationProfile;
+  try {
+    profile = resolveValidationProfile(values.profile);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `${message}\n` };
   }
-  const profile: ValidationProfile = values.profile;
 
-  const path = positionals[0] as string;
+  const path = positionals[0];
+  if (path === undefined) {
+    return { exitCode: 1, stdout: "", stderr: `missing required argument: <file>\n${USAGE}\n` };
+  }
   const file = Bun.file(path);
   if (!(await file.exists())) {
     return { exitCode: 1, stdout: "", stderr: `file not found: ${path}\n` };

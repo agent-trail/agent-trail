@@ -11,4 +11,4 @@ Agent Trail keeps the spec, schema, generated types, validation core, adapters, 
 **Consequences**
 
 - Root contract files stay stable as `spec.md` and `schema.json`; product planning lives in `docs/PRD.md`.
-- Published JavaScript packages are ESM-only, support Node 20+ and Bun, and version independently from the spec while declaring supported spec versions.
+- Published JavaScript packages are ESM-only, support Node 20+ and Bun, and version independently from the spec while declaring supported spec versions. (`@agent-trail/cli` and adapter packages that link into the CLI binary are Bun-only per ADR-0003; library packages keep the Node 20+/Bun constraint.)
