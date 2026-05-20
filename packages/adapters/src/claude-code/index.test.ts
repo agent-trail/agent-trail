@@ -143,6 +143,52 @@ test("parseSession() emits a session_summary for summary records", async () => {
   });
 });
 
+test("parent_id walks through filtered ancestors to the nearest surviving event", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text =
+    [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "first" },
+        uuid: "u-1",
+        timestamp: "2026-05-17T14:00:01.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+      JSON.stringify({
+        parentUuid: "u-1",
+        isSidechain: false,
+        type: "attachment",
+        uuid: "att-1",
+        timestamp: "2026-05-17T14:00:02.000Z",
+        sessionId: "s",
+      }),
+      JSON.stringify({
+        parentUuid: "att-1",
+        isSidechain: false,
+        type: "queue-operation",
+        uuid: "qop-1",
+        timestamp: "2026-05-17T14:00:03.000Z",
+        sessionId: "s",
+      }),
+      JSON.stringify({
+        parentUuid: "qop-1",
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "second" },
+        uuid: "u-2",
+        timestamp: "2026-05-17T14:00:04.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+    ].join("\n") + "\n";
+  const trail = parseClaudeCodeJsonl(text);
+  const u2 = trail.entries.find((e) => e.id === "u-2");
+  expect(u2?.parent_id).toBe("u-1");
+});
+
 test("parseSession() filters queue-operation, attachment, and sidechain records", async () => {
   const trail = await parseFixture();
   expect(trail.entries).toHaveLength(5);

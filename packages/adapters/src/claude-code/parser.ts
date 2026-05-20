@@ -62,6 +62,22 @@ function buildHeader(envelopes: CcEnvelope[]): Header {
   return header;
 }
 
+function resolveParentId(
+  startParentUuid: string | null | undefined,
+  parentByUuid: Map<string, string | null>,
+  emittedUuids: Set<string>,
+): string | undefined {
+  let cursor: string | null | undefined = startParentUuid;
+  const guard = new Set<string>();
+  while (typeof cursor === "string") {
+    if (guard.has(cursor)) return undefined;
+    guard.add(cursor);
+    if (emittedUuids.has(cursor)) return cursor;
+    cursor = parentByUuid.get(cursor) ?? undefined;
+  }
+  return undefined;
+}
+
 function buildEntry(
   envelope: CcEnvelope,
   toolUseIdToEventId: Map<string, string>,
@@ -71,7 +87,6 @@ function buildEntry(
   const base = {
     id: envelope.uuid,
     ts: envelope.timestamp,
-    ...(envelope.parentUuid != null ? { parent_id: envelope.parentUuid } : {}),
     source: {
       agent: "claude-code" as const,
       ...(envelope.type !== undefined ? { original_type: envelope.type } : {}),
@@ -175,12 +190,26 @@ function buildEntry(
 export function parseClaudeCodeJsonl(text: string): TrailFile {
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes);
-  const entries: Entry[] = [];
+  const parentByUuid = new Map<string, string | null>();
+  for (const env of envelopes) {
+    if (typeof env.uuid === "string") {
+      parentByUuid.set(env.uuid, env.parentUuid ?? null);
+    }
+  }
+
   const toolUseIdToEventId = new Map<string, string>();
+  const built: { entry: Entry; parentUuid: string | null | undefined }[] = [];
   for (const envelope of envelopes) {
     if (!isTracerEnvelope(envelope)) continue;
     const entry = buildEntry(envelope, toolUseIdToEventId);
-    if (entry !== undefined) entries.push(entry);
+    if (entry !== undefined) built.push({ entry, parentUuid: envelope.parentUuid });
   }
+
+  const emittedUuids = new Set(built.map((b) => b.entry.id));
+  const entries: Entry[] = built.map(({ entry, parentUuid }) => {
+    const resolved = resolveParentId(parentUuid, parentByUuid, emittedUuids);
+    return resolved !== undefined ? { ...entry, parent_id: resolved } : entry;
+  });
+
   return { header, entries };
 }
