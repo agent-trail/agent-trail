@@ -10,6 +10,12 @@ Draft. The current public format target is `0.1.0`.
 
 The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, and the first core JSONL parser plus writer-schema record validation slice.
 
+## Core Validation
+
+`@agent-trail/core` validates trail files in `strict` mode by default. Strict validation is the writer-facing profile: records must match the current schema exactly, whole-file graph checks must pass, and a finalized `content_hash` mismatch is an error.
+
+Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validation APIs. Reader-tolerant parsing preserves compatible future records and unknown payload fields as warnings where safe, accepts compatible `0.1.x` patch headers with a warning, and reports `content_hash` mismatches as warnings. Malformed JSON, invalid hash syntax, graph errors, and non-extension payload shape errors remain errors.
+
 ## Repository Map
 
 - [`spec.md`](./spec.md) — Agent Trail format specification.

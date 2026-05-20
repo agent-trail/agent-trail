@@ -1,25 +1,32 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import { verifyContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { resolveValidationProfile, type ValidationProfile } from "./profile.ts";
 
 type CycleStatus = "safe" | "cyclic";
 
 export type ValidateTrailGraphOptions = {
   canonicalBytesComplete?: boolean;
+  profile?: ValidationProfile;
 };
+
+const readerCompatiblePatchVersionPattern = /^0\.1\.\d+$/;
 
 export function validateTrailGraph(
   records: JsonlRecord[],
   options: ValidateTrailGraphOptions = {},
 ): Diagnostic[] {
   const canonicalBytesComplete = options.canonicalBytesComplete ?? true;
+  const profile = resolveValidationProfile(options.profile);
   const diagnostics: Diagnostic[] = [];
 
   const headerRecord = records[0];
+  const readerTolerantHeaderPatch =
+    profile === "reader-tolerant" && isReaderCompatiblePatchHeader(headerRecord);
   const headerValid =
     headerRecord !== undefined &&
     headerRecord.value.type === "session" &&
-    headerRecord.value.schema_version === "0.1.0";
+    (headerRecord.value.schema_version === "0.1.0" || readerTolerantHeaderPatch);
   if (!headerValid) {
     diagnostics.push(
       createDiagnostic({
@@ -39,6 +46,17 @@ export function validateTrailGraph(
         severity: "error",
         code: "header_has_parent_id",
         message: "Session header must not have a parent_id",
+      }),
+    );
+  }
+  if (readerTolerantHeaderPatch && headerRecord !== undefined) {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/schema_version",
+        severity: "warning",
+        code: "reader_tolerant_schema_version",
+        message: `schema_version "${headerRecord.value.schema_version}" accepted by reader-tolerant patch compatibility`,
       }),
     );
   }
@@ -150,7 +168,7 @@ export function validateTrailGraph(
         createDiagnostic({
           line: headerRecord.line,
           path: "/content_hash",
-          severity: "error",
+          severity: profile === "reader-tolerant" ? "warning" : "error",
           code: "content_hash_mismatch",
           message: `content_hash does not match canonical bytes (computed ${hashResult.actual})`,
         }),
@@ -159,6 +177,16 @@ export function validateTrailGraph(
   }
 
   return diagnostics;
+}
+
+function isReaderCompatiblePatchHeader(record: JsonlRecord | undefined): boolean {
+  return (
+    record !== undefined &&
+    record.value.type === "session" &&
+    typeof record.value.schema_version === "string" &&
+    record.value.schema_version !== "0.1.0" &&
+    readerCompatiblePatchVersionPattern.test(record.value.schema_version)
+  );
 }
 
 function findCyclicIds(parentOf: Map<string, string>): Set<string> {

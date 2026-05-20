@@ -38,6 +38,12 @@ test("accepts a minimal valid linear trail with no parent_ids", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("throws on invalid validation profiles", () => {
+  expect(() => validateTrailGraph([header()], { profile: "reader_tolerant" as never })).toThrow(
+    'Validation profile must be "strict" or "reader-tolerant"',
+  );
+});
+
 test("emits missing_header at line 0 when the record list is empty", () => {
   const diagnostics = validateTrailGraph([]);
 
@@ -422,8 +428,50 @@ test("emits content_hash_mismatch when finalized hash does not match canonical b
   ]);
 });
 
+test("reader-tolerant profile warns on content_hash_mismatch", () => {
+  const wrongDigest = "a".repeat(64);
+  const records = [
+    header(1, { content_hash: wrongDigest }),
+    record(2, {
+      type: "user_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hello" },
+    }),
+  ];
+  const computed = computeContentHash(records);
+
+  const diagnostics = validateTrailGraph(records, { profile: "reader-tolerant" });
+
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "warning",
+      code: "content_hash_mismatch",
+      message: `content_hash does not match canonical bytes (computed ${computed})`,
+    },
+  ]);
+});
+
 test("emits content_hash_invalid when content_hash is not 64 lowercase hex characters", () => {
   const diagnostics = validateTrailGraph([header(1, { content_hash: "deadbeef" })]);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "content_hash_invalid",
+      message: "content_hash must be 64 lowercase hex characters",
+    },
+  ]);
+});
+
+test("reader-tolerant profile still errors on invalid content_hash syntax", () => {
+  const diagnostics = validateTrailGraph([header(1, { content_hash: "deadbeef" })], {
+    profile: "reader-tolerant",
+  });
 
   expect(diagnostics).toEqual([
     {
