@@ -1,0 +1,3 @@
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"agent_message","id":"node-a","parent_id":"node-b","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"a"}}
+{"type":"agent_message","id":"node-b","parent_id":"node-a","ts":"2026-05-17T14:00:06.000Z","payload":{"text":"b"}}

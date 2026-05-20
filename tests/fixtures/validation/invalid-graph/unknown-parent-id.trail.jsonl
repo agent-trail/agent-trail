@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"agent_message","id":"evta1","parent_id":"ghost","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"}}
