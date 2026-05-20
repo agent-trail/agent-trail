@@ -12,11 +12,13 @@ export function sourceFor(
   originalType: string | undefined,
   block?: CcBlock,
   blockIndex?: number,
+  options?: { synthesized?: boolean },
 ): NonNullable<Entry["source"]> {
   return {
     agent: "claude-code",
     ...(originalType !== undefined ? { original_type: originalType } : {}),
     ...(envelope.version !== undefined ? { schema_version: envelope.version } : {}),
+    ...(options?.synthesized === true ? { synthesized: true } : {}),
     raw:
       block === undefined
         ? (envelope as unknown as Record<string, unknown>)
@@ -50,11 +52,12 @@ export function baseEntry(
   originalType: string | undefined,
   block?: CcBlock,
   blockIndex?: number,
+  options?: { synthesized?: boolean },
 ) {
   if (envelope.timestamp === undefined) return undefined;
   return {
     id,
     ts: envelope.timestamp,
-    source: sourceFor(envelope, originalType, block, blockIndex),
+    source: sourceFor(envelope, originalType, block, blockIndex, options),
   };
 }

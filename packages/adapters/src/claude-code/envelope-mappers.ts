@@ -4,6 +4,7 @@ import {
   asBlocks,
   type CcEnvelope,
   isContinuationPreamble,
+  isInterruptMarker,
   jsonObjectValue,
   jsonString,
   stringValue,
@@ -103,6 +104,16 @@ function mapUserEnvelope(
   if (typeof content === "string") {
     const base = baseEntry(envelope, entryId(envelope), "user");
     if (base === undefined) return [];
+    const interrupt = isInterruptMarker(content);
+    if (interrupt !== undefined) {
+      return [
+        {
+          ...base,
+          type: "user_interrupt",
+          payload: { reason: interrupt.reason },
+        } as Entry,
+      ];
+    }
     if (isContinuationPreamble(content)) {
       return [
         {
@@ -125,6 +136,16 @@ function mapUserEnvelope(
     if (base === undefined) return [];
     if (block.type === "text" && typeof block.text === "string") {
       const text = block.text;
+      const interrupt = isInterruptMarker(text);
+      if (interrupt !== undefined) {
+        return [
+          {
+            ...base,
+            type: "user_interrupt",
+            payload: { reason: interrupt.reason },
+          } as Entry,
+        ];
+      }
       return [
         isContinuationPreamble(text)
           ? ({
@@ -204,7 +225,6 @@ function mapAssistantEnvelope(
         stringValue(block.thinking) ??
         stringValue(block.data) ??
         (block.type === "redacted_thinking" ? "[redacted thinking]" : "");
-      if (text.length === 0) return [];
       return [
         {
           ...base,

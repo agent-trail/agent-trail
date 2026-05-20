@@ -103,6 +103,10 @@ const FIDELITY_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
   import.meta.url,
 ).pathname;
+const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -117,6 +121,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseInterruptModelFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "interrupt-and-model-change",
+    adapter: "claude-code",
+    path: INTERRUPT_MODEL_FIXTURE_PATH,
   });
 }
 
@@ -244,6 +256,416 @@ test("parent_id walks through filtered ancestors to the nearest surviving event"
   expect(u2?.parent_id).toBe("u-1");
 });
 
+test("parseSession() emits user_interrupt for string content '[Request interrupted by user]' with reason 'user'", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${JSON.stringify({
+    parentUuid: null,
+    isSidechain: false,
+    type: "user",
+    message: { role: "user", content: "[Request interrupted by user]" },
+    uuid: "u-int-1",
+    timestamp: "2026-05-17T18:00:00.000Z",
+    sessionId: "s",
+    version: "v",
+  })}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const entry = trail.entries.find((e) => e.id === "u-int-1");
+  expect(entry?.type).toBe("user_interrupt");
+  expect(entry?.payload).toEqual({ reason: "user" });
+});
+
+test("parseSession() extracts reason 'user for tool use' from '[Request interrupted by user for tool use]'", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${JSON.stringify({
+    parentUuid: null,
+    isSidechain: false,
+    type: "user",
+    message: { role: "user", content: "[Request interrupted by user for tool use]" },
+    uuid: "u-int-2",
+    timestamp: "2026-05-17T18:00:01.000Z",
+    sessionId: "s",
+    version: "v",
+  })}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const entry = trail.entries.find((e) => e.id === "u-int-2");
+  expect(entry?.type).toBe("user_interrupt");
+  expect(entry?.payload).toEqual({ reason: "user for tool use" });
+});
+
+test("parseSession() emits user_interrupt for text block '[Request interrupted by user]' in array content", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${JSON.stringify({
+    parentUuid: null,
+    isSidechain: false,
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: "[Request interrupted by user for tool use]" }],
+    },
+    uuid: "u-int-3",
+    timestamp: "2026-05-17T18:00:02.000Z",
+    sessionId: "s",
+    version: "v",
+  })}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const entry = trail.entries.find((e) => e.id === "u-int-3");
+  expect(entry?.type).toBe("user_interrupt");
+  expect(entry?.payload).toEqual({ reason: "user for tool use" });
+});
+
+test("parseSession() emits model_change when assistant model shifts from claude-opus-4-7 to claude-sonnet-4-5", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-mc-1",
+      timestamp: "2026-05-17T19:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-mc-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "first reply" }],
+        stop_reason: "end_turn",
+      },
+      uuid: "u-mc-2",
+      timestamp: "2026-05-17T19:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-mc-2",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "second reply" }],
+        stop_reason: "end_turn",
+      },
+      uuid: "u-mc-3",
+      timestamp: "2026-05-17T19:00:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const modelChange = trail.entries.find((e) => e.type === "model_change");
+  expect(modelChange).toBeDefined();
+  expect(modelChange?.id).toBe("u-mc-3-model_change");
+  expect(modelChange?.ts).toBe("2026-05-17T19:00:02.000Z");
+  expect(modelChange?.payload).toEqual({
+    from_model: "claude-opus-4-7",
+    to_model: "claude-sonnet-4-5",
+  });
+  expect(modelChange?.parent_id).toBe("u-mc-2");
+});
+
+test("parseSession() does not emit model_change when consecutive assistant envelopes share the same model", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-mc-a",
+      timestamp: "2026-05-17T19:01:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-mc-a",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-mc-b",
+      timestamp: "2026-05-17T19:01:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-mc-b",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "two" }],
+      },
+      uuid: "u-mc-c",
+      timestamp: "2026-05-17T19:01:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(0);
+});
+
+test("parseSession() marks the model_change entry with source.synthesized = true", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-syn-1",
+      timestamp: "2026-05-17T19:02:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-syn-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-syn-2",
+      timestamp: "2026-05-17T19:02:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-syn-2",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "two" }],
+      },
+      uuid: "u-syn-3",
+      timestamp: "2026-05-17T19:02:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const modelChange = trail.entries.find((e) => e.type === "model_change");
+  expect(modelChange?.source?.synthesized).toBe(true);
+});
+
+test("parseSession() does not emit model_change for the first assistant envelope", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-fm-1",
+      timestamp: "2026-05-17T19:03:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-fm-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-fm-2",
+      timestamp: "2026-05-17T19:03:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(0);
+});
+
+test("parseSession() emits one model_change per shift across opus -> sonnet -> opus", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const mkAssistant = (uuid: string, parent: string, model: string, ts: string) =>
+    JSON.stringify({
+      parentUuid: parent,
+      isSidechain: false,
+      type: "assistant",
+      message: { role: "assistant", model, content: [{ type: "text", text: "x" }] },
+      uuid,
+      timestamp: ts,
+      sessionId: "s",
+      version: "v",
+    });
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-bf-0",
+      timestamp: "2026-05-17T20:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    mkAssistant("u-bf-1", "u-bf-0", "claude-opus-4-7", "2026-05-17T20:00:01.000Z"),
+    mkAssistant("u-bf-2", "u-bf-1", "claude-sonnet-4-5", "2026-05-17T20:00:02.000Z"),
+    mkAssistant("u-bf-3", "u-bf-2", "claude-opus-4-7", "2026-05-17T20:00:03.000Z"),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const changes = trail.entries.filter((e) => e.type === "model_change");
+  expect(changes).toHaveLength(2);
+  expect(changes[0]?.payload).toEqual({
+    from_model: "claude-opus-4-7",
+    to_model: "claude-sonnet-4-5",
+  });
+  expect(changes[1]?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-opus-4-7",
+  });
+});
+
+test("parseSession() emits model_change for three distinct models in sequence", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const mkAssistant = (uuid: string, parent: string, model: string, ts: string) =>
+    JSON.stringify({
+      parentUuid: parent,
+      isSidechain: false,
+      type: "assistant",
+      message: { role: "assistant", model, content: [{ type: "text", text: "x" }] },
+      uuid,
+      timestamp: ts,
+      sessionId: "s",
+      version: "v",
+    });
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-3m-0",
+      timestamp: "2026-05-17T20:10:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    mkAssistant("u-3m-1", "u-3m-0", "claude-opus-4-7", "2026-05-17T20:10:01.000Z"),
+    mkAssistant("u-3m-2", "u-3m-1", "claude-sonnet-4-5", "2026-05-17T20:10:02.000Z"),
+    mkAssistant("u-3m-3", "u-3m-2", "claude-haiku-4-5", "2026-05-17T20:10:03.000Z"),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const changes = trail.entries.filter((e) => e.type === "model_change");
+  expect(changes.map((c) => c.payload)).toEqual([
+    { from_model: "claude-opus-4-7", to_model: "claude-sonnet-4-5" },
+    { from_model: "claude-sonnet-4-5", to_model: "claude-haiku-4-5" },
+  ]);
+});
+
+test("parseSession() does not update prevModel for assistant envelopes missing message.model", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-nm-0",
+      timestamp: "2026-05-17T20:20:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-nm-0",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "one" }],
+      },
+      uuid: "u-nm-1",
+      timestamp: "2026-05-17T20:20:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-nm-1",
+      isSidechain: false,
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "no-model" }] },
+      uuid: "u-nm-2",
+      timestamp: "2026-05-17T20:20:02.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-nm-2",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "two" }],
+      },
+      uuid: "u-nm-3",
+      timestamp: "2026-05-17T20:20:03.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const changes = trail.entries.filter((e) => e.type === "model_change");
+  expect(changes).toHaveLength(1);
+  expect(changes[0]?.payload).toEqual({
+    from_model: "claude-opus-4-7",
+    to_model: "claude-sonnet-4-5",
+  });
+});
+
+test("parseSession() emits agent_thinking for a thinking block with empty text but a signature", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-sig-1",
+      timestamp: "2026-05-17T19:04:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-sig-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "thinking", thinking: "", signature: "synthetic-sig-token" }],
+      },
+      uuid: "u-sig-2",
+      timestamp: "2026-05-17T19:04:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const thinking = trail.entries.find((e) => e.id === "u-sig-2");
+  expect(thinking?.type).toBe("agent_thinking");
+  expect(thinking?.payload).toEqual({ text: "", model: "claude-opus-4-7" });
+});
+
 test("parseSession() filters attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
   expect(trail.entries).toHaveLength(5);
@@ -324,6 +746,46 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   expect(trail.entries.find((e) => e.id === "cc-adv-7")?.type).toBe("system_event");
   expect(trail.entries.find((e) => e.id === "cc-adv-8")?.type).toBe("session_summary");
   expect(trail.entries.find((e) => e.id === "cc-adv-9")?.type).toBe("context_compact");
+});
+
+test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
+  const trail = await parseInterruptModelFixture();
+  const ids = trail.entries.map((e) => e.id);
+  expect(ids).toEqual([
+    "cc-int-1",
+    "cc-int-2",
+    "cc-int-3",
+    "cc-int-4",
+    "cc-int-5-model_change",
+    "cc-int-5",
+    "cc-int-6",
+  ]);
+
+  const interrupt = trail.entries.find((e) => e.id === "cc-int-3");
+  expect(interrupt?.type).toBe("user_interrupt");
+  expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
+  expect(interrupt?.parent_id).toBe("cc-int-2");
+
+  const modelChange = trail.entries.find((e) => e.id === "cc-int-5-model_change");
+  expect(modelChange?.type).toBe("model_change");
+  expect(modelChange?.payload).toEqual({
+    from_model: "claude-opus-4-7",
+    to_model: "claude-sonnet-4-5",
+  });
+  expect(modelChange?.source?.synthesized).toBe(true);
+  expect(modelChange?.parent_id).toBe("cc-int-4");
+
+  const sonnetMsg = trail.entries.find((e) => e.id === "cc-int-5");
+  expect(sonnetMsg?.type).toBe("agent_message");
+
+  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
+});
+
+test("interrupt-and-model-change fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseInterruptModelFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
 });
 
 test("fidelity fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
