@@ -3,18 +3,25 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
+import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
 
 let prevHome: string | undefined;
+let prevUserProfile: string | undefined;
+let prevClaudeConfigDir: string | undefined;
 let prevCwd: string;
 let tmpHome: string;
 let tmpCwd: string;
 
 beforeEach(() => {
   prevHome = process.env.HOME;
+  prevUserProfile = process.env.USERPROFILE;
+  prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
   prevCwd = process.cwd();
   tmpHome = mkdtempSync(join(tmpdir(), "cc-adapter-home-"));
   tmpCwd = mkdtempSync(join(tmpdir(), "cc-adapter-cwd-"));
   process.env.HOME = tmpHome;
+  delete process.env.USERPROFILE;
+  delete process.env.CLAUDE_CONFIG_DIR;
   process.chdir(tmpCwd);
 });
 
@@ -24,6 +31,16 @@ afterEach(() => {
     delete process.env.HOME;
   } else {
     process.env.HOME = prevHome;
+  }
+  if (prevUserProfile === undefined) {
+    delete process.env.USERPROFILE;
+  } else {
+    process.env.USERPROFILE = prevUserProfile;
+  }
+  if (prevClaudeConfigDir === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR;
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = prevClaudeConfigDir;
   }
   rmSync(tmpHome, { recursive: true, force: true });
   rmSync(tmpCwd, { recursive: true, force: true });
@@ -38,17 +55,43 @@ test("isAvailable() is false when project dir does not exist", async () => {
 });
 
 test("isAvailable() is true after project dir is created", async () => {
-  const mangled = process.cwd().replace(/\//g, "-");
-  mkdirSync(join(tmpHome, ".claude", "projects", mangled), { recursive: true });
+  mkdirSync(createProjectDir(), { recursive: true });
   expect(await claudeCodeAdapter.isAvailable()).toBe(true);
 });
 
 function createProjectDir(): string {
-  const mangled = process.cwd().replace(/\//g, "-");
-  const dir = join(tmpHome, ".claude", "projects", mangled);
+  const configDir = claudeCodeConfigDir();
+  if (configDir === undefined) throw new Error("test expected Claude config dir");
+  const dir = claudeCodeProjectDir({ configDir, cwd: process.cwd() });
   mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+test("mangleCwd() normalizes Windows separators and drive colons", () => {
+  expect(mangleCwd("C:\\Users\\somu\\repo")).toBe("C--Users-somu-repo");
+  expect(mangleCwd("C:/Users/somu/repo")).toBe("C--Users-somu-repo");
+});
+
+test("isAvailable() falls back to USERPROFILE when HOME is unset", async () => {
+  delete process.env.HOME;
+  process.env.USERPROFILE = tmpHome;
+  mkdirSync(createProjectDir(), { recursive: true });
+  expect(await claudeCodeAdapter.isAvailable()).toBe(true);
+});
+
+test("detectSessions() honors CLAUDE_CONFIG_DIR", async () => {
+  const customConfigDir = mkdtempSync(join(tmpdir(), "cc-adapter-config-"));
+  process.env.CLAUDE_CONFIG_DIR = customConfigDir;
+  try {
+    const dir = createProjectDir();
+    writeFileSync(join(dir, "sess-custom.jsonl"), "");
+    expect(await claudeCodeAdapter.detectSessions()).toEqual([
+      { id: "sess-custom", adapter: "claude-code", path: join(dir, "sess-custom.jsonl") },
+    ]);
+  } finally {
+    rmSync(customConfigDir, { recursive: true, force: true });
+  }
+});
 
 test("detectSessions() returns empty when project dir is missing", async () => {
   expect(await claudeCodeAdapter.detectSessions()).toEqual([]);

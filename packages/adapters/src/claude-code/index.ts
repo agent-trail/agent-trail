@@ -2,7 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { parseClaudeCodeJsonl } from "./parser.ts";
-import { claudeCodeProjectDir } from "./paths.ts";
+import { claudeCodeConfigDir, claudeCodeProjectDir } from "./paths.ts";
 
 async function dirExists(path: string): Promise<boolean> {
   try {
@@ -24,9 +24,9 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 export const claudeCodeAdapter: TrailAdapter = {
   name: "claude-code",
   async detectSessions(opts?: DetectOptions): Promise<SessionRef[]> {
-    const home = process.env.HOME;
-    if (home === undefined) return [];
-    const dir = claudeCodeProjectDir({ home, cwd: opts?.cwd ?? process.cwd() });
+    const configDir = claudeCodeConfigDir();
+    if (configDir === undefined) return [];
+    const dir = claudeCodeProjectDir({ configDir, cwd: opts?.cwd ?? process.cwd() });
     if (!(await dirExists(dir))) return [];
     const entries = await readdir(dir);
     return entries
@@ -45,14 +45,14 @@ export const claudeCodeAdapter: TrailAdapter = {
     return parseClaudeCodeJsonl(text);
   },
   async isAvailable(): Promise<boolean> {
-    const home = process.env.HOME;
-    if (home === undefined) return false;
-    return dirExists(claudeCodeProjectDir({ home, cwd: process.cwd() }));
+    const configDir = claudeCodeConfigDir();
+    if (configDir === undefined) return false;
+    return dirExists(claudeCodeProjectDir({ configDir, cwd: process.cwd() }));
   },
   async sourceVersion(): Promise<string | null> {
-    const home = process.env.HOME;
-    if (home === undefined) return null;
-    const dir = claudeCodeProjectDir({ home, cwd: process.cwd() });
+    const configDir = claudeCodeConfigDir();
+    if (configDir === undefined) return null;
+    const dir = claudeCodeProjectDir({ configDir, cwd: process.cwd() });
     if (!(await dirExists(dir))) return null;
     const entries = await readdir(dir);
     const jsonlFiles = entries.filter((name) => name.endsWith(".jsonl"));
