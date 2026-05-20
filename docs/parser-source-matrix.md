@@ -17,7 +17,7 @@ An adapter is only considered supported once its row is `verified` with at least
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | — | — | — | — | — | — | — | — | pending verification |
-| Claude Code | closed | — | re-implement | — | — | — | — | — | pending verification |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary | claude-code/basic-flow.jsonl | verified |
 | Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | Gemini CLI | open | — | re-implement | — | — | — | — | — | pending verification |
