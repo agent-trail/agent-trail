@@ -422,6 +422,25 @@ A summary entry. Used for whole-session summaries. Branch and compaction summari
 
 Part of the canonical vocabulary. Adapters need not emit them. Readers must tolerate them either way.
 
+#### `system_event`
+
+A meaningful source timeline record that is not a user message, agent message, tool call, tool result, summary, or known lifecycle event. Use this for source status/progress/bookkeeping records that should remain visible in a timeline. Do not use it as a dumping ground for high-volume internal state or records that map cleanly to a more specific canonical event.
+
+```jsonc
+{
+  "type": "system_event",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "kind": "progress",
+    "text": "Hook progress: PreToolUse",
+    "data": { "hook": "PreToolUse" }
+  }
+}
+```
+
+`kind` is a short normalized category such as `system`, `progress`, `queue_operation`, `hook_progress`, or `status`. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
+
 #### `agent_thinking`
 
 Chain-of-thought or reasoning block.
@@ -660,7 +679,7 @@ Adapters should emit `parent_id`:
 - For events that are children of a subagent invocation (Claude Code `Task`, Cursor background agents) — the root of the subtree uses the parent's `subagent_invoke` event id.
 - For detected user rewinds where the adapter can reconstruct branch points (best-effort).
 
-Adapters should omit `parent_id` for agents with linear conversations and no subagents (Codex CLI, Gemini CLI, Aider, ChatGPT).
+Adapters should omit `parent_id` for agents with linear conversations and no subagents (Codex CLI, OpenCode, Aider, ChatGPT).
 
 ### 12.2 Reader behavior
 
@@ -687,7 +706,7 @@ The `parent_id` graph must be acyclic. The header isn't part of the graph; nothi
 
 Lowercase, hyphenated:
 
-`claude-code`, `pi`, `openclaw`, `codex-cli`, `gemini-cli`, `cursor`, `opencode`, `aider`, `amp`, `cline`, `crush`, `kimi-code`, `qwen-code`, `factory`, `vibe`, `copilot-cli`, `copilot-chat`, `chatgpt`, `clawdbot`.
+`claude-code`, `pi`, `openclaw`, `codex-cli`, `cursor`, `opencode`, `aider`, `amp`, `cline`, `crush`, `kimi-code`, `qwen-code`, `factory`, `vibe`, `copilot-cli`, `copilot-chat`, `chatgpt`, `clawdbot`.
 
 The registry reserves canonical names. It does not imply that the official adapter package currently supports every registered agent. Supported adapters are listed in the PRD, package metadata, and parser source matrix.
 

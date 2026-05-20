@@ -25,7 +25,6 @@ export type AgentName =
       | "pi"
       | "openclaw"
       | "codex-cli"
-      | "gemini-cli"
       | "cursor"
       | "opencode"
       | "aider"
@@ -49,6 +48,7 @@ export type Entry = EntryBase &
     | ToolCall
     | ToolResult
     | SessionSummary
+    | SystemEvent
     | AgentThinking
     | UserInterrupt
     | ContextCompact
@@ -197,6 +197,17 @@ export interface SessionSummary {
     scope: "session";
     text: string;
     model?: string;
+  };
+  [k: string]: unknown;
+}
+export interface SystemEvent {
+  type?: "system_event";
+  payload?: {
+    kind: string;
+    text?: string;
+    data?: {
+      [k: string]: unknown;
+    };
   };
   [k: string]: unknown;
 }

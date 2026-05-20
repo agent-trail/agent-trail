@@ -267,7 +267,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 - Exports per-agent adapter functions: `parseClaudeCode(file): TrailFile`, `parsePi(...)`, etc.
 - Each adapter implements a common interface (see §8.2).
 - Discovers sessions in standard locations (`~/.claude/projects/...`, `~/.pi/agent/sessions/...`, etc.).
-- Six adapters at v1 launch: Pi, Claude Code, Codex CLI, Cursor, Gemini CLI, Aider.
+- Six adapters at v1 launch: Pi, Claude Code, Codex CLI, Cursor, OpenCode, Aider.
 
 ### 7.4 CLI tool (`trail`)
 
@@ -345,7 +345,7 @@ export interface TrailAdapter {
 2. **Claude Code** — highest user volume.
 3. **Codex CLI** — second-highest volume; OpenAI users.
 4. **Cursor** — SQLite extraction; expands beyond CLI tools.
-5. **Gemini CLI** — third major model family.
+5. **OpenCode** — open-source terminal agent with active community usage.
 6. **Aider** — special handling (synthesized events from git diffs).
 
 **Adapter quality requirements:**
@@ -359,7 +359,7 @@ export interface TrailAdapter {
 - Aider adapter must emit `source.synthesized: true` for git-derived events.
 - Adapters MUST populate `semantic.call_id` on tool_call/tool_result pairs when source has its own IDs (especially Claude Code's `tool_use_id`, which can be null).
 
-**Out of scope for v1:** Amp, Cline, OpenCode, ChatGPT, Copilot variants, Crush, Kimi, Qwen, Factory, Vibe, OpenClaw, Clawdbot. Community contributions welcomed via PR after spec is stable.
+**Out of scope for v1:** Amp, Cline, ChatGPT, Copilot variants, Crush, Kimi, Qwen, Factory, Vibe, OpenClaw, Clawdbot. Community contributions welcomed via PR after spec is stable.
 
 ### 8.3 CLI
 
@@ -671,7 +671,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 | Deliverable | Effort | Notes |
 |---|---|---|
-| Adapters: Codex CLI, Cursor, Gemini CLI, Aider | 6-8 weeks | Aider requires storage verification before final mapping |
+| Adapters: Codex CLI, Cursor, OpenCode, Aider | 6-8 weeks | Aider requires storage verification before final mapping |
 | `@agent-trail/redact` module + integration with CLI | 1 week | `@redactpii/node` + curated patterns |
 | `trail register` + `trail share` (gist transport) | 4 days | Reuses Pi's gist pattern; content-hash addressing |
 | `trail load` command | 2 days | |
@@ -899,7 +899,7 @@ The closest precedents are `toml.io` (landing + versioned spec, no marketing) an
 
 **Format:** HAIL JSONL — not publicly spec'd as standalone document; lives inside code.
 
-**Agents supported:** Codex CLI, Claude Code, Cursor, Gemini CLI, OpenCode (5 agents).
+**Agents supported:** Codex CLI, Claude Code, Cursor, OpenCode (4 launch-relevant agents).
 
 **Maturity:** 334 commits, 17 releases as of 2026-05. Sophisticated technically.
 

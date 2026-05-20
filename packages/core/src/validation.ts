@@ -20,6 +20,7 @@ export const implementedEventTypes = [
   "tool_call",
   "tool_result",
   "session_summary",
+  "system_event",
   "agent_thinking",
   "user_interrupt",
   "context_compact",

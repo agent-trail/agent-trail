@@ -17,13 +17,20 @@ An adapter is only considered supported once its row is `verified` with at least
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | — | — | — | — | — | — | — | — | pending verification |
-| Claude Code | closed | — | re-implement | — | — | — | — | — | pending verification |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl | verified |
 | Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
-| Gemini CLI | open | — | re-implement | — | — | — | — | — | pending verification |
+| OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
 
 Columns map directly to PRD §7.2. Cells use `—` when not yet determined. Source status (`open` / `closed`) reflects whether the source agent's session writer code is publicly available; it does not imply licensing of the trail format itself.
+
+Claude Code fixture coverage currently includes mixed assistant content blocks, multiple tool calls,
+multiple tool results, tool-result error state, user text blocks, thinking/redacted-thinking blocks,
+real summary and compact-summary records, and meaningful system/progress/queue records. Deferred
+shapes include image attachments, server-tool result blocks, cross-file subagent merging, and
+overflow blob storage. Current fixtures do not include observed interrupt markers or in-session
+model-switch records.
 
 ## Fixture policy
 
