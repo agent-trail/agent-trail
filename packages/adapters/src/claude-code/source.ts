@@ -89,6 +89,16 @@ export function textFromToolResultContent(content: unknown): string {
   return jsonString(content);
 }
 
+// Claude Code engine emits these bracket markers verbatim; not user-authored.
+export function isInterruptMarker(text: string): { reason: string } | undefined {
+  const trimmed = text.trim();
+  const match = /^\[Request interrupted by (.+)\]$/.exec(trimmed);
+  if (match === null) return undefined;
+  const reason = match[1];
+  if (reason === undefined) return undefined;
+  return { reason };
+}
+
 export function isContinuationPreamble(text: string): boolean {
   const trimmed = text.trim();
   return (

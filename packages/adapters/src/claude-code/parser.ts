@@ -1,9 +1,9 @@
-import type { Header } from "@agent-trail/types";
+import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
-import type { BuiltEntry } from "./entry-metadata.ts";
+import { type BuiltEntry, baseEntry, entryId } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
-import { type CcEnvelope, isTracerEnvelope, parseLines } from "./source.ts";
+import { type CcEnvelope, isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
 function buildHeader(envelopes: CcEnvelope[]): Header {
   const first = envelopes.find((env) => isTracerEnvelope(env) && env.timestamp !== undefined);
@@ -51,10 +51,43 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
   const toolUseIdToToolKind = new Map<string, string>();
   const built: BuiltEntry[] = [];
   const sourceUuidToLastEntryId = new Map<string, string>();
+  let prevModel: string | undefined;
 
   for (const envelope of envelopes) {
     if (!isTracerEnvelope(envelope)) continue;
+    const currentModel =
+      envelope.type === "assistant" ? stringValue(envelope.message?.model) : undefined;
     const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind);
+    if (
+      envelope.type === "assistant" &&
+      currentModel !== undefined &&
+      prevModel !== undefined &&
+      currentModel !== prevModel &&
+      typeof envelope.uuid === "string" &&
+      entries.length > 0
+    ) {
+      // parent_id inherits the new assistant's parentUuid (spec §12.1: tree topology, not sequencing).
+      // original_type is "assistant" because this entry is synthesized from an assistant envelope;
+      // Claude Code itself never emits a model_change source record.
+      const mcBase = baseEntry(
+        envelope,
+        entryId(envelope, "model_change"),
+        "assistant",
+        undefined,
+        undefined,
+        { synthesized: true },
+      );
+      if (mcBase !== undefined) {
+        built.push({
+          entry: {
+            ...mcBase,
+            type: "model_change",
+            payload: { from_model: prevModel, to_model: currentModel },
+          } as Entry,
+          parentUuid: envelope.parentUuid,
+        });
+      }
+    }
     entries.forEach((entry, index) => {
       built.push({
         entry,
@@ -64,6 +97,7 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
     });
     if (typeof envelope.uuid === "string" && entries.length > 0) {
       sourceUuidToLastEntryId.set(envelope.uuid, entries[entries.length - 1]?.id ?? envelope.uuid);
+      if (currentModel !== undefined) prevModel = currentModel;
     }
   }
 
