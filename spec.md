@@ -441,6 +441,18 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is a short normalized category such as `system`, `progress`, `queue_operation`, `hook_progress`, or `status`. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
+Recommended `kind` values when an adapter encounters these source signals. The set is open; adapters may add new kinds with reverse-domain prefixes for vendor extensions. Use these strings verbatim when applicable so timelines stay consistent across agents.
+
+| `kind` | When to use | Suggested `data` shape |
+| --- | --- | --- |
+| `task_started` | Source emits a structured task/step begin marker (Codex `task_started`, OpenCode part-start). | `{ task_id, title? }` |
+| `task_completed` | Pair to `task_started`. May be synthesized at EOF for unclosed tasks (set `source.synthesized: true`). | `{ task_id, summary?, status? }` |
+| `plan_completed` | Source emits a plan or todo completion marker (Codex `item_completed` with `item.type == "plan"`). | `{ plan_id, preview? }` |
+| `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error). Distinct from `user_interrupt`. | `{ reason }` |
+| `tool_decision` | Source recorded a user approve/reject decision on a tool call (Cursor `tool_former_data.user_decision`). | `{ decision, tool_call_id }` |
+| `hook_progress` | Source emitted a progress, hook, or queue lifecycle record (Claude Code `progress`, hook events). | `{ hook_event?, hook_name?, ... }` |
+| `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
+
 #### `agent_thinking`
 
 Chain-of-thought or reasoning block.
