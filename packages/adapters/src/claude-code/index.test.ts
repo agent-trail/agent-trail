@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
@@ -222,14 +222,20 @@ test("sourceVersion() is null when no sessions exist", async () => {
 
 test("sourceVersion() reads the version field from the most recent session", async () => {
   const dir = createProjectDir();
+  const olderPath = join(dir, "older.jsonl");
+  const newerPath = join(dir, "newer.jsonl");
   writeFileSync(
-    join(dir, "older.jsonl"),
+    olderPath,
     `${JSON.stringify({ type: "user", version: "0.9.0", sessionId: "older" })}\n`,
   );
   writeFileSync(
-    join(dir, "newer.jsonl"),
+    newerPath,
     `${JSON.stringify({ type: "user", version: "1.0.0-synthetic", sessionId: "newer" })}\n`,
   );
+  const olderMtime = new Date("2026-05-17T14:00:00.000Z");
+  const newerMtime = new Date("2026-05-17T15:00:00.000Z");
+  utimesSync(olderPath, olderMtime, olderMtime);
+  utimesSync(newerPath, newerMtime, newerMtime);
   expect(await claudeCodeAdapter.sourceVersion()).toBe("1.0.0-synthetic");
 });
 
