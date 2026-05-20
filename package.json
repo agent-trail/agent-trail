@@ -12,7 +12,8 @@
     "apps/*"
   ],
   "catalog": {
-    "ajv": "^8.20.0"
+    "ajv": "^8.20.0",
+    "canonicalize": "^3.0.0"
   },
   "scripts": {
     "check": "bun run check:types && bun run typecheck && bun run lint && bun run test && bun pm ls --all >/dev/null && bun run --workspaces --sequential check",

@@ -7,6 +7,8 @@ export {
   formatDiagnosticText,
 } from "./diagnostics.ts";
 export { validateTrailGraph } from "./graph.ts";
+export type { ContentHashStatus, VerifyContentHashResult } from "./hash.ts";
+export { computeContentHash, verifyContentHash } from "./hash.ts";
 export type { JsonlChunk, JsonlParseErrorCode, JsonlRecord } from "./jsonl.ts";
 export {
   JsonlParseError,
