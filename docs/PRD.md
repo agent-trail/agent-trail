@@ -400,8 +400,8 @@ trail adapters status
 
 **Cross-cutting requirements:**
 
-- Single binary distribution via `npm install -g @agent-trail/cli`.
-- The CLI is ESM-only and runs on Node 20+ and Bun.
+- Standalone binary distribution via `bun build --compile`, published per-platform to GitHub Releases, Homebrew, and an install script. End users install zero JavaScript runtime.
+- The CLI source is Bun-only (Bun ≥ 1.3.11) and uses Bun-native APIs; library packages it depends on remain Node 20+ and Bun compatible. See ADR-0003.
 - No required runtime config; works zero-conf for users with default agent install locations.
 - Optional config file at `~/.config/trail/config.json` for custom paths, secret lists, etc.
 - All commands support `--json` for scripting.

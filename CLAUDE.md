@@ -18,7 +18,8 @@ When you need depth on a topic, follow the link instead of reading from memory. 
 
 - Bun workspace monorepo.
 - TypeScript, ESM-only packages.
-- Published JavaScript packages support Node 20+ and Bun.
+- Library packages (`@agent-trail/schema`, `@agent-trail/types`, `@agent-trail/core`, `@agent-trail/redact`) support Node 20+ and Bun.
+- `@agent-trail/cli` and adapter packages that compile into the CLI binary are Bun-only and use Bun-native APIs (see ADR-0003).
 - Biome for linting/formatting.
 - Lefthook for local pre-commit and pre-push checks.
 - `@agent-trail/schema` publishes the schema artifact for npm consumers.

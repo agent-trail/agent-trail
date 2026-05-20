@@ -24,6 +24,13 @@
     "packages/cli": {
       "name": "@agent-trail/cli",
       "version": "0.0.0",
+      "bin": {
+        "trail": "./src/bin.ts",
+      },
+      "dependencies": {
+        "@agent-trail/core": "workspace:*",
+        "@agent-trail/schema": "workspace:*",
+      },
     },
     "packages/core": {
       "name": "@agent-trail/core",
