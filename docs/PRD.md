@@ -331,7 +331,7 @@ See `../spec.md`. Open items tracked in §19 of that doc.
 
 ```ts
 export interface TrailAdapter {
-  name: string;                                   // canonical agent name
+  readonly name: string;                          // canonical agent name
   detectSessions(opts?: DetectOptions): Promise<SessionRef[]>;
   parseSession(ref: SessionRef): Promise<TrailFile>;
   isAvailable(): Promise<boolean>;                // checks if agent's storage exists
