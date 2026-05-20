@@ -54,6 +54,7 @@ export async function* validateTrailStream(
   input: AsyncIterable<JsonlChunk>,
 ): AsyncGenerator<Diagnostic> {
   const records: JsonlRecord[] = [];
+  let canonicalBytesComplete = true;
 
   try {
     for await (const record of parseJsonlStream(input)) {
@@ -62,13 +63,14 @@ export async function* validateTrailStream(
     }
   } catch (error) {
     if (error instanceof JsonlParseError) {
+      canonicalBytesComplete = false;
       yield diagnosticFromJsonlParseError(error);
     } else {
       throw error;
     }
   }
 
-  yield* validateTrailGraph(records);
+  yield* validateTrailGraph(records, { canonicalBytesComplete });
 }
 
 export async function validateTrailString(text: string): Promise<Diagnostic[]> {

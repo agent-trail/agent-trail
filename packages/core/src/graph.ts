@@ -4,7 +4,15 @@ import type { JsonlRecord } from "./jsonl.ts";
 
 type CycleStatus = "safe" | "cyclic";
 
-export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
+export type ValidateTrailGraphOptions = {
+  canonicalBytesComplete?: boolean;
+};
+
+export function validateTrailGraph(
+  records: JsonlRecord[],
+  options: ValidateTrailGraphOptions = {},
+): Diagnostic[] {
+  const canonicalBytesComplete = options.canonicalBytesComplete ?? true;
   const diagnostics: Diagnostic[] = [];
 
   const headerRecord = records[0];
@@ -125,7 +133,7 @@ export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
     );
   }
 
-  if (headerValid && headerRecord !== undefined) {
+  if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
     const hashResult = verifyContentHash(records);
     if (hashResult.status === "invalid") {
       diagnostics.push(
