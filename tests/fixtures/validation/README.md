@@ -2,6 +2,8 @@
 
 Committed synthetic trail files exercising the Agent Trail validation paths. All fixtures are reusable across `@agent-trail/core`, `@agent-trail/cli`, and future adapter tests.
 
+Fixture policy for the workspace lives in [`docs/parser-source-matrix.md`](../../../docs/parser-source-matrix.md#fixture-policy): committed fixtures are synthetic or redacted; real local sessions stay out of git and are loaded only by opt-in ignored tests.
+
 ## Conventions
 
 - File extension: `.trail.jsonl` (spec.md §5.1).

@@ -85,6 +85,7 @@ Run the strongest relevant check for the change:
 | CI checks | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) |
 | Local hooks | [`lefthook.yml`](./lefthook.yml) |
 | Validation fixtures | [`tests/fixtures/validation/`](./tests/fixtures/validation/) (see [`README.md`](./tests/fixtures/validation/README.md)) |
+| Parser source matrix | [`docs/parser-source-matrix.md`](./docs/parser-source-matrix.md) |
 
 ## Quick rules for PRs
 
