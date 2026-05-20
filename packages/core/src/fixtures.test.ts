@@ -25,17 +25,26 @@ test("valid/linear-with-parent-ids.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
-test("invalid-schema/header-wrong-schema-version.trail.jsonl reports const at /schema_version", async () => {
+test("invalid-schema/header-wrong-schema-version.trail.jsonl reports const + missing_header", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/header-wrong-schema-version.trail.jsonl"),
   );
-  expect(diagnostics).toContainEqual({
-    line: 1,
-    path: "/schema_version",
-    severity: "error",
-    code: "const",
-    message: "must be equal to constant",
-  });
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/schema_version",
+      severity: "error",
+      code: "const",
+      message: "must be equal to constant",
+    },
+    {
+      line: 1,
+      path: "",
+      severity: "error",
+      code: "missing_header",
+      message: 'First line must be a session header with type "session" and schema_version "0.1.0"',
+    },
+  ]);
 });
 
 test("invalid-schema/user-message-missing-text.trail.jsonl reports required /payload/text", async () => {
@@ -111,44 +120,95 @@ test("invalid-graph/parent-cycle.trail.jsonl reports parent_cycle on both lines"
   expect(cycles.map((d) => d.line)).toEqual([2, 3]);
 });
 
-test("invalid-graph/header-has-parent-id.trail.jsonl reports header_has_parent_id", async () => {
+test("invalid-graph/header-has-parent-id.trail.jsonl reports additionalProperties + header_has_parent_id", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-graph/header-has-parent-id.trail.jsonl"),
   );
-  expect(diagnostics).toContainEqual({
-    line: 1,
-    path: "/parent_id",
-    severity: "error",
-    code: "header_has_parent_id",
-    message: "Session header must not have a parent_id",
-  });
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/parent_id",
+      severity: "error",
+      code: "additionalProperties",
+      message: "must NOT have additional properties",
+    },
+    {
+      line: 1,
+      path: "/parent_id",
+      severity: "error",
+      code: "header_has_parent_id",
+      message: "Session header must not have a parent_id",
+    },
+  ]);
 });
 
-test("hash-mismatch/content-hash-mismatch.trail.jsonl reports content_hash_mismatch", async () => {
+test("hash-mismatch/content-hash-mismatch.trail.jsonl reports content_hash_mismatch (strict error)", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("hash-mismatch/content-hash-mismatch.trail.jsonl"),
   );
-  expect(diagnostics).toContainEqual(
-    expect.objectContaining({
+  expect(diagnostics).toEqual([
+    {
       line: 1,
       path: "/content_hash",
       severity: "error",
       code: "content_hash_mismatch",
-    }),
-  );
+      message:
+        "content_hash does not match canonical bytes (computed 3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2)",
+    },
+  ]);
 });
 
-test("hash-mismatch/content-hash-invalid-hex.trail.jsonl reports content_hash_invalid", async () => {
+test("hash-mismatch/content-hash-mismatch.trail.jsonl downgrades to warning under reader-tolerant", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("hash-mismatch/content-hash-mismatch.trail.jsonl"),
+    { profile: "reader-tolerant" },
+  );
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "warning",
+      code: "content_hash_mismatch",
+      message:
+        "content_hash does not match canonical bytes (computed 3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2)",
+    },
+  ]);
+});
+
+test("hash-mismatch/content-hash-invalid-hex.trail.jsonl reports schema oneOf errors + content_hash_invalid", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("hash-mismatch/content-hash-invalid-hex.trail.jsonl"),
   );
-  expect(diagnostics).toContainEqual({
-    line: 1,
-    path: "/content_hash",
-    severity: "error",
-    code: "content_hash_invalid",
-    message: "content_hash must be 64 lowercase hex characters",
-  });
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "pattern",
+      message: 'must match pattern "^[a-f0-9]{64}$"',
+    },
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "const",
+      message: "must be equal to constant",
+    },
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "oneOf",
+      message: "must match exactly one schema in oneOf",
+    },
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "content_hash_invalid",
+      message: "content_hash must be 64 lowercase hex characters",
+    },
+  ]);
 });
 
 test("reader-tolerant/patch-compatible-schema-version: strict errors, tolerant warns", async () => {

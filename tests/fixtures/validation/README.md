@@ -40,7 +40,11 @@ Expected: no diagnostics under either profile.
 Same shape as `minimal-linear` with a precomputed `content_hash`:
 `3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2`.
 
-If you edit any byte in this file, recompute the digest with `computeContentHash` (`packages/core/src/hash.ts`).
+If you edit any byte in this file, recompute the digest with `computeContentHash` (`packages/core/src/hash.ts`). One-liner from repo root:
+
+```sh
+bun -e 'import { computeContentHash } from "./packages/core/src/hash.ts"; import { parseJsonlString } from "./packages/core/src/jsonl.ts"; const text = await Bun.file("tests/fixtures/validation/valid/minimal-with-content-hash.trail.jsonl").text(); const records = await parseJsonlString(text); records[0].value.content_hash = "<pending>"; console.log(computeContentHash(records));'
+```
 
 Expected: no diagnostics under either profile.
 
@@ -52,11 +56,15 @@ Expected: no diagnostics under either profile.
 
 ### invalid-schema/
 
+Current coverage targets `user_message` and `tool_call` payload violations. Additional event-type fixtures will be added as adapters and downstream issues require them.
+
 #### `invalid-schema/header-wrong-schema-version.trail.jsonl`
 
 Header carries `schema_version: "0.2.0"`.
 
-Expected (strict): `error const /schema_version line 1`. The graph layer also emits `error missing_header line 1` because the header fails the `schema_version === "0.1.0"` check.
+Expected (strict, exact set):
+- `error const /schema_version line 1` ("must be equal to constant")
+- `error missing_header line 1` ("First line must be a session header ...") — emitted because the graph layer's header check fails when `schema_version !== "0.1.0"`.
 
 #### `invalid-schema/user-message-missing-text.trail.jsonl`
 
@@ -100,7 +108,9 @@ Expected: `error parent_cycle /parent_id` on both lines 2 and 3.
 
 Header carries a `parent_id` field, which the spec forbids.
 
-Expected: `error header_has_parent_id /parent_id line 1`. The schema layer also reports `additionalProperties /parent_id line 1` — both diagnostics are emitted.
+Expected (exact set):
+- `error additionalProperties /parent_id line 1` — schema layer rejects unknown header property.
+- `error header_has_parent_id /parent_id line 1` — graph layer rejects header-level parent_id.
 
 ### hash-mismatch/
 
@@ -108,13 +118,19 @@ Expected: `error header_has_parent_id /parent_id line 1`. The schema layer also 
 
 Header `content_hash` is 64 zeros (schema-valid hex, wrong digest).
 
-Expected (strict): `error content_hash_mismatch /content_hash line 1`. Under reader-tolerant the same diagnostic downgrades to `warning`.
+Expected (strict, exact set): single `error content_hash_mismatch /content_hash line 1`. Message includes the computed digest.
+
+Expected (reader-tolerant, exact set): single `warning content_hash_mismatch /content_hash line 1` — severity downgraded from error to warning, message unchanged.
 
 #### `hash-mismatch/content-hash-invalid-hex.trail.jsonl`
 
 Header `content_hash` is a non-hex string.
 
-Expected: `error content_hash_invalid /content_hash line 1`. The schema layer additionally emits `oneOf /content_hash` since the value fails the `sha256Hex` pattern.
+Expected (exact set, identical for strict and reader-tolerant):
+- `error pattern /content_hash line 1` — fails the `sha256Hex` pattern branch.
+- `error const /content_hash line 1` — fails the `<pending>` const branch.
+- `error oneOf /content_hash line 1` — composite oneOf failure.
+- `error content_hash_invalid /content_hash line 1` — graph layer rejects non-hex digest.
 
 ### reader-tolerant/
 
