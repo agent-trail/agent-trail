@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { validateTrailGraph } from "./graph.ts";
+import { computeContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 
 function record(line: number, value: Record<string, unknown>): JsonlRecord {
@@ -361,4 +362,90 @@ test("emits duplicate_id at the second occurrence and keeps the first", () => {
       message: 'Duplicate id "evta1"; first seen on line 2',
     },
   ]);
+});
+
+test("does not emit a hash diagnostic when content_hash is absent", () => {
+  const diagnostics = validateTrailGraph([header()]);
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("does not emit a hash diagnostic when content_hash is <pending>", () => {
+  const diagnostics = validateTrailGraph([header(1, { content_hash: "<pending>" })]);
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("does not emit a hash diagnostic when content_hash matches canonical bytes", () => {
+  const baseRecords = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hello" },
+    }),
+  ];
+  const digest = computeContentHash(baseRecords);
+
+  const diagnostics = validateTrailGraph([
+    header(1, { content_hash: digest }),
+    baseRecords[1] as JsonlRecord,
+  ]);
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("emits content_hash_mismatch when finalized hash does not match canonical bytes", () => {
+  const wrongDigest = "a".repeat(64);
+  const records = [
+    header(1, { content_hash: wrongDigest }),
+    record(2, {
+      type: "user_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hello" },
+    }),
+  ];
+  const computed = computeContentHash(records);
+
+  const diagnostics = validateTrailGraph(records);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "content_hash_mismatch",
+      message: `content_hash does not match canonical bytes (computed ${computed})`,
+    },
+  ]);
+});
+
+test("emits content_hash_invalid when content_hash is not 64 lowercase hex characters", () => {
+  const diagnostics = validateTrailGraph([header(1, { content_hash: "deadbeef" })]);
+
+  expect(diagnostics).toEqual([
+    {
+      line: 1,
+      path: "/content_hash",
+      severity: "error",
+      code: "content_hash_invalid",
+      message: "content_hash must be 64 lowercase hex characters",
+    },
+  ]);
+});
+
+test("does not emit a hash diagnostic when the header itself is invalid", () => {
+  const diagnostics = validateTrailGraph([
+    record(1, {
+      type: "user_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:00.000Z",
+      payload: { text: "hi" },
+      content_hash: "a".repeat(64),
+    }),
+  ]);
+
+  expect(diagnostics.map((d) => d.code)).toEqual(["missing_header"]);
 });

@@ -1,9 +1,18 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
+import { verifyContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 
 type CycleStatus = "safe" | "cyclic";
 
-export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
+export type ValidateTrailGraphOptions = {
+  canonicalBytesComplete?: boolean;
+};
+
+export function validateTrailGraph(
+  records: JsonlRecord[],
+  options: ValidateTrailGraphOptions = {},
+): Diagnostic[] {
+  const canonicalBytesComplete = options.canonicalBytesComplete ?? true;
   const diagnostics: Diagnostic[] = [];
 
   const headerRecord = records[0];
@@ -122,6 +131,31 @@ export function validateTrailGraph(records: JsonlRecord[]): Diagnostic[] {
         message: `parent_id chain for id "${id}" forms a cycle`,
       }),
     );
+  }
+
+  if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
+    const hashResult = verifyContentHash(records);
+    if (hashResult.status === "invalid") {
+      diagnostics.push(
+        createDiagnostic({
+          line: headerRecord.line,
+          path: "/content_hash",
+          severity: "error",
+          code: "content_hash_invalid",
+          message: "content_hash must be 64 lowercase hex characters",
+        }),
+      );
+    } else if (hashResult.status === "mismatch") {
+      diagnostics.push(
+        createDiagnostic({
+          line: headerRecord.line,
+          path: "/content_hash",
+          severity: "error",
+          code: "content_hash_mismatch",
+          message: `content_hash does not match canonical bytes (computed ${hashResult.actual})`,
+        }),
+      );
+    }
   }
 
   return diagnostics;

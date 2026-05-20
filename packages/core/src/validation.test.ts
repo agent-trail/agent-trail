@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { computeContentHash } from "./hash.ts";
 import {
   validateTrailStream,
   validateTrailString,
@@ -6,6 +7,7 @@ import {
   validateWriterStrictSchemaJsonlStream,
   validateWriterStrictSchemaJsonlString,
 } from "./index.ts";
+import type { JsonlRecord } from "./jsonl.ts";
 
 test("accepts the minimal writer-strict session header", () => {
   const diagnostics = validateWriterStrictRecord({
@@ -235,6 +237,56 @@ test("leaves whole-file graph checks to later validation layers", async () => {
   );
 
   expect(diagnostics).toEqual([]);
+});
+
+test("does not emit content_hash_mismatch when a parse error truncates the records", async () => {
+  const headerValue: Record<string, unknown> = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "sess1",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  };
+  const userValue: Record<string, unknown> = {
+    type: "user_message",
+    id: "evta1",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hello" },
+  };
+  const agentValue: Record<string, unknown> = {
+    type: "agent_message",
+    id: "evta2",
+    ts: "2026-05-17T14:00:07.000Z",
+    payload: { text: "hi" },
+  };
+  const droppedValue: Record<string, unknown> = {
+    type: "user_message",
+    id: "evta3",
+    ts: "2026-05-17T14:00:09.000Z",
+    payload: { text: "dropped" },
+  };
+
+  const finalizedRecords: JsonlRecord[] = [
+    { line: 1, raw: JSON.stringify(headerValue), value: headerValue },
+    { line: 2, raw: JSON.stringify(userValue), value: userValue },
+    { line: 3, raw: JSON.stringify(agentValue), value: agentValue },
+    { line: 4, raw: JSON.stringify(droppedValue), value: droppedValue },
+  ];
+  const digest = computeContentHash(finalizedRecords);
+  const finalizedHeader = { ...headerValue, content_hash: digest };
+
+  const diagnostics = await validateTrailString(
+    [
+      JSON.stringify(finalizedHeader),
+      JSON.stringify(userValue),
+      JSON.stringify(agentValue),
+      '{"type":"user_message"',
+    ].join("\n"),
+  );
+
+  expect(diagnostics.map((d) => d.code)).toContain("invalid_json");
+  expect(diagnostics.map((d) => d.code)).not.toContain("content_hash_mismatch");
+  expect(diagnostics.map((d) => d.code)).not.toContain("content_hash_invalid");
 });
 
 async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
