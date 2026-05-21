@@ -1,6 +1,6 @@
 import type { Entry } from "@agent-trail/types";
 import type { PiBlock, PiEnvelope } from "./source.ts";
-import { versionString } from "./source.ts";
+import { timestampToIso, versionString } from "./source.ts";
 
 export type BuiltEntry = {
   entry: Entry;
@@ -48,6 +48,14 @@ export function blockId(
   return totalBlocks === 1 ? entryId(envelope) : entryId(envelope, `${kind}-${index}`);
 }
 
+// Per-event audit tag (`metadata["dev.pi.raw_type"]`) recording which source variant produced
+// the entry. Schema source metadata is closed (additionalProperties:false in schema.json), so the
+// tag lives under reverse-DNS entry metadata per spec §11.
+export function stampRawType<T extends Entry>(entry: T, rawType: string): T {
+  const existing = (entry.metadata as Record<string, unknown> | undefined) ?? {};
+  return { ...entry, metadata: { ...existing, "dev.pi.raw_type": rawType } } as T;
+}
+
 export function baseEntry(
   envelope: PiEnvelope,
   id: string,
@@ -56,10 +64,11 @@ export function baseEntry(
   blockIndex?: number,
   options?: { synthesized?: boolean; schemaVersion?: string },
 ) {
-  if (envelope.timestamp === undefined) return undefined;
+  const ts = timestampToIso(envelope.timestamp);
+  if (ts === undefined) return undefined;
   return {
     id,
-    ts: envelope.timestamp,
+    ts,
     source: sourceFor(envelope, originalType, block, blockIndex, options),
   };
 }

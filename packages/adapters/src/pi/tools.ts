@@ -141,7 +141,18 @@ export function toolKindAndArgs(
       break;
     }
     case "bash": {
-      const command = stringValue(args.command) ?? stringValue(args.cmd);
+      // Defensive arg shapes (real Pi sessions): `{command: "..."}`, `{cmd: "..."}`, and
+      // `{command: ["bash", "-lc", "..."]}` (argv-style). Quote argv entries with shell-special
+      // chars so the canonical `args.command` string round-trips through a POSIX shell.
+      const commandArray = Array.isArray(args.command)
+        ? args.command.filter((p): p is string => typeof p === "string")
+        : undefined;
+      const command =
+        stringValue(args.command) ??
+        stringValue(args.cmd) ??
+        (commandArray !== undefined && commandArray.length > 0
+          ? commandArray.map(quoteShellArg).join(" ")
+          : undefined);
       if (command !== undefined) {
         return {
           tool: "shell_command",
