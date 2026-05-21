@@ -51,14 +51,34 @@ export function toolKindAndArgs(
       break;
     }
     case "edit": {
-      // Pi `edit` arguments empirically come in three shapes:
+      // Pi `edit` arguments empirically come in four shapes:
       //   single-replace:  { path, oldText, newText }
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
+      //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // Only the first two map cleanly to spec §10.1 `file_edit` (single-file unified diff).
-      // The patch shape and cross-file multi shapes fall through to `other` so `source.raw`
-      // preserves them verbatim for hi-fi readers.
+      // Single-replace, single-path multi, and edits-array map cleanly to spec §10.1
+      // `file_edit` (single-file unified diff). The patch shape and cross-file multi
+      // shapes fall through to `other` so `source.raw` preserves them verbatim.
       const topPath = stringValue(args.path) ?? stringValue(args.file_path);
+      const editsArray = Array.isArray(args.edits) ? args.edits : undefined;
+      if (editsArray !== undefined && topPath !== undefined) {
+        const hunks: Array<{ oldText: string; newText: string }> = [];
+        for (const e of editsArray) {
+          if (!isObject(e)) continue;
+          const oldText = stringValue(e.oldText) ?? stringValue(e.old_text);
+          const newText = stringValue(e.newText) ?? stringValue(e.new_text);
+          if (oldText !== undefined || newText !== undefined) {
+            hunks.push({ oldText: oldText ?? "", newText: newText ?? "" });
+          }
+        }
+        if (hunks.length > 0) {
+          return {
+            tool: "file_edit",
+            args: { path: topPath, diff: buildDiff(topPath, hunks) },
+          };
+        }
+        break;
+      }
       const multi = Array.isArray(args.multi) ? args.multi : undefined;
       if (multi !== undefined && multi.length > 0) {
         const editsByPath = new Map<string, Array<{ oldText: string; newText: string }>>();

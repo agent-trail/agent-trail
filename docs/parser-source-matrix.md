@@ -33,11 +33,13 @@ mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built
 `coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
 `file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
 synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
-`edit` has three empirically-observed Pi argument shapes:
+`edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
-(b) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
+(b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with a
 multi-hunk diff;
-(c) `{multi: [...]}` spanning multiple files, or `{patch: "*** Begin Patch..."}` apply_patch
+(c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
+multi-hunk diff;
+(d) `{multi: [...]}` spanning multiple files, or `{patch: "*** Begin Patch..."}` apply_patch
 strings → `other`, since spec §10.1 `file_edit` is single-file unified-diff only.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
 `fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.5,

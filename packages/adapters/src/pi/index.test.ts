@@ -389,6 +389,24 @@ test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -
   });
 });
 
+test("toolKindAndArgs maps current pi-mono 'edit' shape ({path, edits:[{oldText,newText}]}) -> file_edit", () => {
+  expect(
+    toolKindAndArgs("edit", {
+      path: "a.md",
+      edits: [
+        { oldText: "foo", newText: "bar" },
+        { oldText: "baz", newText: "qux" },
+      ],
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar\n@@\n-baz\n+qux",
+    },
+  });
+});
+
 test("toolKindAndArgs maps Pi 'edit' multi same-path -> file_edit with concatenated diff", () => {
   expect(
     toolKindAndArgs("edit", {
