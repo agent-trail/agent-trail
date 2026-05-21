@@ -66,6 +66,14 @@ function createProjectDir(): string {
 const FIXTURE_PATH = new URL("../../tests/fixtures/pi/linear-flow.jsonl", import.meta.url).pathname;
 const BRANCH_FIXTURE_PATH = new URL("../../tests/fixtures/pi/branch-flow.jsonl", import.meta.url)
   .pathname;
+const REASONING_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/reasoning-and-interrupt.jsonl",
+  import.meta.url,
+).pathname;
+const COMPACT_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/compaction-and-model-change.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
@@ -80,6 +88,22 @@ async function parseBranchFixture() {
     id: "branch-flow",
     adapter: "pi",
     path: BRANCH_FIXTURE_PATH,
+  });
+}
+
+async function parseReasoningFixture() {
+  return piAdapter.parseSession({
+    id: "reasoning-and-interrupt",
+    adapter: "pi",
+    path: REASONING_FIXTURE_PATH,
+  });
+}
+
+async function parseCompactFixture() {
+  return piAdapter.parseSession({
+    id: "compaction-and-model-change",
+    adapter: "pi",
+    path: COMPACT_FIXTURE_PATH,
   });
 }
 
@@ -213,7 +237,7 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   expect(callBlock?.parent_id).toBe("a-1-text-0");
 });
 
-test("parseSession() preserves source.raw.block_index relative to message.content (skips non-emitted block types)", async () => {
+test("parseSession() preserves source.raw.block_index relative to message.content across emittable block types", async () => {
   const { parsePiJsonl } = await import("./parser.ts");
   const text = `${[
     JSON.stringify({
@@ -247,10 +271,14 @@ test("parseSession() preserves source.raw.block_index relative to message.conten
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const text0 = trail.entries.find((e) => e.id === "a-bi-1-text-0");
-  const tool1 = trail.entries.find((e) => e.id === "a-bi-1-toolCall-1");
-  expect((text0?.source?.raw as { block_index?: number }).block_index).toBe(1);
-  expect((tool1?.source?.raw as { block_index?: number }).block_index).toBe(3);
+  const thinking0 = trail.entries.find((e) => e.id === "a-bi-1-thinking-0");
+  const text1 = trail.entries.find((e) => e.id === "a-bi-1-text-1");
+  const thinking2 = trail.entries.find((e) => e.id === "a-bi-1-thinking-2");
+  const tool3 = trail.entries.find((e) => e.id === "a-bi-1-toolCall-3");
+  expect((thinking0?.source?.raw as { block_index?: number }).block_index).toBe(0);
+  expect((text1?.source?.raw as { block_index?: number }).block_index).toBe(1);
+  expect((thinking2?.source?.raw as { block_index?: number }).block_index).toBe(2);
+  expect((tool3?.source?.raw as { block_index?: number }).block_index).toBe(3);
 });
 
 // TDD step 8: full fixture round-trips through validation with zero errors
@@ -1020,4 +1048,800 @@ test("branch_summary: trailing unmapped envelope does not become the active leaf
   // Active path = a-2 → u-active → a-1 → u-root.  Abandoned path from a-abandon = a-abandon →
   // u-abandon → u-root.  Shared ancestor = u-root.  Root of abandoned branch = u-abandon.
   expect(payload.abandoned_branch_id).toBe("u-abandon");
+});
+
+// Issue #20: Pi optional events + cross-cutting hardenings
+
+// Slice 1: agent_thinking from assistant `thinking` content block (pi-ai ThinkingContent)
+test("assistant `thinking` block emits agent_thinking with payload.text, preserving source order with siblings", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-think-1",
+      timestamp: "2026-05-21T15:30:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:30:01.000Z",
+      message: { role: "user", content: "think out loud" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:30:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "stop",
+        content: [
+          { type: "thinking", thinking: "deliberation step 1", thinkingSignature: "sig-1" },
+          { type: "text", text: "final answer" },
+        ],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const ids = trail.entries.map((e) => e.id);
+  expect(ids).toEqual(["u-1", "a-1-thinking-0", "a-1-text-1"]);
+  const thinking = trail.entries.find((e) => e.id === "a-1-thinking-0");
+  expect(thinking?.type).toBe("agent_thinking");
+  expect(thinking?.parent_id).toBe("u-1");
+  expect(thinking?.payload).toEqual({
+    text: "deliberation step 1",
+    model: "claude-sonnet-4-5",
+  });
+  expect(thinking?.source?.original_type).toBe("thinking");
+  const rawBlock = (thinking?.source?.raw as { block?: { thinkingSignature?: string } }).block;
+  expect(rawBlock?.thinkingSignature).toBe("sig-1");
+});
+
+// Slice 2: redacted-thinking placeholder (mirror claude-code adapter — text is opaque)
+test("assistant `thinking` block with redacted:true emits agent_thinking with '[redacted thinking]' placeholder", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-redacted-1",
+      timestamp: "2026-05-21T15:40:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:40:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:40:02.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "", redacted: true, thinkingSignature: "opaque" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const redacted = trail.entries.find((e) => e.id === "a-1-thinking-0");
+  expect(redacted?.type).toBe("agent_thinking");
+  expect((redacted?.payload as { text?: string }).text).toBe("[redacted thinking]");
+});
+
+// Slice 3: synthesized user_interrupt for assistant envelopes with stopReason === "aborted"
+// (pi-ai `StopReason = ... | "aborted"` indicates the user interrupted mid-response).
+test("assistant envelope with stopReason 'aborted' synthesizes a trailing user_interrupt entry", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-abort-1",
+      timestamp: "2026-05-21T15:50:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:50:01.000Z",
+      message: { role: "user", content: "long task" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:50:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "aborted",
+        content: [{ type: "text", text: "starting" }],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const interrupt = trail.entries.find((e) => e.id === "a-1-aborted");
+  expect(interrupt).toBeDefined();
+  expect(interrupt?.type).toBe("user_interrupt");
+  expect(interrupt?.parent_id).toBe("a-1");
+  expect(interrupt?.payload).toEqual({ reason: "stop_reason_aborted" });
+  expect(interrupt?.source?.synthesized).toBe(true);
+  expect(interrupt?.source?.original_type).toBe("assistant");
+});
+
+// Slice 3b: aborted with no emittable blocks — interrupt still synthesized; parent_id falls back
+// to the envelope's parentId so the entry stays in the tree.
+test("aborted assistant envelope with no emittable blocks still synthesizes a user_interrupt", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-abort-empty",
+      timestamp: "2026-05-21T15:55:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:55:01.000Z",
+      message: { role: "user", content: "x" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:55:02.000Z",
+      message: { role: "assistant", stopReason: "aborted", content: [] },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const interrupt = trail.entries.find((e) => e.id === "a-1-aborted");
+  expect(interrupt).toBeDefined();
+  expect(interrupt?.type).toBe("user_interrupt");
+  expect(interrupt?.parent_id).toBe("u-1");
+});
+
+// Slice 4: context_compact from Pi `compaction` envelope (pi-mono session-manager `CompactionEntry`)
+test("Pi `compaction` envelope emits context_compact with summary/tokens_before/trigger and metadata mirror", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-compact-1",
+      timestamp: "2026-05-21T16:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:00:01.000Z",
+      message: { role: "user", content: "ramble" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:00:02.000Z",
+      message: { role: "assistant", content: "long answer" },
+    }),
+    JSON.stringify({
+      type: "compaction",
+      id: "comp-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:00:03.000Z",
+      summary: "Earlier turns established X and Y.",
+      firstKeptEntryId: "a-1",
+      tokensBefore: 12000,
+      details: { artifacts: ["spec.md"] },
+      fromHook: false,
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const compact = trail.entries.find((e) => e.id === "comp-1");
+  expect(compact).toBeDefined();
+  expect(compact?.type).toBe("context_compact");
+  expect(compact?.parent_id).toBe("a-1");
+  expect(compact?.payload).toEqual({
+    summary: "Earlier turns established X and Y.",
+    tokens_before: 12000,
+    trigger: "auto",
+  });
+  const metadata = compact?.metadata as Record<string, unknown> | undefined;
+  expect(metadata?.["dev.pi.compaction"]).toEqual({
+    firstKeptEntryId: "a-1",
+    details: { artifacts: ["spec.md"] },
+    fromHook: false,
+  });
+  expect(compact?.source?.original_type).toBe("compaction");
+});
+
+// Slice 4b: tokensBefore as numeric string coerces to a tokens_before number (defense-in-depth,
+// matches timestampToIso() polymorphic-parse philosophy).
+test("Pi `compaction` envelope with tokensBefore as numeric string coerces to tokens_before number", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-compact-str",
+      timestamp: "2026-05-21T16:05:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:05:01.000Z",
+      message: { role: "user", content: "x" },
+    }),
+    JSON.stringify({
+      type: "compaction",
+      id: "comp-str",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:05:02.000Z",
+      summary: "s",
+      tokensBefore: "12000",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const compact = trail.entries.find((e) => e.id === "comp-str");
+  expect((compact?.payload as { tokens_before?: number }).tokens_before).toBe(12000);
+});
+
+// PR #59 review (codex): missing/non-string `summary` on a `compaction` envelope must NOT emit a
+// context_compact with an invented empty summary — downstream consumers can no longer distinguish
+// a real empty summary from missing source data. Drop the entry instead.
+test("Pi `compaction` envelope without a string summary emits no context_compact entry", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-comp-no-summary",
+      timestamp: "2026-05-21T16:07:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:07:01.000Z",
+      message: { role: "user", content: "x" },
+    }),
+    JSON.stringify({
+      type: "compaction",
+      id: "comp-bad",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:07:02.000Z",
+      tokensBefore: 100,
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-2",
+      parentId: "comp-bad",
+      timestamp: "2026-05-21T16:07:03.000Z",
+      message: { role: "user", content: "after" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "comp-bad")).toBeUndefined();
+  // Parent chain still resolves: u-2's source parentId points at the dropped envelope, so
+  // resolveEntryParents() climbs to the nearest mapped ancestor (u-1).
+  expect(trail.entries.find((e) => e.id === "u-2")?.parent_id).toBe("u-1");
+});
+
+// Slice 5: model_change from Pi `model_change` envelope (pi-mono session-manager `ModelChangeEntry`).
+// from_model is the last assistant.message.model observed (or last model_change.modelId).
+test("Pi `model_change` envelope emits model_change with to_model and from_model from prior assistant", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-mc-1",
+      timestamp: "2026-05-21T16:10:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:10:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:10:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        content: "first",
+      },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:10:03.000Z",
+      provider: "anthropic",
+      modelId: "claude-opus-4-7",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const mc = trail.entries.find((e) => e.id === "mc-1");
+  expect(mc).toBeDefined();
+  expect(mc?.type).toBe("model_change");
+  expect(mc?.parent_id).toBe("a-1");
+  expect(mc?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-opus-4-7",
+  });
+  expect(mc?.source?.original_type).toBe("model_change");
+  const metadata = mc?.metadata as Record<string, unknown> | undefined;
+  expect(metadata?.["dev.pi.model_change"]).toEqual({ provider: "anthropic" });
+});
+
+// Slice 5b: first model_change with no prior assistant — emit to_model only (no from_model).
+test("Pi `model_change` envelope with no prior model omits from_model", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-mc-2",
+      timestamp: "2026-05-21T16:15:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:15:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:15:02.000Z",
+      provider: "anthropic",
+      modelId: "claude-opus-4-7",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const mc = trail.entries.find((e) => e.id === "mc-1");
+  expect(mc?.payload).toEqual({ to_model: "claude-opus-4-7" });
+});
+
+// PR #59 review (codex): prevModel must only advance when the envelope actually emitted entries.
+// Otherwise a missing-timestamp / dropped assistant or model_change can taint the next
+// model_change's from_model with a value that never appears in the trail.
+test("prevModel does not advance when the assistant envelope emits no entries (missing timestamp)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-prev-skip",
+      timestamp: "2026-05-21T16:20:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:20:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:20:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        content: "first",
+      },
+    }),
+    // Missing timestamp -> buildEntries returns []. Pi-mono can't actually emit this shape, but
+    // the parser must defend against partial source data so prevModel is not tainted.
+    JSON.stringify({
+      type: "message",
+      id: "a-dropped",
+      parentId: "a-1",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        content: "ghost",
+      },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:20:04.000Z",
+      provider: "anthropic",
+      modelId: "claude-haiku-4-5",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  // The dropped envelope contributed no entry...
+  expect(trail.entries.find((e) => e.id === "a-dropped")).toBeUndefined();
+  // ...so from_model on the model_change must still be the *last emitted* assistant model,
+  // not the model on the dropped envelope.
+  const mc = trail.entries.find((e) => e.id === "mc-1");
+  expect(mc?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-haiku-4-5",
+  });
+});
+
+test("prevModel does not advance when a model_change envelope is dropped (missing timestamp)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-prev-mc-skip",
+      timestamp: "2026-05-21T16:22:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:22:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:22:02.000Z",
+      message: { role: "assistant", model: "claude-sonnet-4-5", content: "first" },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-dropped",
+      parentId: "a-1",
+      provider: "anthropic",
+      modelId: "claude-opus-4-7",
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-2",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:22:04.000Z",
+      provider: "anthropic",
+      modelId: "claude-haiku-4-5",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "mc-dropped")).toBeUndefined();
+  const mc2 = trail.entries.find((e) => e.id === "mc-2");
+  expect(mc2?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-haiku-4-5",
+  });
+});
+
+// Slice 6: polymorphic timestamp parser. Pi top-level envelopes are ISO today, but pi-mono
+// internal messages (BashExecutionMessage, CompactionSummaryMessage) carry timestamp: Unix ms.
+// Defense-in-depth: accept ISO string OR Unix ms (number/numeric string) at envelope boundary
+// and emit a canonical ISO `ts`.
+test("polymorphic timestamp: envelope with Unix ms `timestamp` parses to canonical ISO ts", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // 2026-05-21T17:00:00.000Z = 1779742800000 ms (Date.UTC(2026,4,21,17,0,0) = 1779742800000)
+  const ms = Date.UTC(2026, 4, 21, 17, 0, 0);
+  const headerMs = Date.UTC(2026, 4, 21, 16, 59, 50);
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-ts",
+      timestamp: headerMs,
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: ms,
+      message: { role: "user", content: "ms ts" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.header.ts).toBe("2026-05-21T16:59:50.000Z");
+  const u = trail.entries.find((e) => e.id === "u-1");
+  expect(u?.ts).toBe("2026-05-21T17:00:00.000Z");
+});
+
+// PR #59 review (codex): guard against out-of-range numeric timestamps. `new Date(...).toISOString()`
+// throws RangeError for values outside JS Date's ±100M-day range (e.g., nanosecond-epoch values).
+// One malformed envelope must not abort parsing for the whole session.
+test("polymorphic timestamp: out-of-range numeric timestamp returns undefined (does not throw)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // 1e30 ms is far beyond JS Date's valid range (~8.64e15 ms max).
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-ts-bad",
+      timestamp: "2026-05-21T17:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T17:00:01.000Z",
+      message: { role: "user", content: "ok" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-bad",
+      parentId: "u-1",
+      timestamp: 1e30,
+      message: { role: "user", content: "out-of-range ts" },
+    }),
+  ].join("\n")}\n`;
+  // Must not throw — the bad envelope is skipped, valid entries still emit.
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "u-1")).toBeDefined();
+  expect(trail.entries.find((e) => e.id === "u-bad")).toBeUndefined();
+});
+
+test("polymorphic timestamp: out-of-range Unix-ms numeric string returns undefined", async () => {
+  const { timestampToIso } = await import("./source.ts");
+  expect(timestampToIso(`1${"0".repeat(40)}`)).toBeUndefined();
+});
+
+test("polymorphic timestamp: ISO string passes through unchanged", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-ts-iso",
+      timestamp: "2026-05-21T18:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T18:00:01.000Z",
+      message: { role: "user", content: "iso ts" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.header.ts).toBe("2026-05-21T18:00:00.000Z");
+  expect(trail.entries[0]?.ts).toBe("2026-05-21T18:00:01.000Z");
+});
+
+// Slice 7: defensive bash arg shapes (Codex pattern). Pi 'bash' may arrive as
+// `{command:"..."}`, `{cmd:"..."}`, or `{command:["bash","-lc","..."]}`. All three
+// must map to shell_command with a single canonical command string.
+test("toolKindAndArgs maps Pi 'bash' with {command:[...]} (string-array) to a shell-quoted command", () => {
+  expect(toolKindAndArgs("bash", { command: ["bash", "-lc", "echo hi"] })).toEqual({
+    tool: "shell_command",
+    args: { command: "bash -lc 'echo hi'" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'bash' with {cmd:'...'} to shell_command (already covered by stringValue fallback)", () => {
+  expect(toolKindAndArgs("bash", { cmd: "echo hi" })).toEqual({
+    tool: "shell_command",
+    args: { command: "echo hi" },
+  });
+});
+
+// Slice 8: per-event `dev.pi.raw_type` audit tag (OpenCode pattern). Each emitted entry carries a
+// short tag in `metadata["dev.pi.raw_type"]` describing which source variant produced it — kept
+// under reverse-DNS metadata since schema sourceMetadata is closed (additionalProperties:false).
+test("every emitted entry stamps metadata['dev.pi.raw_type'] with the source variant tag", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-raw-type",
+      timestamp: "2026-05-21T16:30:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:30:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:30:02.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        stopReason: "aborted",
+        content: [
+          { type: "thinking", thinking: "deliberate" },
+          { type: "text", text: "partial" },
+          { type: "toolCall", id: "c-1", name: "read", arguments: { path: "x.md" } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "tr-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:30:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "c-1",
+        toolName: "read",
+        isError: false,
+        content: [{ type: "text", text: "ok" }],
+      },
+    }),
+    JSON.stringify({
+      type: "compaction",
+      id: "comp-1",
+      parentId: "tr-1",
+      timestamp: "2026-05-21T16:30:04.000Z",
+      summary: "x",
+      tokensBefore: 100,
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-1",
+      parentId: "comp-1",
+      timestamp: "2026-05-21T16:30:05.000Z",
+      provider: "anthropic",
+      modelId: "claude-opus-4-7",
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "mc-1",
+      timestamp: "2026-05-21T16:30:06.000Z",
+      fromId: "a-1-text-1",
+      summary: "abandoned",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const tagFor = (id: string) =>
+    (trail.entries.find((e) => e.id === id)?.metadata as Record<string, unknown> | undefined)?.[
+      "dev.pi.raw_type"
+    ];
+  expect(tagFor("u-1")).toBe("user_message_envelope");
+  expect(tagFor("a-1-thinking-0")).toBe("assistant_thinking_block");
+  expect(tagFor("a-1-text-1")).toBe("assistant_text_block");
+  expect(tagFor("a-1-toolCall-2")).toBe("assistant_toolcall_block");
+  expect(tagFor("a-1-aborted")).toBe("aborted_assistant_synthetic");
+  expect(tagFor("tr-1")).toBe("tool_result_envelope");
+  expect(tagFor("comp-1")).toBe("compaction_envelope");
+  expect(tagFor("mc-1")).toBe("model_change_envelope");
+  expect(tagFor("bs-1")).toBe("branch_summary_envelope");
+});
+
+// Slice 9: numeric tool-ID coercion (Cursor pattern). Pi-ai types ToolCall.id as string, but
+// defense-in-depth: a non-conforming source emitting a numeric id must be coerced to a string
+// canonical id before it can leak into semantic.call_id / tool_result.for_id.
+test("non-conforming numeric toolCall.id is coerced to a string canonical call_id, and tool_result.for_id pairs correctly", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-num-id",
+      timestamp: "2026-05-21T16:45:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:45:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:45:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: 42, name: "read", arguments: { path: "x.md" } }],
+      },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "tr-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:45:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: 42,
+        toolName: "read",
+        isError: false,
+        content: [{ type: "text", text: "ok" }],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const toolCall = trail.entries.find((e) => e.type === "tool_call");
+  expect(toolCall?.semantic?.call_id).toBe("42");
+  const toolResult = trail.entries.find((e) => e.type === "tool_result");
+  expect(toolResult?.semantic?.call_id).toBe("42");
+  expect((toolResult?.payload as { for_id?: string }).for_id).toBe(toolCall?.id);
+});
+
+// Fixture-driven: reasoning-and-interrupt.jsonl validates end-to-end and covers thinking + interrupt
+test("reasoning-and-interrupt fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseReasoningFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+test("reasoning-and-interrupt fixture emits agent_thinking, agent_message, and synthesized user_interrupt", async () => {
+  const trail = await parseReasoningFixture();
+  const types = trail.entries.map((e) => e.type);
+  expect(types).toContain("agent_thinking");
+  expect(types).toContain("user_interrupt");
+  const interrupt = trail.entries.find((e) => e.type === "user_interrupt");
+  expect(interrupt?.source?.synthesized).toBe(true);
+  const redacted = trail.entries.find(
+    (e) =>
+      e.type === "agent_thinking" &&
+      (e.payload as { text?: string }).text === "[redacted thinking]",
+  );
+  expect(redacted).toBeDefined();
+});
+
+// Fixture-driven: compaction-and-model-change.jsonl validates end-to-end and covers both events
+test("compaction-and-model-change fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseCompactFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+test("compaction-and-model-change fixture emits context_compact and model_change with from_model from prior assistant", async () => {
+  const trail = await parseCompactFixture();
+  const compact = trail.entries.find((e) => e.type === "context_compact");
+  expect(compact).toBeDefined();
+  expect((compact?.payload as { summary?: string }).summary).toContain("acknowledged");
+  expect((compact?.payload as { trigger?: string }).trigger).toBe("auto");
+  const mc = trail.entries.find((e) => e.type === "model_change");
+  expect(mc?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-opus-4-7",
+  });
 });

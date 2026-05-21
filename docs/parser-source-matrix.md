@@ -16,7 +16,7 @@ An adapter is only considered supported once its row is `verified` with at least
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/badlogic/pi-mono | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary | pi/linear-flow.jsonl; pi/branch-flow.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
 | Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
@@ -61,10 +61,44 @@ schema-valid. Pi-specific `details` (`readFiles`, `modifiedFiles`) are mirrored 
 `metadata["dev.pi.branch_details"]` (reverse of `pi.dev`, the Pi product domain) per spec §11 in
 addition to being preserved verbatim under `source.raw`.
 
-Deferred shapes (covered by follow-up issue #20): `compaction`, `model_change`,
-`thinking_level_change`, `bashExecution`, `custom` / `custom_message`, `label`, `session_info`,
-`parentSession` forked sessions, `agent_thinking` from Pi `thinking` blocks, `user_interrupt`
-markers, polymorphic timestamp parsing, and the opt-in real-session test hook.
+Issue #20 expanded coverage to Pi's optional events. `agent_thinking` is emitted from assistant
+`{type:"thinking", thinking, redacted?, thinkingSignature?}` content blocks (pi-ai
+`packages/ai/src/types.ts` `ThinkingContent`); redacted blocks emit `payload.text =
+"[redacted thinking]"`. `user_interrupt` is synthesized when assistant `message.stopReason ===
+"aborted"` (pi-ai `StopReason`); Pi has no dedicated interrupt envelope, so the entry is stamped
+`source.synthesized: true` with `payload.reason = "stop_reason_aborted"`. `context_compact` is
+emitted from Pi's top-level `compaction` envelope (`summary`, `firstKeptEntryId`, `tokensBefore`,
+optional `details` / `fromHook`); `payload.trigger` is always `"auto"` (Pi has no manual/auto
+distinction in the envelope — `fromHook` distinguishes pi-core vs extension-fired compactions and
+is preserved under `metadata["dev.pi.compaction"]`). `model_change` is emitted from Pi's top-level
+`model_change` envelope (`provider`, `modelId`); `payload.from_model` is resolved from the last
+assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
+
+Cross-cutting hardenings on the Pi adapter:
+- Polymorphic timestamp parsing accepts ISO strings AND Unix ms numbers (or numeric strings) at
+  the envelope boundary; canonical entry `ts` is always ISO. Pi top-level envelopes use ISO today,
+  but pi-mono `messages.ts` carries `timestamp: number` (Unix ms) on internal `BashExecutionMessage`
+  / `CompactionSummaryMessage` / `BranchSummaryMessage` shapes — defense-in-depth.
+- Defensive bash arg shapes: `{cmd}`, `{command: string}`, and `{command: string[]}` (argv-style)
+  all map to `shell_command`; argv entries with shell-special chars are quoted via the existing
+  `quoteShellArg()` helper.
+- Per-event `metadata["dev.pi.raw_type"]` audit tag stamps each entry with which source variant
+  produced it (`assistant_text_block`, `assistant_thinking_block`,
+  `assistant_redacted_thinking_block`, `assistant_toolcall_block`, `assistant_string_content`,
+  `user_message_envelope`, `tool_result_envelope`, `branch_summary_envelope`,
+  `compaction_envelope`, `model_change_envelope`, `aborted_assistant_synthetic`). Schema's
+  `sourceMetadata` is `additionalProperties: false`, so the tag lives under reverse-DNS entry
+  metadata per spec §11.
+- Numeric tool-id coercion: pi-ai types `ToolCall.id` and `ToolResultMessage.toolCallId` as
+  `string`, but a non-conforming source emitting a numeric id is coerced to a string at the adapter
+  boundary so it never leaks into `semantic.call_id` / `tool_result.payload.for_id` as a number.
+
+Remaining deferred shapes: `thinking_level_change`, `bashExecution`, `custom` / `custom_message`,
+`label`, `session_info`, `parentSession` forked sessions.
+
+Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
+`AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
+Real sessions stay out of git per the fixture policy below.
 
 Claude Code fixture coverage currently includes mixed assistant content blocks, multiple tool calls,
 multiple tool results, tool-result error state, user text blocks, thinking/redacted-thinking blocks,

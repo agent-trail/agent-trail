@@ -4,7 +4,13 @@ import { findAbandonedBranchRootId } from "./divergence.ts";
 import type { BuiltEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
-import { type PiEnvelope, parseLines, versionString } from "./source.ts";
+import {
+  type PiEnvelope,
+  parseLines,
+  stringValue,
+  timestampToIso,
+  versionString,
+} from "./source.ts";
 
 function buildHeader(envelopes: PiEnvelope[]): Header {
   const sessionRecord = envelopes.find((env) => env.type === "session");
@@ -12,7 +18,7 @@ function buildHeader(envelopes: PiEnvelope[]): Header {
     throw new Error("Pi session has no header record");
   }
   const id = sessionRecord.id;
-  const ts = sessionRecord.timestamp;
+  const ts = timestampToIso(sessionRecord.timestamp);
   if (id === undefined || ts === undefined) {
     throw new Error("Pi session header missing id or timestamp");
   }
@@ -61,6 +67,7 @@ export function parsePiJsonl(text: string): TrailFile {
   const sourceIdToLastEntryId = new Map<string, string>();
   const sourceIdToFirstEntryId = new Map<string, string>();
   const branchSummaryEnvelopeByEntryId = new Map<string, PiEnvelope>();
+  let prevModel: string | undefined;
 
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
@@ -69,7 +76,20 @@ export function parsePiJsonl(text: string): TrailFile {
       toolCallIdToEventId,
       toolCallIdToToolKind,
       sessionVersion,
+      prevModel,
     );
+    // Only advance prevModel when the envelope actually emitted entries — otherwise a dropped
+    // envelope (missing timestamp, missing required field, etc.) can taint a later
+    // `model_change.from_model` with a model that never appears in the emitted trail.
+    if (entries.length > 0) {
+      if (envelope.type === "message" && envelope.message?.role === "assistant") {
+        const model = stringValue(envelope.message.model);
+        if (model !== undefined) prevModel = model;
+      } else if (envelope.type === "model_change") {
+        const next = stringValue(envelope.modelId);
+        if (next !== undefined) prevModel = next;
+      }
+    }
     entries.forEach((entry, index) => {
       built.push({
         entry,
