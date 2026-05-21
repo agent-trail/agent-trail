@@ -46,12 +46,21 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
   return parentBySourceId;
 }
 
-function findActiveLeafSourceId(envelopes: PiEnvelope[]): string | undefined {
+// Spec §12.2: active leaf is the last event in the file. Restricting the search to envelopes that
+// actually emit entries keeps unmapped trailing metadata (e.g. session_info, label, model_change)
+// from poisoning the divergence walk — those envelopes don't participate in the emitted parent
+// graph, so choosing one as the active leaf can collapse the shared-ancestor walk and misroot
+// otherwise-valid branch summaries.
+function findActiveLeafSourceId(
+  envelopes: PiEnvelope[],
+  sourceIdToLastEntryId: Map<string, string>,
+): string | undefined {
   for (let i = envelopes.length - 1; i >= 0; i -= 1) {
     const env = envelopes[i];
     if (env === undefined) continue;
-    if (env.type === "session") continue;
-    if (typeof env.id === "string") return env.id;
+    if (typeof env.id !== "string") continue;
+    if (!sourceIdToLastEntryId.has(env.id)) continue;
+    return env.id;
   }
   return undefined;
 }
@@ -61,7 +70,6 @@ export function parsePiJsonl(text: string): TrailFile {
   const header = buildHeader(envelopes);
   const sessionVersion = versionString(envelopes.find((env) => env.type === "session")?.version);
   const parentBySourceId = buildParentIndex(envelopes);
-  const activeLeafSourceId = findActiveLeafSourceId(envelopes);
   const toolCallIdToEventId = new Map<string, string>();
   const toolCallIdToToolKind = new Map<string, string>();
   const built: BuiltEntry[] = [];
@@ -92,6 +100,8 @@ export function parsePiJsonl(text: string): TrailFile {
       }
     }
   }
+
+  const activeLeafSourceId = findActiveLeafSourceId(envelopes, sourceIdToLastEntryId);
 
   // Now that sourceIdToLastEntryId is complete, refine branch_summary entries' abandoned_branch_id
   // by walking from the Pi source `fromId` up to the divergence point with the active branch.
