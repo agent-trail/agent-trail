@@ -27,6 +27,7 @@ export interface TrailAdapter {
 export type ValidateAdapterTrailOptions = { profile?: ValidationProfile };
 
 export { claudeCodeAdapter } from "./claude-code/index.ts";
+export { piAdapter } from "./pi/index.ts";
 
 export async function validateAdapterTrail(
   trail: TrailFile,
