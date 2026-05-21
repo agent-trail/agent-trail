@@ -29,8 +29,10 @@ Pi fixture coverage currently includes the linear-flow scenario only: session he
 `version` stringified for `header.agent.version` and `header.source.format_version`), user message,
 assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired via `toolCallId`,
 and an assistant text message. Pi is tree-native (spec §12.1) so every entry emits `parent_id`
-mirroring the source `parentId` chain. Tool-name mapping covers `read`, `write`, `edit`, `bash`,
-`grep`, `glob`, `find`, `web`, `webSearch`; unknown tool names fall back to `other`. Deferred
+mirroring the source `parentId` chain. Tool-name mapping covers Pi's four built-in tools — `read`,
+`write`, `edit`, `bash` — mapped to canonical `file_read` / `file_write` / `file_edit` /
+`shell_command`. Any other name (including MCP-extension tools real Pi sessions carry) falls
+through to the `other` escape hatch per spec §10.5. Deferred
 shapes (covered by follow-up issues #19 and #20): `branch_summary` and tree branches, `compaction`,
 `model_change`, `thinking_level_change`, `bashExecution`, `custom` / `custom_message`, `label`,
 `session_info`, `parentSession` forked sessions, `agent_thinking` from Pi `thinking` blocks,

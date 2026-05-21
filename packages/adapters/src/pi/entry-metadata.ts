@@ -13,9 +13,9 @@ export function sourceFor(
   originalType: string | undefined,
   block?: PiBlock,
   blockIndex?: number,
-  options?: { synthesized?: boolean },
+  options?: { synthesized?: boolean; schemaVersion?: string },
 ): NonNullable<Entry["source"]> {
-  const schemaVersion = versionString(envelope.version);
+  const schemaVersion = versionString(envelope.version) ?? options?.schemaVersion;
   return {
     agent: "pi",
     ...(originalType !== undefined ? { original_type: originalType } : {}),
@@ -54,7 +54,7 @@ export function baseEntry(
   originalType: string | undefined,
   block?: PiBlock,
   blockIndex?: number,
-  options?: { synthesized?: boolean },
+  options?: { synthesized?: boolean; schemaVersion?: string },
 ) {
   if (envelope.timestamp === undefined) return undefined;
   return {

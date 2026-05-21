@@ -4,6 +4,8 @@ function maybeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+// Pi's four built-in tools (per pi-mono). Anything else — including MCP-extension
+// tools real sessions carry — falls through to the `other` escape hatch (spec §10.5).
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -56,46 +58,6 @@ export function toolKindAndArgs(
           },
         };
       }
-      break;
-    }
-    case "grep": {
-      const query = stringValue(args.pattern) ?? stringValue(args.query);
-      if (query !== undefined) {
-        return {
-          tool: "file_search",
-          args: {
-            query,
-            ...(stringValue(args.path) !== undefined ? { path: stringValue(args.path) } : {}),
-            ...(stringValue(args.glob) !== undefined ? { glob: stringValue(args.glob) } : {}),
-          },
-        };
-      }
-      break;
-    }
-    case "glob":
-    case "find": {
-      const query = stringValue(args.pattern) ?? stringValue(args.query) ?? stringValue(args.path);
-      const glob = stringValue(args.pattern) ?? stringValue(args.glob);
-      if (query !== undefined) {
-        return {
-          tool: "file_search",
-          args: {
-            query,
-            ...(glob !== undefined ? { glob } : {}),
-          },
-        };
-      }
-      break;
-    }
-    case "web":
-    case "webFetch": {
-      const url = stringValue(args.url);
-      if (url !== undefined) return { tool: "web_fetch", args: { url } };
-      break;
-    }
-    case "webSearch": {
-      const query = stringValue(args.query);
-      if (query !== undefined) return { tool: "web_search", args: { query } };
       break;
     }
   }

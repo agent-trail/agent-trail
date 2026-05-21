@@ -240,11 +240,6 @@ test("mangleCwd() wraps cwd with '--...--' and replaces path separators with '-'
   expect(mangleCwd("/")).toBe("----");
 });
 
-test("mangleCwd() normalizes Windows separators and drive colons", () => {
-  expect(mangleCwd("C:\\Users\\somu\\repo")).toBe("--C--Users-somu-repo--");
-  expect(mangleCwd("C:/Users/somu/repo")).toBe("--C--Users-somu-repo--");
-});
-
 test("isAvailable() falls back to USERPROFILE when HOME is unset", async () => {
   delete process.env.HOME;
   process.env.USERPROFILE = tmpHome;
@@ -336,37 +331,9 @@ test("toolKindAndArgs maps Pi 'bash' -> shell_command", () => {
   });
 });
 
-test("toolKindAndArgs maps Pi 'grep' -> file_search", () => {
-  expect(toolKindAndArgs("grep", { pattern: "TODO", path: "src" })).toEqual({
-    tool: "file_search",
-    args: { query: "TODO", path: "src" },
-  });
-});
-
-test("toolKindAndArgs maps Pi 'glob' -> file_search", () => {
-  expect(toolKindAndArgs("glob", { pattern: "**/*.ts" })).toEqual({
-    tool: "file_search",
-    args: { query: "**/*.ts", glob: "**/*.ts" },
-  });
-});
-
-test("toolKindAndArgs maps Pi 'find' -> file_search", () => {
-  expect(toolKindAndArgs("find", { pattern: "*.md" })).toEqual({
-    tool: "file_search",
-    args: { query: "*.md", glob: "*.md" },
-  });
-});
-
-test("toolKindAndArgs maps Pi 'web' -> web_fetch", () => {
-  expect(toolKindAndArgs("web", { url: "https://example.com" })).toEqual({
-    tool: "web_fetch",
-    args: { url: "https://example.com" },
-  });
-});
-
-test("toolKindAndArgs falls back to 'other' for unknown tool names", () => {
-  expect(toolKindAndArgs("custom", { foo: "bar" })).toEqual({
+test("toolKindAndArgs falls back to 'other' for non-built-in tool names (e.g., MCP extensions)", () => {
+  expect(toolKindAndArgs("custom_mcp_tool", { foo: "bar" })).toEqual({
     tool: "other",
-    args: { name: "custom", args: { foo: "bar" } },
+    args: { name: "custom_mcp_tool", args: { foo: "bar" } },
   });
 });

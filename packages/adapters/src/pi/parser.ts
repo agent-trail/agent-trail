@@ -48,7 +48,7 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
 export function parsePiJsonl(text: string): TrailFile {
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes);
-  const sessionVersion = envelopes.find((env) => env.type === "session")?.version;
+  const sessionVersion = versionString(envelopes.find((env) => env.type === "session")?.version);
   const parentBySourceId = buildParentIndex(envelopes);
   const toolCallIdToEventId = new Map<string, string>();
   const toolCallIdToToolKind = new Map<string, string>();
@@ -57,23 +57,21 @@ export function parsePiJsonl(text: string): TrailFile {
 
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
-    const envelopeWithVersion: PiEnvelope =
-      envelope.version === undefined && sessionVersion !== undefined
-        ? { ...envelope, version: sessionVersion }
-        : envelope;
-    const entries = buildEntries(envelopeWithVersion, toolCallIdToEventId, toolCallIdToToolKind);
+    const entries = buildEntries(
+      envelope,
+      toolCallIdToEventId,
+      toolCallIdToToolKind,
+      sessionVersion,
+    );
     entries.forEach((entry, index) => {
       built.push({
         entry,
-        parentSourceId: envelopeWithVersion.parentId,
+        parentSourceId: envelope.parentId,
         ...(index > 0 ? { localParentId: entries[index - 1]?.id } : {}),
       });
     });
-    if (typeof envelopeWithVersion.id === "string" && entries.length > 0) {
-      sourceIdToLastEntryId.set(
-        envelopeWithVersion.id,
-        entries[entries.length - 1]?.id ?? envelopeWithVersion.id,
-      );
+    if (typeof envelope.id === "string" && entries.length > 0) {
+      sourceIdToLastEntryId.set(envelope.id, entries[entries.length - 1]?.id ?? envelope.id);
     }
   }
 

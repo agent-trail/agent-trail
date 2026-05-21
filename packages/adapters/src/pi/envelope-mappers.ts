@@ -3,10 +3,12 @@ import { baseEntry, blockId, entryId } from "./entry-metadata.ts";
 import { asBlocks, type PiEnvelope, stringValue, textFromContent } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
-function mapUserEnvelope(envelope: PiEnvelope): Entry[] {
+function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
   const content = envelope.message?.content;
   const text = typeof content === "string" ? content : textFromContent(content);
-  const base = baseEntry(envelope, entryId(envelope), "message");
+  const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+    schemaVersion,
+  });
   if (base === undefined) return [];
   return [{ ...base, type: "user_message", payload: { text } } as Entry];
 }
@@ -15,10 +17,13 @@ function mapAssistantEnvelope(
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
+  schemaVersion?: string,
 ): Entry[] {
   const content = envelope.message?.content;
   if (typeof content === "string") {
-    const base = baseEntry(envelope, entryId(envelope), "message");
+    const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+      schemaVersion,
+    });
     if (base === undefined) return [];
     const model = envelope.message?.model;
     const stopReason = envelope.message?.stopReason;
@@ -40,7 +45,7 @@ function mapAssistantEnvelope(
   );
   return emittedBlocks.flatMap((block, emittedIndex) => {
     const id = blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length);
-    const base = baseEntry(envelope, id, block.type, block, emittedIndex);
+    const base = baseEntry(envelope, id, block.type, block, emittedIndex, { schemaVersion });
     if (base === undefined) return [];
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {
@@ -85,8 +90,11 @@ function mapToolResultEnvelope(
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
+  schemaVersion?: string,
 ): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "message");
+  const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+    schemaVersion,
+  });
   if (base === undefined) return [];
   const callId = stringValue(envelope.message?.toolCallId);
   const forId = callId !== undefined ? toolCallIdToEventId.get(callId) : undefined;
@@ -119,16 +127,22 @@ export function buildEntries(
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
+  schemaVersion?: string,
 ): Entry[] {
   if (envelope.id === undefined || envelope.timestamp === undefined) return [];
   if (envelope.type !== "message") return [];
   const role = envelope.message?.role;
-  if (role === "user") return mapUserEnvelope(envelope);
+  if (role === "user") return mapUserEnvelope(envelope, schemaVersion);
   if (role === "assistant") {
-    return mapAssistantEnvelope(envelope, toolCallIdToEventId, toolCallIdToToolKind);
+    return mapAssistantEnvelope(envelope, toolCallIdToEventId, toolCallIdToToolKind, schemaVersion);
   }
   if (role === "toolResult") {
-    return mapToolResultEnvelope(envelope, toolCallIdToEventId, toolCallIdToToolKind);
+    return mapToolResultEnvelope(
+      envelope,
+      toolCallIdToEventId,
+      toolCallIdToToolKind,
+      schemaVersion,
+    );
   }
   return [];
 }
