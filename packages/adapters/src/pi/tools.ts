@@ -4,8 +4,21 @@ function maybeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-// Pi's four built-in tools (per pi-mono). Anything else — including MCP-extension
-// tools real sessions carry — falls through to the `other` escape hatch (spec §10.5).
+function quoteShellArg(value: string): string {
+  return /^[A-Za-z0-9_\-./@:+=]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    ...hunks.flatMap((h) => ["@@", `-${h.oldText}`, `+${h.newText}`]),
+  ].join("\n");
+}
+
+// Pi's built-in tools (pi-mono `coding-agent/src/core/tools/`): bash, read, write, edit,
+// grep, find, ls. Mapped to canonical kinds (spec §10). MCP-extension tools real Pi
+// sessions also carry fall through to the `other` escape hatch (spec §10.5).
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -29,18 +42,58 @@ export function toolKindAndArgs(
       break;
     }
     case "edit": {
-      const path = stringValue(args.path) ?? stringValue(args.file_path);
-      const oldString = stringValue(args.oldString) ?? stringValue(args.old_string);
-      const newString = stringValue(args.newString) ?? stringValue(args.new_string);
-      if (path !== undefined && (oldString !== undefined || newString !== undefined)) {
-        const diff = [
-          `--- a/${path}`,
-          `+++ b/${path}`,
-          "@@",
-          `-${oldString ?? ""}`,
-          `+${newString ?? ""}`,
-        ].join("\n");
-        return { tool: "file_edit", args: { path, diff } };
+      // Pi `edit` arguments empirically come in three shapes:
+      //   single-replace:  { path, oldText, newText }
+      //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
+      //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
+      // Only the first two map cleanly to spec §10.1 `file_edit` (single-file unified diff).
+      // The patch shape and cross-file multi shapes fall through to `other` so `source.raw`
+      // preserves them verbatim for hi-fi readers.
+      const topPath = stringValue(args.path) ?? stringValue(args.file_path);
+      const multi = Array.isArray(args.multi) ? args.multi : undefined;
+      if (multi !== undefined && multi.length > 0) {
+        const editsByPath = new Map<string, Array<{ oldText: string; newText: string }>>();
+        let bad = false;
+        for (const e of multi) {
+          if (!isObject(e)) {
+            bad = true;
+            break;
+          }
+          const p = stringValue(e.path) ?? topPath;
+          if (p === undefined) {
+            bad = true;
+            break;
+          }
+          const oldText = stringValue(e.oldText) ?? stringValue(e.old_text);
+          const newText = stringValue(e.newText) ?? stringValue(e.new_text);
+          if (oldText === undefined && newText === undefined) continue;
+          const arr = editsByPath.get(p) ?? [];
+          arr.push({ oldText: oldText ?? "", newText: newText ?? "" });
+          editsByPath.set(p, arr);
+        }
+        if (!bad && editsByPath.size === 1) {
+          const [path, hunks] = [...editsByPath.entries()][0] as [
+            string,
+            Array<{ oldText: string; newText: string }>,
+          ];
+          if (hunks.length > 0) {
+            return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+          }
+        }
+        break;
+      }
+      if (topPath !== undefined) {
+        const oldText = stringValue(args.oldText) ?? stringValue(args.oldString);
+        const newText = stringValue(args.newText) ?? stringValue(args.newString);
+        if (oldText !== undefined || newText !== undefined) {
+          return {
+            tool: "file_edit",
+            args: {
+              path: topPath,
+              diff: buildDiff(topPath, [{ oldText: oldText ?? "", newText: newText ?? "" }]),
+            },
+          };
+        }
       }
       break;
     }
@@ -59,6 +112,43 @@ export function toolKindAndArgs(
         };
       }
       break;
+    }
+    case "grep": {
+      const pattern = stringValue(args.pattern);
+      if (pattern !== undefined) {
+        return {
+          tool: "file_search",
+          args: {
+            query: pattern,
+            ...(stringValue(args.path) !== undefined ? { path: stringValue(args.path) } : {}),
+            ...(stringValue(args.glob) !== undefined ? { glob: stringValue(args.glob) } : {}),
+          },
+        };
+      }
+      break;
+    }
+    case "find": {
+      const pattern = stringValue(args.pattern);
+      if (pattern !== undefined) {
+        return {
+          tool: "file_search",
+          args: {
+            query: pattern,
+            ...(stringValue(args.path) !== undefined ? { path: stringValue(args.path) } : {}),
+          },
+        };
+      }
+      break;
+    }
+    case "ls": {
+      // Pi `ls` lists a directory; spec §10 has no `list_directory` kind. Synthesize
+      // a `shell_command` of the form `ls <path>` so readers render it shell-style.
+      // Original Pi args remain available in `source.raw` for high-fidelity readers.
+      const path = stringValue(args.path);
+      return {
+        tool: "shell_command",
+        args: { command: path !== undefined ? `ls ${quoteShellArg(path)}` : "ls" },
+      };
     }
   }
   return {

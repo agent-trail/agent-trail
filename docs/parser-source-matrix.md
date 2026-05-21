@@ -29,10 +29,19 @@ Pi fixture coverage currently includes the linear-flow scenario only: session he
 `version` stringified for `header.agent.version` and `header.source.format_version`), user message,
 assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired via `toolCallId`,
 and an assistant text message. Pi is tree-native (spec §12.1) so every entry emits `parent_id`
-mirroring the source `parentId` chain. Tool-name mapping covers Pi's four built-in tools — `read`,
-`write`, `edit`, `bash` — mapped to canonical `file_read` / `file_write` / `file_edit` /
-`shell_command`. Any other name (including MCP-extension tools real Pi sessions carry) falls
-through to the `other` escape hatch per spec §10.5. Deferred
+mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built-in tools (pi-mono
+`coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
+`file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
+synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
+`edit` has three empirically-observed Pi argument shapes:
+(a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
+(b) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
+multi-hunk diff;
+(c) `{multi: [...]}` spanning multiple files, or `{patch: "*** Begin Patch..."}` apply_patch
+strings → `other`, since spec §10.1 `file_edit` is single-file unified-diff only.
+Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
+`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.5,
+mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools. Deferred
 shapes (covered by follow-up issues #19 and #20): `branch_summary` and tree branches, `compaction`,
 `model_change`, `thinking_level_change`, `bashExecution`, `custom` / `custom_message`, `label`,
 `session_info`, `parentSession` forked sessions, `agent_thinking` from Pi `thinking` blocks,

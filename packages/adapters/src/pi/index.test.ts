@@ -314,7 +314,51 @@ test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
   });
 });
 
-test("toolKindAndArgs maps Pi 'edit' -> file_edit with synthesized unified diff", () => {
+test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -> file_edit", () => {
+  expect(toolKindAndArgs("edit", { path: "a.md", oldText: "foo", newText: "bar" })).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar",
+    },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'edit' multi same-path -> file_edit with concatenated diff", () => {
+  expect(
+    toolKindAndArgs("edit", {
+      multi: [
+        { path: "a.md", oldText: "foo", newText: "bar" },
+        { path: "a.md", oldText: "baz", newText: "qux" },
+      ],
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar\n@@\n-baz\n+qux",
+    },
+  });
+});
+
+test("toolKindAndArgs falls back to 'other' for Pi 'edit' multi across multiple files (no canonical single-file representation)", () => {
+  const result = toolKindAndArgs("edit", {
+    multi: [
+      { path: "a.md", oldText: "foo", newText: "bar" },
+      { path: "b.md", oldText: "baz", newText: "qux" },
+    ],
+  });
+  expect(result.tool).toBe("other");
+});
+
+test("toolKindAndArgs falls back to 'other' for Pi 'edit' apply_patch shape (non-unified diff)", () => {
+  const result = toolKindAndArgs("edit", {
+    patch: "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+b\n*** End Patch",
+  });
+  expect(result.tool).toBe("other");
+});
+
+test("toolKindAndArgs tolerates legacy Pi 'edit' (oldString/newString) for back-compat", () => {
   expect(toolKindAndArgs("edit", { path: "a.md", oldString: "foo", newString: "bar" })).toEqual({
     tool: "file_edit",
     args: {
@@ -328,6 +372,35 @@ test("toolKindAndArgs maps Pi 'bash' -> shell_command", () => {
   expect(toolKindAndArgs("bash", { command: "ls" })).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'grep' -> file_search with pattern/path/glob", () => {
+  expect(toolKindAndArgs("grep", { pattern: "TODO", path: "src", glob: "*.ts" })).toEqual({
+    tool: "file_search",
+    args: { query: "TODO", path: "src", glob: "*.ts" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'find' -> file_search with pattern/path", () => {
+  expect(toolKindAndArgs("find", { pattern: "*.md", path: "docs" })).toEqual({
+    tool: "file_search",
+    args: { query: "*.md", path: "docs" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'ls' -> shell_command with synthesized 'ls <path>' command", () => {
+  expect(toolKindAndArgs("ls", { path: "src" })).toEqual({
+    tool: "shell_command",
+    args: { command: "ls src" },
+  });
+  expect(toolKindAndArgs("ls", {})).toEqual({
+    tool: "shell_command",
+    args: { command: "ls" },
+  });
+  expect(toolKindAndArgs("ls", { path: "dir with space" })).toEqual({
+    tool: "shell_command",
+    args: { command: "ls 'dir with space'" },
   });
 });
 
