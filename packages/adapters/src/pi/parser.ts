@@ -78,12 +78,17 @@ export function parsePiJsonl(text: string): TrailFile {
       sessionVersion,
       prevModel,
     );
-    if (envelope.type === "message" && envelope.message?.role === "assistant") {
-      const model = stringValue(envelope.message.model);
-      if (model !== undefined) prevModel = model;
-    } else if (envelope.type === "model_change") {
-      const next = stringValue(envelope.modelId);
-      if (next !== undefined) prevModel = next;
+    // Only advance prevModel when the envelope actually emitted entries — otherwise a dropped
+    // envelope (missing timestamp, missing required field, etc.) can taint a later
+    // `model_change.from_model` with a model that never appears in the emitted trail.
+    if (entries.length > 0) {
+      if (envelope.type === "message" && envelope.message?.role === "assistant") {
+        const model = stringValue(envelope.message.model);
+        if (model !== undefined) prevModel = model;
+      } else if (envelope.type === "model_change") {
+        const next = stringValue(envelope.modelId);
+        if (next !== undefined) prevModel = next;
+      }
     }
     entries.forEach((entry, index) => {
       built.push({

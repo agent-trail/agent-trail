@@ -1434,6 +1434,121 @@ test("Pi `model_change` envelope with no prior model omits from_model", async ()
   expect(mc?.payload).toEqual({ to_model: "claude-opus-4-7" });
 });
 
+// PR #59 review (codex): prevModel must only advance when the envelope actually emitted entries.
+// Otherwise a missing-timestamp / dropped assistant or model_change can taint the next
+// model_change's from_model with a value that never appears in the trail.
+test("prevModel does not advance when the assistant envelope emits no entries (missing timestamp)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-prev-skip",
+      timestamp: "2026-05-21T16:20:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:20:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:20:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        content: "first",
+      },
+    }),
+    // Missing timestamp -> buildEntries returns []. Pi-mono can't actually emit this shape, but
+    // the parser must defend against partial source data so prevModel is not tainted.
+    JSON.stringify({
+      type: "message",
+      id: "a-dropped",
+      parentId: "a-1",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        content: "ghost",
+      },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:20:04.000Z",
+      provider: "anthropic",
+      modelId: "claude-haiku-4-5",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  // The dropped envelope contributed no entry...
+  expect(trail.entries.find((e) => e.id === "a-dropped")).toBeUndefined();
+  // ...so from_model on the model_change must still be the *last emitted* assistant model,
+  // not the model on the dropped envelope.
+  const mc = trail.entries.find((e) => e.id === "mc-1");
+  expect(mc?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-haiku-4-5",
+  });
+});
+
+test("prevModel does not advance when a model_change envelope is dropped (missing timestamp)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-prev-mc-skip",
+      timestamp: "2026-05-21T16:22:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:22:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:22:02.000Z",
+      message: { role: "assistant", model: "claude-sonnet-4-5", content: "first" },
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-dropped",
+      parentId: "a-1",
+      provider: "anthropic",
+      modelId: "claude-opus-4-7",
+    }),
+    JSON.stringify({
+      type: "model_change",
+      id: "mc-2",
+      parentId: "a-1",
+      timestamp: "2026-05-21T16:22:04.000Z",
+      provider: "anthropic",
+      modelId: "claude-haiku-4-5",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "mc-dropped")).toBeUndefined();
+  const mc2 = trail.entries.find((e) => e.id === "mc-2");
+  expect(mc2?.payload).toEqual({
+    from_model: "claude-sonnet-4-5",
+    to_model: "claude-haiku-4-5",
+  });
+});
+
 // Slice 6: polymorphic timestamp parser. Pi top-level envelopes are ISO today, but pi-mono
 // internal messages (BashExecutionMessage, CompactionSummaryMessage) carry timestamp: Unix ms.
 // Defense-in-depth: accept ISO string OR Unix ms (number/numeric string) at envelope boundary
