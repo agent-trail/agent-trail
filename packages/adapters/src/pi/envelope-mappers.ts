@@ -1,6 +1,13 @@
 import type { Entry } from "@agent-trail/types";
 import { baseEntry, blockId, entryId } from "./entry-metadata.ts";
-import { asBlocks, type PiBlock, type PiEnvelope, stringValue, textFromContent } from "./source.ts";
+import {
+  asBlocks,
+  isObject,
+  type PiBlock,
+  type PiEnvelope,
+  stringValue,
+  textFromContent,
+} from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
 function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
@@ -128,6 +135,28 @@ function mapToolResultEnvelope(
   ];
 }
 
+function mapBranchSummaryEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+  const base = baseEntry(envelope, entryId(envelope), "branch_summary", undefined, undefined, {
+    schemaVersion,
+  });
+  if (base === undefined) return [];
+  const summary = stringValue(envelope.summary);
+  const fromId = stringValue(envelope.fromId);
+  if (summary === undefined || fromId === undefined) return [];
+  const details = isObject(envelope.details) ? envelope.details : undefined;
+  return [
+    {
+      ...base,
+      type: "branch_summary",
+      payload: {
+        abandoned_branch_id: fromId,
+        summary,
+      },
+      ...(details !== undefined ? { metadata: { "dev.pi-mono.branch_details": details } } : {}),
+    } as Entry,
+  ];
+}
+
 export function buildEntries(
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
@@ -135,6 +164,9 @@ export function buildEntries(
   schemaVersion?: string,
 ): Entry[] {
   if (envelope.id === undefined || envelope.timestamp === undefined) return [];
+  if (envelope.type === "branch_summary") {
+    return mapBranchSummaryEnvelope(envelope, schemaVersion);
+  }
   if (envelope.type !== "message") return [];
   const role = envelope.message?.role;
   if (role === "user") return mapUserEnvelope(envelope, schemaVersion);

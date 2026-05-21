@@ -64,12 +64,22 @@ function createProjectDir(): string {
 }
 
 const FIXTURE_PATH = new URL("../../tests/fixtures/pi/linear-flow.jsonl", import.meta.url).pathname;
+const BRANCH_FIXTURE_PATH = new URL("../../tests/fixtures/pi/branch-flow.jsonl", import.meta.url)
+  .pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
     id: "linear-flow",
     adapter: "pi",
     path: FIXTURE_PATH,
+  });
+}
+
+async function parseBranchFixture() {
+  return piAdapter.parseSession({
+    id: "branch-flow",
+    adapter: "pi",
+    path: BRANCH_FIXTURE_PATH,
   });
 }
 
@@ -551,4 +561,149 @@ test("toolKindAndArgs falls back to 'other' for non-built-in tool names (e.g., M
     tool: "other",
     args: { name: "custom_mcp_tool", args: { foo: "bar" } },
   });
+});
+
+// Issue #19: tree branch semantics (spec §12.1-12.3, §9.3 branch_summary)
+
+// TDD step 1: fixture loads and validates end-to-end
+test("branch-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseBranchFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+// TDD step 2: forked parentId graph produces multiple entries sharing one parent_id
+test("branch-flow produces a fork at pi-a1: both pi-u2 and pi-u3 reference it as parent_id", async () => {
+  const trail = await parseBranchFixture();
+  const childIds = new Set(trail.entries.filter((e) => e.parent_id === "pi-a1").map((e) => e.id));
+  expect(childIds.has("pi-u2")).toBe(true);
+  expect(childIds.has("pi-u3")).toBe(true);
+});
+
+// TDD step 3: branch_summary envelope produces a branch_summary entry with payload.summary
+test("branch-flow emits a branch_summary entry carrying payload.summary from the Pi envelope", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  expect(branchSummary).toBeDefined();
+  expect(branchSummary?.type).toBe("branch_summary");
+  expect((branchSummary?.payload as { summary?: string }).summary).toBe(
+    "Explored X, switching to Y.",
+  );
+});
+
+// TDD step 4: branch_summary entry's parent_id is resolved via the same parentId chain as messages
+test("branch-flow branch_summary entry has parent_id resolved from envelope parentId (pi-a1)", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  expect(branchSummary?.parent_id).toBe("pi-a1");
+});
+
+// TDD step 5: abandoned_branch_id walks fromId up to the divergence point with the active branch.
+// Active leaf = last envelope in source order (pi-a3). Abandoned path from fromId pi-a2 = [pi-a2, pi-u2, pi-a1].
+// Active path from pi-a3 = [pi-a3, pi-u3, pi-a1]. Shared root ancestor = pi-a1.
+// Per spec §9.3 "root of abandoned branch" = topmost entry on abandoned side = child of divergence = pi-u2.
+test("branch-flow branch_summary.abandoned_branch_id resolves to root of abandoned branch (pi-u2)", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("pi-u2");
+});
+
+// TDD step 6: source.raw preserves the original Pi envelope (fromId, summary, details)
+test("branch-flow branch_summary entry preserves the original envelope under source.raw", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const raw = branchSummary?.source?.raw as Record<string, unknown>;
+  expect(raw?.type).toBe("branch_summary");
+  expect(raw?.fromId).toBe("pi-a2");
+  expect(raw?.summary).toBe("Explored X, switching to Y.");
+  expect(raw?.details).toEqual({ readFiles: ["spec.md"], modifiedFiles: ["x.md"] });
+});
+
+// TDD step 7: Pi branch_summary.details surface in entry.metadata under reverse-domain key (spec §11)
+test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi-mono.branch_details']", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const metadata = branchSummary?.metadata as Record<string, unknown> | undefined;
+  expect(metadata).toBeDefined();
+  expect(metadata?.["dev.pi-mono.branch_details"]).toEqual({
+    readFiles: ["spec.md"],
+    modifiedFiles: ["x.md"],
+  });
+});
+
+// TDD step 8: degenerate case — fromId is an ancestor of the active leaf.
+// Divergence walk can't refine; fall back to fromId's resolved entry id so the entry stays valid.
+test("branch_summary with fromId on the active branch falls back to fromId's resolved entry id", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-1",
+      timestamp: "2026-05-21T18:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T18:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T18:00:02.000Z",
+      message: { role: "assistant", content: "ok" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T18:00:03.000Z",
+      fromId: "u-1",
+      summary: "noop nav",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("u-1");
+});
+
+// TDD step 9: degenerate case — fromId references no envelope id in the file.
+// Walk produces no shared ancestor; fall back to the verbatim fromId string so payload stays valid.
+test("branch_summary with unknown fromId falls back to the verbatim fromId string", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-2",
+      timestamp: "2026-05-21T19:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T19:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T19:00:02.000Z",
+      fromId: "missing-source-id",
+      summary: "dangling fromId",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("missing-source-id");
 });

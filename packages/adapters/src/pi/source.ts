@@ -21,6 +21,9 @@ export type PiEnvelope = {
   version?: number | string;
   cwd?: string;
   message?: PiMessage;
+  fromId?: string;
+  summary?: string;
+  details?: unknown;
   [key: string]: unknown;
 };
 

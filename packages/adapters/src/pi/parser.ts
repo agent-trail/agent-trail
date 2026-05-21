@@ -1,5 +1,6 @@
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { findAbandonedBranchRootId } from "./divergence.ts";
 import type { BuiltEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
@@ -45,15 +46,27 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
   return parentBySourceId;
 }
 
+function findActiveLeafSourceId(envelopes: PiEnvelope[]): string | undefined {
+  for (let i = envelopes.length - 1; i >= 0; i -= 1) {
+    const env = envelopes[i];
+    if (env === undefined) continue;
+    if (env.type === "session") continue;
+    if (typeof env.id === "string") return env.id;
+  }
+  return undefined;
+}
+
 export function parsePiJsonl(text: string): TrailFile {
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes);
   const sessionVersion = versionString(envelopes.find((env) => env.type === "session")?.version);
   const parentBySourceId = buildParentIndex(envelopes);
+  const activeLeafSourceId = findActiveLeafSourceId(envelopes);
   const toolCallIdToEventId = new Map<string, string>();
   const toolCallIdToToolKind = new Map<string, string>();
   const built: BuiltEntry[] = [];
   const sourceIdToLastEntryId = new Map<string, string>();
+  const branchSummaryEnvelopeByEntryId = new Map<string, PiEnvelope>();
 
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
@@ -72,6 +85,29 @@ export function parsePiJsonl(text: string): TrailFile {
     });
     if (typeof envelope.id === "string" && entries.length > 0) {
       sourceIdToLastEntryId.set(envelope.id, entries[entries.length - 1]?.id ?? envelope.id);
+    }
+    if (envelope.type === "branch_summary") {
+      for (const entry of entries) {
+        branchSummaryEnvelopeByEntryId.set(entry.id, envelope);
+      }
+    }
+  }
+
+  // Now that sourceIdToLastEntryId is complete, refine branch_summary entries' abandoned_branch_id
+  // by walking from the Pi source `fromId` up to the divergence point with the active branch.
+  for (const builtEntry of built) {
+    const envelope = branchSummaryEnvelopeByEntryId.get(builtEntry.entry.id);
+    if (envelope === undefined) continue;
+    if (typeof envelope.fromId !== "string") continue;
+    const resolved = findAbandonedBranchRootId(
+      envelope.fromId,
+      activeLeafSourceId,
+      parentBySourceId,
+      sourceIdToLastEntryId,
+    );
+    const payload = builtEntry.entry.payload as Record<string, unknown> | undefined;
+    if (payload !== undefined) {
+      payload.abandoned_branch_id = resolved;
     }
   }
 

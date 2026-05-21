@@ -1,0 +1,8 @@
+{"type":"session","version":3,"id":"sess-pi-2","timestamp":"2026-05-21T17:00:00.000Z","cwd":"/tmp/synthetic-project"}
+{"type":"message","id":"pi-u1","parentId":null,"timestamp":"2026-05-21T17:00:01.000Z","message":{"role":"user","content":"explore approach A"}}
+{"type":"message","id":"pi-a1","parentId":"pi-u1","timestamp":"2026-05-21T17:00:02.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"pi-u2","parentId":"pi-a1","timestamp":"2026-05-21T17:00:03.000Z","message":{"role":"user","content":"try X"}}
+{"type":"message","id":"pi-a2","parentId":"pi-u2","timestamp":"2026-05-21T17:00:04.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":[{"type":"text","text":"X done"}]}}
+{"type":"branch_summary","id":"pi-bs","parentId":"pi-a1","timestamp":"2026-05-21T17:00:05.000Z","fromId":"pi-a2","summary":"Explored X, switching to Y.","details":{"readFiles":["spec.md"],"modifiedFiles":["x.md"]}}
+{"type":"message","id":"pi-u3","parentId":"pi-a1","timestamp":"2026-05-21T17:00:06.000Z","message":{"role":"user","content":"try Y"}}
+{"type":"message","id":"pi-a3","parentId":"pi-u3","timestamp":"2026-05-21T17:00:07.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":[{"type":"text","text":"Y done"}]}}
