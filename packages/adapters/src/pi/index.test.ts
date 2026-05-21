@@ -234,9 +234,15 @@ test("isAvailable() is true after project dir is created", async () => {
   expect(await piAdapter.isAvailable()).toBe(true);
 });
 
+test("mangleCwd() wraps cwd with '--...--' and replaces path separators with '-'", () => {
+  expect(mangleCwd("/Users/somu/Code")).toBe("--Users-somu-Code--");
+  expect(mangleCwd("/Users/somu/Code/agent-trail")).toBe("--Users-somu-Code-agent-trail--");
+  expect(mangleCwd("/")).toBe("----");
+});
+
 test("mangleCwd() normalizes Windows separators and drive colons", () => {
-  expect(mangleCwd("C:\\Users\\somu\\repo")).toBe("C--Users-somu-repo");
-  expect(mangleCwd("C:/Users/somu/repo")).toBe("C--Users-somu-repo");
+  expect(mangleCwd("C:\\Users\\somu\\repo")).toBe("--C--Users-somu-repo--");
+  expect(mangleCwd("C:/Users/somu/repo")).toBe("--C--Users-somu-repo--");
 });
 
 test("isAvailable() falls back to USERPROFILE when HOME is unset", async () => {

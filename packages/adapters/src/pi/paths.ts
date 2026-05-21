@@ -8,8 +8,13 @@ export function piConfigDir(env: NodeJS.ProcessEnv = process.env): string | unde
   return home === undefined ? undefined : join(home, ".pi");
 }
 
+// Pi mangling differs from Claude Code: the cwd is wrapped with `--...--`.
+// Empirically verified against ~/.pi/agent/sessions: `/Users/somu/Code` → `--Users-somu-Code--`,
+// root `/` → `----`. The leading `/` is dropped before slash-to-dash replacement.
 export function mangleCwd(cwd: string): string {
-  return cwd.replace(/\\/g, "/").replace(/[/:]/g, "-");
+  const normalized = cwd.replace(/\\/g, "/").replace(/^\//, "");
+  const inner = normalized.replace(/[/:]/g, "-");
+  return `--${inner}--`;
 }
 
 export function piProjectDir({ configDir, cwd }: { configDir: string; cwd: string }): string {
