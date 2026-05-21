@@ -1,6 +1,6 @@
 import type { Entry } from "@agent-trail/types";
 import { baseEntry, blockId, entryId } from "./entry-metadata.ts";
-import { asBlocks, type PiEnvelope, stringValue, textFromContent } from "./source.ts";
+import { asBlocks, type PiBlock, type PiEnvelope, stringValue, textFromContent } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
 function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
@@ -40,12 +40,17 @@ function mapAssistantEnvelope(
     ];
   }
   const blocks = asBlocks(content);
-  const emittedBlocks = blocks.filter(
-    (block) => block.type === "text" || block.type === "toolCall",
-  );
-  return emittedBlocks.flatMap((block, emittedIndex) => {
-    const id = blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length);
-    const base = baseEntry(envelope, id, block.type, block, emittedIndex, { schemaVersion });
+  // Capture each emittable block's original index in message.content so source.raw.block_index
+  // stays faithful when the envelope mixes other block types (thinking, custom, etc.).
+  const emittable: Array<{ block: PiBlock; originalIndex: number }> = [];
+  blocks.forEach((block, originalIndex) => {
+    if (block.type === "text" || block.type === "toolCall") {
+      emittable.push({ block, originalIndex });
+    }
+  });
+  return emittable.flatMap(({ block, originalIndex }, emittedIndex) => {
+    const id = blockId(envelope, block.type ?? "block", emittedIndex, emittable.length);
+    const base = baseEntry(envelope, id, block.type, block, originalIndex, { schemaVersion });
     if (base === undefined) return [];
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {

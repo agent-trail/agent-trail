@@ -203,6 +203,46 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   expect(callBlock?.parent_id).toBe("a-1-text-0");
 });
 
+test("parseSession() preserves source.raw.block_index relative to message.content (skips non-emitted block types)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-bi",
+      timestamp: "2026-05-21T16:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-bi-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-bi-1",
+      parentId: "u-bi-1",
+      timestamp: "2026-05-21T16:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "internal" },
+          { type: "text", text: "reply" },
+          { type: "thinking", thinking: "more internal" },
+          { type: "toolCall", id: "c-1", name: "read", arguments: { path: "x.md" } },
+        ],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const text0 = trail.entries.find((e) => e.id === "a-bi-1-text-0");
+  const tool1 = trail.entries.find((e) => e.id === "a-bi-1-toolCall-1");
+  expect((text0?.source?.raw as { block_index?: number }).block_index).toBe(1);
+  expect((tool1?.source?.raw as { block_index?: number }).block_index).toBe(3);
+});
+
 // TDD step 8: full fixture round-trips through validation with zero errors
 test("linear-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
   const trail = await parseFixture();
