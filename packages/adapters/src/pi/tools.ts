@@ -17,11 +17,25 @@ function prefixLines(text: string, prefix: string): string[] {
   return text.split("\n").map((line) => `${prefix}${line}`);
 }
 
+function lineCount(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+// Pi `edit` shapes (single-replace, edits[], single-path multi) carry no line
+// numbers, only oldText/newText pairs. To stay spec §10.1 conformant we emit
+// `@@ -1,<oldN> +1,<newN> @@` with synthetic start lines (1) and accurate
+// line counts derived from the texts themselves. Downstream readers that
+// only care about hunk bodies render correctly; strict unified-diff parsers
+// accept the header format. `source.raw` preserves the original Pi args.
 function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
   return [
     `--- a/${path}`,
     `+++ b/${path}`,
-    ...hunks.flatMap((h) => ["@@", ...prefixLines(h.oldText, "-"), ...prefixLines(h.newText, "+")]),
+    ...hunks.flatMap((h) => [
+      `@@ -1,${lineCount(h.oldText)} +1,${lineCount(h.newText)} @@`,
+      ...prefixLines(h.oldText, "-"),
+      ...prefixLines(h.newText, "+"),
+    ]),
   ].join("\n");
 }
 

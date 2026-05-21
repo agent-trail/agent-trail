@@ -356,6 +356,14 @@ test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
   });
 });
 
+test("toolKindAndArgs emits spec-conformant unified-diff hunk header (@@ -1,<oldN> +1,<newN> @@)", () => {
+  // Spec §10.1 example: `@@ -1,4 +1,4 @@`. Pi edit shapes carry no line numbers,
+  // so start lines are synthetic (1) but line counts are accurate.
+  const result = toolKindAndArgs("edit", { path: "x.md", oldText: "a\nb", newText: "c" });
+  const args = (result as { args: { diff: string } }).args;
+  expect(args.diff).toContain("@@ -1,2 +1,1 @@");
+});
+
 test("toolKindAndArgs builds a valid unified diff for multi-line oldText/newText (prefixes every line)", () => {
   const result = toolKindAndArgs("edit", {
     path: "a.md",
@@ -364,19 +372,21 @@ test("toolKindAndArgs builds a valid unified diff for multi-line oldText/newText
   });
   expect(result.tool).toBe("file_edit");
   const args = result.args as { diff: string };
-  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n-line1\n-line2\n-line3\n+newA\n+newB");
+  expect(args.diff).toBe(
+    "--- a/a.md\n+++ b/a.md\n@@ -1,3 +1,2 @@\n-line1\n-line2\n-line3\n+newA\n+newB",
+  );
 });
 
 test("toolKindAndArgs handles pure-insertion edit (empty oldText, multi-line newText)", () => {
   const result = toolKindAndArgs("edit", { path: "a.md", oldText: "", newText: "hi\nthere" });
   const args = (result as { args: { diff: string } }).args;
-  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n+hi\n+there");
+  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@ -1,0 +1,2 @@\n+hi\n+there");
 });
 
 test("toolKindAndArgs handles pure-deletion edit (multi-line oldText, empty newText)", () => {
   const result = toolKindAndArgs("edit", { path: "a.md", oldText: "del1\ndel2", newText: "" });
   const args = (result as { args: { diff: string } }).args;
-  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n-del1\n-del2");
+  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,0 @@\n-del1\n-del2");
 });
 
 test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -> file_edit", () => {
@@ -384,7 +394,7 @@ test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -
     tool: "file_edit",
     args: {
       path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
     },
   });
 });
@@ -402,7 +412,7 @@ test("toolKindAndArgs maps current pi-mono 'edit' shape ({path, edits:[{oldText,
     tool: "file_edit",
     args: {
       path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar\n@@\n-baz\n+qux",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar\n@@ -1,1 +1,1 @@\n-baz\n+qux",
     },
   });
 });
@@ -419,7 +429,7 @@ test("toolKindAndArgs maps Pi 'edit' multi same-path -> file_edit with concatena
     tool: "file_edit",
     args: {
       path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar\n@@\n-baz\n+qux",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar\n@@ -1,1 +1,1 @@\n-baz\n+qux",
     },
   });
 });
@@ -446,7 +456,7 @@ test("toolKindAndArgs tolerates legacy Pi 'edit' (oldString/newString) for back-
     tool: "file_edit",
     args: {
       path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
     },
   });
 });
