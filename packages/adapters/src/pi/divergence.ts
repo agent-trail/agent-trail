@@ -18,28 +18,32 @@ function pathToRootInSourceIds(
 function nearestMappedAncestor(
   startSourceId: string,
   parentBySourceId: Map<string, string | null>,
-  sourceIdToLastEntryId: Map<string, string>,
+  sourceIdToFirstEntryId: Map<string, string>,
 ): string | undefined {
   let cursor: string | null | undefined = startSourceId;
   const guard = new Set<string>();
   while (typeof cursor === "string") {
     if (guard.has(cursor)) return undefined;
     guard.add(cursor);
-    const entry = sourceIdToLastEntryId.get(cursor);
+    const entry = sourceIdToFirstEntryId.get(cursor);
     if (entry !== undefined) return entry;
     cursor = parentBySourceId.get(cursor) ?? null;
   }
   return undefined;
 }
 
+// `sourceIdToFirstEntryId` maps a Pi envelope id to the **first** Agent Trail entry it emitted.
+// For multi-block envelopes (assistant message with text + toolCall blocks), the first entry sits
+// directly under the divergence parent and is therefore the spec §9.3 "root of abandoned branch".
+// Using last-entry here would misanchor branch summaries deeper into the multi-block fan-out.
 export function findAbandonedBranchRootId(
   fromSourceId: string,
   activeLeafSourceId: string | undefined,
   parentBySourceId: Map<string, string | null>,
-  sourceIdToLastEntryId: Map<string, string>,
+  sourceIdToFirstEntryId: Map<string, string>,
 ): string {
   const fallback = () =>
-    nearestMappedAncestor(fromSourceId, parentBySourceId, sourceIdToLastEntryId) ?? fromSourceId;
+    nearestMappedAncestor(fromSourceId, parentBySourceId, sourceIdToFirstEntryId) ?? fromSourceId;
 
   if (activeLeafSourceId === undefined) return fallback();
 
@@ -58,7 +62,7 @@ export function findAbandonedBranchRootId(
   // Walk deeper into the abandoned subtree until we find a source id that emitted an entry.
   for (let j = i; j < abandoned.length; j += 1) {
     const candidate = abandoned[j] as string;
-    const entry = sourceIdToLastEntryId.get(candidate);
+    const entry = sourceIdToFirstEntryId.get(candidate);
     if (entry !== undefined) return entry;
   }
   // Abandoned subtree exists in topology but emits no entries (all envelopes were unmapped types).

@@ -73,7 +73,12 @@ export function parsePiJsonl(text: string): TrailFile {
   const toolCallIdToEventId = new Map<string, string>();
   const toolCallIdToToolKind = new Map<string, string>();
   const built: BuiltEntry[] = [];
+  // `sourceIdToLastEntryId` powers parent resolution (the *last* emitted entry of an envelope is
+  // the entry subsequent envelopes should chain off of). `sourceIdToFirstEntryId` is used by the
+  // branch-summary divergence walk, where spec §9.3 "root of abandoned branch" means the
+  // top-most entry on the abandoned side — i.e. the *first* entry of the divergence envelope.
   const sourceIdToLastEntryId = new Map<string, string>();
+  const sourceIdToFirstEntryId = new Map<string, string>();
   const branchSummaryEnvelopeByEntryId = new Map<string, PiEnvelope>();
 
   for (const envelope of envelopes) {
@@ -93,6 +98,7 @@ export function parsePiJsonl(text: string): TrailFile {
     });
     if (typeof envelope.id === "string" && entries.length > 0) {
       sourceIdToLastEntryId.set(envelope.id, entries[entries.length - 1]?.id ?? envelope.id);
+      sourceIdToFirstEntryId.set(envelope.id, entries[0]?.id ?? envelope.id);
     }
     if (envelope.type === "branch_summary") {
       for (const entry of entries) {
@@ -103,8 +109,8 @@ export function parsePiJsonl(text: string): TrailFile {
 
   const activeLeafSourceId = findActiveLeafSourceId(envelopes, sourceIdToLastEntryId);
 
-  // Now that sourceIdToLastEntryId is complete, refine branch_summary entries' abandoned_branch_id
-  // by walking from the Pi source `fromId` up to the divergence point with the active branch.
+  // Now that the entry maps are complete, refine branch_summary entries' abandoned_branch_id by
+  // walking from the Pi source `fromId` up to the divergence point with the active branch.
   for (const builtEntry of built) {
     const envelope = branchSummaryEnvelopeByEntryId.get(builtEntry.entry.id);
     if (envelope === undefined) continue;
@@ -113,7 +119,7 @@ export function parsePiJsonl(text: string): TrailFile {
       envelope.fromId,
       activeLeafSourceId,
       parentBySourceId,
-      sourceIdToLastEntryId,
+      sourceIdToFirstEntryId,
     );
     const payload = builtEntry.entry.payload as Record<string, unknown> | undefined;
     if (payload !== undefined) {

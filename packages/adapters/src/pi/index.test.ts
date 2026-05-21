@@ -753,6 +753,72 @@ test("branch_summary with unknown fromId falls back to the verbatim fromId strin
   expect(payload.abandoned_branch_id).toBe("missing-source-id");
 });
 
+// Codex P2 regression: when the divergence node on the abandoned side is a Pi envelope that fans
+// out into multiple Agent Trail entries (text + toolCall blocks in one assistant envelope),
+// `abandoned_branch_id` must point at the **first** emitted entry of that envelope (the entry
+// directly under the divergence parent), not the **last** entry. Returning the last entry
+// misanchors the abandoned-branch root deeper than spec §9.3 intends and confuses tree renderers.
+test("branch_summary: abandoned root resolves to the FIRST emitted entry of a multi-block envelope", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-multi",
+      timestamp: "2026-05-21T22:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-root",
+      parentId: null,
+      timestamp: "2026-05-21T22:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    // Abandoned-side envelope that fans out to two entries: a-fork-text-0 + a-fork-toolCall-1.
+    // Spec §9.3 "root of abandoned branch" = topmost on abandoned side = a-fork-text-0.
+    JSON.stringify({
+      type: "message",
+      id: "a-fork",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "trying A" },
+          { type: "toolCall", id: "call-A", name: "read", arguments: { path: "x.md" } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:03.000Z",
+      fromId: "a-fork",
+      summary: "abandoned A, trying B",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-active",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:04.000Z",
+      message: { role: "user", content: "try B" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-active",
+      parentId: "u-active",
+      timestamp: "2026-05-21T22:00:05.000Z",
+      message: { role: "assistant", content: "B done" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("a-fork-text-0");
+});
+
 // Codex P1 regression: when the last envelope in source order is an unmapped type (session_info,
 // label, model_change…), it must NOT be treated as the active leaf — those envelopes don't
 // participate in the emitted entry graph, and using one collapses the shared-ancestor walk.
