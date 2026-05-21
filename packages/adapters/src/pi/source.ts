@@ -96,17 +96,30 @@ export function textFromContent(content: unknown): string {
 // messages (BashExecutionMessage, CompactionSummaryMessage, BranchSummaryMessage in
 // `packages/coding-agent/src/core/messages.ts`) carry Unix ms numbers. Accept either at the
 // envelope boundary and emit a canonical ISO string downstream.
+function msToIsoSafe(ms: number): string | undefined {
+  // JS `Date` is valid for ±8,640,000,000,000,000 ms (~100M days). Anything beyond throws
+  // RangeError on `.toISOString()`. Guard the conversion so one malformed envelope never aborts
+  // parsing for an entire session.
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return undefined;
+  try {
+    return d.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 export function timestampToIso(value: unknown): string | undefined {
   if (typeof value === "string") {
     if (value.length === 0) return undefined;
     const parsedNum = Number(value);
     if (Number.isFinite(parsedNum) && /^\d+$/.test(value)) {
-      return new Date(parsedNum).toISOString();
+      return msToIsoSafe(parsedNum);
     }
     return value;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
-    return new Date(value).toISOString();
+    return msToIsoSafe(value);
   }
   return undefined;
 }

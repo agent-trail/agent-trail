@@ -1423,6 +1423,46 @@ test("polymorphic timestamp: envelope with Unix ms `timestamp` parses to canonic
   expect(u?.ts).toBe("2026-05-21T17:00:00.000Z");
 });
 
+// PR #59 review (codex): guard against out-of-range numeric timestamps. `new Date(...).toISOString()`
+// throws RangeError for values outside JS Date's ±100M-day range (e.g., nanosecond-epoch values).
+// One malformed envelope must not abort parsing for the whole session.
+test("polymorphic timestamp: out-of-range numeric timestamp returns undefined (does not throw)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // 1e30 ms is far beyond JS Date's valid range (~8.64e15 ms max).
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-ts-bad",
+      timestamp: "2026-05-21T17:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T17:00:01.000Z",
+      message: { role: "user", content: "ok" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-bad",
+      parentId: "u-1",
+      timestamp: 1e30,
+      message: { role: "user", content: "out-of-range ts" },
+    }),
+  ].join("\n")}\n`;
+  // Must not throw — the bad envelope is skipped, valid entries still emit.
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "u-1")).toBeDefined();
+  expect(trail.entries.find((e) => e.id === "u-bad")).toBeUndefined();
+});
+
+test("polymorphic timestamp: out-of-range Unix-ms numeric string returns undefined", async () => {
+  const { timestampToIso } = await import("./source.ts");
+  expect(timestampToIso(`1${"0".repeat(40)}`)).toBeUndefined();
+});
+
 test("polymorphic timestamp: ISO string passes through unchanged", async () => {
   const { parsePiJsonl } = await import("./parser.ts");
   const text = `${[
