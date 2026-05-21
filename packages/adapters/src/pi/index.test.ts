@@ -622,12 +622,12 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
 });
 
 // TDD step 7: Pi branch_summary.details surface in entry.metadata under reverse-domain key (spec §11)
-test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi-mono.branch_details']", async () => {
+test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
   const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
   const metadata = branchSummary?.metadata as Record<string, unknown> | undefined;
   expect(metadata).toBeDefined();
-  expect(metadata?.["dev.pi-mono.branch_details"]).toEqual({
+  expect(metadata?.["dev.pi.branch_details"]).toEqual({
     readFiles: ["spec.md"],
     modifiedFiles: ["x.md"],
   });

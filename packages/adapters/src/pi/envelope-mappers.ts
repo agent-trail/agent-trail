@@ -152,7 +152,7 @@ function mapBranchSummaryEnvelope(envelope: PiEnvelope, schemaVersion?: string):
         abandoned_branch_id: fromId,
         summary,
       },
-      ...(details !== undefined ? { metadata: { "dev.pi-mono.branch_details": details } } : {}),
+      ...(details !== undefined ? { metadata: { "dev.pi.branch_details": details } } : {}),
     } as Entry,
   ];
 }

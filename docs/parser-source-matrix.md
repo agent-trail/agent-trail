@@ -47,16 +47,19 @@ mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
 
 Tree and branch coverage (spec §12.1-12.3, §9.3): Pi is tree-native — every entry emits `parent_id`
 mirroring the source `parentId` chain, including forks where multiple envelopes share one
-`parentId`. Pi's native `branch_summary` envelopes (appended by pi-mono's `/tree` navigation; see
-`packages/coding-agent/src/core/compaction/branch-summarization.ts`) map to canonical
-`branch_summary` events. `payload.abandoned_branch_id` is resolved by walking the source `fromId`
-chain up to the divergence point with the active branch (active leaf = last envelope in source
-order per spec §12.2), then returning the entry id of the topmost source id on the abandoned side
-(the "root of abandoned branch"). When that walk degenerates (fromId is on the active path, or
-absent from the parent index), the resolver falls back to fromId's resolved entry id, then to the
-verbatim source string, so the emitted payload remains schema-valid. Pi-specific `details`
-(`readFiles`, `modifiedFiles`) are mirrored into `metadata["dev.pi-mono.branch_details"]` per spec
-§11 in addition to being preserved verbatim under `source.raw`.
+`parentId`. Pi's native `branch_summary` envelopes (appended by Pi's `/tree` navigation; see
+`packages/coding-agent/src/core/compaction/branch-summarization.ts` in
+[`earendil-works/pi`](https://github.com/earendil-works/pi), formerly `badlogic/pi-mono`) map to
+canonical `branch_summary` events. `payload.abandoned_branch_id` is resolved by walking the source
+`fromId` chain up to the divergence point with the active branch (active leaf = last envelope in
+source order per spec §12.2), then returning the entry id of the topmost source id on the abandoned
+side (the "root of abandoned branch"). When the divergence walk lands on a source id the adapter
+didn't emit an entry for (e.g. a `session_info` envelope that's currently dropped), the resolver
+walks deeper into the abandoned subtree, then climbs the parent chain from `fromId` to the nearest
+mapped ancestor; the verbatim source string is a last-resort fallback so the emitted payload remains
+schema-valid. Pi-specific `details` (`readFiles`, `modifiedFiles`) are mirrored into
+`metadata["dev.pi.branch_details"]` (reverse of `pi.dev`, the Pi product domain) per spec §11 in
+addition to being preserved verbatim under `source.raw`.
 
 Deferred shapes (covered by follow-up issue #20): `compaction`, `model_change`,
 `thinking_level_change`, `bashExecution`, `custom` / `custom_message`, `label`, `session_info`,
