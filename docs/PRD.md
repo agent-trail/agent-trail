@@ -880,7 +880,7 @@ Restating §4 with more detail:
 - **Reactions, comments, or annotation layers on shared sessions.** Trail files are immutable; conversation about a trail belongs to downstream products.
 - **On-chain anything.** Don't go there.
 
-End-to-end encrypted sharing is **deferred**, not non-goal. The spec already lists cryptographic signing as deferred (spec §4); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §8.6).
+End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §19); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §8.6).
 
 ---
 

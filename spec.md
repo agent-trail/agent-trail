@@ -995,7 +995,7 @@ This appendix is **non-normative**. It illustrates the kinds of tools and workfl
 
 7. **Deterministic statistics** — counts and distributions over events, tool kinds, durations, success rates, and file touch sets, all derivable from the canonical schema without semantic interpretation.
 8. **Pattern findings** — pre-defined mechanical checks for stuck loops, error storms, unmatched tool calls, oversized outputs, and other quality signals visible from event sequences.
-9. **Cost and token analytics** — per-model pricing applied to usage data on `agent_message.payload.usage`, including cache utilization and cross-tool comparison for the same task.
+9. **Cost and token analytics** — per-model pricing applied to token usage captured by adapters. Today usage lives in vendor metadata under reverse-domain keys (e.g., `io.anthropic.usage`, see §11); a canonical `usage` slot on `agent_message.payload` is proposed for v0.2.0. Either source enables cache-utilization tracking and cross-tool comparison for the same task.
 
 ### Quality & regression
 
