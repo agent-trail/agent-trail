@@ -1,0 +1,84 @@
+import type { Entry, Header } from "@agent-trail/types";
+import type { TrailFile } from "../index.ts";
+import type { BuiltEntry } from "./entry-metadata.ts";
+import { buildEntries } from "./envelope-mappers.ts";
+import { resolveEntryParents } from "./parenting.ts";
+import { type PiEnvelope, parseLines, versionString } from "./source.ts";
+
+function buildHeader(envelopes: PiEnvelope[]): Header {
+  const sessionRecord = envelopes.find((env) => env.type === "session");
+  if (sessionRecord === undefined) {
+    throw new Error("Pi session has no header record");
+  }
+  const id = sessionRecord.id;
+  const ts = sessionRecord.timestamp;
+  if (id === undefined || ts === undefined) {
+    throw new Error("Pi session header missing id or timestamp");
+  }
+  const version = versionString(sessionRecord.version);
+  const header: Header = {
+    type: "session",
+    schema_version: "0.1.0",
+    id,
+    ts,
+    agent: {
+      name: "pi",
+      ...(version !== undefined ? { version } : {}),
+    },
+  };
+  if (sessionRecord.cwd !== undefined) header.cwd = sessionRecord.cwd;
+  header.source = {
+    agent: "pi",
+    ...(version !== undefined ? { format_version: version } : {}),
+  };
+  return header;
+}
+
+function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
+  const parentBySourceId = new Map<string, string | null>();
+  for (const env of envelopes) {
+    if (env.type === "session") continue;
+    if (typeof env.id === "string") {
+      parentBySourceId.set(env.id, env.parentId ?? null);
+    }
+  }
+  return parentBySourceId;
+}
+
+export function parsePiJsonl(text: string): TrailFile {
+  const envelopes = parseLines(text);
+  const header = buildHeader(envelopes);
+  const sessionVersion = envelopes.find((env) => env.type === "session")?.version;
+  const parentBySourceId = buildParentIndex(envelopes);
+  const toolCallIdToEventId = new Map<string, string>();
+  const toolCallIdToToolKind = new Map<string, string>();
+  const built: BuiltEntry[] = [];
+  const sourceIdToLastEntryId = new Map<string, string>();
+
+  for (const envelope of envelopes) {
+    if (envelope.type === "session") continue;
+    const envelopeWithVersion: PiEnvelope =
+      envelope.version === undefined && sessionVersion !== undefined
+        ? { ...envelope, version: sessionVersion }
+        : envelope;
+    const entries = buildEntries(envelopeWithVersion, toolCallIdToEventId, toolCallIdToToolKind);
+    entries.forEach((entry, index) => {
+      built.push({
+        entry,
+        parentSourceId: envelopeWithVersion.parentId,
+        ...(index > 0 ? { localParentId: entries[index - 1]?.id } : {}),
+      });
+    });
+    if (typeof envelopeWithVersion.id === "string" && entries.length > 0) {
+      sourceIdToLastEntryId.set(
+        envelopeWithVersion.id,
+        entries[entries.length - 1]?.id ?? envelopeWithVersion.id,
+      );
+    }
+  }
+
+  return {
+    header,
+    entries: resolveEntryParents(built, parentBySourceId, sourceIdToLastEntryId) as Entry[],
+  };
+}

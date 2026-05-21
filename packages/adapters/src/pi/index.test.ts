@@ -1,0 +1,366 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { piAdapter, validateAdapterTrail } from "../index.ts";
+import { mangleCwd, piConfigDir, piProjectDir } from "./paths.ts";
+import { toolKindAndArgs } from "./tools.ts";
+
+let prevHome: string | undefined;
+let prevUserProfile: string | undefined;
+let prevPiConfigDir: string | undefined;
+let prevCwd: string;
+let tmpHome: string;
+let tmpCwd: string;
+
+beforeEach(() => {
+  prevHome = process.env.HOME;
+  prevUserProfile = process.env.USERPROFILE;
+  prevPiConfigDir = process.env.PI_CONFIG_DIR;
+  prevCwd = process.cwd();
+  tmpHome = mkdtempSync(join(tmpdir(), "pi-adapter-home-"));
+  tmpCwd = mkdtempSync(join(tmpdir(), "pi-adapter-cwd-"));
+  process.env.HOME = tmpHome;
+  delete process.env.USERPROFILE;
+  delete process.env.PI_CONFIG_DIR;
+  process.chdir(tmpCwd);
+});
+
+afterEach(() => {
+  process.chdir(prevCwd);
+  if (prevHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = prevHome;
+  }
+  if (prevUserProfile === undefined) {
+    delete process.env.USERPROFILE;
+  } else {
+    process.env.USERPROFILE = prevUserProfile;
+  }
+  if (prevPiConfigDir === undefined) {
+    delete process.env.PI_CONFIG_DIR;
+  } else {
+    process.env.PI_CONFIG_DIR = prevPiConfigDir;
+  }
+  rmSync(tmpHome, { recursive: true, force: true });
+  rmSync(tmpCwd, { recursive: true, force: true });
+});
+
+function createProjectDir(): string {
+  const configDir = piConfigDir();
+  if (configDir === undefined) throw new Error("test expected Pi config dir");
+  const dir = piProjectDir({ configDir, cwd: process.cwd() });
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const FIXTURE_PATH = new URL("../../tests/fixtures/pi/linear-flow.jsonl", import.meta.url).pathname;
+
+async function parseFixture() {
+  return piAdapter.parseSession({
+    id: "linear-flow",
+    adapter: "pi",
+    path: FIXTURE_PATH,
+  });
+}
+
+// TDD step 1: piAdapter name + TrailAdapter shape
+test("piAdapter has name 'pi'", () => {
+  expect(piAdapter.name).toBe("pi");
+});
+
+test("piAdapter implements TrailAdapter method surface", () => {
+  expect(typeof piAdapter.detectSessions).toBe("function");
+  expect(typeof piAdapter.parseSession).toBe("function");
+  expect(typeof piAdapter.isAvailable).toBe("function");
+  expect(typeof piAdapter.sourceVersion).toBe("function");
+});
+
+// TDD step 2: header building
+test("parseSession() builds a header from session record id, ts, version (int->string), cwd", async () => {
+  const trail = await parseFixture();
+  expect(trail.header).toEqual({
+    type: "session",
+    schema_version: "0.1.0",
+    id: "sess-pi-1",
+    ts: "2026-05-21T14:00:00.000Z",
+    agent: { name: "pi", version: "3" },
+    cwd: "/tmp/synthetic-project",
+    source: {
+      agent: "pi",
+      format_version: "3",
+    },
+  });
+});
+
+// TDD step 3: user_message mapping
+test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
+  const trail = await parseFixture();
+  const userMessage = trail.entries.find((e) => e.id === "pi-evt-1");
+  expect(userMessage).toBeDefined();
+  expect(userMessage?.type).toBe("user_message");
+  expect(userMessage?.ts).toBe("2026-05-21T14:00:01.000Z");
+  expect(userMessage?.payload).toEqual({ text: "please read spec.md" });
+  expect(userMessage?.parent_id).toBeUndefined();
+  expect(userMessage?.source?.original_type).toBe("message");
+});
+
+// TDD step 4: agent_message text mapping
+test("parseSession() emits an agent_message for assistant text blocks with model and stop_reason", async () => {
+  const trail = await parseFixture();
+  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-4");
+  expect(agentMsg).toBeDefined();
+  expect(agentMsg?.type).toBe("agent_message");
+  expect(agentMsg?.parent_id).toBe("pi-evt-3");
+  expect(agentMsg?.payload).toEqual({
+    text: "Spec loaded.",
+    model: "claude-sonnet-4-5",
+    stop_reason: "stop",
+  });
+});
+
+// TDD step 5: tool_call mapping (read -> file_read)
+test("parseSession() emits a tool_call for assistant toolCall blocks with semantic.call_id preserving toolCall.id", async () => {
+  const trail = await parseFixture();
+  const toolCall = trail.entries.find((e) => e.id === "pi-evt-2");
+  expect(toolCall).toBeDefined();
+  expect(toolCall?.type).toBe("tool_call");
+  expect(toolCall?.parent_id).toBe("pi-evt-1");
+  expect(toolCall?.payload).toEqual({
+    tool: "file_read",
+    args: { path: "spec.md" },
+  });
+  expect(toolCall?.semantic).toEqual({ call_id: "pi-call-1", tool_kind: "file_read" });
+});
+
+// TDD step 6: tool_result pairing via toolCallId
+test("parseSession() emits a tool_result for toolResult envelopes linked via toolCallId to the tool_call event id", async () => {
+  const trail = await parseFixture();
+  const toolResult = trail.entries.find((e) => e.id === "pi-evt-3");
+  expect(toolResult).toBeDefined();
+  expect(toolResult?.type).toBe("tool_result");
+  expect(toolResult?.parent_id).toBe("pi-evt-2");
+  expect(toolResult?.payload).toEqual({
+    for_id: "pi-evt-2",
+    ok: true,
+    output: "# Agent Trail Specification\n",
+  });
+  expect(toolResult?.semantic).toEqual({ call_id: "pi-call-1", tool_kind: "file_read" });
+});
+
+// TDD step 7: multi-entry assistant envelope chained via localParentId
+test("parseSession() chains multi-block assistant entries via localParentId within a single envelope", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-multi",
+      timestamp: "2026-05-21T15:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:00:01.000Z",
+      message: { role: "user", content: "do something" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:00:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "toolUse",
+        content: [
+          { type: "text", text: "let me check" },
+          { type: "toolCall", id: "call-x", name: "read", arguments: { path: "a.md" } },
+        ],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const ids = trail.entries.map((e) => e.id);
+  expect(ids).toEqual(["u-1", "a-1-text-0", "a-1-toolCall-1"]);
+  const text0 = trail.entries.find((e) => e.id === "a-1-text-0");
+  expect(text0?.type).toBe("agent_message");
+  expect(text0?.parent_id).toBe("u-1");
+  const callBlock = trail.entries.find((e) => e.id === "a-1-toolCall-1");
+  expect(callBlock?.type).toBe("tool_call");
+  expect(callBlock?.parent_id).toBe("a-1-text-0");
+});
+
+// TDD step 8: full fixture round-trips through validation with zero errors
+test("linear-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+// TDD step 9: canonical entry types only
+test("linear-flow fixture emits only canonical event types in source order", async () => {
+  const trail = await parseFixture();
+  expect(trail.entries.map((e) => e.type)).toEqual([
+    "user_message",
+    "tool_call",
+    "tool_result",
+    "agent_message",
+  ]);
+});
+
+test("every entry carries source metadata: agent='pi', original_type set, schema_version stringified, raw preserved", async () => {
+  const trail = await parseFixture();
+  for (const entry of trail.entries) {
+    expect(entry.source?.agent).toBe("pi");
+    expect(typeof entry.source?.original_type).toBe("string");
+    expect(entry.source?.schema_version).toBe("3");
+    expect(entry.source?.raw).toBeDefined();
+  }
+});
+
+// TDD step 10: detectSessions
+test("isAvailable() is false when project dir does not exist", async () => {
+  expect(await piAdapter.isAvailable()).toBe(false);
+});
+
+test("isAvailable() is true after project dir is created", async () => {
+  mkdirSync(createProjectDir(), { recursive: true });
+  expect(await piAdapter.isAvailable()).toBe(true);
+});
+
+test("mangleCwd() normalizes Windows separators and drive colons", () => {
+  expect(mangleCwd("C:\\Users\\somu\\repo")).toBe("C--Users-somu-repo");
+  expect(mangleCwd("C:/Users/somu/repo")).toBe("C--Users-somu-repo");
+});
+
+test("isAvailable() falls back to USERPROFILE when HOME is unset", async () => {
+  delete process.env.HOME;
+  process.env.USERPROFILE = tmpHome;
+  mkdirSync(createProjectDir(), { recursive: true });
+  expect(await piAdapter.isAvailable()).toBe(true);
+});
+
+test("detectSessions() honors PI_CONFIG_DIR", async () => {
+  const customConfigDir = mkdtempSync(join(tmpdir(), "pi-adapter-config-"));
+  process.env.PI_CONFIG_DIR = customConfigDir;
+  try {
+    const dir = createProjectDir();
+    writeFileSync(join(dir, "sess-custom.jsonl"), "");
+    expect(await piAdapter.detectSessions()).toEqual([
+      { id: "sess-custom", adapter: "pi", path: join(dir, "sess-custom.jsonl") },
+    ]);
+  } finally {
+    rmSync(customConfigDir, { recursive: true, force: true });
+  }
+});
+
+test("detectSessions() returns empty when project dir is missing", async () => {
+  expect(await piAdapter.detectSessions()).toEqual([]);
+});
+
+test("detectSessions() returns one SessionRef per .jsonl file, skipping other extensions", async () => {
+  const dir = createProjectDir();
+  writeFileSync(join(dir, "sess-a.jsonl"), "");
+  writeFileSync(join(dir, "sess-b.jsonl"), "");
+  writeFileSync(join(dir, "ignore.txt"), "");
+  const refs = await piAdapter.detectSessions();
+  const sorted = [...refs].sort((a, b) => a.id.localeCompare(b.id));
+  expect(sorted.map((r) => r.id)).toEqual(["sess-a", "sess-b"]);
+});
+
+// TDD step 12: sourceVersion
+test("sourceVersion() is null when no sessions exist", async () => {
+  expect(await piAdapter.sourceVersion()).toBeNull();
+});
+
+test("sourceVersion() reads the version field from the most recent session and stringifies integers", async () => {
+  const dir = createProjectDir();
+  const olderPath = join(dir, "older.jsonl");
+  const newerPath = join(dir, "newer.jsonl");
+  writeFileSync(
+    olderPath,
+    `${JSON.stringify({ type: "session", version: 2, id: "older", timestamp: "2026-05-21T14:00:00.000Z" })}\n`,
+  );
+  writeFileSync(
+    newerPath,
+    `${JSON.stringify({ type: "session", version: 3, id: "newer", timestamp: "2026-05-21T15:00:00.000Z" })}\n`,
+  );
+  const olderMtime = new Date("2026-05-21T14:00:00.000Z");
+  const newerMtime = new Date("2026-05-21T15:00:00.000Z");
+  utimesSync(olderPath, olderMtime, olderMtime);
+  utimesSync(newerPath, newerMtime, newerMtime);
+  expect(await piAdapter.sourceVersion()).toBe("3");
+});
+
+// TDD step 13: tool taxonomy coverage
+test("toolKindAndArgs maps Pi 'read' -> file_read", () => {
+  expect(toolKindAndArgs("read", { path: "a.md" })).toEqual({
+    tool: "file_read",
+    args: { path: "a.md" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
+  expect(toolKindAndArgs("write", { path: "a.md", content: "hi" })).toEqual({
+    tool: "file_write",
+    args: { path: "a.md", content: "hi" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'edit' -> file_edit with synthesized unified diff", () => {
+  expect(toolKindAndArgs("edit", { path: "a.md", oldString: "foo", newString: "bar" })).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@\n-foo\n+bar",
+    },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'bash' -> shell_command", () => {
+  expect(toolKindAndArgs("bash", { command: "ls" })).toEqual({
+    tool: "shell_command",
+    args: { command: "ls" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'grep' -> file_search", () => {
+  expect(toolKindAndArgs("grep", { pattern: "TODO", path: "src" })).toEqual({
+    tool: "file_search",
+    args: { query: "TODO", path: "src" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'glob' -> file_search", () => {
+  expect(toolKindAndArgs("glob", { pattern: "**/*.ts" })).toEqual({
+    tool: "file_search",
+    args: { query: "**/*.ts", glob: "**/*.ts" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'find' -> file_search", () => {
+  expect(toolKindAndArgs("find", { pattern: "*.md" })).toEqual({
+    tool: "file_search",
+    args: { query: "*.md", glob: "*.md" },
+  });
+});
+
+test("toolKindAndArgs maps Pi 'web' -> web_fetch", () => {
+  expect(toolKindAndArgs("web", { url: "https://example.com" })).toEqual({
+    tool: "web_fetch",
+    args: { url: "https://example.com" },
+  });
+});
+
+test("toolKindAndArgs falls back to 'other' for unknown tool names", () => {
+  expect(toolKindAndArgs("custom", { foo: "bar" })).toEqual({
+    tool: "other",
+    args: { name: "custom", args: { foo: "bar" } },
+  });
+});

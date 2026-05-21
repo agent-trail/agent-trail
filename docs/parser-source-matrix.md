@@ -16,7 +16,7 @@ An adapter is only considered supported once its row is `verified` with at least
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | — | — | — | — | — | — | — | — | pending verification |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/badlogic/pi-mono | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result | pi/linear-flow.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
 | Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
@@ -24,6 +24,17 @@ An adapter is only considered supported once its row is `verified` with at least
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
 
 Columns map directly to PRD §7.2. Cells use `—` when not yet determined. Source status (`open` / `closed`) reflects whether the source agent's session writer code is publicly available; it does not imply licensing of the trail format itself.
+
+Pi fixture coverage currently includes the linear-flow scenario only: session header (integer
+`version` stringified for `header.agent.version` and `header.source.format_version`), user message,
+assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired via `toolCallId`,
+and an assistant text message. Pi is tree-native (spec §12.1) so every entry emits `parent_id`
+mirroring the source `parentId` chain. Tool-name mapping covers `read`, `write`, `edit`, `bash`,
+`grep`, `glob`, `find`, `web`, `webSearch`; unknown tool names fall back to `other`. Deferred
+shapes (covered by follow-up issues #19 and #20): `branch_summary` and tree branches, `compaction`,
+`model_change`, `thinking_level_change`, `bashExecution`, `custom` / `custom_message`, `label`,
+`session_info`, `parentSession` forked sessions, `agent_thinking` from Pi `thinking` blocks,
+`user_interrupt` markers, polymorphic timestamp parsing, and the opt-in real-session test hook.
 
 Claude Code fixture coverage currently includes mixed assistant content blocks, multiple tool calls,
 multiple tool results, tool-result error state, user text blocks, thinking/redacted-thinking blocks,

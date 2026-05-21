@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"sess-pi-1","timestamp":"2026-05-21T14:00:00.000Z","cwd":"/tmp/synthetic-project"}
+{"type":"message","id":"pi-evt-1","parentId":null,"timestamp":"2026-05-21T14:00:01.000Z","message":{"role":"user","content":"please read spec.md"}}
+{"type":"message","id":"pi-evt-2","parentId":"pi-evt-1","timestamp":"2026-05-21T14:00:02.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"toolUse","content":[{"type":"toolCall","id":"pi-call-1","name":"read","arguments":{"path":"spec.md"}}]}}
+{"type":"message","id":"pi-evt-3","parentId":"pi-evt-2","timestamp":"2026-05-21T14:00:03.000Z","message":{"role":"toolResult","toolCallId":"pi-call-1","toolName":"read","isError":false,"content":[{"type":"text","text":"# Agent Trail Specification\n"}]}}
+{"type":"message","id":"pi-evt-4","parentId":"pi-evt-3","timestamp":"2026-05-21T14:00:04.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":[{"type":"text","text":"Spec loaded."}]}}
