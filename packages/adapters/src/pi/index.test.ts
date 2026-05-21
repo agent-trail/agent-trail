@@ -674,6 +674,51 @@ test("branch_summary with fromId on the active branch falls back to fromId's res
   expect(payload.abandoned_branch_id).toBe("u-1");
 });
 
+// Real-session smoke regression: pi-mono can set fromId to an envelope type the adapter doesn't
+// emit (session_info, model_change, custom, ...). When walking the abandoned chain hits a source id
+// with no entry, the resolver must keep walking — never emit an abandoned_branch_id that no entry
+// in the file actually carries.
+test("branch_summary with fromId on an unmapped envelope climbs to the nearest mapped ancestor", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-3",
+      timestamp: "2026-05-21T20:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T20:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "session_info",
+      id: "si-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T20:00:02.000Z",
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "si-1",
+      timestamp: "2026-05-21T20:00:03.000Z",
+      fromId: "si-1",
+      summary: "navigated through session_info",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  const allEntryIds = new Set(trail.entries.map((e) => e.id));
+  expect(payload.abandoned_branch_id).toBeDefined();
+  expect(allEntryIds.has(payload.abandoned_branch_id as string)).toBe(true);
+  expect(payload.abandoned_branch_id).toBe("u-1");
+});
+
 // TDD step 9: degenerate case — fromId references no envelope id in the file.
 // Walk produces no shared ancestor; fall back to the verbatim fromId string so payload stays valid.
 test("branch_summary with unknown fromId falls back to the verbatim fromId string", async () => {

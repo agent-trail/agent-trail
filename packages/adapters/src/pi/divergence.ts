@@ -15,28 +15,53 @@ function pathToRootInSourceIds(
   return path.reverse();
 }
 
+function nearestMappedAncestor(
+  startSourceId: string,
+  parentBySourceId: Map<string, string | null>,
+  sourceIdToLastEntryId: Map<string, string>,
+): string | undefined {
+  let cursor: string | null | undefined = startSourceId;
+  const guard = new Set<string>();
+  while (typeof cursor === "string") {
+    if (guard.has(cursor)) return undefined;
+    guard.add(cursor);
+    const entry = sourceIdToLastEntryId.get(cursor);
+    if (entry !== undefined) return entry;
+    cursor = parentBySourceId.get(cursor) ?? null;
+  }
+  return undefined;
+}
+
 export function findAbandonedBranchRootId(
   fromSourceId: string,
   activeLeafSourceId: string | undefined,
   parentBySourceId: Map<string, string | null>,
   sourceIdToLastEntryId: Map<string, string>,
 ): string {
-  const resolveOrSelf = (sourceId: string) => sourceIdToLastEntryId.get(sourceId) ?? sourceId;
-  if (activeLeafSourceId === undefined) return resolveOrSelf(fromSourceId);
+  const fallback = () =>
+    nearestMappedAncestor(fromSourceId, parentBySourceId, sourceIdToLastEntryId) ?? fromSourceId;
+
+  if (activeLeafSourceId === undefined) return fallback();
 
   const active = pathToRootInSourceIds(activeLeafSourceId, parentBySourceId);
   const abandoned = pathToRootInSourceIds(fromSourceId, parentBySourceId);
 
-  if (abandoned.length === 0) return resolveOrSelf(fromSourceId);
+  if (abandoned.length === 0) return fallback();
 
   let i = 0;
   while (i < active.length && i < abandoned.length && active[i] === abandoned[i]) {
     i += 1;
   }
-  // fromId entirely on active path (degenerate — pi-mono normally never appends a branch_summary
-  // pointing into the active branch; fall back to fromId's own entry id).
-  if (i >= abandoned.length) return resolveOrSelf(fromSourceId);
-  // No shared ancestor (fromId in a disjoint subgraph; fall back to fromId).
-  if (i === 0) return resolveOrSelf(fromSourceId);
-  return resolveOrSelf(abandoned[i] as string);
+  if (i === 0) return fallback(); // no shared ancestor
+  if (i >= abandoned.length) return fallback(); // fromId fully on active path
+
+  // Walk deeper into the abandoned subtree until we find a source id that emitted an entry.
+  for (let j = i; j < abandoned.length; j += 1) {
+    const candidate = abandoned[j] as string;
+    const entry = sourceIdToLastEntryId.get(candidate);
+    if (entry !== undefined) return entry;
+  }
+  // Abandoned subtree exists in topology but emits no entries (all envelopes were unmapped types).
+  // Fall back to nearest mapped ancestor of fromId (climbs the shared portion of the chain).
+  return fallback();
 }
