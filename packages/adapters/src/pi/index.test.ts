@@ -1306,6 +1306,48 @@ test("Pi `compaction` envelope with tokensBefore as numeric string coerces to to
   expect((compact?.payload as { tokens_before?: number }).tokens_before).toBe(12000);
 });
 
+// PR #59 review (codex): missing/non-string `summary` on a `compaction` envelope must NOT emit a
+// context_compact with an invented empty summary — downstream consumers can no longer distinguish
+// a real empty summary from missing source data. Drop the entry instead.
+test("Pi `compaction` envelope without a string summary emits no context_compact entry", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-comp-no-summary",
+      timestamp: "2026-05-21T16:07:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T16:07:01.000Z",
+      message: { role: "user", content: "x" },
+    }),
+    JSON.stringify({
+      type: "compaction",
+      id: "comp-bad",
+      parentId: "u-1",
+      timestamp: "2026-05-21T16:07:02.000Z",
+      tokensBefore: 100,
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-2",
+      parentId: "comp-bad",
+      timestamp: "2026-05-21T16:07:03.000Z",
+      message: { role: "user", content: "after" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.id === "comp-bad")).toBeUndefined();
+  // Parent chain still resolves: u-2's source parentId points at the dropped envelope, so
+  // resolveEntryParents() climbs to the nearest mapped ancestor (u-1).
+  expect(trail.entries.find((e) => e.id === "u-2")?.parent_id).toBe("u-1");
+});
+
 // Slice 5: model_change from Pi `model_change` envelope (pi-mono session-manager `ModelChangeEntry`).
 // from_model is the last assistant.message.model observed (or last model_change.modelId).
 test("Pi `model_change` envelope emits model_change with to_model and from_model from prior assistant", async () => {

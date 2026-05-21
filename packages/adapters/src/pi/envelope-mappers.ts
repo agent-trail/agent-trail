@@ -236,7 +236,11 @@ function mapCompactionEnvelope(envelope: PiEnvelope, schemaVersion?: string): En
     schemaVersion,
   });
   if (base === undefined) return [];
-  const summary = stringValue(envelope.summary) ?? "";
+  // Pi-mono `CompactionEntry.summary` is typed `string`. A missing or non-string `summary` means
+  // partial/corrupt source data — drop the entry rather than fabricate an empty payload that
+  // downstream consumers cannot distinguish from a real empty summary.
+  const summary = stringValue(envelope.summary);
+  if (summary === undefined) return [];
   const tokensBefore = numericValue(envelope.tokensBefore);
   const firstKeptEntryId = envelope.firstKeptEntryId;
   const fromHook = envelope.fromHook;
