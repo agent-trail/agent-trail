@@ -185,12 +185,13 @@ export function toolKindAndArgs(
     }
     case "ls": {
       // Pi `ls` lists a directory; spec §10 has no `list_directory` kind. Synthesize
-      // a `shell_command` of the form `ls <path>` so readers render it shell-style.
-      // Original Pi args remain available in `source.raw` for high-fidelity readers.
+      // a `shell_command` of the form `ls -- <path>` (POSIX option terminator) so
+      // paths beginning with `-` are not parsed as flags by replay tools. Original
+      // Pi args remain available in `source.raw` for high-fidelity readers.
       const path = stringValue(args.path);
       return {
         tool: "shell_command",
-        args: { command: path !== undefined ? `ls ${quoteShellArg(path)}` : "ls" },
+        args: { command: path !== undefined ? `ls -- ${quoteShellArg(path)}` : "ls" },
       };
     }
   }

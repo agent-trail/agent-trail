@@ -522,10 +522,10 @@ test("toolKindAndArgs maps Pi 'find' -> file_search with pattern/path", () => {
   });
 });
 
-test("toolKindAndArgs maps Pi 'ls' -> shell_command with synthesized 'ls <path>' command", () => {
+test("toolKindAndArgs maps Pi 'ls' -> shell_command with synthesized 'ls -- <path>' command", () => {
   expect(toolKindAndArgs("ls", { path: "src" })).toEqual({
     tool: "shell_command",
-    args: { command: "ls src" },
+    args: { command: "ls -- src" },
   });
   expect(toolKindAndArgs("ls", {})).toEqual({
     tool: "shell_command",
@@ -533,7 +533,16 @@ test("toolKindAndArgs maps Pi 'ls' -> shell_command with synthesized 'ls <path>'
   });
   expect(toolKindAndArgs("ls", { path: "dir with space" })).toEqual({
     tool: "shell_command",
-    args: { command: "ls 'dir with space'" },
+    args: { command: "ls -- 'dir with space'" },
+  });
+});
+
+test("toolKindAndArgs guards 'ls' against paths beginning with '-' via POSIX option terminator", () => {
+  // Without `--`, `ls -rf` would be parsed as flags and might recurse/force-fail
+  // instead of listing the literal directory `-rf`.
+  expect(toolKindAndArgs("ls", { path: "-rf" })).toEqual({
+    tool: "shell_command",
+    args: { command: "ls -- -rf" },
   });
 });
 
