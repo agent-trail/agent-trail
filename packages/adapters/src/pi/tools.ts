@@ -8,11 +8,20 @@ function quoteShellArg(value: string): string {
   return /^[A-Za-z0-9_\-./@:+=]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+// `oldText` / `newText` may span multiple lines. A unified diff requires every
+// removed line to be prefixed with `-` and every added line with `+`, so we
+// split on `\n` and prefix each line individually. Empty `oldText` (pure insert)
+// and empty `newText` (pure delete) emit no `-`/`+` lines respectively.
+function prefixLines(text: string, prefix: string): string[] {
+  if (text.length === 0) return [];
+  return text.split("\n").map((line) => `${prefix}${line}`);
+}
+
 function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
   return [
     `--- a/${path}`,
     `+++ b/${path}`,
-    ...hunks.flatMap((h) => ["@@", `-${h.oldText}`, `+${h.newText}`]),
+    ...hunks.flatMap((h) => ["@@", ...prefixLines(h.oldText, "-"), ...prefixLines(h.newText, "+")]),
   ].join("\n");
 }
 

@@ -356,6 +356,29 @@ test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
   });
 });
 
+test("toolKindAndArgs builds a valid unified diff for multi-line oldText/newText (prefixes every line)", () => {
+  const result = toolKindAndArgs("edit", {
+    path: "a.md",
+    oldText: "line1\nline2\nline3",
+    newText: "newA\nnewB",
+  });
+  expect(result.tool).toBe("file_edit");
+  const args = result.args as { diff: string };
+  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n-line1\n-line2\n-line3\n+newA\n+newB");
+});
+
+test("toolKindAndArgs handles pure-insertion edit (empty oldText, multi-line newText)", () => {
+  const result = toolKindAndArgs("edit", { path: "a.md", oldText: "", newText: "hi\nthere" });
+  const args = (result as { args: { diff: string } }).args;
+  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n+hi\n+there");
+});
+
+test("toolKindAndArgs handles pure-deletion edit (multi-line oldText, empty newText)", () => {
+  const result = toolKindAndArgs("edit", { path: "a.md", oldText: "del1\ndel2", newText: "" });
+  const args = (result as { args: { diff: string } }).args;
+  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@\n-del1\n-del2");
+});
+
 test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -> file_edit", () => {
   expect(toolKindAndArgs("edit", { path: "a.md", oldText: "foo", newText: "bar" })).toEqual({
     tool: "file_edit",
