@@ -753,6 +753,124 @@ test("branch_summary with unknown fromId falls back to the verbatim fromId strin
   expect(payload.abandoned_branch_id).toBe("missing-source-id");
 });
 
+// Codex P1 (multi-branch) regression: with two `/tree` navigations in one session, each summary
+// must be resolved against ITS OWN local active leaf (the arrival point at the time it was
+// written), not the final file leaf. Otherwise an earlier summary gets reinterpreted using a
+// later branch's state.
+//
+// Tree shape:
+//   u-root
+//   ├── a-A1 → u-A2 → a-A3   (abandoned by bs-1)
+//   ├── a-B1 → u-B2 → a-B3   (active after bs-1, abandoned by bs-2)
+//   └── a-C1 → u-C2 → a-C3   (active after bs-2 — final file leaf)
+//
+// bs-1: fromId=a-A3, parentId=a-B1  → active leaf at write time = a-B1; root of abandoned = a-A1.
+// bs-2: fromId=a-B3, parentId=a-C1  → active leaf at write time = a-C1; root of abandoned = a-B1.
+//
+// Before the fix, both summaries shared the file-final active leaf (descendant of a-C1), so
+// bs-1's abandoned path (rooted at a-A1) shares an ancestor only at u-root with that active
+// path; algorithm picks the correct root by luck. The clearer failure is bs-2: its abandoned
+// branch (a-B1) is a sibling of the active branch (a-C1), and the SHARED active leaf still
+// works for bs-2 too. So we need a sharper shape: bs-2's abandoned branch must be deeper than
+// the global active leaf would imply. Make bs-2 abandon the C branch in favor of A — i.e.
+// re-activate A — so the global active leaf (a-A3) misroots bs-2.
+test("branch_summary: each summary uses its own local active leaf (multi-branch session)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // Sequence of /tree navigations: start on A, jump to B (bs-1 abandons A), jump back to A
+  // (bs-2 abandons B). Final file leaf is on A.
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-multi-bs",
+      timestamp: "2026-05-21T23:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-root",
+      parentId: null,
+      timestamp: "2026-05-21T23:00:01.000Z",
+      message: { role: "user", content: "start" },
+    }),
+    // Branch A
+    JSON.stringify({
+      type: "message",
+      id: "a-A1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T23:00:02.000Z",
+      message: { role: "assistant", content: "A1" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-A2",
+      parentId: "a-A1",
+      timestamp: "2026-05-21T23:00:03.000Z",
+      message: { role: "user", content: "A2" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-A3",
+      parentId: "u-A2",
+      timestamp: "2026-05-21T23:00:04.000Z",
+      message: { role: "assistant", content: "A3" },
+    }),
+    // Branch B (sibling of A at u-root), introduced via bs-1
+    JSON.stringify({
+      type: "message",
+      id: "a-B1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T23:00:05.000Z",
+      message: { role: "assistant", content: "B1" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "a-B1",
+      timestamp: "2026-05-21T23:00:06.000Z",
+      fromId: "a-A3",
+      summary: "abandoned A, switching to B",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-B2",
+      parentId: "bs-1",
+      timestamp: "2026-05-21T23:00:07.000Z",
+      message: { role: "user", content: "B2" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-B3",
+      parentId: "u-B2",
+      timestamp: "2026-05-21T23:00:08.000Z",
+      message: { role: "assistant", content: "B3" },
+    }),
+    // Re-activate A via bs-2 (parent = A's deepest leaf).
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-2",
+      parentId: "a-A3",
+      timestamp: "2026-05-21T23:00:09.000Z",
+      fromId: "a-B3",
+      summary: "abandoned B, back to A",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-A4",
+      parentId: "bs-2",
+      timestamp: "2026-05-21T23:00:10.000Z",
+      message: { role: "user", content: "A4" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const bs1 = trail.entries.find((e) => e.id === "bs-1");
+  const bs2 = trail.entries.find((e) => e.id === "bs-2");
+  expect((bs1?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-A1");
+  // bs-2 was written when the user just jumped back to A. Local active leaf = a-A3.
+  // Abandoned branch = B subtree.  Root of abandoned branch = a-B1 (child of u-root on B side).
+  expect((bs2?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-B1");
+});
+
 // Codex P2 regression: when the divergence node on the abandoned side is a Pi envelope that fans
 // out into multiple Agent Trail entries (text + toolCall blocks in one assistant envelope),
 // `abandoned_branch_id` must point at the **first** emitted entry of that envelope (the entry

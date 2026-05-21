@@ -46,25 +46,6 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
   return parentBySourceId;
 }
 
-// Spec §12.2: active leaf is the last event in the file. Restricting the search to envelopes that
-// actually emit entries keeps unmapped trailing metadata (e.g. session_info, label, model_change)
-// from poisoning the divergence walk — those envelopes don't participate in the emitted parent
-// graph, so choosing one as the active leaf can collapse the shared-ancestor walk and misroot
-// otherwise-valid branch summaries.
-function findActiveLeafSourceId(
-  envelopes: PiEnvelope[],
-  sourceIdToLastEntryId: Map<string, string>,
-): string | undefined {
-  for (let i = envelopes.length - 1; i >= 0; i -= 1) {
-    const env = envelopes[i];
-    if (env === undefined) continue;
-    if (typeof env.id !== "string") continue;
-    if (!sourceIdToLastEntryId.has(env.id)) continue;
-    return env.id;
-  }
-  return undefined;
-}
-
 export function parsePiJsonl(text: string): TrailFile {
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes);
@@ -107,14 +88,18 @@ export function parsePiJsonl(text: string): TrailFile {
     }
   }
 
-  const activeLeafSourceId = findActiveLeafSourceId(envelopes, sourceIdToLastEntryId);
-
-  // Now that the entry maps are complete, refine branch_summary entries' abandoned_branch_id by
-  // walking from the Pi source `fromId` up to the divergence point with the active branch.
+  // Refine branch_summary entries' abandoned_branch_id by walking from the Pi source `fromId` up
+  // to the divergence point with the active branch. Active leaf is resolved *per summary* against
+  // the arrival point at write-time (`envelope.parentId`) — not a single file-global leaf —
+  // because sessions with multiple `/tree` navigations have multiple active branches over time,
+  // and reusing the final file leaf would reinterpret earlier summaries through a later branch's
+  // state.
   for (const builtEntry of built) {
     const envelope = branchSummaryEnvelopeByEntryId.get(builtEntry.entry.id);
     if (envelope === undefined) continue;
     if (typeof envelope.fromId !== "string") continue;
+    const activeLeafSourceId =
+      typeof envelope.parentId === "string" ? envelope.parentId : undefined;
     const resolved = findAbandonedBranchRootId(
       envelope.fromId,
       activeLeafSourceId,
