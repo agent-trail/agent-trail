@@ -173,6 +173,8 @@ Explicitly out of scope to keep focus:
 - **Auto-capture daemon (v0-v1).** Manual share is the v1 surface; auto-capture deferred.
 - **Interview / hiring tools.** Possible adjacent market later, but not a v1 product surface.
 - **Mobile clients.** Web viewer is mobile-responsive; native mobile app not on the roadmap.
+- **Team session library / apprentice mode.** Curated team-internal session repositories with onboarding flows are vertical-product features; they belong to products built on Agent Trail, not the format.
+- **Reactions and comments on shared sessions.** Annotation layers on top of shared artifacts are product features. Agent Trail keeps trail files immutable; comment threads belong to downstream products.
 
 ---
 
@@ -279,6 +281,9 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 - `trail load <url>` — fetch and decode a shared session.
 - `trail export <id> --format <html|md|jsonl>` — local export.
 - `trail validate <file>` — validate against schema.
+- `trail analyze <file>` — deterministic stats and findings on a trail (v0.2; tracker #66).
+
+LLM-driven workflows (summarising a trail, packaging a handoff for another agent, distilling a session into a reusable prompt) ship as **skills** rather than CLI commands so the user's own agent and model do the synthesis. See §7.9.
 
 ### 7.5 Website (`agent-trail.dev`)
 
@@ -316,6 +321,32 @@ Site precedent: TOML (`toml.io`) is the closest model — light landing + versio
 - Separate products may use Agent Trail as a component.
 - This project does not define service-side storage, authentication, or team-product workflows.
 - Product-specific requirements belong outside this PRD.
+
+### 7.9 Skills
+
+Skills are markdown instruction files that live in the repo under `skills/`. They are invoked inside the user's own coding agent (Claude Code skill format primary; generic markdown template documented for other agents). The user's agent and model do the LLM-side work. No LLM dependency lands in Agent Trail's CLI or runtime.
+
+| Skill | Verb | Tracker | Use case |
+|---|---|---|---|
+| `summarise` | describe | #63 | Take any trail file → emit summary in current agent context |
+| `handoff` | pack | #64 | Capture current session → save as md/jsonl at user-chosen path for transfer to another agent |
+| `distill` | extract | #67 | Convert a trail file into a reusable system prompt or Claude Code skill scaffold |
+| `profile` | aggregate | #68 | Cross-session, cross-agent: produce `PROFILE.md` describing the user (style, preferences, workflows, anti-patterns) that future agents ingest as context |
+
+Skills compose with `trail export`, `trail load`, and `@agent-trail/analyze`. They do not introduce spec changes. Additional skills (e.g., a future semantic-search skill, §7.10) follow the same pattern.
+
+### 7.10 Future product surfaces
+
+Surfaces that are not in v1 scope but stay on the roadmap. Each is an application built on the format, not a format change.
+
+| Surface | Phase | Notes |
+|---|---|---|
+| `@agent-trail/analyze` package and `trail analyze` command | Phase 1 → v0.2 | Tracker #66. Stats + findings v1; pairwise comparison (`trail diff`) follow-on. Cost section lights up when token usage spec lands (#65). |
+| `@agent-trail/replay` — replay tool calls against new tool implementations and diff outputs | Phase 2 | Turns trails into regression-test corpora. Sandboxed defaults; per-tool-kind opt-in for side-effecting tools. |
+| GitHub Action for PR session digests | Phase 2 | Surfaces analyze output as a PR comment when a PR description references a trail (gist URL, inline JSONL, or Agent Trace `conversation.url`). Adoption depends on the share or attribution flow being active. |
+| VS Code extension — native `.trail.jsonl` viewer | Phase 3 | Custom editor with timeline render, sidebar workspace list, jump-to-source. Shares `@agent-trail/viewer-core` with the website. Cursor (VS Code fork) works automatically. |
+| Cross-session causality graph queries | Phase 3 | Index local store by `fork_from` and `derived_from`. Queries: ancestors, descendants, render DAG. Useful for audit/compliance. Lands once derivation chains exist in practice. |
+| Semantic search skill | Phase 3 | Skill that uses the user's chosen embedding API to index local trails and answer semantic queries. Complements text search via `trail list --search`. No daemon, no bundled vector store. |
 
 ---
 
@@ -707,13 +738,17 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 | Deliverable | Effort | Notes |
 |---|---|---|
-| Spec v0.2 — based on implementation feedback | ongoing | Likely compression, signing, multi-file |
+| Spec v0.2 — based on implementation feedback | ongoing | Likely compression, signing, multi-file. Token usage tracking (#65) and source.raw envelope_ref (#60) already scoped. |
 | Community adapter PRs reviewed and merged | ongoing | Target: 5 more adapters via community |
-| **PR/MR review integration** | 2 weeks | GitHub Action that posts session digest comments on PRs referencing trail URLs. Inspired by hwisu/opensession's PR automation. |
+| `@agent-trail/analyze` package and `trail analyze` command | 3 weeks | Tracker #66. Deterministic stats + findings; cost section unlocks via #65. |
+| Summarise, handoff, distill, profile skills | 3-4 weeks total | Trackers #63, #64, #67, #68. Compose with `trail export` and the user's own agent. `profile` is cross-session and produces a `PROFILE.md` portable across agents. |
+| `@agent-trail/replay` — tool-call replay and diff | 5 weeks | Turns trails into regression-test corpora. Sandboxed defaults. |
+| **PR/MR review integration** | 2 weeks | GitHub Action that posts analyze output as a digest comment on PRs referencing a trail (gist URL, inline JSONL, or Agent Trace link). |
 | **Cleanup automation** | 1 week | TTL-based cleanup of shared sessions (gist deletion after N days, configurable). |
 | TypeScript SDK improvements | 1 week | Based on implementation and community feedback |
 | Self-hosted index (lightweight, optional) | 2 weeks | For team scenarios |
 | Tree view in web viewer | 1 week | If demand exists |
+| `trail analyze --compare` (pairwise diff) | 2 weeks | Follow-on to #66; cross-agent benchmarking on the same task. |
 
 **Phase 2 exit criteria:**
 
@@ -730,7 +765,9 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 | Deliverable | Effort | Notes |
 |---|---|---|
 | Tauri desktop app | 3 weeks | Local indexing, search; still open source |
-| **Local vector search via Ollama** | 2 weeks | Optional; embeddings for semantic session search. Pattern from hwisu/opensession. |
+| VS Code extension | 6 weeks | Native `.trail.jsonl` editor with timeline render, sidebar workspace list, jump-to-source. Shares `@agent-trail/viewer-core` with the website. Cursor (VS Code fork) works automatically. |
+| Semantic search skill | 1-2 weeks | Skill that uses the user's chosen embedding API to index local trails. No bundled vector store; no daemon. |
+| Cross-session causality graph | 2 weeks | Index local store by `fork_from` and `derived_from`. Queries: ancestors, descendants, render DAG. Lands once derivation chains exist in practice. |
 | Governance process | ongoing | RFCs, compatibility policy, release cadence |
 | Language SDKs | ongoing | Community-maintained ports for Python, Rust, Go, etc. |
 | Reference integrations | ongoing | Examples showing how separate products can use Agent Trail |
@@ -839,7 +876,11 @@ Restating §4 with more detail:
 - **Interview integrity / hiring tools.** Adjacent market; not v1.
 - **Training-data dataset hosting.** Hugging Face does this; Agent Trail feeds into it but doesn't host.
 - **Service-product concerns such as SSO, RBAC, and multi-tenancy.** These belong to separate products that may use Agent Trail.
+- **Team session library / apprentice mode.** Curated team-internal session repositories with onboarding flows are vertical-product features.
+- **Reactions, comments, or annotation layers on shared sessions.** Trail files are immutable; conversation about a trail belongs to downstream products.
 - **On-chain anything.** Don't go there.
+
+End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §19); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §8.6).
 
 ---
 
