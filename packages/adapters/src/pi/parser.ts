@@ -1,5 +1,6 @@
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { findAbandonedBranchRootId } from "./divergence.ts";
 import type { BuiltEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
@@ -53,7 +54,13 @@ export function parsePiJsonl(text: string): TrailFile {
   const toolCallIdToEventId = new Map<string, string>();
   const toolCallIdToToolKind = new Map<string, string>();
   const built: BuiltEntry[] = [];
+  // `sourceIdToLastEntryId` powers parent resolution (the *last* emitted entry of an envelope is
+  // the entry subsequent envelopes should chain off of). `sourceIdToFirstEntryId` is used by the
+  // branch-summary divergence walk, where spec §9.3 "root of abandoned branch" means the
+  // top-most entry on the abandoned side — i.e. the *first* entry of the divergence envelope.
   const sourceIdToLastEntryId = new Map<string, string>();
+  const sourceIdToFirstEntryId = new Map<string, string>();
+  const branchSummaryEnvelopeByEntryId = new Map<string, PiEnvelope>();
 
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
@@ -72,6 +79,36 @@ export function parsePiJsonl(text: string): TrailFile {
     });
     if (typeof envelope.id === "string" && entries.length > 0) {
       sourceIdToLastEntryId.set(envelope.id, entries[entries.length - 1]?.id ?? envelope.id);
+      sourceIdToFirstEntryId.set(envelope.id, entries[0]?.id ?? envelope.id);
+    }
+    if (envelope.type === "branch_summary") {
+      for (const entry of entries) {
+        branchSummaryEnvelopeByEntryId.set(entry.id, envelope);
+      }
+    }
+  }
+
+  // Refine branch_summary entries' abandoned_branch_id by walking from the Pi source `fromId` up
+  // to the divergence point with the active branch. Active leaf is resolved *per summary* against
+  // the arrival point at write-time (`envelope.parentId`) — not a single file-global leaf —
+  // because sessions with multiple `/tree` navigations have multiple active branches over time,
+  // and reusing the final file leaf would reinterpret earlier summaries through a later branch's
+  // state.
+  for (const builtEntry of built) {
+    const envelope = branchSummaryEnvelopeByEntryId.get(builtEntry.entry.id);
+    if (envelope === undefined) continue;
+    if (typeof envelope.fromId !== "string") continue;
+    const activeLeafSourceId =
+      typeof envelope.parentId === "string" ? envelope.parentId : undefined;
+    const resolved = findAbandonedBranchRootId(
+      envelope.fromId,
+      activeLeafSourceId,
+      parentBySourceId,
+      sourceIdToFirstEntryId,
+    );
+    const payload = builtEntry.entry.payload as Record<string, unknown> | undefined;
+    if (payload !== undefined) {
+      payload.abandoned_branch_id = resolved;
     }
   }
 

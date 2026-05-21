@@ -64,12 +64,22 @@ function createProjectDir(): string {
 }
 
 const FIXTURE_PATH = new URL("../../tests/fixtures/pi/linear-flow.jsonl", import.meta.url).pathname;
+const BRANCH_FIXTURE_PATH = new URL("../../tests/fixtures/pi/branch-flow.jsonl", import.meta.url)
+  .pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
     id: "linear-flow",
     adapter: "pi",
     path: FIXTURE_PATH,
+  });
+}
+
+async function parseBranchFixture() {
+  return piAdapter.parseSession({
+    id: "branch-flow",
+    adapter: "pi",
+    path: BRANCH_FIXTURE_PATH,
   });
 }
 
@@ -551,4 +561,463 @@ test("toolKindAndArgs falls back to 'other' for non-built-in tool names (e.g., M
     tool: "other",
     args: { name: "custom_mcp_tool", args: { foo: "bar" } },
   });
+});
+
+// Issue #19: tree branch semantics (spec §12.1-12.3, §9.3 branch_summary)
+
+// TDD step 1: fixture loads and validates end-to-end
+test("branch-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
+  const trail = await parseBranchFixture();
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+// TDD step 2: forked parentId graph produces multiple entries sharing one parent_id
+test("branch-flow produces a fork at pi-a1: both pi-u2 and pi-u3 reference it as parent_id", async () => {
+  const trail = await parseBranchFixture();
+  const childIds = new Set(trail.entries.filter((e) => e.parent_id === "pi-a1").map((e) => e.id));
+  expect(childIds.has("pi-u2")).toBe(true);
+  expect(childIds.has("pi-u3")).toBe(true);
+});
+
+// TDD step 3: branch_summary envelope produces a branch_summary entry with payload.summary
+test("branch-flow emits a branch_summary entry carrying payload.summary from the Pi envelope", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  expect(branchSummary).toBeDefined();
+  expect(branchSummary?.type).toBe("branch_summary");
+  expect((branchSummary?.payload as { summary?: string }).summary).toBe(
+    "Explored X, switching to Y.",
+  );
+});
+
+// TDD step 4: branch_summary entry's parent_id is resolved via the same parentId chain as messages
+test("branch-flow branch_summary entry has parent_id resolved from envelope parentId (pi-a1)", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  expect(branchSummary?.parent_id).toBe("pi-a1");
+});
+
+// TDD step 5: abandoned_branch_id walks fromId up to the divergence point with the active branch.
+// Active leaf = last envelope in source order (pi-a3). Abandoned path from fromId pi-a2 = [pi-a2, pi-u2, pi-a1].
+// Active path from pi-a3 = [pi-a3, pi-u3, pi-a1]. Shared root ancestor = pi-a1.
+// Per spec §9.3 "root of abandoned branch" = topmost entry on abandoned side = child of divergence = pi-u2.
+test("branch-flow branch_summary.abandoned_branch_id resolves to root of abandoned branch (pi-u2)", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("pi-u2");
+});
+
+// TDD step 6: source.raw preserves the original Pi envelope (fromId, summary, details)
+test("branch-flow branch_summary entry preserves the original envelope under source.raw", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const raw = branchSummary?.source?.raw as Record<string, unknown>;
+  expect(raw?.type).toBe("branch_summary");
+  expect(raw?.fromId).toBe("pi-a2");
+  expect(raw?.summary).toBe("Explored X, switching to Y.");
+  expect(raw?.details).toEqual({ readFiles: ["spec.md"], modifiedFiles: ["x.md"] });
+});
+
+// TDD step 7: Pi branch_summary.details surface in entry.metadata under reverse-domain key (spec §11)
+test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi.branch_details']", async () => {
+  const trail = await parseBranchFixture();
+  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const metadata = branchSummary?.metadata as Record<string, unknown> | undefined;
+  expect(metadata).toBeDefined();
+  expect(metadata?.["dev.pi.branch_details"]).toEqual({
+    readFiles: ["spec.md"],
+    modifiedFiles: ["x.md"],
+  });
+});
+
+// TDD step 8: degenerate case — fromId is an ancestor of the active leaf.
+// Divergence walk can't refine; fall back to fromId's resolved entry id so the entry stays valid.
+test("branch_summary with fromId on the active branch falls back to fromId's resolved entry id", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-1",
+      timestamp: "2026-05-21T18:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T18:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T18:00:02.000Z",
+      message: { role: "assistant", content: "ok" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T18:00:03.000Z",
+      fromId: "u-1",
+      summary: "noop nav",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("u-1");
+});
+
+// Real-session smoke regression: pi-mono can set fromId to an envelope type the adapter doesn't
+// emit (session_info, model_change, custom, ...). When walking the abandoned chain hits a source id
+// with no entry, the resolver must keep walking — never emit an abandoned_branch_id that no entry
+// in the file actually carries.
+test("branch_summary with fromId on an unmapped envelope climbs to the nearest mapped ancestor", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-3",
+      timestamp: "2026-05-21T20:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T20:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "session_info",
+      id: "si-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T20:00:02.000Z",
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "si-1",
+      timestamp: "2026-05-21T20:00:03.000Z",
+      fromId: "si-1",
+      summary: "navigated through session_info",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  const allEntryIds = new Set(trail.entries.map((e) => e.id));
+  expect(payload.abandoned_branch_id).toBeDefined();
+  expect(allEntryIds.has(payload.abandoned_branch_id as string)).toBe(true);
+  expect(payload.abandoned_branch_id).toBe("u-1");
+});
+
+// TDD step 9: degenerate case — fromId references no envelope id in the file.
+// Walk produces no shared ancestor; fall back to the verbatim fromId string so payload stays valid.
+test("branch_summary with unknown fromId falls back to the verbatim fromId string", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-edge-2",
+      timestamp: "2026-05-21T19:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T19:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T19:00:02.000Z",
+      fromId: "missing-source-id",
+      summary: "dangling fromId",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("missing-source-id");
+});
+
+// Codex P1 (multi-branch) regression: with two `/tree` navigations in one session, each summary
+// must be resolved against ITS OWN local active leaf (the arrival point at the time it was
+// written), not the final file leaf. Otherwise an earlier summary gets reinterpreted using a
+// later branch's state.
+//
+// Tree shape:
+//   u-root
+//   ├── a-A1 → u-A2 → a-A3   (abandoned by bs-1)
+//   ├── a-B1 → u-B2 → a-B3   (active after bs-1, abandoned by bs-2)
+//   └── a-C1 → u-C2 → a-C3   (active after bs-2 — final file leaf)
+//
+// bs-1: fromId=a-A3, parentId=a-B1  → active leaf at write time = a-B1; root of abandoned = a-A1.
+// bs-2: fromId=a-B3, parentId=a-C1  → active leaf at write time = a-C1; root of abandoned = a-B1.
+//
+// Before the fix, both summaries shared the file-final active leaf (descendant of a-C1), so
+// bs-1's abandoned path (rooted at a-A1) shares an ancestor only at u-root with that active
+// path; algorithm picks the correct root by luck. The clearer failure is bs-2: its abandoned
+// branch (a-B1) is a sibling of the active branch (a-C1), and the SHARED active leaf still
+// works for bs-2 too. So we need a sharper shape: bs-2's abandoned branch must be deeper than
+// the global active leaf would imply. Make bs-2 abandon the C branch in favor of A — i.e.
+// re-activate A — so the global active leaf (a-A3) misroots bs-2.
+test("branch_summary: each summary uses its own local active leaf (multi-branch session)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // Sequence of /tree navigations: start on A, jump to B (bs-1 abandons A), jump back to A
+  // (bs-2 abandons B). Final file leaf is on A.
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-multi-bs",
+      timestamp: "2026-05-21T23:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-root",
+      parentId: null,
+      timestamp: "2026-05-21T23:00:01.000Z",
+      message: { role: "user", content: "start" },
+    }),
+    // Branch A
+    JSON.stringify({
+      type: "message",
+      id: "a-A1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T23:00:02.000Z",
+      message: { role: "assistant", content: "A1" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-A2",
+      parentId: "a-A1",
+      timestamp: "2026-05-21T23:00:03.000Z",
+      message: { role: "user", content: "A2" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-A3",
+      parentId: "u-A2",
+      timestamp: "2026-05-21T23:00:04.000Z",
+      message: { role: "assistant", content: "A3" },
+    }),
+    // Branch B (sibling of A at u-root), introduced via bs-1
+    JSON.stringify({
+      type: "message",
+      id: "a-B1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T23:00:05.000Z",
+      message: { role: "assistant", content: "B1" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "a-B1",
+      timestamp: "2026-05-21T23:00:06.000Z",
+      fromId: "a-A3",
+      summary: "abandoned A, switching to B",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-B2",
+      parentId: "bs-1",
+      timestamp: "2026-05-21T23:00:07.000Z",
+      message: { role: "user", content: "B2" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-B3",
+      parentId: "u-B2",
+      timestamp: "2026-05-21T23:00:08.000Z",
+      message: { role: "assistant", content: "B3" },
+    }),
+    // Re-activate A via bs-2 (parent = A's deepest leaf).
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-2",
+      parentId: "a-A3",
+      timestamp: "2026-05-21T23:00:09.000Z",
+      fromId: "a-B3",
+      summary: "abandoned B, back to A",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-A4",
+      parentId: "bs-2",
+      timestamp: "2026-05-21T23:00:10.000Z",
+      message: { role: "user", content: "A4" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const bs1 = trail.entries.find((e) => e.id === "bs-1");
+  const bs2 = trail.entries.find((e) => e.id === "bs-2");
+  expect((bs1?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-A1");
+  // bs-2 was written when the user just jumped back to A. Local active leaf = a-A3.
+  // Abandoned branch = B subtree.  Root of abandoned branch = a-B1 (child of u-root on B side).
+  expect((bs2?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-B1");
+});
+
+// Codex P2 regression: when the divergence node on the abandoned side is a Pi envelope that fans
+// out into multiple Agent Trail entries (text + toolCall blocks in one assistant envelope),
+// `abandoned_branch_id` must point at the **first** emitted entry of that envelope (the entry
+// directly under the divergence parent), not the **last** entry. Returning the last entry
+// misanchors the abandoned-branch root deeper than spec §9.3 intends and confuses tree renderers.
+test("branch_summary: abandoned root resolves to the FIRST emitted entry of a multi-block envelope", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-multi",
+      timestamp: "2026-05-21T22:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-root",
+      parentId: null,
+      timestamp: "2026-05-21T22:00:01.000Z",
+      message: { role: "user", content: "go" },
+    }),
+    // Abandoned-side envelope that fans out to two entries: a-fork-text-0 + a-fork-toolCall-1.
+    // Spec §9.3 "root of abandoned branch" = topmost on abandoned side = a-fork-text-0.
+    JSON.stringify({
+      type: "message",
+      id: "a-fork",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "trying A" },
+          { type: "toolCall", id: "call-A", name: "read", arguments: { path: "x.md" } },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:03.000Z",
+      fromId: "a-fork",
+      summary: "abandoned A, trying B",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-active",
+      parentId: "u-root",
+      timestamp: "2026-05-21T22:00:04.000Z",
+      message: { role: "user", content: "try B" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-active",
+      parentId: "u-active",
+      timestamp: "2026-05-21T22:00:05.000Z",
+      message: { role: "assistant", content: "B done" },
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  expect(payload.abandoned_branch_id).toBe("a-fork-text-0");
+});
+
+// Codex P1 regression: when the last envelope in source order is an unmapped type (session_info,
+// label, model_change…), it must NOT be treated as the active leaf — those envelopes don't
+// participate in the emitted entry graph, and using one collapses the shared-ancestor walk.
+// File ends with trailing session_info; active leaf must be the prior `a-2` message envelope so
+// the divergence walk against fromId=a-1 still returns u-abandon (root of abandoned branch).
+test("branch_summary: trailing unmapped envelope does not become the active leaf", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-trail",
+      timestamp: "2026-05-21T21:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-root",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:01.000Z",
+      message: { role: "user", content: "start" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-root",
+      timestamp: "2026-05-21T21:00:02.000Z",
+      message: { role: "assistant", content: "first try" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-abandon",
+      parentId: "u-root",
+      timestamp: "2026-05-21T21:00:03.000Z",
+      message: { role: "user", content: "branch A" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-abandon",
+      parentId: "u-abandon",
+      timestamp: "2026-05-21T21:00:04.000Z",
+      message: { role: "assistant", content: "A done" },
+    }),
+    JSON.stringify({
+      type: "branch_summary",
+      id: "bs-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T21:00:05.000Z",
+      fromId: "a-abandon",
+      summary: "switched to active branch",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-active",
+      parentId: "a-1",
+      timestamp: "2026-05-21T21:00:06.000Z",
+      message: { role: "user", content: "branch B" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-2",
+      parentId: "u-active",
+      timestamp: "2026-05-21T21:00:07.000Z",
+      message: { role: "assistant", content: "B done" },
+    }),
+    // Trailing unmapped envelope rooted outside the conversational tree (parentId: null is a
+    // shape pi-mono uses for top-level session metadata). Active-leaf detection must skip this
+    // envelope; otherwise the divergence walk uses an active path that doesn't share any ancestor
+    // with the abandoned path, collapses to the fromId fallback, and returns the *leaf* of the
+    // abandoned branch instead of the abandoned branch root.
+    JSON.stringify({
+      type: "session_info",
+      id: "si-trailing",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:08.000Z",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const branchSummary = trail.entries.find((e) => e.id === "bs-1");
+  const payload = branchSummary?.payload as { abandoned_branch_id?: string };
+  // Active path = a-2 → u-active → a-1 → u-root.  Abandoned path from a-abandon = a-abandon →
+  // u-abandon → u-root.  Shared ancestor = u-root.  Root of abandoned branch = u-abandon.
+  expect(payload.abandoned_branch_id).toBe("u-abandon");
 });
