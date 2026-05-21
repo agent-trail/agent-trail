@@ -2,7 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { parsePiJsonl } from "./parser.ts";
-import { piConfigDir, piProjectDir } from "./paths.ts";
+import { piProjectDir, piSessionsDir } from "./paths.ts";
 import { versionString } from "./source.ts";
 
 async function dirExists(path: string): Promise<boolean> {
@@ -25,9 +25,9 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 export const piAdapter: TrailAdapter = {
   name: "pi",
   async detectSessions(opts?: DetectOptions): Promise<SessionRef[]> {
-    const configDir = piConfigDir();
-    if (configDir === undefined) return [];
-    const dir = piProjectDir({ configDir, cwd: opts?.cwd ?? process.cwd() });
+    const sessionsDir = piSessionsDir();
+    if (sessionsDir === undefined) return [];
+    const dir = piProjectDir({ sessionsDir, cwd: opts?.cwd ?? process.cwd() });
     if (!(await dirExists(dir))) return [];
     const entries = await readdir(dir);
     return entries
@@ -46,14 +46,14 @@ export const piAdapter: TrailAdapter = {
     return parsePiJsonl(text);
   },
   async isAvailable(): Promise<boolean> {
-    const configDir = piConfigDir();
-    if (configDir === undefined) return false;
-    return dirExists(piProjectDir({ configDir, cwd: process.cwd() }));
+    const sessionsDir = piSessionsDir();
+    if (sessionsDir === undefined) return false;
+    return dirExists(piProjectDir({ sessionsDir, cwd: process.cwd() }));
   },
   async sourceVersion(): Promise<string | null> {
-    const configDir = piConfigDir();
-    if (configDir === undefined) return null;
-    const dir = piProjectDir({ configDir, cwd: process.cwd() });
+    const sessionsDir = piSessionsDir();
+    if (sessionsDir === undefined) return null;
+    const dir = piProjectDir({ sessionsDir, cwd: process.cwd() });
     if (!(await dirExists(dir))) return null;
     const entries = await readdir(dir);
     const jsonlFiles = entries.filter((name) => name.endsWith(".jsonl"));

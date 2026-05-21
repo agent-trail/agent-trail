@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { piAdapter, validateAdapterTrail } from "../index.ts";
-import { mangleCwd, piConfigDir, piProjectDir } from "./paths.ts";
+import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
-let prevPiConfigDir: string | undefined;
+let prevPiAgentDir: string | undefined;
+let prevPiSessionDir: string | undefined;
 let prevCwd: string;
 let tmpHome: string;
 let tmpCwd: string;
@@ -16,13 +17,15 @@ let tmpCwd: string;
 beforeEach(() => {
   prevHome = process.env.HOME;
   prevUserProfile = process.env.USERPROFILE;
-  prevPiConfigDir = process.env.PI_CONFIG_DIR;
+  prevPiAgentDir = process.env.PI_CODING_AGENT_DIR;
+  prevPiSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
   prevCwd = process.cwd();
   tmpHome = mkdtempSync(join(tmpdir(), "pi-adapter-home-"));
   tmpCwd = mkdtempSync(join(tmpdir(), "pi-adapter-cwd-"));
   process.env.HOME = tmpHome;
   delete process.env.USERPROFILE;
-  delete process.env.PI_CONFIG_DIR;
+  delete process.env.PI_CODING_AGENT_DIR;
+  delete process.env.PI_CODING_AGENT_SESSION_DIR;
   process.chdir(tmpCwd);
 });
 
@@ -38,19 +41,24 @@ afterEach(() => {
   } else {
     process.env.USERPROFILE = prevUserProfile;
   }
-  if (prevPiConfigDir === undefined) {
-    delete process.env.PI_CONFIG_DIR;
+  if (prevPiAgentDir === undefined) {
+    delete process.env.PI_CODING_AGENT_DIR;
   } else {
-    process.env.PI_CONFIG_DIR = prevPiConfigDir;
+    process.env.PI_CODING_AGENT_DIR = prevPiAgentDir;
+  }
+  if (prevPiSessionDir === undefined) {
+    delete process.env.PI_CODING_AGENT_SESSION_DIR;
+  } else {
+    process.env.PI_CODING_AGENT_SESSION_DIR = prevPiSessionDir;
   }
   rmSync(tmpHome, { recursive: true, force: true });
   rmSync(tmpCwd, { recursive: true, force: true });
 });
 
 function createProjectDir(): string {
-  const configDir = piConfigDir();
-  if (configDir === undefined) throw new Error("test expected Pi config dir");
-  const dir = piProjectDir({ configDir, cwd: process.cwd() });
+  const sessionsDir = piSessionsDir();
+  if (sessionsDir === undefined) throw new Error("test expected Pi sessions dir");
+  const dir = piProjectDir({ sessionsDir, cwd: process.cwd() });
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -247,9 +255,29 @@ test("isAvailable() falls back to USERPROFILE when HOME is unset", async () => {
   expect(await piAdapter.isAvailable()).toBe(true);
 });
 
-test("detectSessions() honors PI_CONFIG_DIR", async () => {
-  const customConfigDir = mkdtempSync(join(tmpdir(), "pi-adapter-config-"));
-  process.env.PI_CONFIG_DIR = customConfigDir;
+test("piAgentDir() defaults to $HOME/.pi/agent (matches pi-mono getAgentDir())", () => {
+  expect(piAgentDir()).toBe(join(tmpHome, ".pi", "agent"));
+});
+
+test("piSessionsDir() defaults to <agentDir>/sessions", () => {
+  expect(piSessionsDir()).toBe(join(tmpHome, ".pi", "agent", "sessions"));
+});
+
+test("piAgentDir() honors PI_CODING_AGENT_DIR override", () => {
+  process.env.PI_CODING_AGENT_DIR = "/custom/pi-agent";
+  expect(piAgentDir()).toBe("/custom/pi-agent");
+  expect(piSessionsDir()).toBe(join("/custom/pi-agent", "sessions"));
+});
+
+test("piSessionsDir() honors PI_CODING_AGENT_SESSION_DIR override independently of agent dir", () => {
+  process.env.PI_CODING_AGENT_DIR = "/custom/pi-agent";
+  process.env.PI_CODING_AGENT_SESSION_DIR = "/elsewhere/sessions";
+  expect(piSessionsDir()).toBe("/elsewhere/sessions");
+});
+
+test("detectSessions() honors PI_CODING_AGENT_DIR override", async () => {
+  const customAgentDir = mkdtempSync(join(tmpdir(), "pi-adapter-agent-"));
+  process.env.PI_CODING_AGENT_DIR = customAgentDir;
   try {
     const dir = createProjectDir();
     writeFileSync(join(dir, "sess-custom.jsonl"), "");
@@ -257,7 +285,21 @@ test("detectSessions() honors PI_CONFIG_DIR", async () => {
       { id: "sess-custom", adapter: "pi", path: join(dir, "sess-custom.jsonl") },
     ]);
   } finally {
-    rmSync(customConfigDir, { recursive: true, force: true });
+    rmSync(customAgentDir, { recursive: true, force: true });
+  }
+});
+
+test("detectSessions() honors PI_CODING_AGENT_SESSION_DIR override", async () => {
+  const customSessionsDir = mkdtempSync(join(tmpdir(), "pi-adapter-sessions-"));
+  process.env.PI_CODING_AGENT_SESSION_DIR = customSessionsDir;
+  try {
+    const dir = createProjectDir();
+    writeFileSync(join(dir, "sess-custom.jsonl"), "");
+    expect(await piAdapter.detectSessions()).toEqual([
+      { id: "sess-custom", adapter: "pi", path: join(dir, "sess-custom.jsonl") },
+    ]);
+  } finally {
+    rmSync(customSessionsDir, { recursive: true, force: true });
   }
 });
 
