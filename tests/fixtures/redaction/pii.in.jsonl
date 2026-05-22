@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-22T00:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"evt1","ts":"2026-05-22T00:00:01.000Z","payload":{"text":"Contact alice@example.com or 415-555-2671. SSN 123-45-6789."}}
