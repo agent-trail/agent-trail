@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@agent-trail/core": "workspace:*",
-    "@agent-trail/schema": "workspace:*"
+    "@agent-trail/schema": "workspace:*",
+    "@agent-trail/store": "workspace:*"
   },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",

@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
+import { runList } from "./list.ts";
 import { runValidate } from "./validate.ts";
 
-const USAGE = "Usage: trail validate <file> [--json] [--profile strict|reader-tolerant]\n";
+const USAGE =
+  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n";
 
 const [subcommand, ...rest] = Bun.argv.slice(2);
 
@@ -15,13 +17,23 @@ if (
   process.exit(0);
 }
 
-if (subcommand !== "validate") {
+type Handler = (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+
+// Null-prototype map so inherited keys (`toString`, `constructor`, ...) cannot
+// satisfy the lookup and slip into the dispatch path as a non-command.
+const handlers: Record<string, Handler> = Object.assign(Object.create(null), {
+  validate: runValidate,
+  list: runList,
+}) as Record<string, Handler>;
+
+if (!Object.hasOwn(handlers, subcommand)) {
   await Bun.write(Bun.stderr, USAGE);
   process.exit(1);
 }
+const handler = handlers[subcommand] as Handler;
 
 try {
-  const { exitCode, stdout, stderr } = await runValidate(rest);
+  const { exitCode, stdout, stderr } = await handler(rest);
   if (stdout.length > 0) await Bun.write(Bun.stdout, stdout);
   if (stderr.length > 0) await Bun.write(Bun.stderr, stderr);
   process.exit(exitCode);
