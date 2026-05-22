@@ -17,7 +17,7 @@
  * - `resolveStoreRoot` — resolve the effective store root for the
  *   current call site.
  */
-export { IndexVersionError } from "./index-file.ts";
+export { IndexCorruptError, IndexVersionError } from "./index-file.ts";
 export { resolveStoreRoot } from "./paths.ts";
 export type { RebuildIndexOptions, RebuildIndexResult } from "./rebuild.ts";
 export { rebuildIndex } from "./rebuild.ts";

@@ -26,7 +26,11 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@agent-trail/core": "workspace:*"
+    "@agent-trail/core": "workspace:*",
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4"
   },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",

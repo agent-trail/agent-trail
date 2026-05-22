@@ -1,5 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import lockfile from "proper-lockfile";
 import { indexDir, indexFilePath } from "./paths.ts";
+
+const LOCK_ANCHOR = ".lockanchor";
 
 export const INDEX_VERSION = 1;
 
@@ -18,6 +22,18 @@ export type IndexFile = {
   version: typeof INDEX_VERSION;
   entries: Record<string, IndexEntry>;
 };
+
+export class IndexCorruptError extends Error {
+  readonly path: string;
+  constructor(path: string, cause: unknown) {
+    super(
+      `index/objects.json at ${path} is malformed JSON: ${cause instanceof Error ? cause.message : String(cause)}. Delete the file and run rebuildIndex to recover.`,
+    );
+    this.name = "IndexCorruptError";
+    this.path = path;
+    if (cause instanceof Error) this.cause = cause;
+  }
+}
 
 export class IndexVersionError extends Error {
   readonly foundVersion: unknown;
@@ -38,16 +54,22 @@ export class IndexVersionError extends Error {
  * running `rebuildIndex`.
  */
 export async function readIndex(storeRoot: string): Promise<IndexFile> {
+  const path = indexFilePath(storeRoot);
   let raw: string;
   try {
-    raw = await readFile(indexFilePath(storeRoot), "utf8");
+    raw = await readFile(path, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return emptyIndex();
     }
     throw error;
   }
-  const parsed = JSON.parse(raw) as IndexFile;
+  let parsed: IndexFile;
+  try {
+    parsed = JSON.parse(raw) as IndexFile;
+  } catch (error) {
+    throw new IndexCorruptError(path, error);
+  }
   if (parsed.version !== INDEX_VERSION) {
     throw new IndexVersionError(parsed.version);
   }
@@ -70,9 +92,35 @@ export async function upsertIndexEntry(
   contentHash: string,
   entry: IndexEntry,
 ): Promise<void> {
-  const index = await readIndex(storeRoot);
-  index.entries[contentHash] = entry;
-  await writeIndex(storeRoot, index);
+  await withIndexLock(storeRoot, async () => {
+    const index = await readIndex(storeRoot);
+    index.entries[contentHash] = entry;
+    await writeIndex(storeRoot, index);
+  });
+}
+
+/**
+ * Serialize index read-modify-write across processes via proper-lockfile.
+ * Locks a sentinel file inside `index/` so the lock survives the index
+ * file being deleted or rewritten. Without serialization, two concurrent
+ * `registerTrail` calls would both read the same old index and one would
+ * overwrite the other's entry (last writer wins).
+ */
+export async function withIndexLock<T>(storeRoot: string, fn: () => Promise<T>): Promise<T> {
+  const dir = indexDir(storeRoot);
+  await mkdir(dir, { recursive: true });
+  const anchor = join(dir, LOCK_ANCHOR);
+  await writeFile(anchor, "", { flag: "a" });
+  const release = await lockfile.lock(anchor, {
+    realpath: false,
+    retries: { retries: 100, minTimeout: 5, maxTimeout: 100 },
+    stale: 10_000,
+  });
+  try {
+    return await fn();
+  } finally {
+    await release();
+  }
 }
 
 export function emptyIndex(): IndexFile {

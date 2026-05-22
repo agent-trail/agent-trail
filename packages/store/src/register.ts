@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
-import type { Diagnostic } from "@agent-trail/core";
+import type { Diagnostic, JsonlRecord } from "@agent-trail/core";
 import {
   canonicalizeRecords,
+  diagnosticFromJsonlParseError,
+  JsonlParseError,
   parseJsonlString,
   validateTrailGraph,
   validateWriterStrictSchemaJsonlString,
@@ -31,7 +34,20 @@ export async function registerTrail(
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
   const raw = await readFile(filePath, "utf8");
-  const records = await parseJsonlString(raw);
+  let records: JsonlRecord[];
+  try {
+    records = await parseJsonlString(raw);
+  } catch (error) {
+    if (error instanceof JsonlParseError) {
+      return {
+        status: "invalid",
+        contentHash: null,
+        objectPath: null,
+        diagnostics: [diagnosticFromJsonlParseError(error)],
+      };
+    }
+    throw error;
+  }
 
   const schemaDiagnostics = await validateWriterStrictSchemaJsonlString(raw);
   const graphDiagnostics = validateTrailGraph(records);
@@ -103,7 +119,12 @@ async function readFileIfExists(path: string): Promise<string | null> {
 }
 
 async function atomicWriteFile(target: string, contents: string): Promise<void> {
-  const tmp = `${target}.tmp`;
+  // Per-write unique suffix so two concurrent calls writing the same target
+  // (e.g. duplicate same-hash registers racing in the same store) do not
+  // collide on a single shared `.tmp` path. `rename` is atomic on POSIX, so
+  // whichever rename wins lands a complete file; the other becomes a no-op
+  // overwrite of identical bytes.
+  const tmp = `${target}.${randomUUID()}.tmp`;
   await writeFile(tmp, contents, "utf8");
   await rename(tmp, target);
 }

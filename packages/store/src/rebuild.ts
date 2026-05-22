@@ -39,11 +39,18 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     const filenameHash = match[1] as string;
     const path = join(dir, name);
 
-    const raw = await readFile(path, "utf8");
-    const records = await parseJsonlString(raw);
-    const verification = verifyContentHash(records);
-    if (verification.status !== "match" || verification.expected !== filenameHash) {
-      // filename hash does not match content; skip
+    // Skip files whose hash cannot be verified (parse error, mismatch, etc.)
+    // so one corrupt object does not abort the whole rebuild.
+    let verified = false;
+    try {
+      const raw = await readFile(path, "utf8");
+      const records = await parseJsonlString(raw);
+      const verification = verifyContentHash(records);
+      verified = verification.status === "match" && verification.expected === filenameHash;
+    } catch {
+      verified = false;
+    }
+    if (!verified) {
       continue;
     }
 

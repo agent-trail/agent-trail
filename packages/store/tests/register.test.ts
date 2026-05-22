@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
-import { copyFile, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalizeRecords, parseJsonlString, verifyContentHash } from "@agent-trail/core";
-import { registerTrail } from "../src/index.ts";
+import {
+  canonicalizeRecords,
+  computeContentHash,
+  parseJsonlString,
+  verifyContentHash,
+} from "@agent-trail/core";
+import { IndexCorruptError, registerTrail } from "../src/index.ts";
 
 const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
@@ -170,3 +175,82 @@ test("registerTrail writes an index entry keyed by hash with absolute source_pat
 
   rmSync(inputDir, { recursive: true, force: true });
 });
+
+test("registerTrail on malformed JSONL returns 'invalid' with a parse diagnostic (does not throw)", async () => {
+  const malformedDir = mkdtempSync(join(tmpdir(), "trail-store-malformed-"));
+  const path = join(malformedDir, "broken.trail.jsonl");
+  await writeFile(path, "{not json\n", "utf8");
+
+  const result = await registerTrail(path, { storeRoot });
+
+  expect(result.status).toBe("invalid");
+  expect(result.contentHash).toBeNull();
+  expect(result.objectPath).toBeNull();
+  expect(result.diagnostics.length).toBeGreaterThan(0);
+  expect(result.diagnostics[0]?.code).toBe("invalid_json");
+  expect(result.diagnostics[0]?.line).toBe(1);
+
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
+
+  rmSync(malformedDir, { recursive: true, force: true });
+});
+
+test("registerTrail throws IndexCorruptError when index/objects.json is malformed JSON", async () => {
+  await mkdir(join(storeRoot, "index"), { recursive: true });
+  await writeFile(join(storeRoot, "index", "objects.json"), "{not json", "utf8");
+
+  await expect(registerTrail(FINALIZED_FIXTURE, { storeRoot })).rejects.toBeInstanceOf(
+    IndexCorruptError,
+  );
+});
+
+test("four concurrent registerTrail calls for distinct hashes produce four index entries", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-concurrent-"));
+  const fixtures = await Promise.all(
+    ["sessA", "sessB", "sessC", "sessD"].map((id) => writeFinalizedFixture(inputDir, id)),
+  );
+
+  const results = await Promise.all(fixtures.map((f) => registerTrail(f.path, { storeRoot })));
+
+  for (const r of results) expect(r.status).toBe("finalized");
+
+  const indexValue = JSON.parse(
+    await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+  ) as { entries: Record<string, unknown> };
+  expect(Object.keys(indexValue.entries).sort()).toEqual(fixtures.map((f) => f.hash).sort());
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
+async function writeFinalizedFixture(
+  dir: string,
+  sessionId: string,
+): Promise<{ path: string; hash: string }> {
+  const header = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: sessionId,
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  };
+  const event = {
+    type: "user_message",
+    id: `${sessionId}-evt1`,
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hi" },
+  };
+  const recordsPending = [
+    { line: 1, raw: "", value: header },
+    { line: 2, raw: "", value: event },
+  ];
+  const hash = computeContentHash(recordsPending);
+  const recordsFinal = [
+    { line: 1, raw: "", value: { ...header, content_hash: hash } },
+    { line: 2, raw: "", value: event },
+  ];
+  const bytes = canonicalizeRecords(recordsFinal);
+  const path = join(dir, `${sessionId}.trail.jsonl`);
+  await writeFile(path, bytes, "utf8");
+  return { path, hash };
+}

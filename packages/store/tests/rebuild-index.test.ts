@@ -54,6 +54,25 @@ test("registerTrail throws IndexVersionError when index/objects.json has an unsu
   ).rejects.toBeInstanceOf(IndexVersionError);
 });
 
+test("rebuildIndex skips corrupt object files and continues with valid ones", async () => {
+  await registerTrail(fixturePath("valid/minimal-with-content-hash.trail.jsonl"), {
+    storeRoot,
+  });
+
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  // Valid filename pattern but unparseable content
+  const corruptHash = "f".repeat(64);
+  await writeFile(join(objectsDir, `${corruptHash}.trail.jsonl`), "{not jsonl\n", "utf8");
+
+  const summary = await rebuildIndex({ storeRoot });
+  expect(summary.entries).toBe(1);
+
+  const indexValue = JSON.parse(
+    await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+  ) as { entries: Record<string, unknown> };
+  expect(Object.keys(indexValue.entries)).toEqual([FINALIZED_HASH]);
+});
+
 test("rebuildIndex ignores stray files in objects/sha256 that do not match <hex>.trail.jsonl", async () => {
   await registerTrail(FINALIZED_FIXTURE, { storeRoot });
 
