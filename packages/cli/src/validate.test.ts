@@ -186,6 +186,39 @@ test("committed invalid-schema fixture fails via trail validate with a /schema_v
   expect(result.stdout).toContain("error const line 1 /schema_version:");
 });
 
+test("unmatched tool_call at EOF fixture surfaces warning via trail validate --json", async () => {
+  const result = await runValidate([
+    fixturePath("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
+    "--json",
+  ]);
+  expect(result.exitCode).toBe(0);
+  const diagnostics = JSON.parse(result.stdout);
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message: 'tool_call "evta1" has no matching tool_result at EOF',
+  });
+});
+
+test("unknown final_message_id fixture surfaces warning via trail validate --json", async () => {
+  const result = await runValidate([
+    fixturePath("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
+    "--json",
+  ]);
+  expect(result.exitCode).toBe(0);
+  const diagnostics = JSON.parse(result.stdout);
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/final_message_id",
+    severity: "warning",
+    code: "unknown_final_message_id",
+    message:
+      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
+  });
+});
+
 test("--json under reader-tolerant serializes warnings with full diagnostic shape", async () => {
   const messageWithExtra =
     '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
