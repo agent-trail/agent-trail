@@ -57,8 +57,10 @@ These are the ones agents are likely to get wrong. The full context lives in `CO
 
 Run the strongest relevant check for the change:
 
-- `bun run check` — full local gate: generated-type drift, typecheck, Biome, tests, workspace checks.
+- `bun run check` — full local gate: schema-sync drift, generated-type drift, typecheck, Biome, tests, workspace checks.
+- `bun run check:schema` — verifies `packages/schema/schema.json` mirrors the canonical root `schema.json`.
 - `bun run check:types` — generated TypeScript type drift check.
+- `bun run sync:schema` — after editing the root `schema.json`; copies it to `packages/schema/schema.json` and you commit the diff.
 - `bun run generate:types` — after editing `schema.json`; then commit the generated `packages/types/index.d.ts` diff.
 - `bun run typecheck`
 - `bun run lint`

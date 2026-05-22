@@ -151,6 +151,10 @@ export function validateTrailGraph(
     );
   }
 
+  if (headerValid && headerRecord !== undefined) {
+    diagnostics.push(...streamConsistencyWarnings(headerRecord, entries));
+  }
+
   if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
     const hashResult = verifyContentHash(records);
     if (hashResult.status === "invalid") {
@@ -171,6 +175,56 @@ export function validateTrailGraph(
           severity: profile === "reader-tolerant" ? "warning" : "error",
           code: "content_hash_mismatch",
           message: `content_hash does not match canonical bytes (computed ${hashResult.actual})`,
+        }),
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+// Checks header stream state against file content (spec §16.4 rule 9): a live
+// header (stream.state == "open") must not carry a populated content_hash and
+// must not coexist with terminal events. Both checks are conditional on the
+// open state; closed/absent streams are validated elsewhere.
+function streamConsistencyWarnings(
+  headerRecord: JsonlRecord,
+  entries: JsonlRecord[],
+): Diagnostic[] {
+  const stream = headerRecord.value.stream;
+  if (typeof stream !== "object" || stream === null) {
+    return [];
+  }
+  const state = (stream as { state?: unknown }).state;
+  if (state !== "open") {
+    return [];
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  const contentHash = headerRecord.value.content_hash;
+  if (typeof contentHash === "string" && contentHash !== "<pending>") {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/content_hash",
+        severity: "warning",
+        code: "stream_open_with_content_hash",
+        message:
+          'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
+      }),
+    );
+  }
+
+  for (const entry of entries) {
+    const type = entry.value.type;
+    if (type === "session_end" || type === "session_terminated") {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/type",
+          severity: "warning",
+          code: "stream_open_with_terminal_event",
+          message: `Header has stream.state "open" but file contains a terminal "${type}" event; finalize the header before emitting terminal events`,
         }),
       );
     }

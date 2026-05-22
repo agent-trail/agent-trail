@@ -56,6 +56,18 @@ Header + two events where the second event uses `parent_id` to reference the fir
 
 Expected: no diagnostics under either profile.
 
+#### `valid/streaming-open.trail.jsonl`
+
+Header with `stream: { state: "open", started_at }`, no `content_hash`. Two events. Exercises the live-capture marker (§8.4).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/streaming-finalized-clean.trail.jsonl`
+
+Header with `stream: { state: "closed", started_at }`. Concludes with a `session_end` event (`reason: "complete"`).
+
+Expected: no diagnostics under either profile.
+
 ### invalid-schema/
 
 Current coverage targets `user_message` and `tool_call` payload violations. Additional event-type fixtures will be added as adapters and downstream issues require them.
@@ -105,6 +117,12 @@ Expected: `error unknown_parent_id /parent_id line 2`.
 `node-a.parent_id = node-b` and `node-b.parent_id = node-a`.
 
 Expected: `error parent_cycle /parent_id` on both lines 2 and 3.
+
+#### `invalid-graph/stream-open-with-content-hash.trail.jsonl`
+
+Header has `stream.state: "open"` and a populated `content_hash` (§16.4 rule 9). Two events follow. The hash is a placeholder and does not match the canonical bytes, so a `content_hash_mismatch` error also fires; the fixture asserts the warning surface, not strict equality.
+
+Expected (subset, strict): single `warning stream_open_with_content_hash /content_hash line 1`.
 
 #### `invalid-graph/header-has-parent-id.trail.jsonl`
 

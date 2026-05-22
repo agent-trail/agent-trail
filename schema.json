@@ -135,6 +135,19 @@
           ]
         },
         "ts": { "$ref": "#/$defs/iso8601" },
+        "stream": {
+          "type": "object",
+          "description": "Live-capture marker. Present means writer is actively appending or last appended in streaming mode. Absent means non-streaming or unaware writer.",
+          "required": ["state"],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": ["open", "closed"]
+            },
+            "started_at": { "$ref": "#/$defs/iso8601" }
+          },
+          "additionalProperties": false
+        },
         "agent": {
           "type": "object",
           "required": ["name"],
@@ -221,6 +234,7 @@
             { "$ref": "#/$defs/events/branch_summary" },
             { "$ref": "#/$defs/events/model_change" },
             { "$ref": "#/$defs/events/session_terminated" },
+            { "$ref": "#/$defs/events/session_end" },
             { "$ref": "#/$defs/events/unknown" }
           ]
         }
@@ -694,6 +708,25 @@
         }
       },
 
+      "session_end": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "session_end" },
+          "payload": {
+            "type": "object",
+            "required": ["reason"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": ["complete", "user_quit", "agent_idle"]
+              },
+              "final_message_id": { "$ref": "#/$defs/id" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
       "unknown": {
         "type": "object",
         "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
@@ -716,6 +749,7 @@
                 "branch_summary",
                 "model_change",
                 "session_terminated",
+                "session_end",
                 "session_metadata_update",
                 "attachment_uploaded",
                 "error",

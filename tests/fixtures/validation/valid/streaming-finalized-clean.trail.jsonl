@@ -1,0 +1,4 @@
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"closed","started_at":"2026-05-17T14:00:00.000Z"},"agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+{"type":"session_end","id":"evta3","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete","final_message_id":"evta2"}}
