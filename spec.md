@@ -640,7 +640,7 @@ Adapters should populate `semantic.call_id` on tool_call/tool_result pairs when 
 
 Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`.
 
-Validators apply the same pairing algorithm when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` reference first, then the three-rule fallback cascade above (semantic, sequential, heuristic). A `tool_call` is considered matched when any of these methods pairs it with a `tool_result`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` reference first, then fallback rules 1 and 2 above (semantic match, sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when any of these deterministic methods pairs it with a `tool_result`.
 
 ### 9.6 Unknown event types
 

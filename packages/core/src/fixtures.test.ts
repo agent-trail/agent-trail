@@ -212,7 +212,8 @@ test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns about
     path: "/payload/final_message_id",
     severity: "warning",
     code: "unknown_final_message_id",
-    message: 'session_end final_message_id "ghost" does not reference an id in this file',
+    message:
+      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
   });
 });
 
@@ -271,7 +272,8 @@ test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns under
     path: "/payload/final_message_id",
     severity: "warning",
     code: "unknown_final_message_id",
-    message: 'session_end final_message_id "ghost" does not reference an id in this file',
+    message:
+      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
   });
 });
 
@@ -324,6 +326,36 @@ test("invalid-schema/session-end-final-message-id-null.trail.jsonl reports schem
     message: "must be string",
   });
   expect(diagnostics.filter((d) => d.code === "unknown_final_message_id")).toEqual([]);
+});
+
+test("invalid-graph/duplicate-tool-result-for-id.trail.jsonl resolved for_id does not fall through to sequential", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/duplicate-tool-result-for-id.trail.jsonl"),
+  );
+  const unmatched = diagnostics.filter((d) => d.code === "unmatched_tool_call_at_eof");
+  expect(unmatched).toEqual([
+    {
+      line: 3,
+      path: "/id",
+      severity: "warning",
+      code: "unmatched_tool_call_at_eof",
+      message: 'tool_call "evta2" has no matching tool_result at EOF',
+    },
+  ]);
+});
+
+test("invalid-graph/session-end-forward-final-message-id.trail.jsonl warns on forward reference", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/session-end-forward-final-message-id.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/final_message_id",
+    severity: "warning",
+    code: "unknown_final_message_id",
+    message:
+      'session_end final_message_id "evta2" does not reference the session header or a prior event in this file',
+  });
 });
 
 test("invalid-graph/header-has-parent-id.trail.jsonl reports additionalProperties + header_has_parent_id", async () => {

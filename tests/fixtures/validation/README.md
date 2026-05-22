@@ -214,6 +214,18 @@ Two `tool_call` events: `evta1` (no semantic) and `evta2` (semantic `call_b`). A
 
 Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2`.
 
+#### `invalid-graph/duplicate-tool-result-for-id.trail.jsonl`
+
+Two `tool_call` events (`evta1`, `evta2`) and two `tool_result` events, both with `payload.for_id: "evta1"`. The second result's `for_id` resolves to an existing call, so per spec §9.5 it is consumed by the primary rule and does not fall through to the sequential fallback (which would otherwise wrongly pair it with `evta2`). `evta2` therefore stays unmatched.
+
+Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2`.
+
+#### `invalid-graph/session-end-forward-final-message-id.trail.jsonl`
+
+`session_end` at line 2 references `final_message_id: "evta2"`, an event that appears at line 3 (after the terminator). Spec §16.4 says `final_message_id` should reference the session header or a *prior* event; forward references are flagged.
+
+Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 2`.
+
 #### `invalid-graph/header-has-parent-id.trail.jsonl`
 
 Header carries a `parent_id` field, which the spec forbids.

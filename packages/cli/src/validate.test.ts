@@ -214,7 +214,8 @@ test("unknown final_message_id fixture surfaces warning via trail validate --jso
     path: "/payload/final_message_id",
     severity: "warning",
     code: "unknown_final_message_id",
-    message: 'session_end final_message_id "ghost" does not reference an id in this file',
+    message:
+      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
   });
 });
 

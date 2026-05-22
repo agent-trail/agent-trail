@@ -300,14 +300,21 @@ function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] {
   }
 
   // Pass A: explicit `for_id` reference — primary pairing method (spec §9.5).
+  // A `for_id` that resolves to an existing `tool_call` consumes the result
+  // even if the call was already paired (duplicate result), so the result
+  // does not fall through to the fallback cascade. Only a missing or
+  // unresolvable `for_id` triggers fallback per §9.5.
   for (const result of results) {
     if (result.forId === undefined) {
       continue;
     }
     const call = callById.get(result.forId);
-    if (call !== undefined && !call.matched) {
+    if (call === undefined) {
+      continue;
+    }
+    result.matched = true;
+    if (!call.matched) {
       call.matched = true;
-      result.matched = true;
     }
   }
 
@@ -368,9 +375,10 @@ function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] {
     );
 }
 
-// Spec §9.3: `session_end.payload.final_message_id` is an optional reference
-// to the last meaningful event. Warn when the id does not match any entry in
-// the file (mirrors `unknown_parent_id`, but non-fatal in both profiles).
+// Spec §9.3 / §16.4: `session_end.payload.final_message_id` should reference
+// the session header or a *prior* event in the same file. Warn when it does
+// not resolve, or when it resolves to an event that appears at or after the
+// `session_end` line (forward references hide ordering bugs).
 function finalMessageIdWarnings(
   entries: JsonlRecord[],
   idLines: Map<string, number>,
@@ -389,7 +397,11 @@ function finalMessageIdWarnings(
     if (typeof finalId !== "string") {
       continue;
     }
-    if (idLines.has(finalId) || finalId === headerId) {
+    if (finalId === headerId) {
+      continue;
+    }
+    const finalLine = idLines.get(finalId);
+    if (finalLine !== undefined && finalLine < entry.line) {
       continue;
     }
     diagnostics.push(
@@ -398,7 +410,7 @@ function finalMessageIdWarnings(
         path: "/payload/final_message_id",
         severity: "warning",
         code: "unknown_final_message_id",
-        message: `session_end final_message_id "${finalId}" does not reference an id in this file`,
+        message: `session_end final_message_id "${finalId}" does not reference the session header or a prior event in this file`,
       }),
     );
   }
