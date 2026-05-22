@@ -25,6 +25,20 @@ test("valid/linear-with-parent-ids.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/streaming-open.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/streaming-open.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/streaming-finalized-clean.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/streaming-finalized-clean.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-schema/header-wrong-schema-version.trail.jsonl reports const + missing_header", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/header-wrong-schema-version.trail.jsonl"),
@@ -83,6 +97,20 @@ test("invalid-schema/user-message-non-string-text.trail.jsonl reports type at /p
     severity: "error",
     code: "type",
     message: "must be string",
+  });
+});
+
+test("invalid-graph/stream-open-with-content-hash.trail.jsonl warns about stream/hash conflict", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/stream-open-with-content-hash.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "warning",
+    code: "stream_open_with_content_hash",
+    message:
+      'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
   });
 });
 

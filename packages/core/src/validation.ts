@@ -28,6 +28,9 @@ export const implementedEventTypes = [
   "branch_summary",
   "model_change",
   "session_terminated",
+  // Optional clean-conclusion marker (spec §9.3). Distinct from session_terminated:
+  // session_end signals a normal finish, session_terminated an abnormal one.
+  "session_end",
 ] as const;
 
 const eventValidators = new Map<string, ValidateFunction<unknown>>(

@@ -188,6 +188,10 @@ Event `id` values are unique within the file. They do not need to be globally un
   "id": "<session-uuid-or-ulid>",
   "content_hash": "<sha256-hex>",               // optional; populated at finalize
   "ts": "<ISO-8601 timestamp>",
+  "stream": {                                   // optional; live-capture marker (§8.4)
+    "state": "open" | "closed",
+    "started_at": "<ISO-8601 timestamp>"        // optional
+  },
   "agent": {
     "name": "<canonical-agent-name>",
     "version": "<source-agent-version>",        // optional
@@ -226,6 +230,7 @@ Event `id` values are unique within the file. They do not need to be globally un
 | `id` | yes | string | UUID, ULID, or 4+ char alphanumeric |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
+| `stream` | no | object | live-capture marker; see §8.4 |
 | `agent.name` | yes | string | from the canonical registry (§13) |
 | `agent.version` | no | string | source agent's version |
 | `agent.model_default` | no | string | default model for the session |
@@ -241,6 +246,29 @@ Event `id` values are unique within the file. They do not need to be globally un
 ```json
 {"type":"session","schema_version":"0.1.0","id":"01HM7K5R9X2QZJ8VD6W4P3T1F0","content_hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","ts":"2026-05-17T14:02:00.000Z","agent":{"name":"claude-code","version":"2.1.42","model_default":"claude-sonnet-4-5"},"cwd":"<cwd>","vcs":{"type":"git","revision":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"}}
 ```
+
+### 8.4 Streaming and live capture
+
+JSONL is append-friendly by design: trail files can be written event by event as a session unfolds, and readers can `tail -f` them. v0.1.x adds an explicit marker so writers and readers can agree on live-capture state without overloading other header fields.
+
+The optional header `stream` object:
+
+| Field | Required | Type | Notes |
+|---|---|---|---|
+| `stream.state` | yes (if `stream` present) | enum | `open` while the writer is actively appending; `closed` once finalized |
+| `stream.started_at` | no | string | ISO-8601 timestamp when the stream began; matches the §8 `ts` semantics |
+
+Lifecycle:
+
+1. **Live phase.** Writer emits the header with `stream: { state: "open" }`. `content_hash` is omitted or set to `"<pending>"`. Events are appended as they happen.
+2. **Finalize.** Writer rewrites the header with `stream` either removed or set to `state: "closed"`, then computes `content_hash` per §7.3. Appending stops.
+3. **Clean end.** Writer may append a `session_end` event (§9.3) to mark a normal conclusion before finalize. Abnormal ends still use `session_terminated`.
+
+Tail readers that observe `stream.state == "open"` should assume more events may arrive. Readers observing `stream` absent or `state == "closed"` should treat the file as a finalized artifact and verify `content_hash` when present.
+
+`stream` is absent in trail files produced by stream-unaware writers; readers must treat that case as equivalent to a finalized non-streaming artifact (existing v0.1.0 behavior).
+
+A live `system_event` heartbeat convention is described in §9.3.
 
 ---
 
@@ -452,6 +480,7 @@ Recommended `kind` values when an adapter encounters these source signals. The s
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call (Cursor `tool_former_data.user_decision`). | `{ decision, tool_call_id }` |
 | `hook_progress` | Source emitted a progress, hook, or queue lifecycle record (Claude Code `progress`, hook events). | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
+| `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
 
 #### `agent_thinking`
 
@@ -567,6 +596,27 @@ Marks an incomplete session ending. Adapters may emit this synthetically at EOF 
 `reason`: `eof_with_open_tool_calls` | `process_terminated` | `truncated` | `user_abort`.
 
 Synthesized instances must set `source.synthesized: true`.
+
+#### `session_end`
+
+Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; many writers won't emit it. When present at EOF, signals a normal conclusion of the session and suppresses the "unmatched tool calls at EOF" warning of §16.4.
+
+```jsonc
+{
+  "type": "session_end",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "reason": "complete",
+    "final_message_id": "<entry-id>"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `reason` | yes | enum | `complete` \| `user_quit` \| `agent_idle` |
+| `final_message_id` | no | string | optional reference to the last meaningful event |
 
 ### 9.4 Semantic linking
 
@@ -797,7 +847,14 @@ Warnings (non-fatal):
 - Each `tool_call.id` should be referenced by exactly one `tool_result.payload.for_id` (or paired via §9.5).
 - `subagent_invoke` events should have descendants in this file or set `session_id` pointing elsewhere.
 - `branch_summary.payload.abandoned_branch_id` should reference a real branch root.
-- Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF.
+- Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. A `session_end` event suppresses this warning since it signals a clean conclusion.
+
+Streaming rules (§8.4):
+
+9. If `stream.state == "open"`:
+   - **9a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
+   - **9b.** Terminal events (`session_end`, `session_terminated`) should not appear. Their presence on a live file is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
+10. If `stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 9b does not apply once the stream is no longer marked live.
 
 ---
 
@@ -879,7 +936,6 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 - Image and binary content: external blob store vs inline base64 vs reference URIs.
 - Cryptographic signing for tamper-evident sharing.
 - End-to-end encrypted sharing — sender encrypts before gist upload; receiver decrypts via shared key or asymmetric scheme (age, PGP). Header field shape for derived-from-ciphertext provenance. Same family as signing.
-- Streaming: explicit header field declaring the stream is incomplete.
 - Standardization of common `other` tool args.
 - Cost and token tracking: dedicated event type vs payload field?
 
@@ -892,6 +948,7 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 - Initial public draft.
 - Defines JSONL file layout, header, core event envelope, five mandatory event types, optional events, tool taxonomy, metadata extensions, tree semantics, validation layers, and artifact-level content addressing.
 - Defines stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
+- Adds the optional header `stream` field, the optional `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3). These are additive and backward-compatible; v0.1.x readers ignore unknown header fields and event types.
 
 ---
 
@@ -945,7 +1002,7 @@ Either write one (see §13 for the registry; use a reverse-domain `x-<domain>-<n
 
 **What about live or streaming sessions?**
 
-A v0.1.x file may be appended to in real time. Omit `content_hash` (or leave as `"<pending>"`) for in-progress files. Readers tolerating no `content_hash` will work fine. A formal "is this complete?" marker is deferred to v0.2.
+A v0.1.x file may be appended to in real time. Writers set the header's `stream.state` to `"open"` while appending and omit (or use `"<pending>"`) for `content_hash`. On finalize, the writer rewrites the header with `stream` removed or set to `state: "closed"` and computes `content_hash` per §7.3. Adapters may append a `session_end` event to mark a clean conclusion (vs. `session_terminated` for abnormal ends). Optional `system_event` records of `kind: "heartbeat"` can act as a liveness ping. See §8.4 for the full lifecycle.
 
 **How big is too big for a single file?**
 

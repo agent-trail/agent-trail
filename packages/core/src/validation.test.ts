@@ -456,6 +456,538 @@ test("does not emit content_hash_mismatch when a parse error truncates the recor
   expect(diagnostics.map((d) => d.code)).not.toContain("content_hash_invalid");
 });
 
+test("accepts a header with stream.state open and no content_hash", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: { state: "open", started_at: "2026-05-17T14:00:00.000Z" },
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("accepts a header with stream.state closed", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: { state: "closed" },
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects a header with non-ISO started_at", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: { state: "open", started_at: "yesterday" },
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/stream/started_at",
+    severity: "error",
+    code: "pattern",
+    message: 'must match pattern "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"',
+  });
+});
+
+test("rejects a header with stream.state outside the enum", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: { state: "halfway" },
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/stream/state",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("rejects a header with stream missing required state", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: {},
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/stream/state",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'state'",
+  });
+});
+
+test("rejects a header with unknown stream property", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: "",
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      stream: { state: "open", future_field: true },
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/stream/future_field",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+});
+
+test("accepts a session_end event with reason complete", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: "",
+    value: {
+      type: "session_end",
+      id: "evtend",
+      ts: "2026-05-17T14:00:08.000Z",
+      payload: { reason: "complete", final_message_id: "evta2" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects a session_end event missing required reason", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: "",
+    value: {
+      type: "session_end",
+      id: "evtend",
+      ts: "2026-05-17T14:00:08.000Z",
+      payload: {},
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/reason",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'reason'",
+  });
+});
+
+test("rejects a session_end event with reason outside the enum", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: "",
+    value: {
+      type: "session_end",
+      id: "evtend",
+      ts: "2026-05-17T14:00:08.000Z",
+      payload: { reason: "absolutely_done" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/reason",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("warns when stream.state is open but content_hash is populated", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "warning",
+    code: "stream_open_with_content_hash",
+    message:
+      'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
+  });
+});
+
+test("does not warn when stream.state is open and content_hash is <pending>", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics.some((d) => d.code === "stream_open_with_content_hash")).toBe(false);
+});
+
+test("warns when stream.state is open and the file contains a session_end event", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/type",
+    severity: "warning",
+    code: "stream_open_with_terminal_event",
+    message:
+      'Header has stream.state "open" but file contains a terminal "session_end" event; finalize the header before emitting terminal events',
+  });
+});
+
+test("warns when stream.state is open and the file contains a session_terminated event", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"evtc1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"shell_command","args":{"command":"sleep 99"}}}',
+      '{"type":"session_terminated","id":"evtterm","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"process_terminated","open_call_ids":["evtc1"]}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/type",
+    severity: "warning",
+    code: "stream_open_with_terminal_event",
+    message:
+      'Header has stream.state "open" but file contains a terminal "session_terminated" event; finalize the header before emitting terminal events',
+  });
+});
+
+test("reader-tolerant profile preserves stream_open_with_terminal_event warning", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+    ].join("\n"),
+    { profile: "reader-tolerant" },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/type",
+    severity: "warning",
+    code: "stream_open_with_terminal_event",
+    message:
+      'Header has stream.state "open" but file contains a terminal "session_end" event; finalize the header before emitting terminal events',
+  });
+  expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+});
+
+test("accepts a system_event with kind heartbeat as a streaming liveness ping", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"system_event","id":"evtbeat","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"heartbeat","data":{"interval_ms":30000}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("does not warn when stream.state is closed and the file contains session_end", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("stream.state open with <pending> hash skips hash verification cleanly", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("stream.state open with non-hex content_hash reports both invalid + streaming warning", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"bogus","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "error",
+    code: "content_hash_invalid",
+    message: "content_hash must be 64 lowercase hex characters",
+  });
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "warning",
+    code: "stream_open_with_content_hash",
+    message:
+      'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
+  });
+});
+
+test("stream.state open with mismatched hex content_hash reports mismatch + streaming warning", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(
+    diagnostics.some((d) => d.code === "content_hash_mismatch" && d.severity === "error"),
+  ).toBe(true);
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "warning",
+    code: "stream_open_with_content_hash",
+    message:
+      'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
+  });
+});
+
+test("stream.state closed with mismatched hash keeps existing content_hash_mismatch and emits no streaming warning", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(
+    diagnostics.some((d) => d.code === "content_hash_mismatch" && d.severity === "error"),
+  ).toBe(true);
+  expect(diagnostics.some((d) => d.code === "stream_open_with_content_hash")).toBe(false);
+});
+
+test("reader-tolerant profile keeps streaming warnings and downgrades hash mismatch to warning", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+    { profile: "reader-tolerant" },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/content_hash",
+    severity: "warning",
+    code: "stream_open_with_content_hash",
+    message:
+      'Header has stream.state "open" but content_hash is populated; live files should omit content_hash or use "<pending>"',
+  });
+  expect(
+    diagnostics.some((d) => d.code === "content_hash_mismatch" && d.severity === "warning"),
+  ).toBe(true);
+  expect(diagnostics.some((d) => d.severity === "error")).toBe(false);
+});
+
+test("finalized streaming artifact with matching content_hash validates clean", async () => {
+  const headerLive: Record<string, unknown> = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "sess1",
+    ts: "2026-05-17T14:00:00.000Z",
+    stream: { state: "closed", started_at: "2026-05-17T14:00:00.000Z" },
+    agent: { name: "codex-cli" },
+  };
+  const userValue: Record<string, unknown> = {
+    type: "user_message",
+    id: "evta1",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hello" },
+  };
+  const agentValue: Record<string, unknown> = {
+    type: "agent_message",
+    id: "evta2",
+    ts: "2026-05-17T14:00:07.000Z",
+    payload: { text: "hi" },
+  };
+  const endValue: Record<string, unknown> = {
+    type: "session_end",
+    id: "evtend",
+    ts: "2026-05-17T14:00:08.000Z",
+    payload: { reason: "complete", final_message_id: "evta2" },
+  };
+
+  const records: JsonlRecord[] = [
+    { line: 1, raw: JSON.stringify(headerLive), value: headerLive },
+    { line: 2, raw: JSON.stringify(userValue), value: userValue },
+    { line: 3, raw: JSON.stringify(agentValue), value: agentValue },
+    { line: 4, raw: JSON.stringify(endValue), value: endValue },
+  ];
+  const digest = computeContentHash(records);
+  const finalizedHeader = { ...headerLive, content_hash: digest };
+
+  const diagnostics = await validateTrailString(
+    [
+      JSON.stringify(finalizedHeader),
+      JSON.stringify(userValue),
+      JSON.stringify(agentValue),
+      JSON.stringify(endValue),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("round-trip finalize: live trail transitions to finalized artifact with verifiable hash", async () => {
+  const liveHeader: Record<string, unknown> = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "sess1",
+    ts: "2026-05-17T14:00:00.000Z",
+    stream: { state: "open", started_at: "2026-05-17T14:00:00.000Z" },
+    agent: { name: "codex-cli" },
+  };
+  const userValue: Record<string, unknown> = {
+    type: "user_message",
+    id: "evta1",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hello" },
+  };
+  const agentValue: Record<string, unknown> = {
+    type: "agent_message",
+    id: "evta2",
+    ts: "2026-05-17T14:00:07.000Z",
+    payload: { text: "hi" },
+  };
+
+  const liveDiagnostics = await validateTrailString(
+    [JSON.stringify(liveHeader), JSON.stringify(userValue), JSON.stringify(agentValue)].join("\n"),
+  );
+  expect(liveDiagnostics).toEqual([]);
+
+  const finalizedHeader: Record<string, unknown> = {
+    ...liveHeader,
+    stream: { state: "closed", started_at: "2026-05-17T14:00:00.000Z" },
+  };
+  const finalizedRecords: JsonlRecord[] = [
+    { line: 1, raw: JSON.stringify(finalizedHeader), value: finalizedHeader },
+    { line: 2, raw: JSON.stringify(userValue), value: userValue },
+    { line: 3, raw: JSON.stringify(agentValue), value: agentValue },
+  ];
+  const digest = computeContentHash(finalizedRecords);
+  const sealedHeader = { ...finalizedHeader, content_hash: digest };
+
+  const finalizedDiagnostics = await validateTrailString(
+    [JSON.stringify(sealedHeader), JSON.stringify(userValue), JSON.stringify(agentValue)].join(
+      "\n",
+    ),
+  );
+  expect(finalizedDiagnostics).toEqual([]);
+
+  const tamperedHeader = { ...sealedHeader, ts: "2026-05-17T14:00:01.000Z" };
+  const tamperedDiagnostics = await validateTrailString(
+    [JSON.stringify(tamperedHeader), JSON.stringify(userValue), JSON.stringify(agentValue)].join(
+      "\n",
+    ),
+  );
+  expect(tamperedDiagnostics.some((d) => d.code === "content_hash_mismatch")).toBe(true);
+});
+
+test("validateTrailStream processes lines incrementally as chunks arrive", async () => {
+  const headerLine =
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
+  const firstEvent =
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
+  const secondEvent =
+    '{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}\n';
+
+  const diagnostics = await collect(
+    validateTrailStream(chunks([headerLine, firstEvent, secondEvent])),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("validateTrailStream surfaces an invalid event mid-stream without losing earlier ones", async () => {
+  const headerLine =
+    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
+  const goodEvent =
+    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
+  const badEvent =
+    '{"type":"tool_call","id":"evta2","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{}}}\n';
+  const recoveryEvent =
+    '{"type":"agent_message","id":"evta3","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"continuing"}}\n';
+
+  const diagnostics = await collect(
+    validateTrailStream(chunks([headerLine, goodEvent, badEvent, recoveryEvent])),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/args/path",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'path'",
+  });
+  expect(diagnostics.filter((d) => d.severity === "error" && d.line !== 3)).toEqual([]);
+});
+
 async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
 

@@ -56,6 +56,7 @@ export type Entry = EntryBase &
     | BranchSummary
     | ModelChange
     | SessionTerminated
+    | SessionEnd
     | Unknown
   );
 export type ToolKind =
@@ -82,6 +83,13 @@ export interface Header {
   id: Id;
   content_hash?: Sha256Hex | "<pending>";
   ts: Iso8601;
+  /**
+   * Live-capture marker. Present means writer is actively appending or last appended in streaming mode. Absent means non-streaming or unaware writer.
+   */
+  stream?: {
+    state: "open" | "closed";
+    started_at?: Iso8601;
+  };
   agent: {
     name: AgentName;
     version?: string;
@@ -267,6 +275,14 @@ export interface SessionTerminated {
   payload?: {
     reason: "eof_with_open_tool_calls" | "process_terminated" | "truncated" | "user_abort";
     open_call_ids?: Id[];
+  };
+  [k: string]: unknown;
+}
+export interface SessionEnd {
+  type?: "session_end";
+  payload?: {
+    reason: "complete" | "user_quit" | "agent_idle";
+    final_message_id?: Id;
   };
   [k: string]: unknown;
 }
