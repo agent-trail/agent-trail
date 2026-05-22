@@ -13,7 +13,34 @@ export type VerifyContentHashResult = {
   actual: string | null;
 };
 
-export function computeContentHash(records: JsonlRecord[]): string {
+/**
+ * Canonical JSONL bytes for the trail, per spec §7.3:
+ * each record JCS-canonicalized, LF-joined, trailing newline.
+ * The header keeps whatever `content_hash` value it carries (real hex,
+ * `<pending>`, or absent). These are the bytes written to disk for a
+ * finalized artifact.
+ */
+export function canonicalizeRecords(records: JsonlRecord[]): string {
+  const lines: string[] = [];
+  for (const record of records) {
+    const canonical = canonicalize(record.value);
+    if (canonical === undefined) {
+      throw new TypeError(`Cannot canonicalize record on line ${record.line}`);
+    }
+    lines.push(canonical);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Canonical JSONL bytes used to compute or verify `content_hash`, per
+ * spec §7.3 step 1: same as {@link canonicalizeRecords} but with the
+ * header's `content_hash` field replaced by the literal `"<pending>"`.
+ * The hash is computed over these bytes; the bytes written to disk are
+ * produced by {@link canonicalizeRecords} after the header is stamped
+ * with the resulting hex digest.
+ */
+export function canonicalizeRecordsForHashing(records: JsonlRecord[]): string {
   const lines: string[] = [];
   for (const [index, record] of records.entries()) {
     const value = index === 0 ? { ...record.value, content_hash: PENDING } : record.value;
@@ -23,10 +50,11 @@ export function computeContentHash(records: JsonlRecord[]): string {
     }
     lines.push(canonical);
   }
+  return `${lines.join("\n")}\n`;
+}
 
-  return createHash("sha256")
-    .update(`${lines.join("\n")}\n`, "utf8")
-    .digest("hex");
+export function computeContentHash(records: JsonlRecord[]): string {
+  return createHash("sha256").update(canonicalizeRecordsForHashing(records), "utf8").digest("hex");
 }
 
 export function verifyContentHash(records: JsonlRecord[]): VerifyContentHashResult {

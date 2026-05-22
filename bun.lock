@@ -53,6 +53,14 @@
       "name": "@agent-trail/schema",
       "version": "0.0.0",
     },
+    "packages/store": {
+      "name": "@agent-trail/store",
+      "version": "0.0.0",
+      "dependencies": {
+        "@agent-trail/core": "workspace:*",
+        "@agent-trail/types": "workspace:*",
+      },
+    },
     "packages/types": {
       "name": "@agent-trail/types",
       "version": "0.0.0",
@@ -72,6 +80,8 @@
     "@agent-trail/redact": ["@agent-trail/redact@workspace:packages/redact"],
 
     "@agent-trail/schema": ["@agent-trail/schema@workspace:packages/schema"],
+
+    "@agent-trail/store": ["@agent-trail/store@workspace:packages/store"],
 
     "@agent-trail/types": ["@agent-trail/types@workspace:packages/types"],
 
