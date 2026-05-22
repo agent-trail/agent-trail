@@ -68,6 +68,60 @@ Header with `stream: { state: "closed", started_at }`. Concludes with a `session
 
 Expected: no diagnostics under either profile.
 
+#### `valid/tool-call-matched-by-for-id.trail.jsonl`
+
+`tool_call` paired with `tool_result` via explicit `payload.for_id` reference (primary pairing method, spec §9.5).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/tool-call-matched-by-semantic-call-id.trail.jsonl`
+
+`tool_call` and `tool_result` both carry matching `semantic.call_id`; `tool_result` omits `for_id` (spec §9.5 fallback rule 1, semantic match).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/tool-call-matched-sequentially.trail.jsonl`
+
+`tool_call` followed by `tool_result`; neither carries `for_id` nor `semantic.call_id`. Paired by spec §9.5 fallback rule 2 (sequential match).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl`
+
+Open `tool_call` with no matching `tool_result`, followed by `session_end`. The clean-conclusion marker suppresses the `unmatched_tool_call_at_eof` warning (spec §9.3, §16.4).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/unmatched-tool-call-suppressed-by-session-terminated.trail.jsonl`
+
+Open `tool_call` with no matching `tool_result`, followed by `session_terminated` whose `payload.open_call_ids` lists the unmatched id. The escape hatch suppresses the warning (spec §16.4).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/session-end-with-final-message-id.trail.jsonl`
+
+`session_end.payload.final_message_id` references a real `agent_message` id in the same file (spec §9.3).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/session-end-final-message-id-references-header.trail.jsonl`
+
+`session_end.payload.final_message_id` references the session header `id`. The header counts as an in-file identifier for this check.
+
+Expected: no diagnostics under either profile.
+
+#### `valid/tool-result-for-id-targets-header-falls-through.trail.jsonl`
+
+`tool_result.payload.for_id` references the session header `id` (not a `tool_call`). Spec §9.5 treats a `for_id` that doesn't resolve to a `tool_call` as missing, so pairing falls through to the semantic-match fallback. Both events share `semantic.call_id`, so they pair cleanly.
+
+Expected: no diagnostics under either profile.
+
+#### `valid/multiple-session-end-events.trail.jsonl`
+
+Two `session_end` events follow an unmatched `tool_call`. Per spec §16.4, a `session_end` event anywhere in the file suppresses the `unmatched_tool_call_at_eof` warning; multiple terminators are tolerated.
+
+Expected: no diagnostics under either profile.
+
 ### invalid-schema/
 
 Current coverage targets `user_message` and `tool_call` payload violations. Additional event-type fixtures will be added as adapters and downstream issues require them.
@@ -98,6 +152,12 @@ Expected (strict): `error required /payload/args/path line 2`.
 
 Expected (strict): `error type /payload/text line 2`.
 
+#### `invalid-schema/session-end-final-message-id-null.trail.jsonl`
+
+`session_end.payload.final_message_id` is `null`. The schema requires a string id (`$defs/id`). The graph layer's `unknown_final_message_id` check skips non-string values, so only the schema error fires (and does not crash).
+
+Expected (strict, subset): `error type /payload/final_message_id line 3`. No `unknown_final_message_id` warning.
+
 ### invalid-graph/
 
 #### `invalid-graph/duplicate-id.trail.jsonl`
@@ -123,6 +183,36 @@ Expected: `error parent_cycle /parent_id` on both lines 2 and 3.
 Header has `stream.state: "open"` and a populated `content_hash` (§16.4 rule 9). Two events follow. The hash is a placeholder and does not match the canonical bytes, so a `content_hash_mismatch` error also fires; the fixture asserts the warning surface, not strict equality.
 
 Expected (subset, strict): single `warning stream_open_with_content_hash /content_hash line 1`.
+
+#### `invalid-graph/unmatched-tool-call-at-eof.trail.jsonl`
+
+Header + one `tool_call` with no matching `tool_result` and no terminal event. Triggers the spec §16.4 whole-file warning.
+
+Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2` ("tool_call \"evta1\" has no matching tool_result at EOF").
+
+#### `invalid-graph/session-end-unknown-final-message-id.trail.jsonl`
+
+`session_end.payload.final_message_id` references `"ghost"`, which is not present in the file.
+
+Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 3`.
+
+#### `invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl`
+
+Two `tool_call` events open at EOF. A trailing `session_terminated.payload.open_call_ids` lists only the first id (`evta1`). Per spec §16.4, suppression applies per-id.
+
+Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2` only.
+
+#### `invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids.trail.jsonl`
+
+`tool_call` open at EOF; trailing `session_terminated` carries no `open_call_ids`. Spec §16.4 only suppresses ids that are explicitly listed.
+
+Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2`.
+
+#### `invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl`
+
+Two `tool_call` events: `evta1` (no semantic) and `evta2` (semantic `call_b`). A single `tool_result` carries both `for_id: "evta1"` and `semantic.call_id: "call_b"`. The explicit `for_id` wins per spec §9.5 (primary method), pairing the result with `evta1`. `evta2` is left unmatched with no suppression.
+
+Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2`.
 
 #### `invalid-graph/header-has-parent-id.trail.jsonl`
 

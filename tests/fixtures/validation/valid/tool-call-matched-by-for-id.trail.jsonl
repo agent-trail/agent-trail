@@ -1,0 +1,3 @@
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"tool_call","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_read","args":{"path":"a.txt"}}}
+{"type":"tool_result","id":"evta2","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"evta1","ok":true,"output":"hi"}}

@@ -153,6 +153,8 @@ export function validateTrailGraph(
 
   if (headerValid && headerRecord !== undefined) {
     diagnostics.push(...streamConsistencyWarnings(headerRecord, entries));
+    diagnostics.push(...unmatchedToolCallWarnings(entries));
+    diagnostics.push(...finalMessageIdWarnings(entries, idLines, headerId));
   }
 
   if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
@@ -231,6 +233,185 @@ function streamConsistencyWarnings(
   }
 
   return diagnostics;
+}
+
+// Spec §16.4: writers should emit `session_terminated` if any `tool_call`
+// remains unmatched at EOF. `session_end` signals a clean conclusion and
+// suppresses the warning (spec §9.3). Pairing applies the full spec §9.5
+// algorithm: primary explicit `for_id` reference, then the three-rule
+// fallback cascade (semantic.call_id match, sequential, heuristic). The
+// heuristic rule is reader-only and not implemented here.
+function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] {
+  type Call = { id: string; line: number; semanticCallId?: string; matched: boolean };
+  type Result = { forId?: string; semanticCallId?: string; callIndex: number; matched: boolean };
+
+  const calls: Call[] = [];
+  const callById = new Map<string, Call>();
+  const results: Result[] = [];
+  let hasSessionEnd = false;
+  const suppressedIds = new Set<string>();
+
+  for (const entry of entries) {
+    const type = entry.value.type;
+    if (type === "tool_call") {
+      const id = entry.value.id;
+      if (typeof id !== "string") {
+        continue;
+      }
+      const call: Call = {
+        id,
+        line: entry.line,
+        semanticCallId: readSemanticCallId(entry.value),
+        matched: false,
+      };
+      calls.push(call);
+      callById.set(id, call);
+    } else if (type === "tool_result") {
+      const payload = entry.value.payload;
+      const forIdRaw =
+        typeof payload === "object" && payload !== null
+          ? (payload as { for_id?: unknown }).for_id
+          : undefined;
+      results.push({
+        forId: typeof forIdRaw === "string" ? forIdRaw : undefined,
+        semanticCallId: readSemanticCallId(entry.value),
+        callIndex: calls.length, // for sequential pairing: results pair only with calls prior to this entry
+        matched: false,
+      });
+    } else if (type === "session_end") {
+      hasSessionEnd = true;
+    } else if (type === "session_terminated") {
+      const payload = entry.value.payload;
+      if (typeof payload === "object" && payload !== null) {
+        const openIds = (payload as { open_call_ids?: unknown }).open_call_ids;
+        if (Array.isArray(openIds)) {
+          for (const openId of openIds) {
+            if (typeof openId === "string") {
+              suppressedIds.add(openId);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (hasSessionEnd) {
+    return [];
+  }
+
+  // Pass A: explicit `for_id` reference — primary pairing method (spec §9.5).
+  for (const result of results) {
+    if (result.forId === undefined) {
+      continue;
+    }
+    const call = callById.get(result.forId);
+    if (call !== undefined && !call.matched) {
+      call.matched = true;
+      result.matched = true;
+    }
+  }
+
+  // Pass B: semantic.call_id match — spec §9.5 fallback rule 1.
+  const callsBySemanticCallId = new Map<string, Call[]>();
+  for (const call of calls) {
+    if (call.matched || call.semanticCallId === undefined) {
+      continue;
+    }
+    const bucket = callsBySemanticCallId.get(call.semanticCallId);
+    if (bucket === undefined) {
+      callsBySemanticCallId.set(call.semanticCallId, [call]);
+    } else {
+      bucket.push(call);
+    }
+  }
+  for (const result of results) {
+    if (result.matched || result.semanticCallId === undefined) {
+      continue;
+    }
+    const bucket = callsBySemanticCallId.get(result.semanticCallId);
+    if (bucket === undefined || bucket.length === 0) {
+      continue;
+    }
+    const call = bucket.shift();
+    if (call !== undefined) {
+      call.matched = true;
+      result.matched = true;
+    }
+  }
+
+  // Pass C: sequential — spec §9.5 fallback rule 2. Each remaining unmatched
+  // result pairs with the most recent prior unmatched tool_call.
+  for (const result of results) {
+    if (result.matched) {
+      continue;
+    }
+    for (let i = result.callIndex - 1; i >= 0; i -= 1) {
+      const call = calls[i];
+      if (call !== undefined && !call.matched) {
+        call.matched = true;
+        result.matched = true;
+        break;
+      }
+    }
+  }
+
+  return calls
+    .filter((c) => !c.matched && !suppressedIds.has(c.id))
+    .map((call) =>
+      createDiagnostic({
+        line: call.line,
+        path: "/id",
+        severity: "warning",
+        code: "unmatched_tool_call_at_eof",
+        message: `tool_call "${call.id}" has no matching tool_result at EOF`,
+      }),
+    );
+}
+
+// Spec §9.3: `session_end.payload.final_message_id` is an optional reference
+// to the last meaningful event. Warn when the id does not match any entry in
+// the file (mirrors `unknown_parent_id`, but non-fatal in both profiles).
+function finalMessageIdWarnings(
+  entries: JsonlRecord[],
+  idLines: Map<string, number>,
+  headerId: string | undefined,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of entries) {
+    if (entry.value.type !== "session_end") {
+      continue;
+    }
+    const payload = entry.value.payload;
+    if (typeof payload !== "object" || payload === null) {
+      continue;
+    }
+    const finalId = (payload as { final_message_id?: unknown }).final_message_id;
+    if (typeof finalId !== "string") {
+      continue;
+    }
+    if (idLines.has(finalId) || finalId === headerId) {
+      continue;
+    }
+    diagnostics.push(
+      createDiagnostic({
+        line: entry.line,
+        path: "/payload/final_message_id",
+        severity: "warning",
+        code: "unknown_final_message_id",
+        message: `session_end final_message_id "${finalId}" does not reference an id in this file`,
+      }),
+    );
+  }
+  return diagnostics;
+}
+
+function readSemanticCallId(value: Record<string, unknown>): string | undefined {
+  const semantic = value.semantic;
+  if (typeof semantic !== "object" || semantic === null) {
+    return undefined;
+  }
+  const callId = (semantic as { call_id?: unknown }).call_id;
+  return typeof callId === "string" ? callId : undefined;
 }
 
 function isReaderCompatiblePatchHeader(record: JsonlRecord | undefined): boolean {

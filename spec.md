@@ -640,6 +640,8 @@ Adapters should populate `semantic.call_id` on tool_call/tool_result pairs when 
 
 Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`.
 
+Validators apply the same pairing algorithm when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` reference first, then the three-rule fallback cascade above (semantic, sequential, heuristic). A `tool_call` is considered matched when any of these methods pairs it with a `tool_result`.
+
 ### 9.6 Unknown event types
 
 Readers must tolerate unknown types:
@@ -847,7 +849,10 @@ Warnings (non-fatal):
 - Each `tool_call.id` should be referenced by exactly one `tool_result.payload.for_id` (or paired via §9.5).
 - `subagent_invoke` events should have descendants in this file or set `session_id` pointing elsewhere.
 - `branch_summary.payload.abandoned_branch_id` should reference a real branch root.
-- Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. A `session_end` event suppresses this warning since it signals a clean conclusion.
+- Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
+  - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).
+  - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
+- `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
 
 Streaming rules (§8.4):
 

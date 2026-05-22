@@ -148,6 +148,184 @@ test("invalid-graph/parent-cycle.trail.jsonl reports parent_cycle on both lines"
   expect(cycles.map((d) => d.line)).toEqual([2, 3]);
 });
 
+test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-matched-by-for-id.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/unmatched-tool-call-suppressed-by-session-terminated.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/unmatched-tool-call-suppressed-by-session-terminated.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-matched-by-semantic-call-id.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-matched-by-semantic-call-id.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-matched-sequentially.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-matched-sequentially.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-end-with-final-message-id.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-end-with-final-message-id.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns about unmatched tool_call at EOF", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message: 'tool_call "evta1" has no matching tool_result at EOF',
+  });
+});
+
+test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns about unknown final_message_id", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/final_message_id",
+    severity: "warning",
+    code: "unknown_final_message_id",
+    message: 'session_end final_message_id "ghost" does not reference an id in this file',
+  });
+});
+
+test("invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl warns only for unlisted ids", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl"),
+  );
+  const unmatched = diagnostics.filter((d) => d.code === "unmatched_tool_call_at_eof");
+  expect(unmatched).toEqual([
+    {
+      line: 3,
+      path: "/id",
+      severity: "warning",
+      code: "unmatched_tool_call_at_eof",
+      message: 'tool_call "evta2" has no matching tool_result at EOF',
+    },
+  ]);
+});
+
+test("invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids.trail.jsonl still warns", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture(
+      "invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids.trail.jsonl",
+    ),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message: 'tool_call "evta1" has no matching tool_result at EOF',
+  });
+});
+
+test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns under reader-tolerant profile", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
+    { profile: "reader-tolerant" },
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message: 'tool_call "evta1" has no matching tool_result at EOF',
+  });
+});
+
+test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns under reader-tolerant profile", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
+    { profile: "reader-tolerant" },
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/final_message_id",
+    severity: "warning",
+    code: "unknown_final_message_id",
+    message: 'session_end final_message_id "ghost" does not reference an id in this file',
+  });
+});
+
+test("valid/session-end-final-message-id-references-header.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-end-final-message-id-references-header.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-for-id-targets-header-falls-through.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-for-id-targets-header-falls-through.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/multiple-session-end-events.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multiple-session-end-events.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl warns only for the call left unmatched", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl"),
+  );
+  const unmatched = diagnostics.filter((d) => d.code === "unmatched_tool_call_at_eof");
+  expect(unmatched).toEqual([
+    {
+      line: 3,
+      path: "/id",
+      severity: "warning",
+      code: "unmatched_tool_call_at_eof",
+      message: 'tool_call "evta2" has no matching tool_result at EOF',
+    },
+  ]);
+});
+
+test("invalid-schema/session-end-final-message-id-null.trail.jsonl reports schema type error and no graph warning", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-end-final-message-id-null.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/final_message_id",
+    severity: "error",
+    code: "type",
+    message: "must be string",
+  });
+  expect(diagnostics.filter((d) => d.code === "unknown_final_message_id")).toEqual([]);
+});
+
 test("invalid-graph/header-has-parent-id.trail.jsonl reports additionalProperties + header_has_parent_id", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-graph/header-has-parent-id.trail.jsonl"),
