@@ -248,6 +248,67 @@ test("corrupt index: exits 1 with friendly stderr (no stack trace)", async () =>
   expect(result.stderr).not.toMatch(/\.ts:\d+/);
 });
 
+test("malformed index entry (null value): skipped with warning, exit 0", async () => {
+  const good = await seedTrail({ id: "sess-ok", cwd: "/work/ok" });
+  await registerTrail(good.filePath, { storeRoot });
+  const indexPath = join(storeRoot, "index", "objects.json");
+  const raw = await readFile(indexPath, "utf8");
+  const idx = JSON.parse(raw) as { version: number; entries: Record<string, unknown> };
+  const badHash = "0".repeat(64);
+  idx.entries[badHash] = null;
+  await writeFile(indexPath, `${JSON.stringify(idx, null, 2)}\n`, "utf8");
+
+  const result = await runList(["--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain(badHash);
+  expect(result.stderr).toContain("malformed index entry");
+  const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string }>;
+  expect(parsed.map((r) => r.content_hash)).toEqual([good.contentHash]);
+});
+
+test("malformed index key (path traversal): skipped with warning, exit 0", async () => {
+  const good = await seedTrail({ id: "sess-ok", cwd: "/work/ok" });
+  await registerTrail(good.filePath, { storeRoot });
+  const indexPath = join(storeRoot, "index", "objects.json");
+  const raw = await readFile(indexPath, "utf8");
+  const idx = JSON.parse(raw) as {
+    version: number;
+    entries: Record<string, { registered_at: string; source_path: string | null }>;
+  };
+  const evilKey = "../../../etc/passwd";
+  idx.entries[evilKey] = { registered_at: "2026-01-01T00:00:00.000Z", source_path: null };
+  await writeFile(indexPath, `${JSON.stringify(idx, null, 2)}\n`, "utf8");
+
+  const result = await runList(["--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("malformed index key");
+  expect(result.stderr).toContain(evilKey);
+  const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string }>;
+  expect(parsed.map((r) => r.content_hash)).toEqual([good.contentHash]);
+});
+
+test("resolveStoreRoot failure (no HOME, no AGENT_TRAIL_HOME): exit 1 friendly stderr", async () => {
+  const savedHome = process.env.HOME;
+  const savedTrailHome = process.env.AGENT_TRAIL_HOME;
+  process.env.HOME = "";
+  process.env.AGENT_TRAIL_HOME = "";
+  try {
+    const result = await runList([]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("store root");
+    expect(result.stderr).not.toMatch(/\.ts:\d+/);
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedTrailHome === undefined) delete process.env.AGENT_TRAIL_HOME;
+    else process.env.AGENT_TRAIL_HOME = savedTrailHome;
+  }
+});
+
 test("non-JSON header line: row included with null agent/cwd, warning on stderr", async () => {
   const { filePath, contentHash } = await seedTrail({ id: "sess-bad", cwd: "/work/bad" });
   const reg = await registerTrail(filePath, { storeRoot });

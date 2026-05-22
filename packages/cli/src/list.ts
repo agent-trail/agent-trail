@@ -31,6 +31,7 @@ const USAGE =
   "Usage: trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]";
 const SHORT_HASH_LEN = 12;
 const MISSING_TEXT = "-";
+const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
 export async function runList(argv: string[], opts: RunListOptions = {}): Promise<RunListResult> {
   const parseConfig = {
@@ -61,7 +62,13 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
     return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
   }
 
-  const storeRoot = resolveStoreRoot(opts.storeRoot);
+  let storeRoot: string;
+  try {
+    storeRoot = resolveStoreRoot(opts.storeRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `${message}\n` };
+  }
   let index: IndexFile;
   try {
     index = await readIndex(storeRoot);
@@ -75,7 +82,21 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
 
   const rows: Row[] = [];
   const warnings: string[] = [];
-  for (const [contentHash, entry] of entries) {
+  for (const [contentHash, rawEntry] of entries) {
+    // Index keys are content_hashes (sha256 hex). Reject anything else before
+    // composing a filesystem path so a corrupted/malicious index cannot turn
+    // path.join() into an escape from objects/sha256/.
+    if (!CONTENT_HASH_RE.test(contentHash)) {
+      warnings.push(`warning: skipping malformed index key: ${contentHash}`);
+      continue;
+    }
+    // readIndex only validates that `entries` is an object; individual values
+    // could be null/array/string after a hand edit. Guard before dereferencing.
+    const entry = normalizeIndexEntry(rawEntry);
+    if (entry === null) {
+      warnings.push(`warning: skipping malformed index entry for ${contentHash}`);
+      continue;
+    }
     const headerResult = await readHeader(storeRoot, contentHash);
     if (headerResult.error !== null) {
       warnings.push(`warning: could not read header for ${contentHash}: ${headerResult.error}`);
@@ -198,6 +219,18 @@ function parseBound(value: string | undefined): number | null {
   if (value === undefined) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+type NormalizedEntry = { registered_at: string; source_path: string | null };
+
+function normalizeIndexEntry(raw: unknown): NormalizedEntry | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const registeredAt = record.registered_at;
+  if (typeof registeredAt !== "string") return null;
+  const sourcePath = record.source_path;
+  if (sourcePath !== null && typeof sourcePath !== "string") return null;
+  return { registered_at: registeredAt, source_path: sourcePath };
 }
 
 function extractCwd(header: Record<string, unknown> | null): string | null {

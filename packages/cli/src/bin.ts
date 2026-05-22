@@ -17,19 +17,20 @@ if (
   process.exit(0);
 }
 
-const handlers: Record<
-  string,
-  (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>
-> = {
+type Handler = (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
+
+// Null-prototype map so inherited keys (`toString`, `constructor`, ...) cannot
+// satisfy the lookup and slip into the dispatch path as a non-command.
+const handlers: Record<string, Handler> = Object.assign(Object.create(null), {
   validate: runValidate,
   list: runList,
-};
+}) as Record<string, Handler>;
 
-const handler = handlers[subcommand];
-if (handler === undefined) {
+if (!Object.hasOwn(handlers, subcommand)) {
   await Bun.write(Bun.stderr, USAGE);
   process.exit(1);
 }
+const handler = handlers[subcommand] as Handler;
 
 try {
   const { exitCode, stdout, stderr } = await handler(rest);
