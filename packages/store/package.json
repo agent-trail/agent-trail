@@ -1,0 +1,39 @@
+{
+  "name": "@agent-trail/store",
+  "version": "0.0.0",
+  "description": "Agent Trail local content-addressed object store and index.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/store"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@agent-trail/core": "workspace:*",
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4"
+  },
+  "scripts": {
+    "check": "bun test && tsc --noEmit --project ../../tsconfig.json",
+    "test": "bun test"
+  }
+}

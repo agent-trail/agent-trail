@@ -48,6 +48,22 @@ _Avoid_: Importer, parser plugin
 The living record of adapter source formats, verification dates, and fixture coverage.
 _Avoid_: Adapter docs, compatibility list
 
+**Local store**:
+The on-disk home for trail artifacts a user has chosen to keep, rooted by default at `~/.local/share/trail/`. Holds finalized objects and a rebuildable index.
+_Avoid_: Cache, database, archive
+
+**Finalized object**:
+A canonical trail file with a verified `content_hash`, stored at `objects/sha256/<hash>.trail.jsonl` under the local store.
+_Avoid_: Stored trail, persisted artifact
+
+**Index**:
+Mutable metadata at `index/objects.json` under the local store. Records `registered_at` and `source_path` per finalized object. Can be rebuilt from the objects directory.
+_Avoid_: Database, cache
+
+**Pending hash**:
+A header `content_hash` value of `"<pending>"` or omitted; signals an in-progress or streaming trail file that is not eligible to become a finalized object.
+_Avoid_: Missing hash, draft hash
+
 ## Relationships
 
 - A **Trail file** conforms to the **Format contract**.
@@ -58,6 +74,8 @@ _Avoid_: Adapter docs, compatibility list
 - A **Redacted trail** is produced from a **Raw trail**.
 - A **Shared trail** transports a **Redacted trail**.
 - The **Parser Source Matrix** records the evidence behind each **Adapter**.
+- A **Finalized object** lives in the **Local store**; the **Index** points at it by `content_hash`.
+- A **Pending hash** keeps a trail file out of the **Local store** as a **Finalized object**.
 
 ## Example dialogue
 
