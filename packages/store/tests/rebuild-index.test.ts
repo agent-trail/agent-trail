@@ -4,7 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { rebuildIndex, registerTrail } from "../src/index.ts";
+import { IndexVersionError, rebuildIndex, registerTrail } from "../src/index.ts";
 
 const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
@@ -39,6 +39,19 @@ test("rebuildIndex regenerates the index from on-disk objects after the index is
   expect(indexValue.entries[FINALIZED_HASH]).toBeDefined();
   expect(indexValue.entries[FINALIZED_HASH]?.source_path).toBeNull();
   expect(new Date(indexValue.entries[FINALIZED_HASH]?.registered_at ?? "").getTime()).not.toBeNaN();
+});
+
+test("registerTrail throws IndexVersionError when index/objects.json has an unsupported version", async () => {
+  await mkdir(join(storeRoot, "index"), { recursive: true });
+  await writeFile(
+    join(storeRoot, "index", "objects.json"),
+    `${JSON.stringify({ version: 999, entries: {} })}\n`,
+    "utf8",
+  );
+
+  await expect(
+    registerTrail(fixturePath("valid/minimal-with-content-hash.trail.jsonl"), { storeRoot }),
+  ).rejects.toBeInstanceOf(IndexVersionError);
 });
 
 test("rebuildIndex ignores stray files in objects/sha256 that do not match <hex>.trail.jsonl", async () => {

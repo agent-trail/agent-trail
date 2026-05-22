@@ -36,6 +36,9 @@ export async function registerTrail(
   const schemaDiagnostics = await validateWriterStrictSchemaJsonlString(raw);
   const graphDiagnostics = validateTrailGraph(records);
   const allDiagnostics = [...schemaDiagnostics, ...graphDiagnostics];
+  // Only error-severity diagnostics block registration. Warnings
+  // (e.g. `unmatched_tool_call_at_eof`) are informational and a trail
+  // carrying them is still eligible to be stored as a finalized object.
   const errorDiagnostics = allDiagnostics.filter((d) => d.severity === "error");
   if (errorDiagnostics.length > 0) {
     return {
