@@ -205,6 +205,19 @@ test("registerTrail throws IndexCorruptError when index/objects.json is malforme
   );
 });
 
+test("registerTrail throws IndexCorruptError when index/objects.json entries is not a plain object", async () => {
+  await mkdir(join(storeRoot, "index"), { recursive: true });
+  await writeFile(
+    join(storeRoot, "index", "objects.json"),
+    `${JSON.stringify({ version: 1, entries: [] })}\n`,
+    "utf8",
+  );
+
+  await expect(registerTrail(FINALIZED_FIXTURE, { storeRoot })).rejects.toBeInstanceOf(
+    IndexCorruptError,
+  );
+});
+
 test("four concurrent registerTrail calls for distinct hashes produce four index entries", async () => {
   const inputDir = mkdtempSync(join(tmpdir(), "trail-store-concurrent-"));
   const fixtures = await Promise.all(

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import lockfile from "proper-lockfile";
@@ -73,8 +74,15 @@ export async function readIndex(storeRoot: string): Promise<IndexFile> {
   if (parsed.version !== INDEX_VERSION) {
     throw new IndexVersionError(parsed.version);
   }
-  if (typeof parsed.entries !== "object" || parsed.entries === null) {
-    return emptyIndex();
+  if (
+    typeof parsed.entries !== "object" ||
+    parsed.entries === null ||
+    Array.isArray(parsed.entries)
+  ) {
+    throw new IndexCorruptError(
+      path,
+      new Error("`entries` must be a plain object keyed by content_hash"),
+    );
   }
   return parsed;
 }
@@ -82,7 +90,11 @@ export async function readIndex(storeRoot: string): Promise<IndexFile> {
 export async function writeIndex(storeRoot: string, index: IndexFile): Promise<void> {
   const target = indexFilePath(storeRoot);
   await mkdir(indexDir(storeRoot), { recursive: true });
-  const tmp = `${target}.tmp`;
+  // Per-write unique suffix: `withIndexLock` serializes registerTrail callers,
+  // but rebuildIndex and any other future writer must not collide on a shared
+  // `.tmp` path either. UUID-suffixed temp + atomic rename keeps writers safe
+  // even when they bypass the lock.
+  const tmp = `${target}.${randomUUID()}.tmp`;
   await writeFile(tmp, `${JSON.stringify(index, null, 2)}\n`, "utf8");
   await rename(tmp, target);
 }

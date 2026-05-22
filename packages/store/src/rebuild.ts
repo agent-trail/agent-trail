@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parseJsonlString, verifyContentHash } from "@agent-trail/core";
-import { emptyIndex, writeIndex } from "./index-file.ts";
+import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
 
 const OBJECT_NAME = /^([0-9a-f]{64})\.trail\.jsonl$/;
@@ -61,6 +61,6 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     };
   }
 
-  await writeIndex(storeRoot, index);
+  await withIndexLock(storeRoot, () => writeIndex(storeRoot, index));
   return { entries: Object.keys(index.entries).length };
 }
