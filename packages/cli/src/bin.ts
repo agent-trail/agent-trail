@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { runList } from "./list.ts";
+import { runShare } from "./share.ts";
 import { runValidate } from "./validate.ts";
 
 const USAGE =
-  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n";
+  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n  trail share <path> [--dry-run] [--yes] [--skip-redaction]\n";
 
 const [subcommand, ...rest] = Bun.argv.slice(2);
 
@@ -24,6 +25,7 @@ type Handler = (argv: string[]) => Promise<{ exitCode: number; stdout: string; s
 const handlers: Record<string, Handler> = Object.assign(Object.create(null), {
   validate: runValidate,
   list: runList,
+  share: runShare,
 }) as Record<string, Handler>;
 
 if (!Object.hasOwn(handlers, subcommand)) {

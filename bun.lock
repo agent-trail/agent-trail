@@ -33,6 +33,7 @@
       },
       "dependencies": {
         "@agent-trail/core": "workspace:*",
+        "@agent-trail/redact": "workspace:*",
         "@agent-trail/schema": "workspace:*",
         "@agent-trail/store": "workspace:*",
       },
