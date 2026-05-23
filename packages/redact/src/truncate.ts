@@ -35,6 +35,7 @@ export function truncateOutputs(
   records: JsonlRecord[],
   maxBytes: number,
   summary: RedactionSummary,
+  maxSamples: number,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -48,11 +49,13 @@ export function truncateOutputs(
     payload.output = truncateToByteLimit(output, maxBytes);
     payload.truncated = true;
     summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
-    summary.samples.push({
-      patternId: "output_truncated",
-      location: `records[${index}].payload.output`,
-      before: `${original.length} chars`,
-      after: `${(payload.output as string).length} chars`,
-    });
+    if (summary.samples.length < maxSamples) {
+      summary.samples.push({
+        patternId: "output_truncated",
+        location: `records[${index}].payload.output`,
+        before: `${original.length} chars`,
+        after: `${(payload.output as string).length} chars`,
+      });
+    }
   }
 }

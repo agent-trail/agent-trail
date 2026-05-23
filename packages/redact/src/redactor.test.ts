@@ -90,16 +90,19 @@ test("redactTrail applies user-supplied exact secrets before regex patterns", ()
   });
 });
 
-test("redactTrail walks source.metadata.raw and redacts nested string secrets", () => {
+test("redactTrail walks entry source.raw and redacts nested string secrets", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
-    header({
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "hello" },
       source: {
-        metadata: {
-          raw: {
-            env: { OPENAI_API_KEY: key },
-            tags: ["safe", `embedded:${key}`],
-          },
+        raw: {
+          env: { OPENAI_API_KEY: key },
+          tags: ["safe", `embedded:${key}`],
         },
       },
     }),
@@ -107,16 +110,16 @@ test("redactTrail walks source.metadata.raw and redacts nested string secrets", 
 
   const { records: out, summary } = redactTrail(records);
 
-  const headerValue = out[0]?.value as {
-    source: { metadata: { raw: { env: { OPENAI_API_KEY: string }; tags: string[] } } };
+  const entryValue = out[1]?.value as {
+    source: { raw: { env: { OPENAI_API_KEY: string }; tags: string[] } };
   };
-  expect(headerValue.source.metadata.raw.env.OPENAI_API_KEY).toBe("[OPENAI_KEY]");
-  expect(headerValue.source.metadata.raw.tags[1]).toBe("embedded:[OPENAI_KEY]");
+  expect(entryValue.source.raw.env.OPENAI_API_KEY).toBe("[OPENAI_KEY]");
+  expect(entryValue.source.raw.tags[1]).toBe("embedded:[OPENAI_KEY]");
   expect(summary.counts.openai_api_key).toBe(2);
   const locations = summary.samples.map((s) => s.location).sort();
   expect(locations).toEqual([
-    "records[0].source.metadata.raw.env.OPENAI_API_KEY",
-    "records[0].source.metadata.raw.tags[1]",
+    "records[1].source.raw.env.OPENAI_API_KEY",
+    "records[1].source.raw.tags[1]",
   ]);
 });
 
@@ -197,15 +200,13 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
 test("redactTrail does not mutate input records", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
-    header({
-      cwd: "/Users/alice/work",
-      source: { metadata: { raw: { env: { OPENAI_API_KEY: key } } } },
-    }),
+    header({ cwd: "/Users/alice/work" }),
     record(2, {
       type: "agent_message",
       id: "evt1",
       ts: "2026-05-22T00:00:01.000Z",
       payload: { text: `secret ${key}` },
+      source: { raw: { env: { OPENAI_API_KEY: key } } },
     }),
   ];
   const snapshot = structuredClone(records);
@@ -286,18 +287,25 @@ test("redactTrail bounds sample list to options.maxSamples while counts stay acc
   expect(summary.samples).toHaveLength(5);
 });
 
-test("redactTrail skips source.metadata.raw when includeSourceRaw: false", () => {
+test("redactTrail skips entry source.raw when includeSourceRaw: false", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
-    header({ source: { metadata: { raw: { env: { OPENAI_API_KEY: key } } } } }),
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "hi" },
+      source: { raw: { env: { OPENAI_API_KEY: key } } },
+    }),
   ];
 
   const { records: out, summary } = redactTrail(records, { includeSourceRaw: false });
 
-  const headerValue = out[0]?.value as {
-    source: { metadata: { raw: { env: { OPENAI_API_KEY: string } } } };
+  const entryValue = out[1]?.value as {
+    source: { raw: { env: { OPENAI_API_KEY: string } } };
   };
-  expect(headerValue.source.metadata.raw.env.OPENAI_API_KEY).toBe(key);
+  expect(entryValue.source.raw.env.OPENAI_API_KEY).toBe(key);
   expect(summary.counts.openai_api_key).toBeUndefined();
 });
 
@@ -347,6 +355,146 @@ test("redactTrail extendPatterns appends caller patterns without dropping defaul
   expect(text).toContain("[INTERNAL_TOKEN]");
   expect(summary.counts.internal_token).toBe(1);
   expect(summary.counts.openai_api_key).toBe(1);
+});
+
+test("redactTrail accepts non-global custom regex without throwing", () => {
+  const customPattern = {
+    id: "internal",
+    description: "Internal id",
+    regex: /INT-[A-Z0-9]{6}/,
+    placeholder: "[INTERNAL]",
+  };
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "first INT-ABCDEF and second INT-ZYXWVU" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { patterns: [customPattern] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe("first [INTERNAL] and second [INTERNAL]");
+  expect(summary.counts.internal).toBe(2);
+});
+
+test("redactTrail re-serializes JsonlRecord.raw after redaction", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `secret ${key}` },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+
+  expect(out[1]?.raw).not.toContain(key);
+  expect(out[1]?.raw).toContain("[OPENAI_KEY]");
+});
+
+test("redactTrail handles overlapping userSecrets by trying the longest first", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "value abc123 here" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    userSecrets: ["abc", "abc123"],
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe("value [USER_SECRET] here");
+  expect(text).not.toContain("123");
+  expect(summary.counts.user_secret).toBe(1);
+});
+
+test("redactTrail normalizes Windows user profile paths to <home>", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "open C:\\Users\\alice\\notes.md please" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe("open <home>\\notes.md please");
+  expect(summary.counts.home_path_windows).toBe(1);
+});
+
+test("redactTrail counts PERSON name tokens from @redactpii/node as name_pii", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "Hello Jonathan Smith, let's catch up tomorrow." },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).not.toContain("Jonathan");
+  expect(text).not.toContain("PERSON_");
+  expect(text).toContain("[NAME]");
+  expect(summary.counts.name_pii).toBeGreaterThanOrEqual(1);
+});
+
+test("redactTrail redacts payload.text on agent_thinking and system_event", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_thinking",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `planning to use ${key}` },
+    }),
+    record(3, {
+      type: "system_event",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: { kind: "diag", text: `loaded ${key}`, data: { env: { OPENAI_API_KEY: key } } },
+    }),
+    record(4, {
+      type: "user_interrupt",
+      id: "evt3",
+      ts: "2026-05-22T00:00:03.000Z",
+      payload: { reason: `paste ${key}` },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const thinking = out[1]?.value as { payload: { text: string } };
+  const sysEvent = out[2]?.value as {
+    payload: { text: string; data: { env: { OPENAI_API_KEY: string } } };
+  };
+  const interrupt = out[3]?.value as { payload: { reason: string } };
+
+  expect(thinking.payload.text).toContain("[OPENAI_KEY]");
+  expect(sysEvent.payload.text).toContain("[OPENAI_KEY]");
+  expect(sysEvent.payload.data.env.OPENAI_API_KEY).toBe("[OPENAI_KEY]");
+  expect(interrupt.payload.reason).toContain("[OPENAI_KEY]");
+  expect(summary.counts.openai_api_key).toBe(4);
 });
 
 test("redactTrail returns input records and empty summary when no secrets present", () => {

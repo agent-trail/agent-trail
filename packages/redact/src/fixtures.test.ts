@@ -54,8 +54,8 @@ test("fixture: source-raw-secret is walked recursively", async () => {
   expect(serialize(out)).not.toContain("sk-proj-");
   expect(summary.counts.openai_api_key).toBe(2);
   const locations = summary.samples.map((s) => s.location);
-  expect(locations).toContain("records[0].source.metadata.raw.env.OPENAI_API_KEY");
-  expect(locations).toContain("records[0].source.metadata.raw.tags[1]");
+  expect(locations).toContain("records[1].source.raw.env.OPENAI_API_KEY");
+  expect(locations).toContain("records[1].source.raw.tags[1]");
 });
 
 test("fixture: home-paths normalize to <home>", async () => {

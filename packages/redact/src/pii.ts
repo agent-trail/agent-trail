@@ -1,7 +1,7 @@
 import { Redactor } from "@redactpii/node";
 import type { RedactionSample, RedactionSummary } from "./types.ts";
 
-const TOKEN_PATTERN = /\b(EMAIL|PHONE|SSN|CREDIT_CARD|NAME)_(\d+)\b/g;
+const TOKEN_PATTERN = /\b(EMAIL|PHONE|SSN|CREDIT_CARD|NAME|PERSON)_(\d+)\b/g;
 
 const TOKEN_TO_PATTERN_ID: Record<string, string> = {
   EMAIL: "email_pii",
@@ -9,6 +9,7 @@ const TOKEN_TO_PATTERN_ID: Record<string, string> = {
   SSN: "ssn_pii",
   CREDIT_CARD: "credit_card_pii",
   NAME: "name_pii",
+  PERSON: "name_pii",
 };
 
 const TOKEN_TO_PLACEHOLDER: Record<string, string> = {
@@ -17,6 +18,7 @@ const TOKEN_TO_PLACEHOLDER: Record<string, string> = {
   SSN: "[SSN]",
   CREDIT_CARD: "[CREDIT_CARD]",
   NAME: "[NAME]",
+  PERSON: "[NAME]",
 };
 
 const PII_REDACTOR = new Redactor({
@@ -26,21 +28,28 @@ const PII_REDACTOR = new Redactor({
 
 export type PiiResult = { text: string; samples: RedactionSample[] };
 
-export function applyPii(text: string, location: string, summary: RedactionSummary): PiiResult {
+export function applyPii(
+  text: string,
+  location: string,
+  summary: RedactionSummary,
+  maxSamples: number,
+): PiiResult {
   if (!text) return { text, samples: [] };
   const anonymized = PII_REDACTOR.redact(text);
   if (anonymized === text) return { text, samples: [] };
 
   const localSamples: RedactionSample[] = [];
-  const seen = new Set<string>();
-  let normalized = anonymized;
+  const seenPatternIds = new Set<string>();
   for (const match of anonymized.matchAll(TOKEN_PATTERN)) {
     const kind = match[1] ?? "";
     const patternId = TOKEN_TO_PATTERN_ID[kind];
     if (!patternId) continue;
     summary.counts[patternId] = (summary.counts[patternId] ?? 0) + 1;
-    if (!seen.has(kind)) {
-      seen.add(kind);
+    if (
+      !seenPatternIds.has(patternId) &&
+      summary.samples.length + localSamples.length < maxSamples
+    ) {
+      seenPatternIds.add(patternId);
       localSamples.push({
         patternId,
         location,
@@ -49,7 +58,7 @@ export function applyPii(text: string, location: string, summary: RedactionSumma
       });
     }
   }
-  normalized = normalized.replace(TOKEN_PATTERN, (_full, kind: string) => {
+  const normalized = anonymized.replace(TOKEN_PATTERN, (_full, kind: string) => {
     return TOKEN_TO_PLACEHOLDER[kind] ?? "[PII]";
   });
 

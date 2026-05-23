@@ -99,6 +99,13 @@ export const HOME_PATH: RedactionPattern = {
   placeholder: "<home>",
 };
 
+export const HOME_PATH_WINDOWS: RedactionPattern = {
+  id: "home_path_windows",
+  description: "Windows user profile directory path",
+  regex: /[A-Za-z]:[\\/]Users[\\/][^\\/\s"'`]+/g,
+  placeholder: "<home>",
+};
+
 // Order matters. More specific patterns must come before generic ones so the
 // generic pattern does not consume bytes that a more specific pattern would
 // have labeled. For example, ANTHROPIC_API_KEY appears before OPENAI_API_KEY
@@ -122,4 +129,5 @@ export const DEFAULT_PATTERNS: RedactionPattern[] = [
   ENV_ASSIGNMENT,
   BEARER_TOKEN,
   HOME_PATH,
+  HOME_PATH_WINDOWS,
 ];

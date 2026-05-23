@@ -80,10 +80,28 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (
       payload &&
-      (type === "agent_message" || type === "user_message" || type === "session_summary") &&
+      (type === "agent_message" ||
+        type === "user_message" ||
+        type === "session_summary" ||
+        type === "agent_thinking" ||
+        type === "system_event") &&
       typeof payload.text === "string"
     ) {
       yield keyVisit(payload, "text", `records[${index}].payload.text`);
+    }
+
+    if (payload && type === "user_interrupt" && typeof payload.reason === "string") {
+      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+    }
+
+    if (payload && type === "system_event") {
+      const data = payload.data;
+      if (data !== null && typeof data === "object") {
+        yield* walkContainer(
+          data as Record<string, unknown> | unknown[],
+          `records[${index}].payload.data`,
+        );
+      }
     }
 
     if (payload && type === "tool_call") {
@@ -105,17 +123,16 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       }
     }
 
-    if (includeSourceRaw) {
+    if (includeSourceRaw && type !== "session") {
       const source = value.source as Record<string, unknown> | undefined;
-      const metadata = source?.metadata as Record<string, unknown> | undefined;
-      const raw = metadata?.raw;
+      const raw = source?.raw;
       if (raw !== undefined && raw !== null && typeof raw === "object") {
         yield* walkContainer(
           raw as Record<string, unknown> | unknown[],
-          `records[${index}].source.metadata.raw`,
+          `records[${index}].source.raw`,
         );
-      } else if (typeof raw === "string" && metadata) {
-        yield keyVisit(metadata, "raw", `records[${index}].source.metadata.raw`);
+      } else if (typeof raw === "string" && source) {
+        yield keyVisit(source, "raw", `records[${index}].source.raw`);
       }
     }
   }
@@ -131,21 +148,33 @@ function maskSample(secret: string): string {
   return `${head}…${tail}`;
 }
 
-function applyPattern(visit: Visit, pattern: RedactionPattern, summary: RedactionSummary): void {
+function ensureGlobal(regex: RegExp): RegExp {
+  return regex.flags.includes("g") ? regex : new RegExp(regex.source, `${regex.flags}g`);
+}
+
+function applyPattern(
+  visit: Visit,
+  pattern: RedactionPattern,
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
   const current = visit.get();
-  pattern.regex.lastIndex = 0;
-  const matches = Array.from(current.matchAll(pattern.regex));
+  const regex = ensureGlobal(pattern.regex);
+  regex.lastIndex = 0;
+  const matches = Array.from(current.matchAll(regex));
   if (matches.length === 0) return;
-  pattern.regex.lastIndex = 0;
-  visit.set(current.replace(pattern.regex, pattern.placeholder));
+  regex.lastIndex = 0;
+  visit.set(current.replace(regex, pattern.placeholder));
   summary.counts[pattern.id] = (summary.counts[pattern.id] ?? 0) + matches.length;
-  const first = matches[0]?.[0] ?? "";
-  summary.samples.push({
-    patternId: pattern.id,
-    location: visit.location,
-    before: maskSample(first),
-    after: pattern.placeholder,
-  });
+  if (summary.samples.length < maxSamples) {
+    const first = matches[0]?.[0] ?? "";
+    summary.samples.push({
+      patternId: pattern.id,
+      location: visit.location,
+      before: maskSample(first),
+      after: pattern.placeholder,
+    });
+  }
 }
 
 function escapeRegex(literal: string): string {
@@ -156,7 +185,11 @@ function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
   // Note: if a user-supplied secret happens to equal a placeholder
   // ("[OPENAI_KEY]", "<home>", etc.) repeated redaction passes can shorten
   // already-redacted output. Callers should pass raw secrets only.
-  const unique = Array.from(new Set(secrets.filter((s) => s.length > 0)));
+  // Sorting by length descending prevents shorter overlapping secrets from
+  // consuming bytes that a longer secret would have matched in full.
+  const unique = Array.from(new Set(secrets.filter((s) => s.length > 0))).sort(
+    (a, b) => b.length - a.length,
+  );
   return unique.map(
     (literal): RedactionPattern => ({
       id: "user_secret",
@@ -184,26 +217,29 @@ export function redactTrail(
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {
-      applyPattern(visit, pattern, rawSummary);
+      applyPattern(visit, pattern, rawSummary, maxSamples);
     }
     for (const pattern of patterns) {
-      applyPattern(visit, pattern, rawSummary);
+      applyPattern(visit, pattern, rawSummary, maxSamples);
     }
     const current = visit.get();
-    const pii = applyPii(current, visit.location, rawSummary);
+    const pii = applyPii(current, visit.location, rawSummary, maxSamples);
     if (pii.text !== current) {
       visit.set(pii.text);
     }
     for (const sample of pii.samples) {
+      if (rawSummary.samples.length >= maxSamples) break;
       rawSummary.samples.push(sample);
     }
   }
 
-  truncateOutputs(out, outputMaxBytes, rawSummary);
+  truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);
 
-  const summary: RedactionSummary = {
-    counts: rawSummary.counts,
-    samples: rawSummary.samples.slice(0, Math.max(0, maxSamples)),
-  };
-  return { records: out, summary };
+  // Resynchronize JsonlRecord.raw with mutated value so downstream consumers
+  // that log or persist `.raw` cannot leak unredacted source text.
+  for (const record of out) {
+    record.raw = JSON.stringify(record.value);
+  }
+
+  return { records: out, summary: rawSummary };
 }
