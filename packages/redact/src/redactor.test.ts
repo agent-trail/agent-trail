@@ -625,6 +625,75 @@ test("redactTrail resets header content_hash to <pending> after mutation", () =>
   expect(headerValue.content_hash).toBe("<pending>");
 });
 
+test("redactTrail walks payload of unknown / forward-compatible event types", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "vendor.custom_event",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { description: `secret ${key}`, nested: { token: key } },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    payload: { description: string; nested: { token: string } };
+  };
+  expect(value.payload.description).toContain("[OPENAI_KEY]");
+  expect(value.payload.nested.token).toBe("[OPENAI_KEY]");
+  expect(summary.counts.openai_api_key).toBe(2);
+});
+
+test("redactTrail keeps URI scheme when redacting Slack webhooks in attachments", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "see attached",
+        attachments: [
+          {
+            kind: "file",
+            uri: "https://hooks.slack.com/services/T0AAA111/B0BBB222/aBcDeFgHiJkLmNoPqRsTuVwX",
+          },
+        ],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const uri = (out[1]?.value as { payload: { attachments: Array<{ uri: string }> } }).payload
+    .attachments[0]?.uri;
+  expect(uri).toMatch(/^(https:|file:|sha256:)/);
+  expect(uri).toContain("[SLACK_WEBHOOK]");
+  expect(summary.counts.slack_webhook).toBe(1);
+});
+
+test("redactTrail preserves header content_hash when no redactions occur", () => {
+  const finalized = "a".repeat(64);
+  const records: JsonlRecord[] = [
+    header({ content_hash: finalized }),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "nothing sensitive here" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { content_hash: string };
+  expect(headerValue.content_hash).toBe(finalized);
+  expect(summary.counts).toEqual({});
+});
+
 test("redactTrail returns input records and empty summary when no secrets present", () => {
   const records: JsonlRecord[] = [
     header(),

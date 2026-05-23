@@ -62,6 +62,24 @@ function* walkContainer(
   }
 }
 
+// Event `type` values whose payloads are walked by an explicit branch above.
+// Any other type falls into the generic walk so unknown / future / vendor
+// events still get redacted.
+const HANDLED_EVENT_TYPES = new Set<string>([
+  "session",
+  "agent_message",
+  "user_message",
+  "session_summary",
+  "agent_thinking",
+  "system_event",
+  "user_interrupt",
+  "branch_point",
+  "context_compact",
+  "branch_summary",
+  "tool_call",
+  "tool_result",
+]);
+
 function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Generator<Visit> {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -149,6 +167,14 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (typeof payload.error === "string") {
         yield keyVisit(payload, "error", `records[${index}].payload.error`);
       }
+    }
+
+    // Forward-compat fallback: schema permits future event types whose
+    // payloads are still arbitrary string-bearing objects. For any type not
+    // already handled above, walk payload generically so unknown adapters
+    // and vendor events do not bypass redaction.
+    if (payload && typeof type === "string" && !HANDLED_EVENT_TYPES.has(type)) {
+      yield* walkContainer(payload, `records[${index}].payload`);
     }
 
     const metadata = value.metadata;
@@ -278,10 +304,14 @@ export function redactTrail(
   // content_hash carried on the input header is now stale. Reset to the
   // <pending> sentinel (spec §7.3) so strict verifiers do not flag the
   // mismatch and so share tooling recomputes the hash on the redacted
-  // artifact before publishing.
-  const head = out[0]?.value as Record<string, unknown> | undefined;
-  if (head && head.type === "session" && typeof head.content_hash === "string") {
-    head.content_hash = "<pending>";
+  // artifact before publishing. Skip the reset on a true no-op pass so
+  // a finalized clean trail remains verifiable after this call.
+  const changed = Object.keys(rawSummary.counts).length > 0;
+  if (changed) {
+    const head = out[0]?.value as Record<string, unknown> | undefined;
+    if (head && head.type === "session" && typeof head.content_hash === "string") {
+      head.content_hash = "<pending>";
+    }
   }
 
   // Resynchronize JsonlRecord.raw with mutated value so downstream consumers

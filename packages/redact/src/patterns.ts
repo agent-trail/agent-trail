@@ -53,7 +53,9 @@ export const SLACK_WEBHOOK: RedactionPattern = {
   id: "slack_webhook",
   description: "Slack incoming webhook URL",
   regex: /https:\/\/hooks\.slack\.com\/services\/[A-Z0-9]+\/[A-Z0-9]+\/[A-Za-z0-9]+/g,
-  placeholder: "[SLACK_WEBHOOK]",
+  // Keep the https:// prefix so the placeholder still satisfies fields that
+  // require a URI scheme (e.g. user_message.payload.attachments[*].uri).
+  placeholder: "https://[SLACK_WEBHOOK]",
 };
 
 export const GOOGLE_API_KEY: RedactionPattern = {
