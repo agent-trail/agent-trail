@@ -121,12 +121,14 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
   }
 }
 
-const SAMPLE_HEAD = 8;
-const SAMPLE_TAIL = 8;
+const SAMPLE_HEAD = 4;
+const SAMPLE_TAIL = 4;
 
 function maskSample(secret: string): string {
-  if (secret.length <= SAMPLE_HEAD + SAMPLE_TAIL + 1) return secret;
-  return `${secret.slice(0, SAMPLE_HEAD)}…${secret.slice(-SAMPLE_TAIL)}`;
+  if (secret.length === 0) return secret;
+  const head = secret.slice(0, SAMPLE_HEAD);
+  const tail = secret.length > SAMPLE_HEAD ? secret.slice(-SAMPLE_TAIL) : "";
+  return `${head}…${tail}`;
 }
 
 function applyPattern(visit: Visit, pattern: RedactionPattern, summary: RedactionSummary): void {
@@ -151,6 +153,9 @@ function escapeRegex(literal: string): string {
 }
 
 function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
+  // Note: if a user-supplied secret happens to equal a placeholder
+  // ("[OPENAI_KEY]", "<home>", etc.) repeated redaction passes can shorten
+  // already-redacted output. Callers should pass raw secrets only.
   const unique = Array.from(new Set(secrets.filter((s) => s.length > 0)));
   return unique.map(
     (literal): RedactionPattern => ({
@@ -166,15 +171,16 @@ export function redactTrail(
   records: JsonlRecord[],
   options: RedactTrailOptions = {},
 ): RedactTrailResult {
-  const patterns = options.patterns ?? DEFAULT_PATTERNS;
+  const basePatterns = options.patterns ?? DEFAULT_PATTERNS;
+  const patterns = options.extendPatterns
+    ? [...basePatterns, ...options.extendPatterns]
+    : basePatterns;
   const userPatterns = userSecretsPatterns(options.userSecrets ?? []);
   const includeSourceRaw = options.includeSourceRaw ?? true;
   const outputMaxBytes = options.outputMaxBytes ?? 10_240;
   const maxSamples = options.maxSamples ?? 20;
   const out = records.map((record) => structuredClone(record));
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
-
-  truncateOutputs(out, outputMaxBytes, rawSummary);
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {
@@ -192,6 +198,8 @@ export function redactTrail(
       rawSummary.samples.push(sample);
     }
   }
+
+  truncateOutputs(out, outputMaxBytes, rawSummary);
 
   const summary: RedactionSummary = {
     counts: rawSummary.counts,

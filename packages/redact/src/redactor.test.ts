@@ -286,6 +286,69 @@ test("redactTrail bounds sample list to options.maxSamples while counts stay acc
   expect(summary.samples).toHaveLength(5);
 });
 
+test("redactTrail skips source.metadata.raw when includeSourceRaw: false", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header({ source: { metadata: { raw: { env: { OPENAI_API_KEY: key } } } } }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { includeSourceRaw: false });
+
+  const headerValue = out[0]?.value as {
+    source: { metadata: { raw: { env: { OPENAI_API_KEY: string } } } };
+  };
+  expect(headerValue.source.metadata.raw.env.OPENAI_API_KEY).toBe(key);
+  expect(summary.counts.openai_api_key).toBeUndefined();
+});
+
+test("redactTrail truncated output byte length never exceeds outputMaxBytes", () => {
+  const big = "X".repeat(20_000);
+  for (const limit of [10, 100, 1000, 10_000]) {
+    const records: JsonlRecord[] = [
+      header(),
+      record(2, {
+        type: "tool_result",
+        id: "evt1",
+        ts: "2026-05-22T00:00:01.000Z",
+        payload: { for_id: "evt0", ok: true, output: big },
+      }),
+    ];
+    const { records: out } = redactTrail(records, { outputMaxBytes: limit });
+    const value = out[1]?.value as { payload: { output: string; truncated?: boolean } };
+    const byteLen = new TextEncoder().encode(value.payload.output).byteLength;
+    expect(byteLen).toBeLessThanOrEqual(limit);
+    expect(value.payload.truncated).toBe(true);
+  }
+});
+
+test("redactTrail extendPatterns appends caller patterns without dropping defaults", () => {
+  const customPattern = {
+    id: "internal_token",
+    description: "Internal token format",
+    regex: /\bINT-[A-Z0-9]{10}\b/g,
+    placeholder: "[INTERNAL_TOKEN]",
+  };
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "key sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789 and INT-ABCDEFGHIJ",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { extendPatterns: [customPattern] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toContain("[OPENAI_KEY]");
+  expect(text).toContain("[INTERNAL_TOKEN]");
+  expect(summary.counts.internal_token).toBe(1);
+  expect(summary.counts.openai_api_key).toBe(1);
+});
+
 test("redactTrail returns input records and empty summary when no secrets present", () => {
   const records: JsonlRecord[] = [
     header(),

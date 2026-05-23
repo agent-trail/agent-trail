@@ -21,6 +21,7 @@ export type RedactionSummary = {
 
 export type RedactTrailOptions = {
   patterns?: RedactionPattern[];
+  extendPatterns?: RedactionPattern[];
   userSecrets?: string[];
   includeSourceRaw?: boolean;
   outputMaxBytes?: number;

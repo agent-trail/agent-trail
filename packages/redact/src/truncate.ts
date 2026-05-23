@@ -10,8 +10,17 @@ function byteLength(s: string): number {
 
 function truncateToByteLimit(text: string, maxBytes: number): string {
   if (byteLength(text) <= maxBytes) return text;
+  if (maxBytes <= 0) return "";
   const noticeBytes = byteLength(TRUNCATION_NOTICE);
-  const budget = Math.max(0, maxBytes - noticeBytes);
+  if (maxBytes < noticeBytes) {
+    return truncateRawToByteLimit(TRUNCATION_NOTICE, maxBytes);
+  }
+  const budget = maxBytes - noticeBytes;
+  return `${truncateRawToByteLimit(text, budget)}${TRUNCATION_NOTICE}`;
+}
+
+function truncateRawToByteLimit(text: string, budget: number): string {
+  if (budget <= 0) return "";
   let lo = 0;
   let hi = text.length;
   while (lo < hi) {
@@ -19,7 +28,7 @@ function truncateToByteLimit(text: string, maxBytes: number): string {
     if (byteLength(text.slice(0, mid)) <= budget) lo = mid;
     else hi = mid - 1;
   }
-  return `${text.slice(0, lo)}${TRUNCATION_NOTICE}`;
+  return text.slice(0, lo);
 }
 
 export function truncateOutputs(

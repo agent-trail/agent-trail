@@ -99,6 +99,14 @@ export const HOME_PATH: RedactionPattern = {
   placeholder: "<home>",
 };
 
+// Order matters. More specific patterns must come before generic ones so the
+// generic pattern does not consume bytes that a more specific pattern would
+// have labeled. For example, ANTHROPIC_API_KEY appears before OPENAI_API_KEY
+// because `sk-ant-*` would otherwise be claimed by the OpenAI pattern, and
+// BEARER_TOKEN appears last so that `Bearer sk-…` is reported as the inner
+// vendor key rather than a generic bearer token.
+// `userSecrets` literals are applied before any default pattern at call time
+// (see redactor.ts), so callers can always override default detection.
 export const DEFAULT_PATTERNS: RedactionPattern[] = [
   ANTHROPIC_API_KEY,
   OPENAI_API_KEY,

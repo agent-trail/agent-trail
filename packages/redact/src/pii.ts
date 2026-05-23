@@ -44,7 +44,7 @@ export function applyPii(text: string, location: string, summary: RedactionSumma
       localSamples.push({
         patternId,
         location,
-        before: "[REDACTED PII]",
+        before: `[${kind}]`,
         after: TOKEN_TO_PLACEHOLDER[kind] ?? "[PII]",
       });
     }
