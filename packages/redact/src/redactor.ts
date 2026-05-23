@@ -76,6 +76,10 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (vcs && typeof vcs.revision === "string") {
         yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
       }
+      const headerSource = value.source as Record<string, unknown> | undefined;
+      if (headerSource && typeof headerSource.path === "string") {
+        yield keyVisit(headerSource, "path", `records[${index}].source.path`);
+      }
     }
 
     if (
@@ -92,6 +96,30 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (payload && type === "user_interrupt" && typeof payload.reason === "string") {
       yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+    }
+
+    if (payload && type === "branch_point" && typeof payload.reason === "string") {
+      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+    }
+
+    if (
+      payload &&
+      (type === "context_compact" || type === "branch_summary") &&
+      typeof payload.summary === "string"
+    ) {
+      yield keyVisit(payload, "summary", `records[${index}].payload.summary`);
+    }
+
+    if (payload && type === "user_message") {
+      const attachments = payload.attachments;
+      if (Array.isArray(attachments)) {
+        for (let i = 0; i < attachments.length; i += 1) {
+          const a = attachments[i] as Record<string, unknown> | undefined;
+          if (a && typeof a.uri === "string") {
+            yield keyVisit(a, "uri", `records[${index}].payload.attachments[${i}].uri`);
+          }
+        }
+      }
     }
 
     if (payload && type === "system_event") {
@@ -123,6 +151,14 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       }
     }
 
+    const metadata = value.metadata;
+    if (metadata !== null && typeof metadata === "object") {
+      yield* walkContainer(
+        metadata as Record<string, unknown> | unknown[],
+        `records[${index}].metadata`,
+      );
+    }
+
     if (includeSourceRaw && type !== "session") {
       const source = value.source as Record<string, unknown> | undefined;
       const raw = source?.raw;
@@ -140,12 +176,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
 const SAMPLE_HEAD = 4;
 const SAMPLE_TAIL = 4;
+// Show head+tail only when both can be revealed without overlap and still
+// elide at least one character from the middle. Otherwise, hide the entire
+// match to avoid leaking short secrets verbatim in samples.
+const SAMPLE_MIN_REVEAL = SAMPLE_HEAD + SAMPLE_TAIL + 1;
 
 function maskSample(secret: string): string {
   if (secret.length === 0) return secret;
-  const head = secret.slice(0, SAMPLE_HEAD);
-  const tail = secret.length > SAMPLE_HEAD ? secret.slice(-SAMPLE_TAIL) : "";
-  return `${head}…${tail}`;
+  if (secret.length < SAMPLE_MIN_REVEAL) return `<${secret.length} chars>`;
+  return `${secret.slice(0, SAMPLE_HEAD)}…${secret.slice(-SAMPLE_TAIL)}`;
 }
 
 function ensureGlobal(regex: RegExp): RegExp {
@@ -234,6 +273,16 @@ export function redactTrail(
   }
 
   truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);
+
+  // Redacted bytes differ from the input artifact, so any finalized
+  // content_hash carried on the input header is now stale. Reset to the
+  // <pending> sentinel (spec §7.3) so strict verifiers do not flag the
+  // mismatch and so share tooling recomputes the hash on the redacted
+  // artifact before publishing.
+  const head = out[0]?.value as Record<string, unknown> | undefined;
+  if (head && head.type === "session" && typeof head.content_hash === "string") {
+    head.content_hash = "<pending>";
+  }
 
   // Resynchronize JsonlRecord.raw with mutated value so downstream consumers
   // that log or persist `.raw` cannot leak unredacted source text.

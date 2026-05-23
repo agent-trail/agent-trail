@@ -497,6 +497,134 @@ test("redactTrail redacts payload.text on agent_thinking and system_event", () =
   expect(summary.counts.openai_api_key).toBe(4);
 });
 
+test("redactTrail redacts secrets on context_compact/branch_point/branch_summary and user_message.attachments", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "context_compact",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { summary: `compacted with ${key}`, trigger: "auto" },
+    }),
+    record(3, {
+      type: "branch_point",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: { from_id: "evt1", reason: `forked because of ${key}` },
+    }),
+    record(4, {
+      type: "branch_summary",
+      id: "evt3",
+      ts: "2026-05-22T00:00:03.000Z",
+      payload: { abandoned_branch_id: "evtX", summary: `abandoned ${key}` },
+    }),
+    record(5, {
+      type: "user_message",
+      id: "evt4",
+      ts: "2026-05-22T00:00:04.000Z",
+      payload: {
+        text: "see attachment",
+        attachments: [{ kind: "file", uri: `file:///Users/alice/${key}.txt`, name: "secret.txt" }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  expect((out[1]?.value as { payload: { summary: string } }).payload.summary).toContain(
+    "[OPENAI_KEY]",
+  );
+  expect((out[2]?.value as { payload: { reason: string } }).payload.reason).toContain(
+    "[OPENAI_KEY]",
+  );
+  expect((out[3]?.value as { payload: { summary: string } }).payload.summary).toContain(
+    "[OPENAI_KEY]",
+  );
+  const uri = (
+    out[4]?.value as {
+      payload: { attachments: Array<{ uri: string }> };
+    }
+  ).payload.attachments[0]?.uri;
+  expect(uri).not.toContain(key);
+  expect(uri).toContain("[OPENAI_KEY]");
+  expect(uri).toContain("<home>");
+  expect(summary.counts.openai_api_key).toBe(4);
+});
+
+test("redactTrail walks record.value.metadata on both header and entries", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header({ metadata: { "com.example.token": key } }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "hi" },
+      metadata: { "com.example.nested": { token: key } },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { metadata: { "com.example.token": string } };
+  expect(headerValue.metadata["com.example.token"]).toBe("[OPENAI_KEY]");
+  const entryValue = out[1]?.value as { metadata: { "com.example.nested": { token: string } } };
+  expect(entryValue.metadata["com.example.nested"].token).toBe("[OPENAI_KEY]");
+  expect(summary.counts.openai_api_key).toBe(2);
+});
+
+test("redactTrail normalizes header.source.path", () => {
+  const records: JsonlRecord[] = [
+    header({ source: { agent: "codex-cli", path: "/Users/alice/.codex/sessions/abc.jsonl" } }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { source: { path: string } };
+  expect(headerValue.source.path).toBe("<home>/.codex/sessions/abc.jsonl");
+  expect(summary.counts.home_path).toBe(1);
+});
+
+test("redactTrail hides full short secrets in sample.before", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "secret abcd here" },
+    }),
+  ];
+
+  const { summary } = redactTrail(records, { userSecrets: ["abcd"] });
+
+  expect(summary.samples).toHaveLength(1);
+  const before = summary.samples[0]?.before ?? "";
+  expect(before).not.toContain("abcd");
+  expect(before).toMatch(/^<\d+ chars>$/);
+});
+
+test("redactTrail resets header content_hash to <pending> after mutation", () => {
+  const original = "a".repeat(64);
+  const records: JsonlRecord[] = [
+    header({ content_hash: original }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789",
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { content_hash: string };
+  expect(headerValue.content_hash).toBe("<pending>");
+});
+
 test("redactTrail returns input records and empty summary when no secrets present", () => {
   const records: JsonlRecord[] = [
     header(),
