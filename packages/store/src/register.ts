@@ -25,6 +25,14 @@ export type RegisterResult = {
 
 export type RegisterOptions = {
   storeRoot?: string;
+  /**
+   * Provenance recorded in the index `source_path` field. Default is the
+   * absolute path of `filePath`. Callers that hand `registerTrail` a
+   * transient artifact (e.g. a downloaded payload staged in a tmp dir
+   * that will be deleted) should pass `null` so the index does not
+   * point at a guaranteed-stale path.
+   */
+  sourcePath?: string | null;
 };
 
 export async function registerTrail(
@@ -84,7 +92,7 @@ export async function registerTrail(
   const canonical = canonicalizeRecords(records);
   await mkdir(dirname(target), { recursive: true });
 
-  const sourcePath = resolvePath(filePath);
+  const sourcePath = opts.sourcePath === undefined ? resolvePath(filePath) : opts.sourcePath;
   const existing = await readFileIfExists(target);
   let status: RegisterStatus;
   if (existing === canonical) {
