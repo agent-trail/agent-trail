@@ -122,6 +122,12 @@ Two `session_end` events follow an unmatched `tool_call`. Per spec §16.4, a `se
 
 Expected: no diagnostics under either profile.
 
+#### `valid/agent-message-usage.trail.jsonl`
+
+`agent_message` payload carries the full `usage` object (deltas, cumulative totals, cache read/creation, reasoning) per spec §9.2. Exercises that the schema accepts every documented sub-field and that the validator passes the cache-subset and presence rules.
+
+Expected: no diagnostics under either profile.
+
 ### invalid-schema/
 
 Current coverage targets `user_message` and `tool_call` payload violations. Additional event-type fixtures will be added as adapters and downstream issues require them.
@@ -151,6 +157,12 @@ Expected (strict): `error required /payload/args/path line 2`.
 `user_message` `payload.text` is a number.
 
 Expected (strict): `error type /payload/text line 2`.
+
+#### `invalid-schema/agent-message-usage-extra-field.trail.jsonl`
+
+`agent_message.payload.usage` includes an unknown sub-field (`cost_usd`). The schema rejects unknown sub-fields via `additionalProperties: false`.
+
+Expected (strict, subset): `error additionalProperties /payload/usage/cost_usd line 3`.
 
 #### `invalid-schema/session-end-final-message-id-null.trail.jsonl`
 
@@ -225,6 +237,12 @@ Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id
 `session_end` at line 2 references `final_message_id: "evta2"`, an event that appears at line 3 (after the terminator). Spec §16.4 says `final_message_id` should reference the session header or a *prior* event; forward references are flagged.
 
 Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 2`.
+
+#### `invalid-graph/agent-message-usage-missing-required.trail.jsonl`
+
+`agent_message.payload.usage` is present but carries only `output_tokens`, missing both `input_tokens` and `input_tokens_cumulative`. Spec §9.2 requires at least one of each pair when `usage` is present.
+
+Expected (subset, both profiles): `warning usage_missing_required /payload/usage line 3` for the missing input pair.
 
 #### `invalid-graph/header-has-parent-id.trail.jsonl`
 

@@ -1,4 +1,5 @@
 import type { Entry } from "@agent-trail/types";
+import { mapAgentMessageUsage } from "../usage.ts";
 import { baseEntry, blockId, entryId, stampRawType } from "./entry-metadata.ts";
 import {
   asBlocks,
@@ -55,6 +56,7 @@ function mapAssistantEnvelope(
 ): Entry[] {
   const aborted = envelope.message?.stopReason === "aborted";
   const content = envelope.message?.content;
+  const envelopeUsage = mapAgentMessageUsage(envelope.message?.usage);
   if (typeof content === "string") {
     const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
       schemaVersion,
@@ -71,6 +73,7 @@ function mapAssistantEnvelope(
             text: content,
             ...(typeof model === "string" ? { model } : {}),
             ...(typeof stopReason === "string" ? { stop_reason: stopReason } : {}),
+            ...(envelopeUsage !== undefined ? { usage: envelopeUsage } : {}),
           },
         } as Entry,
         "assistant_string_content",
@@ -95,6 +98,7 @@ function mapAssistantEnvelope(
     blockId(envelope, block.type ?? "block", emittedIndex, emittable.length),
   );
   const firstEntryId = emittable_ids[0];
+  let usageEmitted = false;
   const emittedBlocks: Entry[] = emittable.flatMap(({ block, originalIndex }, emittedIndex) => {
     const id = emittable_ids[emittedIndex] ?? "";
     const envelopeRef = emittedIndex > 0 ? firstEntryId : undefined;
@@ -106,6 +110,8 @@ function mapAssistantEnvelope(
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {
       const stopReason = envelope.message?.stopReason;
+      const usage = !usageEmitted ? envelopeUsage : undefined;
+      if (usage !== undefined) usageEmitted = true;
       return [
         stampRawType(
           {
@@ -115,6 +121,7 @@ function mapAssistantEnvelope(
               text: block.text,
               ...(typeof model === "string" ? { model } : {}),
               ...(typeof stopReason === "string" ? { stop_reason: stopReason } : {}),
+              ...(usage !== undefined ? { usage } : {}),
             },
           } as Entry,
           "assistant_text_block",

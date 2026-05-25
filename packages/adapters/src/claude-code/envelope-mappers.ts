@@ -1,4 +1,5 @@
 import type { Entry } from "@agent-trail/types";
+import { mapAgentMessageUsage } from "../usage.ts";
 import { baseEntry, blockId, entryId } from "./entry-metadata.ts";
 import {
   asBlocks,
@@ -209,6 +210,8 @@ function mapAssistantEnvelope(
     blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length),
   );
   const asstFirstId = asstBlockIds[0];
+  const envelopeUsage = mapAgentMessageUsage(envelope.message?.usage);
+  let usageEmitted = false;
   return emittedBlocks.flatMap((block, emittedIndex) => {
     const id = asstBlockIds[emittedIndex] ?? "";
     const envelopeRef = emittedIndex > 0 ? asstFirstId : undefined;
@@ -216,6 +219,8 @@ function mapAssistantEnvelope(
     if (base === undefined) return [];
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {
+      const usage = !usageEmitted ? envelopeUsage : undefined;
+      if (usage !== undefined) usageEmitted = true;
       return [
         {
           ...base,
@@ -226,6 +231,7 @@ function mapAssistantEnvelope(
             ...(typeof envelope.message?.stop_reason === "string"
               ? { stop_reason: envelope.message.stop_reason }
               : {}),
+            ...(usage !== undefined ? { usage } : {}),
           },
         } as Entry,
       ];

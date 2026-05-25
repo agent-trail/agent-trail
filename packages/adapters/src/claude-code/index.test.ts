@@ -200,7 +200,129 @@ test("parseSession() emits an agent_message for assistant text records with mode
     text: "two files: file-a, file-b",
     model: "claude-opus-4-7",
     stop_reason: "end_turn",
+    usage: {
+      input_tokens: 18,
+      output_tokens: 12,
+    },
   });
+});
+
+test("parseSession() maps cache_read_input_tokens and cache_creation_input_tokens to cache_read_tokens and cache_creation_tokens", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-usage-1",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-usage-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "hello" }],
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 1234,
+          output_tokens: 567,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 50,
+          service_tier: "standard",
+        },
+      },
+      uuid: "u-usage-2",
+      timestamp: "2026-05-17T22:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const agentMsg = trail.entries.find((e) => e.id === "u-usage-2");
+  expect(agentMsg?.type).toBe("agent_message");
+  expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
+    input_tokens: 1234,
+    output_tokens: 567,
+    cache_read_tokens: 100,
+    cache_creation_tokens: 50,
+  });
+});
+
+test("parseSession() drops usage when assistant envelope has only tool_use blocks (no text)", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-tonly-1",
+      timestamp: "2026-05-17T22:20:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-tonly-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "tool_use", id: "tooluse-only", name: "Bash", input: { command: "ls" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 10, output_tokens: 5 },
+      },
+      uuid: "u-tonly-2",
+      timestamp: "2026-05-17T22:20:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  // No agent_message entries emitted from this envelope; usage is discarded.
+  expect(trail.entries.filter((e) => e.type === "agent_message")).toHaveLength(0);
+  const toolCall = trail.entries.find((e) => e.type === "tool_call");
+  expect(toolCall?.payload).not.toHaveProperty("usage");
+});
+
+test("parseSession() omits payload.usage when source provides no usage data", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u-nousage-1",
+      timestamp: "2026-05-17T22:10:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "u-nousage-1",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [{ type: "text", text: "hi back" }],
+        stop_reason: "end_turn",
+      },
+      uuid: "u-nousage-2",
+      timestamp: "2026-05-17T22:10:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const agentMsg = trail.entries.find((e) => e.id === "u-nousage-2");
+  expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 test("parseSession() emits a session_summary for summary records", async () => {

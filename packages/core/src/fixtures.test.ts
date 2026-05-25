@@ -39,6 +39,40 @@ test("valid/streaming-finalized-clean.trail.jsonl validates clean", async () => 
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/agent-message-usage.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/agent-message-usage.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/agent-message-usage-extra-field.trail.jsonl reports additionalProperties at /payload/usage/cost_usd", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-message-usage-extra-field.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/usage/cost_usd",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+});
+
+test("invalid-graph/agent-message-usage-missing-required.trail.jsonl warns usage_missing_required for input pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/agent-message-usage-missing-required.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/usage",
+    severity: "warning",
+    code: "usage_missing_required",
+    message:
+      "payload.usage must include at least one of input_tokens or input_tokens_cumulative when present",
+  });
+});
+
 test("invalid-schema/header-wrong-schema-version.trail.jsonl reports const + missing_header", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/header-wrong-schema-version.trail.jsonl"),

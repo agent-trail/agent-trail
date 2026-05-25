@@ -156,6 +156,7 @@ export function validateTrailGraph(
     diagnostics.push(...unmatchedToolCallWarnings(entries));
     diagnostics.push(...finalMessageIdWarnings(entries, idLines, headerId));
     diagnostics.push(...envelopeRefWarnings(entries, idLines));
+    diagnostics.push(...agentMessageUsageWarnings(entries));
   }
 
   if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
@@ -451,6 +452,58 @@ function envelopeRefWarnings(entries: JsonlRecord[], idLines: Map<string, number
         message: `source.raw.envelope_ref "${envelopeRef}" does not reference an earlier entry in this file`,
       }),
     );
+  }
+  return diagnostics;
+}
+
+// Spec §9.2: when payload.usage is present on agent_message, the writer must
+// emit at least one of (input_tokens, input_tokens_cumulative) AND at least
+// one of (output_tokens, output_tokens_cumulative). This is enforced as a
+// whole-file diagnostic rather than via schema `anyOf` so the error code
+// names the specific pair that's missing.
+function agentMessageUsageWarnings(entries: JsonlRecord[]): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of entries) {
+    if (entry.value.type !== "agent_message") {
+      continue;
+    }
+    const payload = entry.value.payload;
+    if (typeof payload !== "object" || payload === null) {
+      continue;
+    }
+    const usage = (payload as { usage?: unknown }).usage;
+    if (typeof usage !== "object" || usage === null) {
+      continue;
+    }
+    const u = usage as Record<string, unknown>;
+    const hasInput =
+      typeof u.input_tokens === "number" || typeof u.input_tokens_cumulative === "number";
+    const hasOutput =
+      typeof u.output_tokens === "number" || typeof u.output_tokens_cumulative === "number";
+    if (!hasInput) {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/payload/usage",
+          severity: "warning",
+          code: "usage_missing_required",
+          message:
+            "payload.usage must include at least one of input_tokens or input_tokens_cumulative when present",
+        }),
+      );
+    }
+    if (!hasOutput) {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/payload/usage",
+          severity: "warning",
+          code: "usage_missing_required",
+          message:
+            "payload.usage must include at least one of output_tokens or output_tokens_cumulative when present",
+        }),
+      );
+    }
   }
   return diagnostics;
 }

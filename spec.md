@@ -355,7 +355,14 @@ A text response from the agent.
   "payload": {
     "text": "You can use pandas:",
     "model": "claude-sonnet-4-5",
-    "stop_reason": "end_turn"
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 1234,
+      "output_tokens": 567,
+      "cache_read_tokens": 100,
+      "cache_creation_tokens": 50,
+      "reasoning_tokens": 200
+    }
   }
 }
 ```
@@ -365,6 +372,31 @@ A text response from the agent.
 | `text` | yes | string | the agent's output |
 | `model` | no | string | model that produced this message |
 | `stop_reason` | no | string | source-specific stop reason |
+| `usage` | no | object | per-message token usage; see below |
+
+##### `agent_message.payload.usage`
+
+Captures per-message token accounting emitted by the source agent. Optional. When the source provides no token data, writers MUST omit `usage` — fabricating zeros is not allowed.
+
+| Sub-field | Required | Type | Notes |
+|---|---|---|---|
+| `input_tokens` | conditional | integer ≥0 | delta for this message |
+| `output_tokens` | conditional | integer ≥0 | delta for this message |
+| `input_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
+| `output_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
+| `cache_read_tokens` | no | integer ≥0 | input tokens served from prompt cache; billed separately from `input_tokens` |
+| `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
+| `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
+
+When `usage` is present, writers MUST emit at least one of (`input_tokens`, `input_tokens_cumulative`) AND at least one of (`output_tokens`, `output_tokens_cumulative`). Both shapes are supported because sources differ: Anthropic emits deltas, some Codex variants emit only cumulative totals. Readers SHOULD prefer the delta form and fall back to subtracting consecutive cumulative values.
+
+Cache token semantics match Anthropic and OpenAI Responses API: `input_tokens` counts non-cached input only; `cache_read_tokens` and `cache_creation_tokens` are independent billing categories. Total billed input = `input_tokens + cache_read_tokens + cache_creation_tokens`. They are additive, not a subset of `input_tokens`.
+
+Model identification for cost reporting uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
+
+When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first `agent_message` derived from that envelope and MUST NOT repeat it on later derived entries. Tool calls and thinking blocks within the same envelope do not carry `usage`.
+
+Latency and wall-clock cost fields are deferred to a future minor version; sources rarely expose them. Vendor extensions may use reverse-domain keys in `payload.metadata` until standardized.
 
 #### `tool_call`
 
@@ -840,6 +872,8 @@ Adapters and share tools should:
 - Cap inline output sizes per §14.
 
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
+
+Token-usage objects (`agent_message.payload.usage`, §9.2) are preserved in redacted artifacts by default — they carry no PII and are needed for downstream cost reporting. Share tools that need to strip usage can do so via a future metadata-strip flag.
 
 ---
 
