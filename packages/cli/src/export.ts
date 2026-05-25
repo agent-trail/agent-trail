@@ -1,0 +1,140 @@
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { parseArgs } from "node:util";
+import {
+  IndexCorruptError,
+  IndexVersionError,
+  objectPath,
+  readIndex,
+  resolveStoreRoot,
+} from "@agent-trail/store";
+
+export type RunExportResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type RunExportOptions = {
+  storeRoot?: string;
+};
+
+const USAGE = "Usage: trail export <id> [--out <path>] [--force]";
+
+type Values = {
+  out: string | undefined;
+  force: boolean;
+};
+
+export async function runExport(
+  argv: string[],
+  opts: RunExportOptions = {},
+): Promise<RunExportResult> {
+  if (argv.length === 0) {
+    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
+  }
+
+  let values: Values;
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({
+      args: argv,
+      options: {
+        out: { type: "string" },
+        force: { type: "boolean", default: false },
+      },
+      allowPositionals: true,
+    });
+    values = parsed.values as Values;
+    positionals = parsed.positionals;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
+  }
+
+  if (positionals.length === 0) {
+    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
+  }
+  const id = positionals[0] as string;
+  const storeRoot = resolveStoreRoot(opts.storeRoot);
+
+  if (!VALID_ID_RE.test(id)) {
+    return { exitCode: 1, stdout: "", stderr: `export: invalid id: ${id}\n` };
+  }
+
+  let contentHash: string;
+  if (FULL_HASH_RE.test(id)) {
+    contentHash = id;
+  } else {
+    let index: Awaited<ReturnType<typeof readIndex>>;
+    try {
+      index = await readIndex(storeRoot);
+    } catch (error) {
+      if (error instanceof IndexCorruptError || error instanceof IndexVersionError) {
+        return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
+      }
+      throw error;
+    }
+    const matches = Object.keys(index.entries).filter((h) => h.startsWith(id));
+    if (matches.length === 0) {
+      return { exitCode: 1, stdout: "", stderr: `export: unknown id: ${id}\n` };
+    }
+    if (matches.length > 1) {
+      const sorted = [...matches].sort();
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `export: ambiguous id: ${id} matches ${matches.length} entries:\n${sorted.map((h) => `  ${h}`).join("\n")}\n`,
+      };
+    }
+    contentHash = matches[0] as string;
+  }
+
+  let bytes: string;
+  try {
+    bytes = await readFile(objectPath(storeRoot, contentHash), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { exitCode: 1, stdout: "", stderr: `export: unknown id: ${id}\n` };
+    }
+    throw error;
+  }
+  if (values.out !== undefined) {
+    const outPath = values.out;
+    const preflight = await preflightOutPath(outPath, values.force);
+    if (preflight !== null) return preflight;
+    await mkdir(dirname(outPath), { recursive: true });
+    await writeFile(outPath, bytes);
+    return { exitCode: 0, stdout: "", stderr: "" };
+  }
+
+  return { exitCode: 0, stdout: bytes, stderr: "" };
+}
+
+const FULL_HASH_RE = /^[0-9a-f]{64}$/;
+const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
+
+async function preflightOutPath(outPath: string, force: boolean): Promise<RunExportResult | null> {
+  let info: Awaited<ReturnType<typeof stat>> | null;
+  try {
+    info = await stat(outPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  if (info.isDirectory()) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `export: --out path is a directory: ${outPath}\n`,
+    };
+  }
+  if (!force) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `export: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
+    };
+  }
+  return null;
+}
