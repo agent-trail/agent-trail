@@ -1,8 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
+import { gzipSync } from "node:zlib";
+import {
+  canonicalizeRecords,
+  computeContentHash,
+  type JsonlRecord,
+  parseJsonlString,
+} from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import { registerTrail } from "@agent-trail/store";
+import { ghGistUpload } from "./gist-upload.ts";
 
 export type RunShareResult = {
   exitCode: number;
@@ -10,10 +17,15 @@ export type RunShareResult = {
   stderr: string;
 };
 
+export type GistUpload = (payload: Uint8Array, filename: string) => Promise<{ gistId: string }>;
+
 export type RunShareOptions = {
   storeRoot?: string;
   confirm?: (message: string) => Promise<boolean>;
+  gistUpload?: GistUpload;
 };
+
+const VIEWER_BASE = "https://agent-trail.dev/view/gist";
 
 const USAGE = "Usage: trail share <path> [--dry-run] [--yes] [--skip-redaction]";
 const SHORT_HASH_LEN = 12;
@@ -75,14 +87,16 @@ export async function runShare(
   let stderr = "";
   stdoutLines.push(`Trail: ${reg.contentHash.slice(0, SHORT_HASH_LEN)} (${reg.contentHash})`);
 
+  let redactedRecords: JsonlRecord[] | null = null;
   if (values["skip-redaction"]) {
     stderr +=
       "WARNING: --skip-redaction will share unredacted trail content. Secrets, file paths, and PII may be exposed.\n";
     stdoutLines.push("Redaction summary: skipped (--skip-redaction)");
   } else {
-    const { summary } = redactTrail(records);
+    const result = redactTrail(records);
+    redactedRecords = result.records;
     stdoutLines.push("Redaction summary:");
-    stdoutLines.push(...formatSummary(summary));
+    stdoutLines.push(...formatSummary(result.summary));
   }
 
   if (values["dry-run"]) {
@@ -91,7 +105,10 @@ export async function runShare(
 
   const confirm = opts.confirm ?? defaultConfirm;
   if (!values.yes) {
-    const first = await tryConfirm(confirm, "Share this trail?");
+    const first = await tryConfirm(
+      confirm,
+      "Share this trail to GitHub Gist? (anyone with the URL can read it)",
+    );
     if (!first.ok) {
       stdoutLines.push("Share cancelled.");
       if (first.reason !== null) stderr += `${first.reason}\n`;
@@ -107,8 +124,51 @@ export async function runShare(
     }
   }
 
-  stdoutLines.push("Upload pending — gist creation deferred.");
-  return { exitCode: 0, stdout: `${stdoutLines.join("\n")}\n`, stderr };
+  let payload: Uint8Array;
+  let payloadHash: string;
+  try {
+    let jsonl: Buffer;
+    if (values["skip-redaction"]) {
+      jsonl = await readFile(reg.objectPath);
+      payloadHash = reg.contentHash;
+    } else {
+      // Finalize the redacted artifact's own content_hash so the shared
+      // gist payload is verifiable (spec §7.3). redactTrail stamps
+      // `<pending>` on the header when redaction mutates content; compute
+      // and write the real hash before canonicalizing for upload.
+      const records = redactedRecords ?? [];
+      payloadHash = computeContentHash(records);
+      const head = records[0]?.value as Record<string, unknown> | undefined;
+      if (head && head.type === "session") head.content_hash = payloadHash;
+      jsonl = Buffer.from(canonicalizeRecords(records), "utf8");
+    }
+    const gzipped = gzipSync(jsonl);
+    const base64 = gzipped.toString("base64");
+    payload = Buffer.from(base64, "ascii");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      exitCode: 1,
+      stdout: `${stdoutLines.join("\n")}\n`,
+      stderr: `${stderr}share: ${message}\n`,
+    };
+  }
+
+  const filename = `${payloadHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl.gz.b64`;
+  const upload = opts.gistUpload ?? ghGistUpload;
+  try {
+    const { gistId } = await upload(payload, filename);
+    stdoutLines.push(`Shared at: ${VIEWER_BASE}/${gistId}`);
+    stdoutLines.push("Note: anyone with the URL can read this gist.");
+    return { exitCode: 0, stdout: `${stdoutLines.join("\n")}\n`, stderr };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      exitCode: 1,
+      stdout: `${stdoutLines.join("\n")}\n`,
+      stderr: `${stderr}share: gist upload failed: ${message}\nHint: ensure \`gh\` is installed and authenticated with \`gh auth login\`.\n`,
+    };
+  }
 }
 
 function formatSummary(summary: RedactionSummary): string[] {
