@@ -33,3 +33,8 @@ export function mangleCwd(cwd: string): string {
 export function piProjectDir({ sessionsDir, cwd }: { sessionsDir: string; cwd: string }): string {
   return join(sessionsDir, mangleCwd(cwd));
 }
+
+// Pi stores per-cwd dirs directly under `sessionsDir`; no extra subdirectory.
+export function piProjectsRoot(sessionsDir: string): string {
+  return sessionsDir;
+}

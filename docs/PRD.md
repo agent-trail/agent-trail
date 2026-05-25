@@ -274,7 +274,8 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 ### 7.4 CLI tool (`trail`)
 
 - `trail doctor` / `trail doctor --fix` — diagnose and configure environment.
-- `trail list` — list all sessions across configured agents.
+- `trail discover` — list local source-agent sessions on disk (current cwd by default; `--all` walks every project dir). Filters: `--agent`, `--cwd`, `--since`, `--until`. Use this to pick a session to register or share.
+- `trail list` — list trails registered in the local store (content-addressed objects).
 - `trail view <id>` — render a session to terminal.
 - `trail register <file>` — parse + canonicalize + store locally (content-addressed).
 - `trail share <id>` — redact, upload to gist, return URL.

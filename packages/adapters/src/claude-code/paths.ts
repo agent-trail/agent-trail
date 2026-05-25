@@ -21,3 +21,7 @@ export function claudeCodeProjectDir({
 }): string {
   return join(configDir, "projects", mangleCwd(cwd));
 }
+
+export function claudeCodeProjectsRoot(configDir: string): string {
+  return join(configDir, "projects");
+}

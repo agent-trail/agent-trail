@@ -85,9 +85,13 @@ test("detectSessions() honors CLAUDE_CONFIG_DIR", async () => {
   try {
     const dir = createProjectDir();
     writeFileSync(join(dir, "sess-custom.jsonl"), "");
-    expect(await claudeCodeAdapter.detectSessions()).toEqual([
-      { id: "sess-custom", adapter: "claude-code", path: join(dir, "sess-custom.jsonl") },
-    ]);
+    const sessions = await claudeCodeAdapter.detectSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: "sess-custom",
+      adapter: "claude-code",
+      path: join(dir, "sess-custom.jsonl"),
+    });
   } finally {
     rmSync(customConfigDir, { recursive: true, force: true });
   }
@@ -1055,8 +1059,50 @@ test("detectSessions() returns one SessionRef per .jsonl file, skipping other ex
   writeFileSync(join(dir, "ignore.txt"), "");
   const refs = await claudeCodeAdapter.detectSessions();
   const sorted = [...refs].sort((a, b) => a.id.localeCompare(b.id));
-  expect(sorted).toEqual([
+  expect(sorted.map((r) => ({ id: r.id, adapter: r.adapter, path: r.path }))).toEqual([
     { id: "sess-a", adapter: "claude-code", path: join(dir, "sess-a.jsonl") },
     { id: "sess-b", adapter: "claude-code", path: join(dir, "sess-b.jsonl") },
+  ]);
+});
+
+test("detectSessions() populates cwd from session header and modifiedAt from file mtime", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "sess-h.jsonl");
+  const header = { type: "session", sessionId: "sess-h", cwd: "/tmp/synthetic-project" };
+  writeFileSync(file, `${JSON.stringify(header)}\n`);
+  const mtime = new Date("2026-05-17T14:00:00.000Z");
+  utimesSync(file, mtime, mtime);
+  const refs = await claudeCodeAdapter.detectSessions();
+  expect(refs).toHaveLength(1);
+  expect(refs[0]).toEqual({
+    id: "sess-h",
+    adapter: "claude-code",
+    path: file,
+    cwd: "/tmp/synthetic-project",
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+});
+
+test("detectSessions({ allCwds: true }) walks every project dir under projects root", async () => {
+  const configDir = claudeCodeConfigDir();
+  if (configDir === undefined) throw new Error("test expected Claude config dir");
+  const projects = join(configDir, "projects");
+  const dirA = join(projects, "-tmp-proj-a");
+  const dirB = join(projects, "-tmp-proj-b");
+  mkdirSync(dirA, { recursive: true });
+  mkdirSync(dirB, { recursive: true });
+  writeFileSync(
+    join(dirA, "sess-a.jsonl"),
+    `${JSON.stringify({ type: "session", sessionId: "sess-a", cwd: "/tmp/proj/a" })}\n`,
+  );
+  writeFileSync(
+    join(dirB, "sess-b.jsonl"),
+    `${JSON.stringify({ type: "session", sessionId: "sess-b", cwd: "/tmp/proj/b" })}\n`,
+  );
+  const refs = await claudeCodeAdapter.detectSessions({ allCwds: true });
+  const byId = [...refs].sort((a, b) => a.id.localeCompare(b.id));
+  expect(byId.map((r) => ({ id: r.id, cwd: r.cwd }))).toEqual([
+    { id: "sess-a", cwd: "/tmp/proj/a" },
+    { id: "sess-b", cwd: "/tmp/proj/b" },
   ]);
 });
