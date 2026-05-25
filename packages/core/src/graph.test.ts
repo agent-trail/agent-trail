@@ -497,3 +497,74 @@ test("does not emit a hash diagnostic when the header itself is invalid", () => 
 
   expect(diagnostics.map((d) => d.code)).toEqual(["missing_header"]);
 });
+
+test("envelope_ref resolves silently when it points to an earlier entry id", () => {
+  const diagnostics = validateTrailGraph([
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:01.000Z",
+      payload: { text: "a" },
+      source: { raw: { envelope: { id: "env1" } } },
+    }),
+    record(3, {
+      type: "agent_message",
+      id: "evta2",
+      ts: "2026-05-17T14:00:02.000Z",
+      payload: { text: "b" },
+      source: { raw: { envelope_ref: "evta1" } },
+    }),
+  ]);
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("emits source_raw_envelope_ref_unresolved when envelope_ref points to a non-existent id", () => {
+  const diagnostics = validateTrailGraph([
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:01.000Z",
+      payload: { text: "a" },
+      source: { raw: { envelope_ref: "nope" } },
+    }),
+  ]);
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw/envelope_ref",
+    severity: "error",
+    code: "source_raw_envelope_ref_unresolved",
+    message: 'source.raw.envelope_ref "nope" does not reference an earlier entry in this file',
+  });
+});
+
+test("emits source_raw_envelope_ref_unresolved when envelope_ref points to a later entry (forward ref)", () => {
+  const diagnostics = validateTrailGraph([
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:01.000Z",
+      payload: { text: "a" },
+      source: { raw: { envelope_ref: "evta2" } },
+    }),
+    record(3, {
+      type: "agent_message",
+      id: "evta2",
+      ts: "2026-05-17T14:00:02.000Z",
+      payload: { text: "b" },
+      source: { raw: { envelope: { id: "env1" } } },
+    }),
+  ]);
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw/envelope_ref",
+    severity: "error",
+    code: "source_raw_envelope_ref_unresolved",
+    message: 'source.raw.envelope_ref "evta2" does not reference an earlier entry in this file',
+  });
+});

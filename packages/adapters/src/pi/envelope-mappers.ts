@@ -91,9 +91,17 @@ function mapAssistantEnvelope(
       emittable.push({ block, originalIndex });
     }
   });
+  const emittable_ids = emittable.map(({ block }, emittedIndex) =>
+    blockId(envelope, block.type ?? "block", emittedIndex, emittable.length),
+  );
+  const firstEntryId = emittable_ids[0];
   const emittedBlocks: Entry[] = emittable.flatMap(({ block, originalIndex }, emittedIndex) => {
-    const id = blockId(envelope, block.type ?? "block", emittedIndex, emittable.length);
-    const base = baseEntry(envelope, id, block.type, block, originalIndex, { schemaVersion });
+    const id = emittable_ids[emittedIndex] ?? "";
+    const envelopeRef = emittedIndex > 0 ? firstEntryId : undefined;
+    const base = baseEntry(envelope, id, block.type, block, originalIndex, {
+      schemaVersion,
+      envelopeRef,
+    });
     if (base === undefined) return [];
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {

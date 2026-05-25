@@ -130,9 +130,14 @@ function mapUserEnvelope(
   const emittedBlocks = blocks.filter(
     (block) => block.type === "text" || block.type === "tool_result",
   );
+  const userBlockIds = emittedBlocks.map((block, emittedIndex) =>
+    blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length),
+  );
+  const userFirstId = userBlockIds[0];
   return emittedBlocks.flatMap((block, emittedIndex) => {
-    const id = blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length);
-    const base = baseEntry(envelope, id, block.type, block, emittedIndex);
+    const id = userBlockIds[emittedIndex] ?? "";
+    const envelopeRef = emittedIndex > 0 ? userFirstId : undefined;
+    const base = baseEntry(envelope, id, block.type, block, emittedIndex, { envelopeRef });
     if (base === undefined) return [];
     if (block.type === "text" && typeof block.text === "string") {
       const text = block.text;
@@ -200,9 +205,14 @@ function mapAssistantEnvelope(
       block.type === "redacted_thinking" ||
       block.type === "tool_use",
   );
+  const asstBlockIds = emittedBlocks.map((block, emittedIndex) =>
+    blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length),
+  );
+  const asstFirstId = asstBlockIds[0];
   return emittedBlocks.flatMap((block, emittedIndex) => {
-    const id = blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length);
-    const base = baseEntry(envelope, id, block.type, block, emittedIndex);
+    const id = asstBlockIds[emittedIndex] ?? "";
+    const envelopeRef = emittedIndex > 0 ? asstFirstId : undefined;
+    const base = baseEntry(envelope, id, block.type, block, emittedIndex, { envelopeRef });
     if (base === undefined) return [];
     const model = envelope.message?.model;
     if (block.type === "text" && typeof block.text === "string") {
