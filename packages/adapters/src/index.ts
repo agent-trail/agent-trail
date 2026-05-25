@@ -9,11 +9,14 @@ export type SessionRef = {
   id: string;
   adapter: string;
   path?: string;
+  cwd?: string;
+  modifiedAt?: string;
 };
 
 export type DetectOptions = {
   cwd?: string;
   since?: string;
+  allCwds?: boolean;
 };
 
 export interface TrailAdapter {

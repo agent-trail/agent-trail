@@ -32,6 +32,7 @@
         "trail": "./src/bin.ts",
       },
       "dependencies": {
+        "@agent-trail/adapters": "workspace:*",
         "@agent-trail/core": "workspace:*",
         "@agent-trail/redact": "workspace:*",
         "@agent-trail/schema": "workspace:*",

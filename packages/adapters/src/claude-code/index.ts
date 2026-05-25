@@ -2,7 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { parseClaudeCodeJsonl } from "./parser.ts";
-import { claudeCodeConfigDir, claudeCodeProjectDir } from "./paths.ts";
+import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 
 async function dirExists(path: string): Promise<boolean> {
   try {
@@ -21,21 +21,74 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
   return JSON.parse(line) as Record<string, unknown>;
 }
 
+// Claude Code session files do not always put cwd on the first line — early
+// queue-operation / hook-attachment records appear before the first user
+// envelope. Scan a small head window to find the first record that carries it.
+const HEAD_SCAN_BYTES = 16_384;
+
+async function readCwdFromHead(path: string): Promise<string | undefined> {
+  const file = Bun.file(path);
+  const size = file.size;
+  const slice = size > HEAD_SCAN_BYTES ? file.slice(0, HEAD_SCAN_BYTES) : file;
+  const text = await slice.text();
+  const lines = text.split("\n");
+  // Drop a trailing partial line so JSON.parse never sees a truncated record.
+  const safeLines = size > HEAD_SCAN_BYTES ? lines.slice(0, -1) : lines;
+  for (const line of safeLines) {
+    if (line.length === 0) continue;
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      const cwd = record.cwd;
+      if (typeof cwd === "string" && cwd.length > 0) return cwd;
+    } catch {
+      // Skip non-JSON lines; continue scanning.
+    }
+  }
+  return undefined;
+}
+
+async function buildSessionRef(filePath: string, id: string): Promise<SessionRef> {
+  const ref: SessionRef = { id, adapter: "claude-code", path: filePath };
+  try {
+    const s = await stat(filePath);
+    ref.modifiedAt = new Date(s.mtimeMs).toISOString();
+  } catch {
+    // leave modifiedAt undefined
+  }
+  try {
+    const cwd = await readCwdFromHead(filePath);
+    if (cwd !== undefined) ref.cwd = cwd;
+  } catch {
+    // leave cwd undefined
+  }
+  return ref;
+}
+
+async function scanProjectDir(dir: string): Promise<SessionRef[]> {
+  if (!(await dirExists(dir))) return [];
+  const entries = await readdir(dir);
+  const jsonlNames = entries.filter((name) => name.endsWith(".jsonl"));
+  return Promise.all(
+    jsonlNames.map((name) => buildSessionRef(join(dir, name), name.slice(0, -".jsonl".length))),
+  );
+}
+
 export const claudeCodeAdapter: TrailAdapter = {
   name: "claude-code",
   async detectSessions(opts?: DetectOptions): Promise<SessionRef[]> {
     const configDir = claudeCodeConfigDir();
     if (configDir === undefined) return [];
+    if (opts?.allCwds === true) {
+      const root = claudeCodeProjectsRoot(configDir);
+      if (!(await dirExists(root))) return [];
+      const projectNames = await readdir(root);
+      const perDir = await Promise.all(
+        projectNames.map((name) => scanProjectDir(join(root, name))),
+      );
+      return perDir.flat();
+    }
     const dir = claudeCodeProjectDir({ configDir, cwd: opts?.cwd ?? process.cwd() });
-    if (!(await dirExists(dir))) return [];
-    const entries = await readdir(dir);
-    return entries
-      .filter((name) => name.endsWith(".jsonl"))
-      .map((name) => ({
-        id: name.slice(0, -".jsonl".length),
-        adapter: "claude-code",
-        path: join(dir, name),
-      }));
+    return scanProjectDir(dir);
   },
   async parseSession(ref: SessionRef): Promise<TrailFile> {
     if (ref.path === undefined) {

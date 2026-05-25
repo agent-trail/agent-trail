@@ -370,9 +370,13 @@ test("detectSessions() honors PI_CODING_AGENT_DIR override", async () => {
   try {
     const dir = createProjectDir();
     writeFileSync(join(dir, "sess-custom.jsonl"), "");
-    expect(await piAdapter.detectSessions()).toEqual([
-      { id: "sess-custom", adapter: "pi", path: join(dir, "sess-custom.jsonl") },
-    ]);
+    const sessions = await piAdapter.detectSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: "sess-custom",
+      adapter: "pi",
+      path: join(dir, "sess-custom.jsonl"),
+    });
   } finally {
     rmSync(customAgentDir, { recursive: true, force: true });
   }
@@ -384,12 +388,57 @@ test("detectSessions() honors PI_CODING_AGENT_SESSION_DIR override", async () =>
   try {
     const dir = createProjectDir();
     writeFileSync(join(dir, "sess-custom.jsonl"), "");
-    expect(await piAdapter.detectSessions()).toEqual([
-      { id: "sess-custom", adapter: "pi", path: join(dir, "sess-custom.jsonl") },
-    ]);
+    const sessions = await piAdapter.detectSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: "sess-custom",
+      adapter: "pi",
+      path: join(dir, "sess-custom.jsonl"),
+    });
   } finally {
     rmSync(customSessionsDir, { recursive: true, force: true });
   }
+});
+
+test("detectSessions() populates cwd from session header and modifiedAt from file mtime", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "sess-h.jsonl");
+  const header = { type: "session", cwd: "/tmp/pi-proj" };
+  writeFileSync(file, `${JSON.stringify(header)}\n`);
+  const mtime = new Date("2026-05-17T14:00:00.000Z");
+  utimesSync(file, mtime, mtime);
+  const refs = await piAdapter.detectSessions();
+  expect(refs).toHaveLength(1);
+  expect(refs[0]).toEqual({
+    id: "sess-h",
+    adapter: "pi",
+    path: file,
+    cwd: "/tmp/pi-proj",
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+});
+
+test("detectSessions({ allCwds: true }) walks every project dir under sessions root", async () => {
+  const sessionsDir = piSessionsDir();
+  if (sessionsDir === undefined) throw new Error("test expected Pi sessions dir");
+  const dirA = join(sessionsDir, "--tmp-proj-a--");
+  const dirB = join(sessionsDir, "--tmp-proj-b--");
+  mkdirSync(dirA, { recursive: true });
+  mkdirSync(dirB, { recursive: true });
+  writeFileSync(
+    join(dirA, "sess-a.jsonl"),
+    `${JSON.stringify({ type: "session", cwd: "/tmp/proj/a" })}\n`,
+  );
+  writeFileSync(
+    join(dirB, "sess-b.jsonl"),
+    `${JSON.stringify({ type: "session", cwd: "/tmp/proj/b" })}\n`,
+  );
+  const refs = await piAdapter.detectSessions({ allCwds: true });
+  const byId = [...refs].sort((a, b) => a.id.localeCompare(b.id));
+  expect(byId.map((r) => ({ id: r.id, cwd: r.cwd }))).toEqual([
+    { id: "sess-a", cwd: "/tmp/proj/a" },
+    { id: "sess-b", cwd: "/tmp/proj/b" },
+  ]);
 });
 
 test("detectSessions() returns empty when project dir is missing", async () => {
