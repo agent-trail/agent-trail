@@ -4,7 +4,12 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
+import {
+  canonicalizeRecords,
+  computeContentHash,
+  parseJsonlString,
+  verifyContentHash,
+} from "@agent-trail/core";
 import { runShare } from "./share.ts";
 
 function decodePayload(payload: Uint8Array): string {
@@ -244,6 +249,24 @@ test("upload payload is gzipped base64 of the redacted JSONL", async () => {
   const records = await parseJsonlString(decoded);
   expect(records.length).toBeGreaterThanOrEqual(2);
   expect(records[0]?.value.type).toBe("session");
+});
+
+test("upload payload of redacted-with-secrets trail has a finalized content_hash", async () => {
+  const fakeKey = `sk-${"A".repeat(40)}`;
+  const { filePath } = await seedTrail({ text: `please use key ${fakeKey} now` });
+  let captured: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    captured = payload;
+    return { gistId: "hashid" };
+  };
+
+  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  const decoded = decodePayload(captured as unknown as Uint8Array);
+  const records = await parseJsonlString(decoded);
+  const verification = verifyContentHash(records);
+  expect(verification.status).toBe("match");
 });
 
 test("redaction summary reports counts for secrets in trail payload", async () => {

@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
-import { canonicalizeRecords, type JsonlRecord, parseJsonlString } from "@agent-trail/core";
+import {
+  canonicalizeRecords,
+  computeContentHash,
+  type JsonlRecord,
+  parseJsonlString,
+} from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import { registerTrail } from "@agent-trail/store";
 import { ghGistUpload } from "./gist-upload.ts";
@@ -119,13 +124,24 @@ export async function runShare(
     }
   }
 
-  const shortHash = reg.contentHash.slice(0, SHORT_HASH_LEN);
-  const filename = `${shortHash}.trail.jsonl.gz.b64`;
   let payload: Uint8Array;
+  let payloadHash: string;
   try {
-    const jsonl = values["skip-redaction"]
-      ? await readFile(reg.objectPath)
-      : Buffer.from(canonicalizeRecords(redactedRecords ?? []), "utf8");
+    let jsonl: Buffer;
+    if (values["skip-redaction"]) {
+      jsonl = await readFile(reg.objectPath);
+      payloadHash = reg.contentHash;
+    } else {
+      // Finalize the redacted artifact's own content_hash so the shared
+      // gist payload is verifiable (spec §7.3). redactTrail stamps
+      // `<pending>` on the header when redaction mutates content; compute
+      // and write the real hash before canonicalizing for upload.
+      const records = redactedRecords ?? [];
+      payloadHash = computeContentHash(records);
+      const head = records[0]?.value as Record<string, unknown> | undefined;
+      if (head && head.type === "session") head.content_hash = payloadHash;
+      jsonl = Buffer.from(canonicalizeRecords(records), "utf8");
+    }
     const gzipped = gzipSync(jsonl);
     const base64 = gzipped.toString("base64");
     payload = Buffer.from(base64, "ascii");
@@ -138,6 +154,7 @@ export async function runShare(
     };
   }
 
+  const filename = `${payloadHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl.gz.b64`;
   const upload = opts.gistUpload ?? ghGistUpload;
   try {
     const { gistId } = await upload(payload, filename);

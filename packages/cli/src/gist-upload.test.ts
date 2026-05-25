@@ -6,6 +6,11 @@ test("parseGistIdFromGhOutput: extracts id from typical gh output", () => {
   expect(parseGistIdFromGhOutput(stdout)).toBe("abc123");
 });
 
+test("parseGistIdFromGhOutput: extracts id from owner-less gist URL", () => {
+  const stdout = "https://gist.github.com/abc123\n";
+  expect(parseGistIdFromGhOutput(stdout)).toBe("abc123");
+});
+
 test("parseGistIdFromGhOutput: throws on unrecognized output", () => {
   expect(() => parseGistIdFromGhOutput("weird output")).toThrow(
     /gh gist create: unexpected output/,

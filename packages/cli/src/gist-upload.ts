@@ -33,7 +33,7 @@ export async function ghGistUpload(
 
 export function parseGistIdFromGhOutput(stdout: string): string {
   const trimmed = stdout.trim();
-  const match = /^https:\/\/gist\.github\.com\/[^/]+\/([0-9a-f]+)$/.exec(trimmed);
+  const match = /^https:\/\/gist\.github\.com\/(?:[^/]+\/)?([0-9a-f]+)$/.exec(trimmed);
   if (!match) {
     throw new Error(`gh gist create: unexpected output (could not parse gist URL): ${trimmed}`);
   }
