@@ -125,6 +125,21 @@ test("viewer URL: fetches, registers, prints content_hash; object stored under s
   expect(existsSync(objectPath)).toBe(true);
 });
 
+test("loaded artifact has null source_path in the index (tmp file is deleted)", async () => {
+  const seed = await seedSharedPayload();
+  const result = await runLoad(["https://agent-trail.dev/view/gist/abc123def4567890abcd"], {
+    storeRoot,
+    gistFetch: fakeFetcher(seed.payload, seed.filename),
+  });
+
+  expect(result.exitCode).toBe(0);
+  const indexBytes = await readFile(join(storeRoot, "index", "objects.json"), "utf8");
+  const indexValue = JSON.parse(indexBytes) as {
+    entries: Record<string, { source_path: string | null }>;
+  };
+  expect(indexValue.entries[seed.contentHash]?.source_path).toBeNull();
+});
+
 test("URL with /raw suffix is accepted", async () => {
   const seed = await seedSharedPayload();
   const url = `https://gist.github.com/someuser/abc123def4567890abcd/raw`;

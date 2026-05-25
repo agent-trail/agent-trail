@@ -149,7 +149,13 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   const tmpFile = join(tmpDir, "fetched.trail.jsonl");
   try {
     await writeFile(tmpFile, jsonl, "utf8");
-    const reg = await registerTrail(tmpFile, { storeRoot: opts.storeRoot });
+    // The tmp file is deleted in the `finally` below, so recording it as
+    // `source_path` would index a guaranteed-stale path. Pass null instead;
+    // `trail list` falls back to the content hash for identity.
+    const reg = await registerTrail(tmpFile, {
+      storeRoot: opts.storeRoot,
+      sourcePath: null,
+    });
 
     if (reg.status === "skipped_pending") {
       return {

@@ -176,6 +176,36 @@ test("registerTrail writes an index entry keyed by hash with absolute source_pat
   rmSync(inputDir, { recursive: true, force: true });
 });
 
+test("registerTrail honours opts.sourcePath override (string and null)", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
+  const copied = join(inputDir, "session.trail.jsonl");
+  await copyFile(FINALIZED_FIXTURE, copied);
+
+  const overriddenSource = "https://example.test/some-shared-url";
+  const overrideResult = await registerTrail(copied, {
+    storeRoot,
+    sourcePath: overriddenSource,
+  });
+  expect(overrideResult.status).toBe("finalized");
+
+  let indexBytes = await readFile(join(storeRoot, "index", "objects.json"), "utf8");
+  let indexValue = JSON.parse(indexBytes) as {
+    entries: Record<string, { source_path: string | null }>;
+  };
+  expect(indexValue.entries[FINALIZED_HASH]?.source_path).toBe(overriddenSource);
+
+  const nullResult = await registerTrail(copied, { storeRoot, sourcePath: null });
+  expect(nullResult.status).toBe("already_present");
+
+  indexBytes = await readFile(join(storeRoot, "index", "objects.json"), "utf8");
+  indexValue = JSON.parse(indexBytes) as {
+    entries: Record<string, { source_path: string | null }>;
+  };
+  expect(indexValue.entries[FINALIZED_HASH]?.source_path).toBeNull();
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
 test("registerTrail on malformed JSONL returns 'invalid' with a parse diagnostic (does not throw)", async () => {
   const malformedDir = mkdtempSync(join(tmpdir(), "trail-store-malformed-"));
   const path = join(malformedDir, "broken.trail.jsonl");
