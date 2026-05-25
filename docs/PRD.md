@@ -392,6 +392,7 @@ export interface TrailAdapter {
 - Adapters MUST populate `semantic.call_id` on tool_call/tool_result pairs when source has its own IDs (especially Claude Code's `tool_use_id`, which can be null).
 - Adapters MUST redact known credential patterns in `source.raw` before emission (spec §14.1).
 - Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §9.7).
+- Adapters MUST populate `payload.usage` on `agent_message` when the source provides token data. MUST NOT fabricate usage (spec §9.2).
 
 **`source.raw` size policy (reference implementation):**
 

@@ -74,6 +74,8 @@ const COMPACT_FIXTURE_PATH = new URL(
   "../../tests/fixtures/pi/compaction-and-model-change.jsonl",
   import.meta.url,
 ).pathname;
+const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl", import.meta.url)
+  .pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
@@ -104,6 +106,14 @@ async function parseCompactFixture() {
     id: "compaction-and-model-change",
     adapter: "pi",
     path: COMPACT_FIXTURE_PATH,
+  });
+}
+
+async function parseUsageFixture() {
+  return piAdapter.parseSession({
+    id: "usage-and-cost",
+    adapter: "pi",
+    path: USAGE_FIXTURE_PATH,
   });
 }
 
@@ -160,6 +170,27 @@ test("parseSession() emits an agent_message for assistant text blocks with model
     model: "claude-sonnet-4-5",
     stop_reason: "stop",
   });
+});
+
+test("parseSession() populates agent_message.payload.usage from message.usage on Pi assistant envelopes", async () => {
+  const trail = await parseUsageFixture();
+  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-2");
+  expect(agentMsg?.type).toBe("agent_message");
+  expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
+    input_tokens: 1234,
+    output_tokens: 567,
+    input_tokens_cumulative: 12340,
+    output_tokens_cumulative: 5670,
+    cache_read_tokens: 100,
+    cache_creation_tokens: 50,
+    reasoning_tokens: 200,
+  });
+});
+
+test("parseSession() omits payload.usage on agent_message when Pi envelope has no usage", async () => {
+  const trail = await parseFixture();
+  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-4");
+  expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 // TDD step 5: tool_call mapping (read -> file_read)

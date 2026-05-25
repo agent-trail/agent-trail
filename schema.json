@@ -127,6 +127,21 @@
       "additionalProperties": false
     },
 
+    "agentMessageUsage": {
+      "type": "object",
+      "description": "Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories (Anthropic and OpenAI Responses API semantics): input_tokens counts non-cached input only and total billed input = input_tokens + cache_read_tokens + cache_creation_tokens. Required-when-present field presence is enforced semantically by the validator.",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "input_tokens_cumulative": { "type": "integer", "minimum": 0 },
+        "output_tokens_cumulative": { "type": "integer", "minimum": 0 },
+        "cache_read_tokens": { "type": "integer", "minimum": 0 },
+        "cache_creation_tokens": { "type": "integer", "minimum": 0 },
+        "reasoning_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+
     "header": {
       "type": "object",
       "description": "Session header (line 1). Not part of the event graph.",
@@ -294,7 +309,8 @@
             "properties": {
               "text": { "type": "string" },
               "model": { "type": "string" },
-              "stop_reason": { "type": "string" }
+              "stop_reason": { "type": "string" },
+              "usage": { "$ref": "#/$defs/agentMessageUsage" }
             },
             "additionalProperties": false
           }

@@ -177,8 +177,21 @@ export interface AgentMessage {
     text: string;
     model?: string;
     stop_reason?: string;
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
+}
+/**
+ * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories (Anthropic and OpenAI Responses API semantics): input_tokens counts non-cached input only and total billed input = input_tokens + cache_read_tokens + cache_creation_tokens. Required-when-present field presence is enforced semantically by the validator.
+ */
+export interface AgentMessageUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_cumulative?: number;
+  output_tokens_cumulative?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
 }
 export interface ToolCall {
   type?: "tool_call";
