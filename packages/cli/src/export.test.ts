@@ -205,7 +205,7 @@ test("corrupt index: short-prefix lookup exits 1 with diagnostic", async () => {
   const result = await runExport(["deadbeef"], { storeRoot });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr.toLowerCase()).toContain("malformed json");
+  expect(result.stderr).toContain("malformed JSON");
 });
 
 test("--out is a directory: exits 1", async () => {

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
   IndexCorruptError,
+  type IndexFile,
   IndexVersionError,
   objectPath,
   readIndex,
@@ -59,14 +60,18 @@ export async function runExport(
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
   if (!VALID_ID_RE.test(id)) {
-    return { exitCode: 1, stdout: "", stderr: `export: invalid id: ${id}\n` };
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `export: invalid id: ${id} (expected 8–64 hex chars)\n`,
+    };
   }
 
   let contentHash: string;
   if (FULL_HASH_RE.test(id)) {
     contentHash = id;
   } else {
-    let index: Awaited<ReturnType<typeof readIndex>>;
+    let index: IndexFile;
     try {
       index = await readIndex(storeRoot);
     } catch (error) {

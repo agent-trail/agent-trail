@@ -279,7 +279,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 - `trail register <file>` — parse + canonicalize + store locally (content-addressed).
 - `trail share <id>` — redact, upload to gist, return URL.
 - `trail load <url>` — fetch and decode a shared session.
-- `trail export <id> --format <html|md|jsonl>` — local export.
+- `trail export <id>` — write canonical trail bytes to stdout or `--out <path>`.
 - `trail validate <file>` — validate against schema.
 - `trail analyze <file>` — deterministic stats and findings on a trail (v0.2; tracker #66).
 
@@ -413,7 +413,7 @@ trail view <id-or-path> [--format text|json] [--full]
 trail register <file>
 trail share <id> [--public] [--dry-run] [--skip-redaction]
 trail load <url> [--out <path>]
-trail export <id> --format html|md|jsonl|primer [--out <path>] [--target <agent>] [--max-tokens <n>]
+trail export <id> [--out <path>] [--force]
 trail validate <file>
 trail adapters list
 trail adapters status
@@ -438,7 +438,7 @@ trail adapters status
 - All commands support `--json` for scripting.
 - Exit codes: 0 success, 1 user error, 2 system error, 3 redaction blocked.
 - `trail load <url>` fetches, verifies, and stores or writes a trail artifact. It does not summarize by default.
-- `trail export --format primer` renders an agent-handoff primer with explicit target-agent and token-budget options.
+- `trail export <id>` writes the canonical bytes of a registered trail to stdout or `--out <path>`. Synthesis (summarisation, handoff primers, target-agent framing, token budgeting) is delegated to the `summarise` (#63) and `handoff` (#64) skills, which compose this command with model-side synthesis in the user's own agent.
 
 **Validation diagnostics:**
 
@@ -706,7 +706,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 | `@agent-trail/redact` module + integration with CLI | 1 week | `@redactpii/node` + curated patterns |
 | `trail register` + `trail share` (gist transport) | 4 days | Reuses Pi's gist pattern; content-hash addressing |
 | `trail load` command | 2 days | |
-| `trail export --format primer` | 3 days | Explicit handoff surface separate from `trail load` |
+| `trail export <id>` | 1 day | Deterministic byte export of registered trails; consumed by `summarise` (#63) and `handoff` (#64) skills |
 | **Website (Next.js, static):** landing + spec rendering + schema serving + viewer | 2 weeks | Four routes, one deployment. Landing copy from spec §1 verbatim |
 | Parser Source Matrix completed for all 6 launch adapters | 1 week | Document version + observed schema for each |
 | Real-data verification CI job (opt-in, on schedule) | 2 days | Catches silent schema drift early |
