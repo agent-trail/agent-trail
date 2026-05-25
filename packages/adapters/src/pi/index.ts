@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { parsePiJsonl } from "./parser.ts";
@@ -25,12 +25,29 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 const HEAD_SCAN_BYTES = 16_384;
 
 async function readCwdFromHead(path: string): Promise<string | undefined> {
-  const file = Bun.file(path);
-  const size = file.size;
-  const slice = size > HEAD_SCAN_BYTES ? file.slice(0, HEAD_SCAN_BYTES) : file;
-  const text = await slice.text();
+  // See claude-code/index.ts:readCwdFromHead for the UTF-8 boundary rationale.
+  const handle = await open(path, "r");
+  let bytesRead: number;
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
+    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
+    bytesRead = result.bytesRead;
+  } finally {
+    await handle.close().catch(() => {});
+  }
+  if (bytesRead === 0) return undefined;
+  const truncated = bytesRead === HEAD_SCAN_BYTES;
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
+  } catch {
+    const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+    if (lastNewline < 0) return undefined;
+    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, lastNewline));
+  }
   const lines = text.split("\n");
-  const safeLines = size > HEAD_SCAN_BYTES ? lines.slice(0, -1) : lines;
+  const safeLines = truncated ? lines.slice(0, -1) : lines;
   for (const line of safeLines) {
     if (line.length === 0) continue;
     try {
@@ -78,9 +95,10 @@ export const piAdapter: TrailAdapter = {
     if (opts?.allCwds === true) {
       const root = piProjectsRoot(sessionsDir);
       if (!(await dirExists(root))) return [];
-      const projectNames = await readdir(root);
+      const entries = await readdir(root, { withFileTypes: true });
+      const projectDirs = entries.filter((entry) => entry.isDirectory());
       const perDir = await Promise.all(
-        projectNames.map((name) => scanProjectDir(join(root, name))),
+        projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
       );
       return perDir.flat();
     }

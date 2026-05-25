@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { runDiscover } from "./discover.ts";
 
 // Mangling rules mirrored from the adapters so the test seeds the same dirs
@@ -259,4 +260,51 @@ test("unknown flag exits 1 with usage on stderr", async () => {
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("--nope");
   expect(result.stderr).toContain("Usage: trail discover");
+});
+
+function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    name,
+    async detectSessions() {
+      return refs;
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not implemented");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+  };
+}
+
+test("--since/--until: rows with undefined modifiedAt are excluded from time-range filter", async () => {
+  const adapter = stubAdapter("stub", [
+    { id: "sess-dated", adapter: "stub", modifiedAt: "2026-02-15T00:00:00.000Z" },
+    { id: "sess-no-mtime", adapter: "stub" },
+  ]);
+  const result = await runDiscover(
+    ["--json", "--since", "2026-02-01T00:00:00.000Z", "--until", "2026-03-01T00:00:00.000Z"],
+    { adapters: [adapter] },
+  );
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
+  expect(parsed.map((r) => r.id)).toEqual(["sess-dated"]);
+});
+
+test("--all: stray non-directory entries under projects root are ignored", async () => {
+  // Seed a real session plus a `.DS_Store`-style stray file at the projects root.
+  seedSession({
+    agent: "claude-code",
+    id: "sess-real",
+    cwd: "/tmp/proj-real",
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+  writeFileSync(join(claudeConfigDir, "projects", ".DS_Store"), "not a directory");
+  const result = await runDiscover(["--json", "--all", "--agent", "claude-code"]);
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
+  expect(parsed.map((r) => r.id)).toEqual(["sess-real"]);
 });

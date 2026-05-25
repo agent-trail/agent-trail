@@ -31,6 +31,8 @@ const USAGE =
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 
+// Order matters: --agent filters by name, but the output sort tiebreak and
+// JSON array order follow this list when modifiedAt is equal.
 const DEFAULT_ADAPTERS: TrailAdapter[] = [claudeCodeAdapter, piAdapter];
 
 export async function runDiscover(
@@ -110,7 +112,10 @@ export async function runDiscover(
   if (values.all === false && values.cwd !== undefined) {
     // After discovery, also filter on cwd extracted from session header (when
     // present). Adapters scan their cwd-mangled dir, but headers expose the
-    // real cwd; respect it so users get an exact match.
+    // real cwd; respect it so users get an exact match. Lenient policy: keep
+    // sessions whose header has no `cwd` field — the adapter already proved
+    // their provenance by finding them under the mangled dir for `values.cwd`,
+    // and hiding malformed-header sessions would silently strand them.
     refs = refs.filter((r) => r.cwd === undefined || r.cwd === values.cwd);
   }
 

@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { parseClaudeCodeJsonl } from "./parser.ts";
@@ -27,13 +27,37 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 const HEAD_SCAN_BYTES = 16_384;
 
 async function readCwdFromHead(path: string): Promise<string | undefined> {
-  const file = Bun.file(path);
-  const size = file.size;
-  const slice = size > HEAD_SCAN_BYTES ? file.slice(0, HEAD_SCAN_BYTES) : file;
-  const text = await slice.text();
+  // Read raw bytes via node:fs so we can decode with a fatal TextDecoder and
+  // drop a trailing partial UTF-8 sequence rather than letting `.text()`
+  // silently replace it. Without this guard, a multi-byte codepoint split at
+  // the HEAD_SCAN_BYTES boundary could shift later newlines and surface a
+  // mangled record to JSON.parse.
+  const handle = await open(path, "r");
+  let bytesRead: number;
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
+    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
+    bytesRead = result.bytesRead;
+  } finally {
+    await handle.close().catch(() => {});
+  }
+  if (bytesRead === 0) return undefined;
+  const truncated = bytesRead === HEAD_SCAN_BYTES;
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
+  } catch {
+    // Decode failure means a multi-byte codepoint was cut at the read boundary.
+    // Walk back to the last newline (which is always single-byte) and retry.
+    const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
+    if (lastNewline < 0) return undefined;
+    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, lastNewline));
+  }
   const lines = text.split("\n");
-  // Drop a trailing partial line so JSON.parse never sees a truncated record.
-  const safeLines = size > HEAD_SCAN_BYTES ? lines.slice(0, -1) : lines;
+  // Drop a trailing partial line when the read hit the byte cap so JSON.parse
+  // never sees a truncated record.
+  const safeLines = truncated ? lines.slice(0, -1) : lines;
   for (const line of safeLines) {
     if (line.length === 0) continue;
     try {
@@ -81,9 +105,10 @@ export const claudeCodeAdapter: TrailAdapter = {
     if (opts?.allCwds === true) {
       const root = claudeCodeProjectsRoot(configDir);
       if (!(await dirExists(root))) return [];
-      const projectNames = await readdir(root);
+      const entries = await readdir(root, { withFileTypes: true });
+      const projectDirs = entries.filter((entry) => entry.isDirectory());
       const perDir = await Promise.all(
-        projectNames.map((name) => scanProjectDir(join(root, name))),
+        projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
       );
       return perDir.flat();
     }
