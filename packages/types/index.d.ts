@@ -151,7 +151,7 @@ export interface SourceMetadata {
   original_type?: string;
   schema_version?: string;
   /**
-   * Opaque source object preserved verbatim
+   * Opaque source object preserved verbatim. If an object, may use envelope_ref to reference an earlier entry's inlined envelope.
    */
   raw?: {
     [k: string]: unknown;

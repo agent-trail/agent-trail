@@ -101,7 +101,16 @@
         "agent": { "$ref": "#/$defs/agentName" },
         "original_type": { "type": "string" },
         "schema_version": { "type": "string" },
-        "raw": { "description": "Opaque source object preserved verbatim" },
+        "raw": {
+          "description": "Opaque source object preserved verbatim. If an object, may use envelope_ref to reference an earlier entry's inlined envelope.",
+          "if": { "type": "object" },
+          "then": {
+            "type": "object",
+            "properties": {
+              "envelope_ref": { "type": "string" }
+            }
+          }
+        },
         "synthesized": { "type": "boolean", "default": false }
       },
       "additionalProperties": false

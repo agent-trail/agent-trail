@@ -155,6 +155,7 @@ export function validateTrailGraph(
     diagnostics.push(...streamConsistencyWarnings(headerRecord, entries));
     diagnostics.push(...unmatchedToolCallWarnings(entries));
     diagnostics.push(...finalMessageIdWarnings(entries, idLines, headerId));
+    diagnostics.push(...envelopeRefWarnings(entries, idLines));
   }
 
   if (canonicalBytesComplete && headerValid && headerRecord !== undefined) {
@@ -411,6 +412,43 @@ function finalMessageIdWarnings(
         severity: "warning",
         code: "unknown_final_message_id",
         message: `session_end final_message_id "${finalId}" does not reference the session header or a prior event in this file`,
+      }),
+    );
+  }
+  return diagnostics;
+}
+
+// Inline-first / ref-subsequent envelope dedup (spec §9): an entry whose
+// source.raw.envelope_ref is set MUST reference an earlier entry's id. The
+// referenced entry inlined the source envelope; the current entry rides on
+// that envelope. Forward refs and dangling refs are errors so streaming
+// readers can resolve refs in a single pass.
+function envelopeRefWarnings(entries: JsonlRecord[], idLines: Map<string, number>): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of entries) {
+    const source = entry.value.source;
+    if (typeof source !== "object" || source === null) {
+      continue;
+    }
+    const raw = (source as { raw?: unknown }).raw;
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const envelopeRef = (raw as { envelope_ref?: unknown }).envelope_ref;
+    if (typeof envelopeRef !== "string") {
+      continue;
+    }
+    const targetLine = idLines.get(envelopeRef);
+    if (targetLine !== undefined && targetLine < entry.line) {
+      continue;
+    }
+    diagnostics.push(
+      createDiagnostic({
+        line: entry.line,
+        path: "/source/raw/envelope_ref",
+        severity: "error",
+        code: "source_raw_envelope_ref_unresolved",
+        message: `source.raw.envelope_ref "${envelopeRef}" does not reference an earlier entry in this file`,
       }),
     );
   }

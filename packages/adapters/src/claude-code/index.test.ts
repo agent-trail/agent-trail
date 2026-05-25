@@ -967,6 +967,64 @@ test("every entry has source metadata: agent='claude-code', original_type popula
   }
 });
 
+test("fidelity-edge-cases trail output drops below 11 KB after envelope_ref dedup", async () => {
+  // Before envelope_ref dedup this fixture serialized to ~15.1 KB; the bound
+  // documents the floor after dedup (~10.1 KB at writing) without locking the
+  // exact byte count.
+  const trail = await parseFidelityFixture();
+  const lines = [JSON.stringify(trail.header), ...trail.entries.map((e) => JSON.stringify(e))];
+  const bytes = Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
+  expect(bytes).toBeLessThan(11_000);
+});
+
+test("block-derived entries from the same assistant envelope dedup via envelope_ref", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      sessionId: "sess-eref",
+      version: "1.0.0",
+      type: "session",
+      timestamp: "2026-05-21T16:00:00.000Z",
+      cwd: "/tmp/synthetic",
+    }),
+    JSON.stringify({
+      uuid: "u-eref-1",
+      parentUuid: null,
+      timestamp: "2026-05-21T16:00:01.000Z",
+      type: "user",
+      sessionId: "sess-eref",
+      message: { role: "user", content: "go" },
+    }),
+    JSON.stringify({
+      uuid: "a-eref-1",
+      parentUuid: "u-eref-1",
+      timestamp: "2026-05-21T16:00:02.000Z",
+      type: "assistant",
+      sessionId: "sess-eref",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "first" },
+          { type: "text", text: "second" },
+          { type: "tool_use", id: "tu-1", name: "Read", input: { file_path: "/x" } },
+        ],
+      },
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const first = trail.entries.find((e) => e.id === "a-eref-1-text-0");
+  const second = trail.entries.find((e) => e.id === "a-eref-1-text-1");
+  const toolCall = trail.entries.find((e) => e.id === "a-eref-1-tool_use-2");
+  const firstRaw = first?.source?.raw as Record<string, unknown>;
+  expect(firstRaw.envelope).toBeDefined();
+  expect(firstRaw.envelope_ref).toBeUndefined();
+  for (const later of [second, toolCall]) {
+    const raw = later?.source?.raw as Record<string, unknown>;
+    expect(raw.envelope_ref).toBe(first?.id);
+    expect(raw.envelope).toBeUndefined();
+  }
+});
+
 test("sourceVersion() is null when no sessions exist", async () => {
   expect(await claudeCodeAdapter.sourceVersion()).toBeNull();
 });

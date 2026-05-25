@@ -294,7 +294,7 @@ Every event entry has this base shape:
     "agent": "<canonical-agent-name>",
     "original_type": "<source-event-name>",
     "schema_version": "<source-schema-version>",
-    "raw": { /* opaque source object */ },
+    "raw": { /* opaque source object; see §9.6 and §14 */ },
     "synthesized": false
   },
   "metadata": {                                 // optional; see §11
@@ -652,6 +652,17 @@ Readers must tolerate unknown types:
 
 Writers should not invent new top-level types. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `metadata` (§11) for vendor extensions.
 
+### 9.7 Source envelope referencing
+
+When a single source envelope produces multiple entries — for example, an assistant message envelope whose `content` array is split across one `agent_message`, one `agent_thinking`, and one `tool_call` entry — writers should not inline the full envelope on every derived entry. Use *inline-first / ref-subsequent* dedup:
+
+- The **first** entry derived from a given source envelope sets `source.raw.envelope` (and `source.raw.block`, `source.raw.block_index` if applicable).
+- **Subsequent** entries derived from the same envelope set `source.raw.envelope_ref` to the first entry's `id`. They omit `source.raw.envelope` and keep `block` / `block_index`.
+
+`source.raw.envelope_ref` is an optional string. Writers must ensure it references the `id` of an entry that appears **earlier** in the same file — the same envelope, inlined once. Forward references and dangling references are reader errors (`source_raw_envelope_ref_unresolved`, §16.4). The first-inline-then-ref shape is streaming-write friendly: readers resolve refs in a single pass without backtracking.
+
+This mechanism is additive over v0.1.0. Readers that do not understand `envelope_ref` will see it as an unknown raw-source field and ignore it; the entry's other fields (`type`, `payload`, `semantic`) remain fully self-describing.
+
 ---
 
 ## 10. Canonical tool taxonomy
@@ -780,18 +791,40 @@ New agents may be added by amending this spec. Until registered, adapters may us
 
 ## 14. Truncation, overflow, and raw source size
 
-Tool outputs can exceed reasonable inline limits. Recommended handling:
+Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with two fields on `tool_result.payload`:
 
-- Default inline limit: 10 KB per tool output.
-- When exceeded:
-  - Set `tool_result.payload.truncated: true`.
-  - Truncate `output` to ~9 KB.
-  - Optionally set `overflow_ref` to a content-addressed reference (`sha256:abc...`).
-  - Implementations storing overflow externally should colocate the blob with the JSONL.
+| Field | Type | Notes |
+|---|---|---|
+| `truncated` | boolean | `true` when `output` was shortened from its original length |
+| `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
 
-Limits and storage strategy are implementation-defined; the spec only defines the data shape.
+Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
 
 `source.raw` is optional. Writers should omit or summarize very large or sensitive raw source objects when they would make trail files unwieldy or unsafe. Share tools must inspect `source.raw` during redaction before producing a shared artifact.
+
+### 14.1 `source.raw` elision and redaction
+
+Writers MAY elide all or part of a `source.raw` value when it is unwieldy or unsafe to inline. Elision uses a single wire-format marker, in place of either the entire `source.raw` or any nested string leaf:
+
+```jsonc
+{ "elided": true, "size_bytes": 41208 }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `elided` | boolean `true` | sentinel; readers detect elided regions by this field |
+| `size_bytes` | integer | UTF-8 byte length of the elided original (informational; readers may use it for display or budgeting) |
+
+Two placements are valid:
+
+- **Whole-value elide:** `source.raw` itself is the marker. The original envelope is fully omitted; only its byte size is recorded.
+- **Leaf elide:** any nested string is replaced with the marker. The envelope's structural skeleton (ids, parent refs, role, timestamps, block kinds) stays intact; only the bulky string body is removed.
+
+Specific size thresholds, the algorithm a writer uses to choose which leaves to elide, and whether elision is gated by a hard cap are implementation policy — they belong in writer documentation, not the format. Validators MAY warn on entries whose `source.raw` exceeds an implementation-chosen size budget, but the wire format itself imposes no fixed limit.
+
+When elision happens at the first emission of a source envelope (§9.7), subsequent `envelope_ref` entries still resolve — the ref points at the elided entry's `id`, not at its inlined envelope.
+
+Adapters MUST redact known secret patterns in `source.raw` before writing — emission-time redaction is a writer responsibility, not a share-time concern. Validators emit `source_raw_unredacted_secret` (warning) when a string leaf in `source.raw` matches a known credential pattern (Authorization headers, Bearer tokens, JWT, vendor API keys, PEM private key blocks, ENV-style assignments). Share-time redaction (§15) layers additional normalization on top — paths, PII — and produces a separate artifact.
 
 ---
 
@@ -853,6 +886,9 @@ Warnings (non-fatal):
   - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).
   - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
 - `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
+- Validators MAY report implementation-defined size budgets for `source.raw`. The reference validator emits `source_raw_oversized` (warning) above a soft threshold and `source_raw_oversized_hard` (error) above a hard threshold; specific numbers are writer policy (§14.1).
+- `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
+- `source.raw.envelope_ref`, when set, must reference the `id` of an earlier entry in the same file (§9.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
 
 Streaming rules (§8.4):
 
@@ -954,6 +990,7 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 - Defines JSONL file layout, header, core event envelope, five mandatory event types, optional events, tool taxonomy, metadata extensions, tree semantics, validation layers, and artifact-level content addressing.
 - Defines stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - Adds the optional header `stream` field, the optional `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3). These are additive and backward-compatible; v0.1.x readers ignore unknown header fields and event types.
+- Adds `source.raw.envelope_ref` for inline-first / ref-subsequent envelope dedup (§9.7), the elide marker shape `{ elided: true, size_bytes: N }` for whole-value or per-leaf elision in `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`. Backward-compatible; v0.1.0 readers that do not know `envelope_ref` ignore it as an unknown raw-source field.
 
 ---
 

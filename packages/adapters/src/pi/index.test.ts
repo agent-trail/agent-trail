@@ -279,6 +279,17 @@ test("parseSession() preserves source.raw.block_index relative to message.conten
   expect((text1?.source?.raw as { block_index?: number }).block_index).toBe(1);
   expect((thinking2?.source?.raw as { block_index?: number }).block_index).toBe(2);
   expect((tool3?.source?.raw as { block_index?: number }).block_index).toBe(3);
+
+  // Envelope dedup: first emitted block inlines the source envelope; later
+  // block-derived entries reference it via envelope_ref.
+  const firstRaw = thinking0?.source?.raw as Record<string, unknown>;
+  expect(firstRaw.envelope).toBeDefined();
+  expect(firstRaw.envelope_ref).toBeUndefined();
+  for (const later of [text1, thinking2, tool3]) {
+    const raw = later?.source?.raw as Record<string, unknown>;
+    expect(raw.envelope_ref).toBe(thinking0?.id);
+    expect(raw.envelope).toBeUndefined();
+  }
 });
 
 // TDD step 8: full fixture round-trips through validation with zero errors

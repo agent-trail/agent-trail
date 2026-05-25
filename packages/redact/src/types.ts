@@ -1,11 +1,6 @@
-import type { JsonlRecord } from "@agent-trail/core";
+import type { JsonlRecord, RedactionPattern } from "@agent-trail/core";
 
-export type RedactionPattern = {
-  id: string;
-  description: string;
-  regex: RegExp;
-  placeholder: string;
-};
+export type { RedactionPattern };
 
 export type RedactionSample = {
   patternId: string;

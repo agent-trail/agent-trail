@@ -23,6 +23,33 @@ export {
 } from "./jsonl.ts";
 export type { ValidationProfile } from "./profile.ts";
 export { resolveValidationProfile } from "./profile.ts";
+export type { RedactionPattern } from "./secret-patterns.ts";
+export {
+  ANTHROPIC_API_KEY,
+  AWS_ACCESS_KEY,
+  BEARER_TOKEN,
+  CREDENTIAL_PATTERNS,
+  DEFAULT_PATTERNS,
+  ENV_ASSIGNMENT,
+  GITHUB_OAUTH,
+  GITHUB_PAT,
+  GOOGLE_API_KEY,
+  HOME_PATH,
+  HOME_PATH_WINDOWS,
+  JWT_TOKEN,
+  OPENAI_API_KEY,
+  SLACK_TOKEN,
+  SLACK_WEBHOOK,
+  SSH_PRIVATE_KEY,
+  STRIPE_API_KEY,
+} from "./secret-patterns.ts";
+export type { EnforceSourceRawSizeResult } from "./source-raw.ts";
+export {
+  enforceSourceRawSize,
+  redactValue,
+  SOURCE_RAW_HARD_CAP_BYTES,
+  SOURCE_RAW_SOFT_CAP_BYTES,
+} from "./source-raw.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
   validateTrailStream,

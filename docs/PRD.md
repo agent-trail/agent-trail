@@ -389,6 +389,23 @@ export interface TrailAdapter {
 - File operations must round-trip when source has structured representations.
 - Aider adapter must emit `source.synthesized: true` for git-derived events.
 - Adapters MUST populate `semantic.call_id` on tool_call/tool_result pairs when source has its own IDs (especially Claude Code's `tool_use_id`, which can be null).
+- Adapters MUST redact known credential patterns in `source.raw` before emission (spec §14.1).
+- Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §9.7).
+
+**`source.raw` size policy (reference implementation):**
+
+The wire format leaves `source.raw` size limits to writer policy (spec §14.1). The reference adapters and validator in this repository use the following defaults; downstream adapters MAY pick their own thresholds.
+
+- Hard cap: 32_768 bytes (`Buffer.byteLength(JSON.stringify(source.raw), "utf8")`). Validator emits `source_raw_oversized_hard` (error). When a writer's serialized `source.raw` exceeds this, the writer applies greedy minimum-necessary elision: collect every string leaf with its byte length, sort descending, replace leaves with the elide marker one at a time until the serialized total drops at or under the cap. If every leaf is elided and the value still exceeds the cap (because non-string content dominates), fall back to a whole-value elide.
+- Soft cap: hard cap / 4 (8192 bytes at the default hard cap). Validator emits `source_raw_oversized` (warning). The ratio keeps the "you're at 25% of the budget" signal useful when downstream adapters tune the hard cap.
+- Disable: pass `{ hardCapBytes: null }` to `enforceSourceRawSize` or set `AGENT_TRAIL_SOURCE_RAW_HARD_CAP=disabled` (also accepts a numeric override) to preserve `source.raw` verbatim. Trails written without the cap remain readable but may trip `source_raw_oversized_hard` in validators.
+
+**`tool_result.payload.output` truncation (reference implementation):**
+
+The wire format leaves tool-output truncation thresholds to writer policy (spec §14). The reference share-time redactor in `@agent-trail/redact` uses:
+
+- Default inline cap: 10240 bytes (`outputMaxBytes` option on `redactTrail`). Above this, shorten `output` to fit within the cap (the truncation notice `\n…[truncated]` is included in the budget) and set `tool_result.payload.truncated: true`.
+- `overflow_ref` (optional): when the writer colocates an overflow blob, set it to a content-addressed reference such as `sha256:<hex>`. Storage is the writer's choice; convention is to colocate the blob with the JSONL artifact.
 
 **Out of scope for v1:** Amp, Cline, ChatGPT, Copilot variants, Crush, Kimi, Qwen, Factory, Vibe, OpenClaw, Clawdbot. Community contributions welcomed via PR after spec is stable.
 

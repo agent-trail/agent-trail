@@ -988,6 +988,160 @@ test("validateTrailStream surfaces an invalid event mid-stream without losing ea
   expect(diagnostics.filter((d) => d.severity === "error" && d.line !== 3)).toEqual([]);
 });
 
+test("accepts an entry whose source.raw includes envelope_ref string", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":"evta0","block_index":1}}}',
+    value: {
+      type: "agent_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hi" },
+      source: {
+        agent: "claude-code",
+        raw: { envelope_ref: "evta0", block_index: 1 },
+      },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects an entry whose source.raw.envelope_ref is not a string", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":42}}}',
+    value: {
+      type: "agent_message",
+      id: "evta1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hi" },
+      source: {
+        agent: "claude-code",
+        raw: { envelope_ref: 42 },
+      },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw/envelope_ref",
+    severity: "error",
+    code: "type",
+    message: "must be string",
+  });
+});
+
+test("emits source_raw_oversized warning when source.raw JSON exceeds 8 KB but stays under 32 KB", async () => {
+  const big = "x".repeat(10_000);
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "evta1",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: { raw: { envelope: { body: big } } },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw",
+    severity: "warning",
+    code: "source_raw_oversized",
+    message: expect.stringContaining("source.raw") as unknown as string,
+  });
+  expect(diagnostics.some((d) => d.code === "source_raw_oversized_hard")).toBe(false);
+});
+
+test("emits source_raw_oversized_hard error when source.raw JSON exceeds 32 KB", async () => {
+  const huge = "x".repeat(33_000);
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "evta1",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: { raw: { envelope: { body: huge } } },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw",
+    severity: "error",
+    code: "source_raw_oversized_hard",
+    message: expect.stringContaining("hard cap") as unknown as string,
+  });
+  expect(diagnostics.some((d) => d.code === "source_raw_oversized")).toBe(false);
+});
+
+test("emits source_raw_unredacted_secret warning when source.raw contains a Bearer token", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "evta1",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: {
+          raw: { envelope: { headers: { authorization: "Bearer abcdefABCDEF0123456789xyzXYZ" } } },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/headers/authorization",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+});
+
+test("stays silent when source.raw secret is already replaced by a placeholder", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "evta1",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: { raw: { envelope: { headers: { authorization: "Bearer [TOKEN]" } } } },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics.some((d) => d.code === "source_raw_unredacted_secret")).toBe(false);
+});
+
+test("stays silent on source.raw under the soft cap", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "evta1",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: { raw: { envelope: { body: "small" } } },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics.some((d) => d.code === "source_raw_oversized")).toBe(false);
+});
+
 async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
 

@@ -5,6 +5,8 @@ import { createDiagnostic, type Diagnostic, diagnosticFromJsonlParseError } from
 import { validateTrailGraph } from "./graph.ts";
 import { type JsonlChunk, JsonlParseError, type JsonlRecord, parseJsonlStream } from "./jsonl.ts";
 import { resolveValidationProfile, type ValidationProfile } from "./profile.ts";
+import { CREDENTIAL_PATTERNS, type RedactionPattern } from "./secret-patterns.ts";
+import { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
 
 const schemaId = schemaIdFrom(schema);
 
@@ -61,6 +63,18 @@ export function validateWriterStrictRecord(record: JsonlRecord): Diagnostic[] {
 }
 
 function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfile): Diagnostic[] {
+  // source.raw size + secret diagnostics are independent of profile and never
+  // overlap with the schema-derived diagnostics, so compute them once and
+  // append at the end. Keeping the append in a single tail-position prevents
+  // accidental double-emission when the profile branches grow.
+  const sourceRawExtras = sourceRawSizeDiagnostics(record).concat(
+    sourceRawSecretDiagnostics(record),
+  );
+
+  return baseDiagnosticsForProfile(record, profile).concat(sourceRawExtras);
+}
+
+function baseDiagnosticsForProfile(record: JsonlRecord, profile: ValidationProfile): Diagnostic[] {
   const diagnostics = validateWriterStrictRecord(record);
   const unknownRecordWarning =
     profile === "reader-tolerant" ? readerTolerantUnknownRecordWarning(record) : undefined;
@@ -87,9 +101,7 @@ function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfil
   }
 
   if (tolerantWarnings.length === 0) {
-    return unknownRecordWarning === undefined
-      ? diagnostics
-      : diagnostics.concat(unknownRecordWarning);
+    return diagnostics;
   }
 
   if (hasOnlyReaderTolerantPayloadFieldAdditions(record, tolerantWarnings)) {
@@ -165,6 +177,118 @@ export async function validateTrailString(
   }
 
   return diagnostics;
+}
+
+function sourceRawSizeDiagnostics(record: JsonlRecord): Diagnostic[] {
+  if (record.line === 1) {
+    return [];
+  }
+  const source = record.value.source;
+  if (typeof source !== "object" || source === null) {
+    return [];
+  }
+  const raw = (source as { raw?: unknown }).raw;
+  if (raw === undefined) {
+    return [];
+  }
+  const bytes = Buffer.byteLength(JSON.stringify(raw) ?? "", "utf8");
+  if (bytes > SOURCE_RAW_HARD_CAP_BYTES) {
+    return [
+      createDiagnostic({
+        line: record.line,
+        path: "/source/raw",
+        severity: "error",
+        code: "source_raw_oversized_hard",
+        message: `source.raw is ${bytes} bytes, exceeds hard cap of ${SOURCE_RAW_HARD_CAP_BYTES} bytes; adapter should elide to { elided: true, size_bytes: N }`,
+      }),
+    ];
+  }
+  if (bytes > SOURCE_RAW_SOFT_CAP_BYTES) {
+    return [
+      createDiagnostic({
+        line: record.line,
+        path: "/source/raw",
+        severity: "warning",
+        code: "source_raw_oversized",
+        message: `source.raw is ${bytes} bytes, exceeds soft cap of ${SOURCE_RAW_SOFT_CAP_BYTES} bytes`,
+      }),
+    ];
+  }
+  return [];
+}
+
+// Walks source.raw and emits one warning per (leaf, matching pattern) pair.
+// Granularity is per-leaf, not per-match: a single string leaf containing two
+// instances of the same pattern produces one warning, not two. Per-instance
+// counts are out of scope for validator diagnostics; share-time redaction
+// (see @agent-trail/redact) records per-match counts in its summary.
+function sourceRawSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
+  if (record.line === 1) {
+    return [];
+  }
+  const source = record.value.source;
+  if (typeof source !== "object" || source === null) {
+    return [];
+  }
+  const raw = (source as { raw?: unknown }).raw;
+  if (raw === undefined) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  walkStringLeaves(raw, "/source/raw", (text, path) => {
+    for (const pattern of CREDENTIAL_PATTERNS) {
+      if (matchesPattern(text, pattern)) {
+        diagnostics.push(
+          createDiagnostic({
+            line: record.line,
+            path,
+            severity: "warning",
+            code: "source_raw_unredacted_secret",
+            message: `source.raw contains unredacted ${pattern.description} (${pattern.id})`,
+          }),
+        );
+      }
+    }
+  });
+  return diagnostics;
+}
+
+function matchesPattern(text: string, pattern: RedactionPattern): boolean {
+  const regex = pattern.regex.flags.includes("g")
+    ? new RegExp(pattern.regex.source, pattern.regex.flags)
+    : new RegExp(pattern.regex.source, `${pattern.regex.flags}g`);
+  regex.lastIndex = 0;
+  return regex.test(text);
+}
+
+function walkStringLeaves(
+  value: unknown,
+  path: string,
+  visit: (text: string, path: string) => void,
+): void {
+  if (typeof value === "string") {
+    visit(value, path);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      walkStringLeaves(value[i], `${path}/${i}`, visit);
+    }
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      walkStringLeaves(
+        (value as Record<string, unknown>)[key],
+        `${path}/${escapeJsonPointerSegment(key)}`,
+        visit,
+      );
+    }
+  }
+}
+
+function escapeJsonPointerSegment(segment: string): string {
+  return segment.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
 function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {

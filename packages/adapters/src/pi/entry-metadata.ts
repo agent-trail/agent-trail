@@ -1,3 +1,4 @@
+import { enforceSourceRawSize, redactValue } from "@agent-trail/core";
 import type { Entry } from "@agent-trail/types";
 import type { PiBlock, PiEnvelope } from "./source.ts";
 import { timestampToIso, versionString } from "./source.ts";
@@ -8,28 +9,55 @@ export type BuiltEntry = {
   localParentId?: string;
 };
 
+export type SourceForOptions = {
+  synthesized?: boolean;
+  schemaVersion?: string;
+  envelopeRef?: string;
+};
+
 export function sourceFor(
   envelope: PiEnvelope,
   originalType: string | undefined,
   block?: PiBlock,
   blockIndex?: number,
-  options?: { synthesized?: boolean; schemaVersion?: string },
+  options?: SourceForOptions,
 ): NonNullable<Entry["source"]> {
   const schemaVersion = versionString(envelope.version) ?? options?.schemaVersion;
+  const raw = buildRaw(envelope, block, blockIndex, options?.envelopeRef);
   return {
     agent: "pi",
     ...(originalType !== undefined ? { original_type: originalType } : {}),
     ...(schemaVersion !== undefined ? { schema_version: schemaVersion } : {}),
     ...(options?.synthesized === true ? { synthesized: true } : {}),
-    raw:
-      block === undefined
-        ? (envelope as unknown as Record<string, unknown>)
-        : {
-            envelope,
-            block,
-            block_index: blockIndex,
-          },
+    raw,
   };
+}
+
+function buildRaw(
+  envelope: PiEnvelope,
+  block: PiBlock | undefined,
+  blockIndex: number | undefined,
+  envelopeRef: string | undefined,
+): Record<string, unknown> {
+  if (envelopeRef !== undefined) {
+    return {
+      envelope_ref: envelopeRef,
+      ...(block !== undefined ? { block: redactValue(block) as PiBlock } : {}),
+      ...(blockIndex !== undefined ? { block_index: blockIndex } : {}),
+    };
+  }
+  if (block === undefined) {
+    return enforceSourceRawSize(redactValue(envelope) as Record<string, unknown>).value as Record<
+      string,
+      unknown
+    >;
+  }
+  const inline = {
+    envelope: redactValue(envelope) as PiEnvelope,
+    block: redactValue(block) as PiBlock,
+    block_index: blockIndex,
+  };
+  return enforceSourceRawSize(inline).value as Record<string, unknown>;
 }
 
 export function entryId(envelope: PiEnvelope, suffix?: string): string {
@@ -62,7 +90,7 @@ export function baseEntry(
   originalType: string | undefined,
   block?: PiBlock,
   blockIndex?: number,
-  options?: { synthesized?: boolean; schemaVersion?: string },
+  options?: SourceForOptions,
 ) {
   const ts = timestampToIso(envelope.timestamp);
   if (ts === undefined) return undefined;
