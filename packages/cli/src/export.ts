@@ -56,6 +56,13 @@ export async function runExport(
   if (positionals.length === 0) {
     return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
   }
+  if (positionals.length > 1) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `expected exactly one <id> argument, received ${positionals.length}\n${USAGE}\n`,
+    };
+  }
   const id = positionals[0] as string;
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
@@ -80,7 +87,14 @@ export async function runExport(
       }
       throw error;
     }
-    const matches = Object.keys(index.entries).filter((h) => h.startsWith(id));
+    // Filter index keys against FULL_HASH_RE before composing a filesystem
+    // path. readIndex() only validates that `entries` is a plain object, so a
+    // corrupted or malicious index key (e.g. `deadbeef../../etc`) could otherwise
+    // be selected as `contentHash` and turned into a path escape via
+    // `objectPath(storeRoot, hash)`. Mirrors list.ts:89.
+    const matches = Object.keys(index.entries).filter(
+      (h) => FULL_HASH_RE.test(h) && h.startsWith(id),
+    );
     if (matches.length === 0) {
       return { exitCode: 1, stdout: "", stderr: `export: unknown id: ${id}\n` };
     }
@@ -106,10 +120,25 @@ export async function runExport(
   }
   if (values.out !== undefined) {
     const outPath = values.out;
-    const preflight = await preflightOutPath(outPath, values.force);
-    if (preflight !== null) return preflight;
+    const dirCheck = await checkNotDirectory(outPath);
+    if (dirCheck !== null) return dirCheck;
     await mkdir(dirname(outPath), { recursive: true });
-    await writeFile(outPath, bytes);
+    // Use exclusive create (`wx`) for the no-force path so the no-clobber
+    // guarantee is atomic. A stat-then-write preflight races against any
+    // other writer that creates the file between the two calls; `wx` lets
+    // the kernel reject existing paths in a single syscall.
+    try {
+      await writeFile(outPath, bytes, { flag: values.force ? "w" : "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `export: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
+        };
+      }
+      throw error;
+    }
     return { exitCode: 0, stdout: "", stderr: "" };
   }
 
@@ -119,27 +148,23 @@ export async function runExport(
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;
 const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
 
-async function preflightOutPath(outPath: string, force: boolean): Promise<RunExportResult | null> {
-  let info: Awaited<ReturnType<typeof stat>> | null;
+// Surfaces a distinct "is a directory" diagnostic up front. The race against
+// dir → file replacement between this check and the subsequent write is not
+// security-sensitive: the atomic `wx` flag on the write still handles the
+// existence-race that the reviewer flagged.
+async function checkNotDirectory(outPath: string): Promise<RunExportResult | null> {
   try {
-    info = await stat(outPath);
+    const info = await stat(outPath);
+    if (info.isDirectory()) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `export: --out path is a directory: ${outPath}\n`,
+      };
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
-  }
-  if (info.isDirectory()) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `export: --out path is a directory: ${outPath}\n`,
-    };
-  }
-  if (!force) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `export: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
-    };
   }
   return null;
 }

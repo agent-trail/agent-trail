@@ -234,6 +234,45 @@ test("--out refuses to clobber existing file", async () => {
   expect(untouched).toBe("PRE-EXISTING");
 });
 
+test("extra positional argument: exits 1", async () => {
+  const seed = await seedRegistered(storeRoot);
+
+  const result = await runExport([seed.contentHash, "stray"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("expected exactly one <id> argument, received 2");
+});
+
+test("malformed index key with traversal payload is not matched by prefix", async () => {
+  // Hand-craft an index whose key is not a valid 64-hex hash. If the prefix
+  // matcher trusted index keys, `objectPath(storeRoot, malformed)` could escape
+  // `objects/sha256/`. The validated filter (FULL_HASH_RE) drops the entry, so
+  // the lookup returns "unknown id" and never composes a traversal path.
+  const malformed = `deadbeef${"../".repeat(20)}`;
+  const indexDir = join(storeRoot, "index");
+  mkdirSync(indexDir, { recursive: true });
+  writeFileSync(
+    join(indexDir, "objects.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [malformed]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = await runExport(["deadbeef"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("export: unknown id: deadbeef");
+  expect(result.stderr).not.toContain("..");
+});
+
 test("--out writes bytes to file, stdout empty", async () => {
   const seed = await seedRegistered(storeRoot);
   const outPath = join(storeRoot, "out.trail.jsonl");
