@@ -5,7 +5,7 @@ import { runShare } from "./share.ts";
 import { runValidate } from "./validate.ts";
 
 const USAGE =
-  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n  trail share <path> [--dry-run] [--yes] [--skip-redaction]\n  trail load <url> [--out <path>]\n";
+  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n  trail share <path> [--dry-run] [--yes] [--skip-redaction]\n  trail load <url> [--out <path>] [--force]\n";
 
 const [subcommand, ...rest] = Bun.argv.slice(2);
 

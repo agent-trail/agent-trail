@@ -19,7 +19,7 @@ type SeedOpts = {
 
 async function seedSharedPayload(
   opts: SeedOpts = {},
-): Promise<{ payload: Uint8Array; filename: string; contentHash: string; jsonl: string }> {
+): Promise<{ payload: Uint8Array; filename: string; contentHash: string }> {
   const agentName = opts.agentName ?? "codex-cli";
   const cwd = opts.cwd ?? "/work/proj-a";
   const id = opts.id ?? "sess1";
@@ -52,7 +52,7 @@ async function seedSharedPayload(
   const base64 = gzipped.toString("base64");
   const payload = Buffer.from(base64, "ascii");
   const filename = `${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`;
-  return { payload, filename, contentHash, jsonl: canonical };
+  return { payload, filename, contentHash };
 }
 
 function fakeFetcher(payload: Uint8Array, filename: string): GistFetch {
@@ -87,7 +87,7 @@ test("unsupported URL shape: exits 1 with diagnostic", async () => {
 
 test("bare gist URL accepted", async () => {
   const seed = await seedSharedPayload();
-  const url = `https://gist.github.com/someuser/abc123def4567890`;
+  const url = `https://gist.github.com/someuser/abc123def4567890abcd`;
   const result = await runLoad([url], {
     storeRoot,
     gistFetch: fakeFetcher(seed.payload, seed.filename),
@@ -109,9 +109,9 @@ test("bare gist id accepted", async () => {
   expect(result.stdout).toContain(seed.contentHash);
 });
 
-test("viewer URL: fetches, registers, prints content_hash and object path", async () => {
+test("viewer URL: fetches, registers, prints content_hash; object stored under sha256", async () => {
   const seed = await seedSharedPayload();
-  const url = `https://agent-trail.dev/view/gist/abc123def456`;
+  const url = `https://agent-trail.dev/view/gist/abc123def4567890abcd`;
   const result = await runLoad([url], {
     storeRoot,
     gistFetch: fakeFetcher(seed.payload, seed.filename),
@@ -120,9 +120,61 @@ test("viewer URL: fetches, registers, prints content_hash and object path", asyn
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain(seed.contentHash);
+  expect(result.stdout).not.toContain(storeRoot);
   const objectPath = join(storeRoot, "objects", "sha256", `${seed.contentHash}.trail.jsonl`);
-  expect(result.stdout).toContain(objectPath);
   expect(existsSync(objectPath)).toBe(true);
+});
+
+test("URL with /raw suffix is accepted", async () => {
+  const seed = await seedSharedPayload();
+  const url = `https://gist.github.com/someuser/abc123def4567890abcd/raw`;
+  const result = await runLoad([url], {
+    storeRoot,
+    gistFetch: fakeFetcher(seed.payload, seed.filename),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(seed.contentHash);
+});
+
+test("URL with query string and fragment is accepted", async () => {
+  const seed = await seedSharedPayload();
+  const url = `https://gist.github.com/abc123def4567890abcd?file=x#L1`;
+  const result = await runLoad([url], {
+    storeRoot,
+    gistFetch: fakeFetcher(seed.payload, seed.filename),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(seed.contentHash);
+});
+
+test("uppercase hex id rejected", async () => {
+  const result = await runLoad(["ABC123DEF4567890ABCD"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("unsupported URL");
+});
+
+test("non-hex id rejected", async () => {
+  const result = await runLoad(["xyz123xyz123xyz123xy"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("unsupported URL");
+});
+
+test("too-short id rejected", async () => {
+  const result = await runLoad(["abc123"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("unsupported URL");
+});
+
+test("too-long id rejected", async () => {
+  const result = await runLoad(["a".repeat(40)], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("unsupported URL");
 });
 
 test("corrupted hash: exits 1 with diagnostic, nothing registered", async () => {
@@ -197,7 +249,7 @@ test("--out: writes canonical bytes to chosen path matching registered object", 
   const outPath = join(outDir, "copy.trail.jsonl");
   try {
     const result = await runLoad(
-      [`https://agent-trail.dev/view/gist/abc123def456`, "--out", outPath],
+      [`https://agent-trail.dev/view/gist/abc123def4567890abcd`, "--out", outPath],
       { storeRoot, gistFetch: fakeFetcher(seed.payload, seed.filename) },
     );
 
@@ -207,6 +259,72 @@ test("--out: writes canonical bytes to chosen path matching registered object", 
     const outBytes = await readFile(outPath);
     const objBytes = await readFile(objectPath);
     expect(Buffer.compare(outBytes, objBytes)).toBe(0);
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("--out to existing file: exits 1 without --force and does not overwrite", async () => {
+  const seed = await seedSharedPayload();
+  const outDir = mkdtempSync(join(tmpdir(), "trail-load-out-"));
+  const outPath = join(outDir, "existing");
+  const originalBytes = Buffer.from("DO NOT TOUCH\n", "utf8");
+  try {
+    await (await import("node:fs/promises")).writeFile(outPath, originalBytes);
+    const result = await runLoad(
+      [`https://agent-trail.dev/view/gist/abc123def4567890abcd`, "--out", outPath],
+      { storeRoot, gistFetch: fakeFetcher(seed.payload, seed.filename) },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--out path exists");
+    expect(result.stderr).toContain("--force");
+    const after = await readFile(outPath);
+    expect(Buffer.compare(after, originalBytes)).toBe(0);
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("--out --force: overwrites existing file", async () => {
+  const seed = await seedSharedPayload();
+  const outDir = mkdtempSync(join(tmpdir(), "trail-load-out-"));
+  const outPath = join(outDir, "existing");
+  try {
+    await (await import("node:fs/promises")).writeFile(outPath, "old\n");
+    const result = await runLoad(
+      [`https://agent-trail.dev/view/gist/abc123def4567890abcd`, "--out", outPath, "--force"],
+      { storeRoot, gistFetch: fakeFetcher(seed.payload, seed.filename) },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(`Wrote: ${outPath}`);
+    const objectPath = join(storeRoot, "objects", "sha256", `${seed.contentHash}.trail.jsonl`);
+    const outBytes = await readFile(outPath);
+    const objBytes = await readFile(objectPath);
+    expect(Buffer.compare(outBytes, objBytes)).toBe(0);
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("--out to a directory: exits 1, no register attempted", async () => {
+  const seed = await seedSharedPayload();
+  const outDir = mkdtempSync(join(tmpdir(), "trail-load-out-"));
+  let fetchCalls = 0;
+  const fetcher: GistFetch = async () => {
+    fetchCalls += 1;
+    return { payload: seed.payload, filename: seed.filename };
+  };
+  try {
+    const result = await runLoad(
+      [`https://agent-trail.dev/view/gist/abc123def4567890abcd`, "--out", outDir],
+      { storeRoot, gistFetch: fetcher },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("directory");
+    expect(fetchCalls).toBe(0);
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }

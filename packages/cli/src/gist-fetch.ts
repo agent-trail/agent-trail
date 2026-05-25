@@ -27,12 +27,18 @@ export async function ghGistFetch(
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const filename = files.find((f) => f.endsWith(".trail.jsonl.gz.b64"));
-  if (filename === undefined) {
+  const candidates = files.filter((f) => f.endsWith(".trail.jsonl.gz.b64"));
+  if (candidates.length === 0) {
     throw new Error(
       `gist ${gistId} contains no .trail.jsonl.gz.b64 file (found: ${files.join(", ") || "none"})`,
     );
   }
+  if (candidates.length > 1) {
+    throw new Error(
+      `gist ${gistId} contains ${candidates.length} .trail.jsonl.gz.b64 files (${candidates.join(", ")}); expected exactly one`,
+    );
+  }
+  const filename = candidates[0] as string;
 
   const fetchProc = Bun.spawn(["gh", "gist", "view", gistId, "--raw", "-f", filename], {
     stdin: "ignore",
@@ -49,13 +55,12 @@ export async function ghGistFetch(
     throw new Error(`gh gist view --raw failed: ${detail}`);
   }
   // `gh gist view --raw` appends a trailing newline that is not part of the
-  // payload. The payload is base64 ASCII; strip trailing whitespace bytes.
+  // payload. The payload is base64 ASCII; strip ASCII whitespace bytes at
+  // both ends so intermediate buffering or wrappers cannot perturb decoding.
+  const isWS = (b: number) => b === 0x0a || b === 0x0d || b === 0x20 || b === 0x09;
+  let start = 0;
+  while (start < fetchOut.length && isWS(fetchOut[start] as number)) start += 1;
   let end = fetchOut.length;
-  while (end > 0) {
-    const b = fetchOut[end - 1] as number;
-    if (b === 0x0a || b === 0x0d || b === 0x20 || b === 0x09) {
-      end -= 1;
-    } else break;
-  }
-  return { payload: fetchOut.subarray(0, end), filename };
+  while (end > start && isWS(fetchOut[end - 1] as number)) end -= 1;
+  return { payload: fetchOut.subarray(start, end), filename };
 }
