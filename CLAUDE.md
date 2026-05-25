@@ -40,6 +40,7 @@ Workspace packages:
 These are the ones agents are likely to get wrong. The full context lives in `CONTEXT.md`, `spec.md`, `docs/PRD.md`, and ADRs. Read those before disagreeing.
 
 - **`schema.json` is the canonical format contract.** Generated TypeScript types, validators, docs, package exports, and tests derive from it. Do not make TypeScript the source of truth.
+- **Spec scope ends at the trail file.** CLI verbs, store layout, adapter API types (`SessionRef`, `DetectOptions`), discovery affordances, and `trail discover --json` output shape are implementation details of `@agent-trail/cli` and `@agent-trail/adapters`. Other implementations can ship completely different tooling and remain spec-compliant as long as the trail files they emit pass `schema.json`. Do not add tool-runtime types to `schema.json`.
 - **Spec version and package versions are separate.** The current format target is `0.1.0`. npm packages use independent SemVer and declare supported spec versions when implemented.
 - **Root contract files stay visible.** Keep `spec.md` and `schema.json` at the repo root. Product planning lives under `docs/`.
 - **Local filenames are unversioned.** Public hosted spec/schema URLs are immutable versioned snapshots, such as `/spec/v0.1.0` and `/schema/v0.1.0.json`, plus latest aliases.
