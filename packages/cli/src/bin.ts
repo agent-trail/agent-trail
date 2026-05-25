@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
+import { runExport } from "./export.ts";
 import { runList } from "./list.ts";
 import { runLoad } from "./load.ts";
 import { runShare } from "./share.ts";
 import { runValidate } from "./validate.ts";
 
 const USAGE =
-  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n  trail share <path> [--dry-run] [--yes] [--skip-redaction]\n  trail load <url> [--out <path>] [--force]\n";
+  "Usage:\n  trail validate <file> [--json] [--profile strict|reader-tolerant]\n  trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]\n  trail share <path> [--dry-run] [--yes] [--skip-redaction]\n  trail load <url> [--out <path>] [--force]\n  trail export <id> [--out <path>] [--force]\n";
 
 const [subcommand, ...rest] = Bun.argv.slice(2);
 
@@ -28,6 +29,7 @@ const handlers: Record<string, Handler> = Object.assign(Object.create(null), {
   list: runList,
   share: runShare,
   load: runLoad,
+  export: runExport,
 }) as Record<string, Handler>;
 
 if (!Object.hasOwn(handlers, subcommand)) {
