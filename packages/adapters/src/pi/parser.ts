@@ -186,11 +186,9 @@ function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header):
     }
   }
 
-  const openCallIds: string[] = [];
-  for (const b of built) {
-    if (b.entry.type !== "tool_call") continue;
-    if (!matched.has(b.entry.id)) openCallIds.push(b.entry.id);
-  }
+  // Set preserves insertion order, so converting + filtering keeps tool_call
+  // ids in file order without a third pass over `built`.
+  const openCallIds = Array.from(toolCallEntryIds).filter((id) => !matched.has(id));
   if (openCallIds.length === 0) return undefined;
 
   // Fall back to the session header ts when no entries were emitted (e.g. a
