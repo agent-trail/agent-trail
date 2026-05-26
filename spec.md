@@ -321,7 +321,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 |---|---|---|---|
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
-| `id` | yes | string | UUID or ULID per §7.5/§17 |
+| `id` | yes | string | UUID or ULID per §7.1/§17 |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
 | `stream` | no | object | live-capture marker; see §8.4 |
