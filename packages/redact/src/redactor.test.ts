@@ -123,6 +123,42 @@ test("redactTrail walks entry source.raw and redacts nested string secrets", () 
   ]);
 });
 
+test("redactTrail strips vcs.remote_url from the trail envelope by default", () => {
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "trl-1",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        remote_url: "https://github.com/agent-trail/agent-trail",
+      },
+    }),
+    record(2, {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const envelopeValue = out[0]?.value as { vcs: Record<string, unknown> };
+  expect(envelopeValue.vcs).toEqual({ type: "git", revision: "a1b2c3d4" });
+  expect(envelopeValue.vcs).not.toHaveProperty("remote_url");
+  expect(summary.counts.vcs_remote_url).toBe(1);
+  expect(summary.samples.find((s) => s.patternId === "vcs_remote_url")).toMatchObject({
+    patternId: "vcs_remote_url",
+    location: "records[0].vcs.remote_url",
+    after: "[STRIPPED]",
+  });
+});
+
 test("redactTrail strips vcs.remote_url from the header by default", () => {
   const records: JsonlRecord[] = [
     header({

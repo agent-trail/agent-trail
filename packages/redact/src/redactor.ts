@@ -100,6 +100,14 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       }
     }
 
+    if (type === "trail") {
+      // Trail envelope carries vcs in the same shape as the session header.
+      const vcs = value.vcs as Record<string, unknown> | undefined;
+      if (vcs && typeof vcs.revision === "string") {
+        yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
+      }
+    }
+
     if (
       payload &&
       (type === "agent_message" ||
@@ -256,7 +264,7 @@ function stripVcsRemoteUrl(
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
-    if (value.type !== "session") continue;
+    if (value.type !== "session" && value.type !== "trail") continue;
     const vcs = value.vcs as Record<string, unknown> | undefined;
     if (vcs === undefined || typeof vcs.remote_url !== "string") continue;
     const before = vcs.remote_url;

@@ -5,6 +5,7 @@
   "description": "Validates a single JSONL line: either a header (line 1) or an event (lines 2+). Top-level oneOf chooses header vs entry; per-event-type payload shapes are enforced via the events subschemas.",
 
   "oneOf": [
+    { "$ref": "#/$defs/trailEnvelope" },
     { "$ref": "#/$defs/header" },
     { "$ref": "#/$defs/entry" }
   ],
@@ -146,9 +147,72 @@
       "additionalProperties": false
     },
 
+    "trailEnvelope": {
+      "type": "object",
+      "description": "Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the session header MUST follow on line 2. At most one per file.",
+      "required": ["type", "schema_version", "id", "ts", "producer"],
+      "properties": {
+        "type": { "const": "trail" },
+        "schema_version": { "const": "0.1.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "ts": { "$ref": "#/$defs/iso8601" },
+        "producer": { "type": "string", "minLength": 1 },
+        "content_hash": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha256Hex" },
+            { "const": "<pending>" }
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "vcs": { "$ref": "#/$defs/vcs" },
+        "fork_from": {
+          "type": "object",
+          "required": ["trail_id"],
+          "properties": {
+            "trail_id": { "type": "string" },
+            "content_hash": { "$ref": "#/$defs/sha256Hex" }
+          },
+          "additionalProperties": false
+        },
+        "redacted_from": {
+          "type": "object",
+          "required": ["content_hash"],
+          "properties": {
+            "content_hash": { "$ref": "#/$defs/sha256Hex" }
+          },
+          "additionalProperties": false
+        },
+        "sessions": {
+          "type": "array",
+          "description": "Optional manifest of sessions contained in the file. Validator warns on drift vs actual file content.",
+          "items": {
+            "type": "object",
+            "required": ["id", "agent"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "agent": { "$ref": "#/$defs/agentName" },
+              "role": { "type": "string" },
+              "follows": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "meta": {
+          "type": "object",
+          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace."
+        }
+      },
+      "additionalProperties": false
+    },
+
     "header": {
       "type": "object",
-      "description": "Session header (line 1). Not part of the event graph.",
+      "description": "Session header. Required at line 1, or at line 2 when a trail envelope occupies line 1. Not part of the event graph.",
       "required": ["type", "schema_version", "id", "ts", "agent"],
       "properties": {
         "type": { "const": "session" },
@@ -218,6 +282,10 @@
         "metadata": {
           "type": "object",
           "description": "Vendor extensions with reverse-domain keys (e.g., com.example.field)"
+        },
+        "meta": {
+          "type": "object",
+          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace."
         }
       },
       "additionalProperties": false

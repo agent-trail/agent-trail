@@ -1,0 +1,2 @@
+{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
+{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}

@@ -394,6 +394,7 @@ export interface TrailAdapter {
 - Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §9.7).
 - Adapters MUST populate `payload.usage` on `agent_message` when the source provides token data. MUST NOT fabricate usage (spec §9.2).
 - Adapters MUST populate `vcs.remote_url` when the source provides repo location info or `cwd` is a git working tree. MUST normalize URLs (strip embedded credentials, strip trailing `.git`, collapse SSH and HTTPS variants to a single canonical form). MUST omit the field when no remote is configured (spec §8.2).
+- Adapters SHOULD emit a trail envelope at line 1 by default (spec §8.0) so file-level identity (`producer`, `id`, `name`, file-scope `content_hash`) is recorded. `producer` is the adapter name and version (e.g., `trail-cli/0.3.0`). Adapters MAY skip the envelope only when the caller explicitly opts out (writer flag), since the spec allows omission. When the envelope is emitted, writers stamp the session-level `content_hash` first, then the file-level `content_hash` (spec §7.4).
 
 **`source.raw` size policy (reference implementation):**
 
@@ -713,7 +714,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 - `@agent-trail/schema` publishes the v0.1.0 schema and exposes explicit versioned exports.
 - Generated TypeScript types are committed and checked against `schema.json`.
-- `@agent-trail/core` can stream-parse JSONL, validate writer-strict records, run whole-file checks, and verify `content_hash`.
+- `@agent-trail/core` can stream-parse JSONL, validate writer-strict records, run whole-file checks, and verify both session-level and file-level (trail envelope, §8.0) `content_hash`.
 - `trail validate <file>` runs strict validation by default and supports structured `--json` diagnostics.
 - Tests passing in CI with committed synthetic/redacted fixtures.
 

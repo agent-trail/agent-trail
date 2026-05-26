@@ -50,6 +50,19 @@ test("claudeCodeAdapter has name 'claude-code'", () => {
   expect(claudeCodeAdapter.name).toBe("claude-code");
 });
 
+test("claudeCodeAdapter parseSession emits a trail envelope", async () => {
+  const trail = await parseFixture();
+  expect(trail.envelope).toBeDefined();
+  expect(trail.envelope?.type).toBe("trail");
+  expect(trail.envelope?.schema_version).toBe("0.1.0");
+  expect(trail.envelope?.producer).toMatch(/^@agent-trail\/adapters-claude-code\//);
+  expect(typeof trail.envelope?.id).toBe("string");
+  expect(typeof trail.envelope?.ts).toBe("string");
+  expect(trail.envelope?.id).not.toBe(trail.header.id);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("isAvailable() is false when project dir does not exist", async () => {
   expect(await claudeCodeAdapter.isAvailable()).toBe(false);
 });

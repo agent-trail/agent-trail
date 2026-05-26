@@ -1,9 +1,13 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import pkg from "../../package.json" with { type: "json" };
+import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
 import { parseClaudeCodeJsonl } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
+
+const PRODUCER = `@agent-trail/adapters-claude-code/${pkg.version}`;
 
 async function dirExists(path: string): Promise<boolean> {
   try {
@@ -125,6 +129,9 @@ export const claudeCodeAdapter: TrailAdapter = {
     if (trail.header.vcs === undefined && typeof trail.header.cwd === "string") {
       const vcs = await readGitVcs(trail.header.cwd);
       if (vcs !== undefined) trail.header.vcs = vcs;
+    }
+    if (trail.envelope === undefined) {
+      trail.envelope = buildTrailEnvelope({ producer: PRODUCER, header: trail.header });
     }
     return trail;
   },

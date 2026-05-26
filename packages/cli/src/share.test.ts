@@ -7,8 +7,10 @@ import { gunzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   computeContentHash,
+  computeTrailEnvelopeContentHash,
   parseJsonlString,
   verifyContentHash,
+  verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
 import { runShare } from "./share.ts";
 
@@ -397,4 +399,68 @@ test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a w
   expect(captured).not.toBeNull();
   const decoded = decodePayload(captured as unknown as Uint8Array);
   expect(decoded).toContain(remoteUrl);
+});
+
+test("trail with envelope: shared payload carries both session and envelope content_hash", async () => {
+  // Seed a trail file that begins with a trail envelope followed by a session
+  // header. Both records should end up with a finalized content_hash that
+  // verifies against the shared bytes.
+  const envelope: Record<string, unknown> = {
+    type: "trail",
+    schema_version: "0.1.0",
+    id: "trl-share-1",
+    ts: "2026-05-17T14:00:00.000Z",
+    producer: "trail-cli/0.3.0",
+  };
+  const header: Record<string, unknown> = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "sess-share",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+    cwd: "/work/proj-a",
+  };
+  const userMsg = {
+    type: "user_message",
+    id: "evta1",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hello" },
+  };
+  const draftBytes = `${JSON.stringify(envelope)}\n${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`;
+  const draftRecords = await parseJsonlString(draftBytes);
+  const sessionHash = computeContentHash(draftRecords);
+  header.content_hash = sessionHash;
+  const stamped = await parseJsonlString(
+    `${JSON.stringify(envelope)}\n${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
+  );
+  const envelopeHash = computeTrailEnvelopeContentHash(stamped);
+  envelope.content_hash = envelopeHash;
+  const finalBytes = canonicalizeRecords(
+    await parseJsonlString(
+      `${JSON.stringify(envelope)}\n${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
+    ),
+  );
+
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-share-envelope-"));
+  const filePath = join(dir, "session.trail.jsonl");
+  await writeFile(filePath, finalBytes, "utf8");
+
+  let captured: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    captured = payload;
+    return { gistId: "envelopeid" };
+  };
+
+  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`share failed: ${result.stderr}`);
+  }
+  expect(captured).not.toBeNull();
+  const decoded = decodePayload(captured as unknown as Uint8Array);
+  const sharedRecords = await parseJsonlString(decoded);
+  expect(sharedRecords[0]?.value.type).toBe("trail");
+  expect(sharedRecords[1]?.value.type).toBe("session");
+  expect(verifyContentHash(sharedRecords).status).toBe("match");
+  expect(verifyTrailEnvelopeContentHash(sharedRecords).status).toBe("match");
 });

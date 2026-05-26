@@ -4,3 +4,4 @@ dist/
 coverage/
 .env
 .env.*
+scripts/smoke-real-sessions.ts

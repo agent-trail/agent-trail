@@ -26,11 +26,23 @@ Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validat
 
 ## Format Preview
 
+Minimal trail (session header on line 1):
+
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
 {"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
 {"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
 ```
+
+With optional trail envelope (file-level metadata on line 1, session header on line 2):
+
+```jsonl
+{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+```
+
+The envelope is optional and decouples file-scope identity (producer, file label, file-level `content_hash`, optional sessions manifest, vendor `meta`) from per-session metadata. See [`spec.md`](./spec.md) §8.0 and §7.4 for full semantics including two-tier `content_hash` identity.
 
 ## Planned Packages
 

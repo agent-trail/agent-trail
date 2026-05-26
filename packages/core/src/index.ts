@@ -8,12 +8,15 @@ export {
 } from "./diagnostics.ts";
 export type { ValidateTrailGraphOptions } from "./graph.ts";
 export { validateTrailGraph } from "./graph.ts";
-export type { ContentHashStatus, VerifyContentHashResult } from "./hash.ts";
+export type { ContentHashStatus, StampTrailResult, VerifyContentHashResult } from "./hash.ts";
 export {
   canonicalizeRecords,
   canonicalizeRecordsForHashing,
   computeContentHash,
+  computeTrailEnvelopeContentHash,
+  stampTrail,
   verifyContentHash,
+  verifyTrailEnvelopeContentHash,
 } from "./hash.ts";
 export type { JsonlChunk, JsonlParseErrorCode, JsonlRecord } from "./jsonl.ts";
 export {

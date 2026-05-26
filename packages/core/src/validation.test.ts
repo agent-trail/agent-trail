@@ -1219,6 +1219,152 @@ test("stays silent when remote_url is clean", async () => {
   expect(diagnostics.some((d) => d.code === "vcs_remote_url_with_credentials")).toBe(false);
 });
 
+test("rejects a trail envelope missing the required producer field", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z"}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/producer",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'producer'",
+  });
+});
+
+test("rejects a trail envelope appearing after line 1", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/type",
+    severity: "error",
+    code: "envelope_not_at_line_1",
+    message: "Trail envelope MUST appear at line 1; found at a later line",
+  });
+});
+
+test("rejects multiple trail envelopes in the same file", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-2","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/type",
+    severity: "error",
+    code: "multiple_envelopes",
+    message: "Trail envelope MUST appear at most once per file",
+  });
+});
+
+test("rejects a trail envelope at line 1 not followed by a session header", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "",
+    severity: "error",
+    code: "missing_header_after_envelope",
+    message:
+      'Trail envelope at line 1 MUST be followed by a session header on line 2 with type "session" and schema_version "0.1.0"',
+  });
+});
+
+test("rejects envelope and session sharing the same id", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"dup1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"dup1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "error",
+    code: "duplicate_id",
+    message: 'Duplicate id "dup1"; first seen on line 1',
+  });
+});
+
+test("warns when envelope.sessions manifest disagrees with the session header", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"WRONG","agent":"claude-code"}]}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions/0/id",
+    severity: "warning",
+    code: "envelope_sessions_manifest_drift",
+    message: 'envelope.sessions[0].id "WRONG" does not match session header id "sess1"',
+  });
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions/0/agent",
+    severity: "warning",
+    code: "envelope_sessions_manifest_drift",
+    message:
+      'envelope.sessions[0].agent "claude-code" does not match session header agent.name "codex-cli"',
+  });
+});
+
+test("accepts envelope.sessions manifest that matches the session header", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"sess1","agent":"codex-cli"}]}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("accepts envelope and session meta blocks", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","meta":{"x-acme/team":"platform","io.entire.checkpoint_id":"ckpt-7"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"meta":{"com.example.ticket":"OAUTH-42"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("accepts a trail envelope at line 1 followed by a session header", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}',
+      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
 async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
 

@@ -6,19 +6,19 @@
 /**
  * Validates a single JSONL line: either a header (line 1) or an event (lines 2+). Top-level oneOf chooses header vs entry; per-event-type payload shapes are enforced via the events subschemas.
  */
-export type AgentTrailV010 = Header | Entry;
+export type AgentTrailV010 = TrailEnvelope | Header | Entry;
 /**
  * Unique within the file. 8+ chars hex or alphanumeric recommended.
  */
 export type Id = string;
 /**
- * SHA-256 hash as lowercase hex (64 chars)
- */
-export type Sha256Hex = string;
-/**
  * Writer timestamp: UTC ISO-8601 with millisecond precision
  */
 export type Iso8601 = string;
+/**
+ * SHA-256 hash as lowercase hex (64 chars)
+ */
+export type Sha256Hex = string;
 export type AgentName =
   | (
       | "claude-code"
@@ -75,7 +75,52 @@ export type ToolKind =
   | "other";
 
 /**
- * Session header (line 1). Not part of the event graph.
+ * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the session header MUST follow on line 2. At most one per file.
+ */
+export interface TrailEnvelope {
+  type: "trail";
+  schema_version: "0.1.0";
+  id: Id;
+  name?: string;
+  description?: string;
+  ts: Iso8601;
+  producer: string;
+  content_hash?: Sha256Hex | "<pending>";
+  tags?: string[];
+  vcs?: Vcs;
+  fork_from?: {
+    trail_id: string;
+    content_hash?: Sha256Hex;
+  };
+  redacted_from?: {
+    content_hash: Sha256Hex;
+  };
+  /**
+   * Optional manifest of sessions contained in the file. Validator warns on drift vs actual file content.
+   */
+  sessions?: {
+    id: Id;
+    agent: AgentName;
+    role?: string;
+    follows?: string;
+  }[];
+  /**
+   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
+   */
+  meta?: {
+    [k: string]: unknown;
+  };
+}
+export interface Vcs {
+  type: "git" | "jj" | "hg" | "svn";
+  revision: string;
+  /**
+   * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
+   */
+  remote_url?: string;
+}
+/**
+ * Session header. Required at line 1, or at line 2 when a trail envelope occupies line 1. Not part of the event graph.
  */
 export interface Header {
   type: "session";
@@ -116,14 +161,12 @@ export interface Header {
   metadata?: {
     [k: string]: unknown;
   };
-}
-export interface Vcs {
-  type: "git" | "jj" | "hg" | "svn";
-  revision: string;
   /**
-   * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
+   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
    */
-  remote_url?: string;
+  meta?: {
+    [k: string]: unknown;
+  };
 }
 export interface EntryBase {
   type: string;

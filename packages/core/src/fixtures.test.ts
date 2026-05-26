@@ -571,3 +571,110 @@ test("reader-tolerant/reserved-future-event-type preserves reserved type with wa
     },
   ]);
 });
+
+test("valid/with-trail-envelope.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/with-trail-envelope.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/with-trail-envelope-and-hash.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/with-trail-envelope-and-hash.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/envelope-missing-producer.trail.jsonl reports required /producer", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/envelope-missing-producer.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/producer",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'producer'",
+  });
+});
+
+test("invalid-graph/envelope-not-at-line-1.trail.jsonl reports envelope_not_at_line_1", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/envelope-not-at-line-1.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/type",
+    severity: "error",
+    code: "envelope_not_at_line_1",
+    message: "Trail envelope MUST appear at line 1; found at a later line",
+  });
+});
+
+test("invalid-graph/multiple-envelopes.trail.jsonl reports multiple_envelopes", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/multiple-envelopes.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/type",
+    severity: "error",
+    code: "multiple_envelopes",
+    message: "Trail envelope MUST appear at most once per file",
+  });
+});
+
+test("invalid-graph/envelope-without-session-header.trail.jsonl reports missing_header_after_envelope", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/envelope-without-session-header.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "",
+    severity: "error",
+    code: "missing_header_after_envelope",
+    message:
+      'Trail envelope at line 1 MUST be followed by a session header on line 2 with type "session" and schema_version "0.1.0"',
+  });
+});
+
+test("hash-mismatch/trail-envelope-content-hash-mismatch.trail.jsonl reports envelope mismatch", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("hash-mismatch/trail-envelope-content-hash-mismatch.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.line === 1 && d.code === "content_hash_mismatch")).toBe(true);
+});
+
+test("valid/with-trail-envelope-all-fields.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/with-trail-envelope-all-fields.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-graph/envelope-sessions-manifest-empty.trail.jsonl warns envelope_sessions_manifest_drift", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/envelope-sessions-manifest-empty.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions",
+    severity: "warning",
+    code: "envelope_sessions_manifest_drift",
+    message: "envelope.sessions lists 0 session(s); v0.1.0 trail files contain exactly one session",
+  });
+});
+
+test("invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl warns envelope_sessions_manifest_drift", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions",
+    severity: "warning",
+    code: "envelope_sessions_manifest_drift",
+    message: "envelope.sessions lists 2 session(s); v0.1.0 trail files contain exactly one session",
+  });
+});

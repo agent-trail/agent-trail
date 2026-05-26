@@ -64,6 +64,22 @@ _Avoid_: Database, cache
 A header `content_hash` value of `"<pending>"` or omitted; signals an in-progress or streaming trail file that is not eligible to become a finalized object.
 _Avoid_: Missing hash, draft hash
 
+**Trail envelope**:
+Optional `type:"trail"` record at line 1 of a trail file carrying file-level metadata (producer, file label, file-scope hash, sessions manifest, vendor extensions). Not part of the event graph.
+_Avoid_: File header, outer header
+
+**Session-level content hash**:
+SHA-256 of the canonical bytes covering only the session header and its events. Independent of whether a trail envelope wraps the file.
+_Avoid_: Trail hash, file hash
+
+**File-level content hash**:
+SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. Lives on the envelope.
+_Avoid_: Session hash, transport hash
+
+**Sessions manifest**:
+Optional envelope field `sessions` declaring the sessions present in a trail file. The session header in the file is authoritative; the validator warns on drift.
+_Avoid_: Session index, session list
+
 ## Relationships
 
 - A **Trail file** conforms to the **Format contract**.

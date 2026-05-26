@@ -1,5 +1,5 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
-import { verifyContentHash } from "./hash.ts";
+import { verifyContentHash, verifyTrailEnvelopeContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { resolveValidationProfile, type ValidationProfile } from "./profile.ts";
 
@@ -20,7 +20,41 @@ export function validateTrailGraph(
   const profile = resolveValidationProfile(options.profile);
   const diagnostics: Diagnostic[] = [];
 
-  const headerRecord = records[0];
+  const firstRecord = records[0];
+  const envelopeRecord =
+    firstRecord !== undefined && firstRecord.value.type === "trail" ? firstRecord : undefined;
+  const headerRecord = envelopeRecord !== undefined ? records[1] : records[0];
+
+  // Detect misplaced and duplicate envelope records before header-validity logic
+  // runs, so the diagnostics are stable when both errors coexist.
+  for (let i = 1; i < records.length; i += 1) {
+    const record = records[i];
+    if (record === undefined || record.value.type !== "trail") {
+      continue;
+    }
+    if (envelopeRecord !== undefined) {
+      diagnostics.push(
+        createDiagnostic({
+          line: record.line,
+          path: "/type",
+          severity: "error",
+          code: "multiple_envelopes",
+          message: "Trail envelope MUST appear at most once per file",
+        }),
+      );
+    } else {
+      diagnostics.push(
+        createDiagnostic({
+          line: record.line,
+          path: "/type",
+          severity: "error",
+          code: "envelope_not_at_line_1",
+          message: "Trail envelope MUST appear at line 1; found at a later line",
+        }),
+      );
+    }
+  }
+
   const readerTolerantHeaderPatch =
     profile === "reader-tolerant" && isReaderCompatiblePatchHeader(headerRecord);
   const headerValid =
@@ -28,16 +62,29 @@ export function validateTrailGraph(
     headerRecord.value.type === "session" &&
     (headerRecord.value.schema_version === "0.1.0" || readerTolerantHeaderPatch);
   if (!headerValid) {
-    diagnostics.push(
-      createDiagnostic({
-        line: headerRecord?.line ?? 0,
-        path: "",
-        severity: "error",
-        code: "missing_header",
-        message:
-          'First line must be a session header with type "session" and schema_version "0.1.0"',
-      }),
-    );
+    if (envelopeRecord !== undefined) {
+      diagnostics.push(
+        createDiagnostic({
+          line: headerRecord?.line ?? envelopeRecord.line,
+          path: "",
+          severity: "error",
+          code: "missing_header_after_envelope",
+          message:
+            'Trail envelope at line 1 MUST be followed by a session header on line 2 with type "session" and schema_version "0.1.0"',
+        }),
+      );
+    } else {
+      diagnostics.push(
+        createDiagnostic({
+          line: headerRecord?.line ?? 0,
+          path: "",
+          severity: "error",
+          code: "missing_header",
+          message:
+            'First line must be a session header with type "session" and schema_version "0.1.0"',
+        }),
+      );
+    }
   } else if (headerRecord.value.parent_id !== undefined && headerRecord.value.parent_id !== null) {
     diagnostics.push(
       createDiagnostic({
@@ -48,6 +95,20 @@ export function validateTrailGraph(
         message: "Session header must not have a parent_id",
       }),
     );
+  }
+  if (envelopeRecord !== undefined) {
+    if (envelopeRecord.value.parent_id !== undefined && envelopeRecord.value.parent_id !== null) {
+      diagnostics.push(
+        createDiagnostic({
+          line: envelopeRecord.line,
+          path: "/parent_id",
+          severity: "error",
+          code: "envelope_has_parent_id",
+          message: "Trail envelope must not have a parent_id",
+        }),
+      );
+    }
+    diagnostics.push(...envelopeSessionsManifestWarnings(envelopeRecord, headerRecord));
   }
   if (readerTolerantHeaderPatch && headerRecord !== undefined) {
     diagnostics.push(
@@ -61,17 +122,51 @@ export function validateTrailGraph(
     );
   }
 
-  const entries = records.slice(1);
+  const entries = envelopeRecord !== undefined ? records.slice(2) : records.slice(1);
 
+  const envelopeId =
+    envelopeRecord !== undefined && typeof envelopeRecord.value.id === "string"
+      ? envelopeRecord.value.id
+      : undefined;
   const headerId =
     headerRecord !== undefined && typeof headerRecord.value.id === "string"
       ? headerRecord.value.id
       : undefined;
 
+  if (
+    envelopeId !== undefined &&
+    headerId !== undefined &&
+    envelopeId === headerId &&
+    headerRecord !== undefined &&
+    envelopeRecord !== undefined
+  ) {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/id",
+        severity: "error",
+        code: "duplicate_id",
+        message: `Duplicate id "${headerId}"; first seen on line ${envelopeRecord.line}`,
+      }),
+    );
+  }
+
   const idLines = new Map<string, number>();
   for (const entry of entries) {
     const id = entry.value.id;
     if (typeof id !== "string") {
+      continue;
+    }
+    if (id === envelopeId && envelopeRecord !== undefined) {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/id",
+          severity: "error",
+          code: "duplicate_id",
+          message: `Duplicate id "${id}"; first seen on line ${envelopeRecord.line}`,
+        }),
+      );
       continue;
     }
     if (id === headerId) {
@@ -181,6 +276,31 @@ export function validateTrailGraph(
           message: `content_hash does not match canonical bytes (computed ${hashResult.actual})`,
         }),
       );
+    }
+
+    if (envelopeRecord !== undefined) {
+      const envelopeHashResult = verifyTrailEnvelopeContentHash(records);
+      if (envelopeHashResult.status === "invalid") {
+        diagnostics.push(
+          createDiagnostic({
+            line: envelopeRecord.line,
+            path: "/content_hash",
+            severity: "error",
+            code: "content_hash_invalid",
+            message: "content_hash must be 64 lowercase hex characters",
+          }),
+        );
+      } else if (envelopeHashResult.status === "mismatch") {
+        diagnostics.push(
+          createDiagnostic({
+            line: envelopeRecord.line,
+            path: "/content_hash",
+            severity: profile === "reader-tolerant" ? "warning" : "error",
+            code: "content_hash_mismatch",
+            message: `content_hash does not match canonical bytes (computed ${envelopeHashResult.actual})`,
+          }),
+        );
+      }
     }
   }
 
@@ -505,6 +625,76 @@ function agentMessageUsageWarnings(entries: JsonlRecord[]): Diagnostic[] {
       );
     }
   }
+  return diagnostics;
+}
+
+// Validates the optional envelope `sessions` manifest against the actual
+// session header in the file. For v0.1.0 a trail file holds one session;
+// the manifest, if present, must list exactly that session by id and agent
+// name. Manifest drift is a warning so renderers can still display the file
+// while flagging the inconsistency.
+function envelopeSessionsManifestWarnings(
+  envelopeRecord: JsonlRecord,
+  headerRecord: JsonlRecord | undefined,
+): Diagnostic[] {
+  const sessions = (envelopeRecord.value as { sessions?: unknown }).sessions;
+  if (!Array.isArray(sessions)) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+
+  if (sessions.length !== 1) {
+    diagnostics.push(
+      createDiagnostic({
+        line: envelopeRecord.line,
+        path: "/sessions",
+        severity: "warning",
+        code: "envelope_sessions_manifest_drift",
+        message: `envelope.sessions lists ${sessions.length} session(s); v0.1.0 trail files contain exactly one session`,
+      }),
+    );
+    return diagnostics;
+  }
+
+  if (headerRecord === undefined || headerRecord.value.type !== "session") {
+    return diagnostics;
+  }
+
+  const declared = sessions[0];
+  if (typeof declared !== "object" || declared === null) {
+    return diagnostics;
+  }
+  const declaredId = (declared as { id?: unknown }).id;
+  const declaredAgent = (declared as { agent?: unknown }).agent;
+  const actualId = headerRecord.value.id;
+  const actualAgentName =
+    typeof headerRecord.value.agent === "object" && headerRecord.value.agent !== null
+      ? (headerRecord.value.agent as { name?: unknown }).name
+      : undefined;
+
+  if (typeof declaredId === "string" && declaredId !== actualId) {
+    diagnostics.push(
+      createDiagnostic({
+        line: envelopeRecord.line,
+        path: "/sessions/0/id",
+        severity: "warning",
+        code: "envelope_sessions_manifest_drift",
+        message: `envelope.sessions[0].id "${declaredId}" does not match session header id "${actualId ?? "<unknown>"}"`,
+      }),
+    );
+  }
+  if (typeof declaredAgent === "string" && declaredAgent !== actualAgentName) {
+    diagnostics.push(
+      createDiagnostic({
+        line: envelopeRecord.line,
+        path: "/sessions/0/agent",
+        severity: "warning",
+        code: "envelope_sessions_manifest_drift",
+        message: `envelope.sessions[0].agent "${declaredAgent}" does not match session header agent.name "${typeof actualAgentName === "string" ? actualAgentName : "<unknown>"}"`,
+      }),
+    );
+  }
+
   return diagnostics;
 }
 

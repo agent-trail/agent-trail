@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  buildTrailEnvelope,
   type DetectOptions,
   type SessionRef,
   type TrailAdapter,
@@ -151,5 +152,77 @@ test("validateAdapterTrail handles multiple entries with no error diagnostics", 
   };
 
   const diagnostics = await validateAdapterTrail(multi);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("buildTrailEnvelope produces a schema-valid envelope", () => {
+  const envelope = buildTrailEnvelope({
+    producer: "@agent-trail/adapters-test/0.0.0",
+    header: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "pi" },
+    },
+    randomId: () => "envelope-fixed-id",
+    now: () => "2026-05-17T14:00:00.000Z",
+  });
+
+  expect(envelope).toEqual({
+    type: "trail",
+    schema_version: "0.1.0",
+    id: "envelope-fixed-id",
+    ts: "2026-05-17T14:00:00.000Z",
+    producer: "@agent-trail/adapters-test/0.0.0",
+    sessions: [{ id: "sess1", agent: "pi" }],
+  });
+});
+
+test("buildTrailEnvelope propagates vcs from the session header", () => {
+  const envelope = buildTrailEnvelope({
+    producer: "@agent-trail/adapters-test/0.0.0",
+    header: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "pi" },
+      vcs: { type: "git", revision: "deadbeef" },
+    },
+    randomId: () => "envelope-id",
+    now: () => "2026-05-17T14:00:00.000Z",
+  });
+
+  expect(envelope.vcs).toEqual({ type: "git", revision: "deadbeef" });
+});
+
+test("validateAdapterTrail accepts a trail with an envelope at line 1", async () => {
+  const trail: TrailFile = {
+    envelope: {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "trl-1",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "@agent-trail/adapters-test/0.0.0",
+    },
+    header: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "pi" },
+    },
+    entries: [
+      {
+        type: "user_message",
+        id: "evt-1",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      },
+    ],
+  };
+
+  const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
