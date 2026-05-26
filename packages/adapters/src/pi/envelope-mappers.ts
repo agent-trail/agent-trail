@@ -31,7 +31,9 @@ function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] 
 function synthesizeInterrupt(envelope: PiEnvelope, schemaVersion?: string): Entry | undefined {
   const base = baseEntry(
     envelope,
-    entryId(envelope, "aborted"),
+    // Synthesized id must be a valid ULID/UUID per v0.1 (spec §9). The
+    // previous `entryId(envelope, "aborted")` produced a compound string.
+    crypto.randomUUID(),
     "assistant",
     undefined,
     undefined,

@@ -26,6 +26,14 @@ export {
 } from "./jsonl.ts";
 export type { ValidationProfile } from "./profile.ts";
 export { resolveValidationProfile } from "./profile.ts";
+export type {
+  ReconcileGroup,
+  ReconcileResult,
+  ReconcileWarning,
+  ReconcileWarningCode,
+  SegmentInput,
+} from "./reconcile.ts";
+export { reconcileSegments } from "./reconcile.ts";
 export type { RedactionPattern } from "./secret-patterns.ts";
 export {
   ANTHROPIC_API_KEY,

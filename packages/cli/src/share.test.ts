@@ -408,14 +408,14 @@ test("trail with envelope: shared payload carries both session and envelope cont
   const envelope: Record<string, unknown> = {
     type: "trail",
     schema_version: "0.1.0",
-    id: "trl-share-1",
+    id: "01HTR1SHARE0000000000000A1",
     ts: "2026-05-17T14:00:00.000Z",
     producer: "trail-cli/0.3.0",
   };
   const header: Record<string, unknown> = {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess-share",
+    id: "01HSESS000000000000SHARE00",
     ts: "2026-05-17T14:00:00.000Z",
     agent: { name: "codex-cli" },
     cwd: "/work/proj-a",

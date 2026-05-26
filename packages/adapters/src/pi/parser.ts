@@ -28,6 +28,7 @@ function buildHeader(envelopes: PiEnvelope[]): Header {
     type: "session",
     schema_version: "0.1.0",
     id,
+    session_uid: randomUUID(),
     ts,
     agent: {
       name: "pi",
@@ -51,10 +52,6 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
     }
   }
   return parentBySourceId;
-}
-
-function cryptoRandomShort(): string {
-  return randomUUID().slice(0, 8);
 }
 
 export function parsePiJsonl(text: string): TrailFile {
@@ -199,9 +196,10 @@ function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header):
   // truncated file with only a session record). That keeps the synthesized
   // entry within the session timeline and is spec-compliant per §9.3.
   const lastTs = built[built.length - 1]?.entry.ts ?? header.ts;
-  // Pi source ids are short hex; reuse the same shape so the synthesized id
-  // is unique within the file but doesn't shout "synthetic".
-  const synthId = `pi-eof-${cryptoRandomShort()}`;
+  // Synthesized session_terminated needs a globally-unique id that satisfies
+  // the v0.1 ULID/UUID id regex. randomUUID() returns a 36-char hyphenated UUID
+  // which matches the schema's UUID arm.
+  const synthId = randomUUID();
   const schemaVersion = header.agent.version;
   return {
     type: "session_terminated",

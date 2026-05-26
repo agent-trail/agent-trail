@@ -105,6 +105,7 @@ export async function registerTrail(
   await upsertIndexEntry(storeRoot, contentHash, {
     registered_at: new Date().toISOString(),
     source_path: sourcePath,
+    session_uid: extractSessionUid(records),
   });
 
   return {
@@ -113,6 +114,16 @@ export async function registerTrail(
     objectPath: target,
     diagnostics: [],
   };
+}
+
+function extractSessionUid(records: JsonlRecord[]): string | null {
+  for (const record of records) {
+    if (record.value.type === "session") {
+      const uid = (record.value as { session_uid?: unknown }).session_uid;
+      return typeof uid === "string" ? uid : null;
+    }
+  }
+  return null;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {

@@ -142,7 +142,7 @@ Writer schemas are exact per release: the v0.1.0 writer schema requires `schema_
 
 ### 7.1 Session identity
 
-Every session has a local identifier `id` in the header. UUID, ULID, or any 4+ char unique string. Writers use this for in-progress sessions. It is not required to be globally unique outside the file.
+Every session has a local identifier `id` in the header. ULID (26 Crockford base32 chars, case-insensitive) or UUID (RFC 4122, hyphenated or unhyphenated). The schema enforces this shape so cross-segment reconciliation can dedup events by id; older v0.1 fixtures whose ids were free-form strings have been migrated.
 
 ### 7.2 Artifact classes
 
@@ -188,7 +188,7 @@ Writers that emit both hashes MUST stamp the session-level hash first, then comp
 
 ### 7.5 Event identifiers
 
-Event `id` values are unique within the file. They do not need to be globally unique. Recommended: 8+ characters, hex or alphanumeric.
+Event `id` values are globally unique. The schema enforces a ULID-or-UUID shape (see §7 / §17). Globally-unique ids let a reconciler dedup events across segments by exact string equality (spec §8.5 step 4).
 
 ---
 
@@ -384,7 +384,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). In v0.1 adapters do not yet emit `session_uid` for single-segment trails; that is planned alongside the reconciler implementation (#73 follow-up).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). The bundled claude-code and pi adapters emit a fresh `session_uid` per session via `crypto.randomUUID()` so the v0.1 corpus carries real coverage.
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -397,7 +397,7 @@ A reader presented with two or more segment trail files for one source session r
 1. Group input files by `header.session_uid`.
 2. Sort each group ascending by `header.segment.seq`.
 3. Verify chain: for each segment with `seq > 1`, check that `header.segment.prev_content_hash` matches the previous segment's `header.content_hash`. Mismatch is a `segment_chain_mismatch` warning, not an error — readers MAY continue with the rest of the merge.
-4. Concatenate events. Dedupe by event `id` (set membership) when ids are globally unique. Writers MUST emit globally-unique event ids if they intend their output to be reconciled. v0.1 enforces only `minLength: 4` on the schema; the global-uniqueness invariant is a writer-side contract until the follow-up issue lands a validator warning + reconciler that surfaces violations.
+4. Concatenate events. Dedupe by event `id` (set membership). The schema enforces a ULID-or-UUID shape on every `id`, so cross-segment reconciliation can rely on string equality without further normalisation.
 5. Drop intermediate `session_terminated` events with `payload.reason == "process_terminated"` — those are crash markers from killed writers; only the final terminator (if any) is kept.
 6. Emit one merged trail with a single header. The merged header is assembled field-by-field across segments:
    - `ts` (session start time) comes from the lowest-`seq` segment (seg-1 represents the real start of the source session, not the most recent resume).
@@ -454,7 +454,7 @@ Every event entry has this base shape:
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | `type` | yes | string | event type; see §9.2-9.3 |
-| `id` | yes | string | unique within the file |
+| `id` | yes | string | globally unique; ULID or UUID per §17 |
 | `parent_id` | no | string | references another `id` for tree topology; absent = linear file order |
 | `ts` | yes | string | ISO-8601 timestamp |
 | `payload` | yes | object | type-specific data |

@@ -19,9 +19,8 @@
     },
 
     "id": {
-      "type": "string",
-      "minLength": 4,
-      "description": "Unique within the file. Globally-unique recommended (ULID/UUID) so cross-segment reconciliation can dedup by id. 8+ chars hex or alphanumeric recommended."
+      "$ref": "#/$defs/sessionUid",
+      "description": "Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5)."
     },
 
     "ulid": {

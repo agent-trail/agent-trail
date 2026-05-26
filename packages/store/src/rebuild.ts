@@ -42,11 +42,21 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     // Skip files whose hash cannot be verified (parse error, mismatch, etc.)
     // so one corrupt object does not abort the whole rebuild.
     let verified = false;
+    let sessionUid: string | null = null;
     try {
       const raw = await readFile(path, "utf8");
       const records = await parseJsonlString(raw);
       const verification = verifyContentHash(records);
       verified = verification.status === "match" && verification.expected === filenameHash;
+      if (verified) {
+        for (const record of records) {
+          if (record.value.type === "session") {
+            const uid = (record.value as { session_uid?: unknown }).session_uid;
+            if (typeof uid === "string") sessionUid = uid;
+            break;
+          }
+        }
+      }
     } catch {
       verified = false;
     }
@@ -58,6 +68,7 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     index.entries[filenameHash] = {
       registered_at: info.mtime.toISOString(),
       source_path: null,
+      session_uid: sessionUid,
     };
   }
 
