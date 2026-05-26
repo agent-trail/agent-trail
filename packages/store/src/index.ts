@@ -18,7 +18,12 @@
  *   current call site.
  */
 export type { IndexEntry, IndexFile } from "./index-file.ts";
-export { IndexCorruptError, IndexVersionError, readIndex } from "./index-file.ts";
+export {
+  findEntriesBySessionUid,
+  IndexCorruptError,
+  IndexVersionError,
+  readIndex,
+} from "./index-file.ts";
 export { objectPath, resolveStoreRoot } from "./paths.ts";
 export type { RebuildIndexOptions, RebuildIndexResult } from "./rebuild.ts";
 export { rebuildIndex } from "./rebuild.ts";

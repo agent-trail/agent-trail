@@ -129,8 +129,8 @@ test("--json: emits a JSON array of entries with full shape", async () => {
 });
 
 test("sorts by registered_at desc (newest first)", async () => {
-  const older = await seedTrail({ id: "sess-old", cwd: "/work/old" });
-  const newer = await seedTrail({ id: "sess-new", cwd: "/work/new" });
+  const older = await seedTrail({ id: "01HSESS00000000000000DD0AA", cwd: "/work/old" });
+  const newer = await seedTrail({ id: "01HSESS0000000000000NEW0AA", cwd: "/work/new" });
   await registerTrail(older.filePath, { storeRoot });
   await registerTrail(newer.filePath, { storeRoot });
   await overrideRegisteredAt(storeRoot, {
@@ -145,8 +145,16 @@ test("sorts by registered_at desc (newest first)", async () => {
 });
 
 test("--agent filters by exact agent name", async () => {
-  const codex = await seedTrail({ id: "sess-a", agentName: "codex-cli", cwd: "/work/a" });
-  const claude = await seedTrail({ id: "sess-b", agentName: "claude-code", cwd: "/work/b" });
+  const codex = await seedTrail({
+    id: "01HSESS0000000000000000AAA",
+    agentName: "codex-cli",
+    cwd: "/work/a",
+  });
+  const claude = await seedTrail({
+    id: "01HSESS0000000000000000ABB",
+    agentName: "claude-code",
+    cwd: "/work/b",
+  });
   await registerTrail(codex.filePath, { storeRoot });
   await registerTrail(claude.filePath, { storeRoot });
 
@@ -159,8 +167,8 @@ test("--agent filters by exact agent name", async () => {
 });
 
 test("--cwd filters by exact cwd", async () => {
-  const a = await seedTrail({ id: "sess-a", cwd: "/work/proj-a" });
-  const b = await seedTrail({ id: "sess-b", cwd: "/work/proj-b" });
+  const a = await seedTrail({ id: "01HSESS0000000000000000AAA", cwd: "/work/proj-a" });
+  const b = await seedTrail({ id: "01HSESS0000000000000000ABB", cwd: "/work/proj-b" });
   await registerTrail(a.filePath, { storeRoot });
   await registerTrail(b.filePath, { storeRoot });
 
@@ -173,9 +181,9 @@ test("--cwd filters by exact cwd", async () => {
 });
 
 test("--since / --until: inclusive lower, exclusive upper bound on registered_at", async () => {
-  const t1 = await seedTrail({ id: "sess-1", cwd: "/work/1" });
-  const t2 = await seedTrail({ id: "sess-2", cwd: "/work/2" });
-  const t3 = await seedTrail({ id: "sess-3", cwd: "/work/3" });
+  const t1 = await seedTrail({ id: "01HSESS000000000000000001A", cwd: "/work/1" });
+  const t2 = await seedTrail({ id: "01HSESS000000000000000002A", cwd: "/work/2" });
+  const t3 = await seedTrail({ id: "01HSESS000000000000000003A", cwd: "/work/3" });
   await registerTrail(t1.filePath, { storeRoot });
   await registerTrail(t2.filePath, { storeRoot });
   await registerTrail(t3.filePath, { storeRoot });
@@ -195,8 +203,8 @@ test("--since / --until: inclusive lower, exclusive upper bound on registered_at
 });
 
 test("missing object file: warns to stderr, still lists remaining, exit 0", async () => {
-  const present = await seedTrail({ id: "sess-ok", cwd: "/work/ok" });
-  const removed = await seedTrail({ id: "sess-rm", cwd: "/work/rm" });
+  const present = await seedTrail({ id: "01HSESS00000000000000000K0", cwd: "/work/ok" });
+  const removed = await seedTrail({ id: "01HSESS00000000000000000RM", cwd: "/work/rm" });
   await registerTrail(present.filePath, { storeRoot });
   const removedReg = await registerTrail(removed.filePath, { storeRoot });
   await unlink(removedReg.objectPath as string);
@@ -249,7 +257,7 @@ test("corrupt index: exits 1 with friendly stderr (no stack trace)", async () =>
 });
 
 test("malformed index entry (null value): skipped with warning, exit 0", async () => {
-  const good = await seedTrail({ id: "sess-ok", cwd: "/work/ok" });
+  const good = await seedTrail({ id: "01HSESS00000000000000000K0", cwd: "/work/ok" });
   await registerTrail(good.filePath, { storeRoot });
   const indexPath = join(storeRoot, "index", "objects.json");
   const raw = await readFile(indexPath, "utf8");
@@ -268,7 +276,7 @@ test("malformed index entry (null value): skipped with warning, exit 0", async (
 });
 
 test("malformed index key (path traversal): skipped with warning, exit 0", async () => {
-  const good = await seedTrail({ id: "sess-ok", cwd: "/work/ok" });
+  const good = await seedTrail({ id: "01HSESS00000000000000000K0", cwd: "/work/ok" });
   await registerTrail(good.filePath, { storeRoot });
   const indexPath = join(storeRoot, "index", "objects.json");
   const raw = await readFile(indexPath, "utf8");
@@ -310,7 +318,10 @@ test("resolveStoreRoot failure (no HOME, no AGENT_TRAIL_HOME): exit 1 friendly s
 });
 
 test("non-JSON header line: row included with null agent/cwd, warning on stderr", async () => {
-  const { filePath, contentHash } = await seedTrail({ id: "sess-bad", cwd: "/work/bad" });
+  const { filePath, contentHash } = await seedTrail({
+    id: "01HSESS00000000000000BAD00",
+    cwd: "/work/bad",
+  });
   const reg = await registerTrail(filePath, { storeRoot });
   expect(reg.status).toBe("finalized");
   await writeFile(reg.objectPath as string, "not a json object\n", "utf8");

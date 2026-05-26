@@ -151,7 +151,12 @@ async function parseInterruptModelFixture() {
 
 test("parseSession() builds a header from sessionId, first ts, version, and cwd", async () => {
   const trail = await parseFixture();
-  expect(trail.header).toEqual({
+  const { session_uid, ...header } = trail.header;
+  expect(typeof session_uid).toBe("string");
+  expect(session_uid).toMatch(
+    /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/,
+  );
+  expect(header).toEqual({
     type: "session",
     schema_version: "0.1.0",
     id: "00000000-0000-0000-0000-ccccc0000001",
@@ -228,13 +233,13 @@ test("parseSession() maps cache_read_input_tokens and cache_creation_input_token
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-usage-1",
+      uuid: "00000000-0000-0000-0000-1d5344910296",
       timestamp: "2026-05-17T22:00:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-usage-1",
+      parentUuid: "00000000-0000-0000-0000-1d5344910296",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -250,14 +255,14 @@ test("parseSession() maps cache_read_input_tokens and cache_creation_input_token
           service_tier: "standard",
         },
       },
-      uuid: "u-usage-2",
+      uuid: "00000000-0000-0000-0000-d223468611b6",
       timestamp: "2026-05-17T22:00:01.000Z",
       sessionId: "s",
       version: "v",
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const agentMsg = trail.entries.find((e) => e.id === "u-usage-2");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-d223468611b6");
   expect(agentMsg?.type).toBe("agent_message");
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
@@ -275,13 +280,13 @@ test("parseSession() drops usage when assistant envelope has only tool_use block
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-tonly-1",
+      uuid: "00000000-0000-0000-0000-74f66820e99d",
       timestamp: "2026-05-17T22:20:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-tonly-1",
+      parentUuid: "00000000-0000-0000-0000-74f66820e99d",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -291,7 +296,7 @@ test("parseSession() drops usage when assistant envelope has only tool_use block
         stop_reason: "tool_use",
         usage: { input_tokens: 10, output_tokens: 5 },
       },
-      uuid: "u-tonly-2",
+      uuid: "00000000-0000-0000-0000-86a305e93511",
       timestamp: "2026-05-17T22:20:01.000Z",
       sessionId: "s",
       version: "v",
@@ -312,13 +317,13 @@ test("parseSession() omits payload.usage when source provides no usage data", as
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-nousage-1",
+      uuid: "00000000-0000-0000-0000-b4e31f5675a3",
       timestamp: "2026-05-17T22:10:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-nousage-1",
+      parentUuid: "00000000-0000-0000-0000-b4e31f5675a3",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -327,14 +332,14 @@ test("parseSession() omits payload.usage when source provides no usage data", as
         content: [{ type: "text", text: "hi back" }],
         stop_reason: "end_turn",
       },
-      uuid: "u-nousage-2",
+      uuid: "00000000-0000-0000-0000-8e45abbc959e",
       timestamp: "2026-05-17T22:10:01.000Z",
       sessionId: "s",
       version: "v",
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const agentMsg = trail.entries.find((e) => e.id === "u-nousage-2");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-8e45abbc959e");
   expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
@@ -358,41 +363,41 @@ test("parent_id walks through filtered ancestors to the nearest surviving event"
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "first" },
-      uuid: "u-1",
+      uuid: "00000000-0000-0000-0000-a24a7f55f278",
       timestamp: "2026-05-17T14:00:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-1",
+      parentUuid: "00000000-0000-0000-0000-a24a7f55f278",
       isSidechain: false,
       type: "attachment",
-      uuid: "att-1",
+      uuid: "00000000-0000-0000-0000-20864c4631c6",
       timestamp: "2026-05-17T14:00:02.000Z",
       sessionId: "s",
     }),
     JSON.stringify({
-      parentUuid: "att-1",
+      parentUuid: "00000000-0000-0000-0000-20864c4631c6",
       isSidechain: false,
       type: "file-history-snapshot",
-      uuid: "snap-1",
+      uuid: "00000000-0000-0000-0000-9f2460b56367",
       timestamp: "2026-05-17T14:00:03.000Z",
       sessionId: "s",
     }),
     JSON.stringify({
-      parentUuid: "snap-1",
+      parentUuid: "00000000-0000-0000-0000-9f2460b56367",
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "second" },
-      uuid: "u-2",
+      uuid: "00000000-0000-0000-0000-1fe2696cbaaf",
       timestamp: "2026-05-17T14:00:04.000Z",
       sessionId: "s",
       version: "v",
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const u2 = trail.entries.find((e) => e.id === "u-2");
-  expect(u2?.parent_id).toBe("u-1");
+  const u2 = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-1fe2696cbaaf");
+  expect(u2?.parent_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
 });
 
 test("parseSession() emits user_interrupt for string content '[Request interrupted by user]' with reason 'user'", async () => {
@@ -402,13 +407,13 @@ test("parseSession() emits user_interrupt for string content '[Request interrupt
     isSidechain: false,
     type: "user",
     message: { role: "user", content: "[Request interrupted by user]" },
-    uuid: "u-int-1",
+    uuid: "00000000-0000-0000-0000-db6ac7323733",
     timestamp: "2026-05-17T18:00:00.000Z",
     sessionId: "s",
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "u-int-1");
+  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-db6ac7323733");
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user" });
 });
@@ -420,13 +425,13 @@ test("parseSession() extracts reason 'user for tool use' from '[Request interrup
     isSidechain: false,
     type: "user",
     message: { role: "user", content: "[Request interrupted by user for tool use]" },
-    uuid: "u-int-2",
+    uuid: "00000000-0000-0000-0000-8d0b403631a1",
     timestamp: "2026-05-17T18:00:01.000Z",
     sessionId: "s",
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "u-int-2");
+  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-8d0b403631a1");
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user for tool use" });
 });
@@ -441,13 +446,13 @@ test("parseSession() emits user_interrupt for text block '[Request interrupted b
       role: "user",
       content: [{ type: "text", text: "[Request interrupted by user for tool use]" }],
     },
-    uuid: "u-int-3",
+    uuid: "00000000-0000-0000-0000-1e67a787d253",
     timestamp: "2026-05-17T18:00:02.000Z",
     sessionId: "s",
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "u-int-3");
+  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-1e67a787d253");
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user for tool use" });
 });
@@ -460,13 +465,13 @@ test("parseSession() emits model_change when assistant model shifts from claude-
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-mc-1",
+      uuid: "00000000-0000-0000-0000-37ee04e08f54",
       timestamp: "2026-05-17T19:00:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-mc-1",
+      parentUuid: "00000000-0000-0000-0000-37ee04e08f54",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -475,13 +480,13 @@ test("parseSession() emits model_change when assistant model shifts from claude-
         content: [{ type: "text", text: "first reply" }],
         stop_reason: "end_turn",
       },
-      uuid: "u-mc-2",
+      uuid: "00000000-0000-0000-0000-58d78559af06",
       timestamp: "2026-05-17T19:00:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-mc-2",
+      parentUuid: "00000000-0000-0000-0000-58d78559af06",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -490,7 +495,7 @@ test("parseSession() emits model_change when assistant model shifts from claude-
         content: [{ type: "text", text: "second reply" }],
         stop_reason: "end_turn",
       },
-      uuid: "u-mc-3",
+      uuid: "00000000-0000-0000-0000-03dfb10884d1",
       timestamp: "2026-05-17T19:00:02.000Z",
       sessionId: "s",
       version: "v",
@@ -499,13 +504,13 @@ test("parseSession() emits model_change when assistant model shifts from claude-
   const trail = parseClaudeCodeJsonl(text);
   const modelChange = trail.entries.find((e) => e.type === "model_change");
   expect(modelChange).toBeDefined();
-  expect(modelChange?.id).toBe("u-mc-3-model_change");
+  expect(modelChange?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   expect(modelChange?.ts).toBe("2026-05-17T19:00:02.000Z");
   expect(modelChange?.payload).toEqual({
     from_model: "claude-opus-4-7",
     to_model: "claude-sonnet-4-5",
   });
-  expect(modelChange?.parent_id).toBe("u-mc-2");
+  expect(modelChange?.parent_id).toBe("00000000-0000-0000-0000-58d78559af06");
 });
 
 test("parseSession() does not emit model_change when consecutive assistant envelopes share the same model", async () => {
@@ -516,13 +521,13 @@ test("parseSession() does not emit model_change when consecutive assistant envel
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-mc-a",
+      uuid: "00000000-0000-0000-0000-c79fdb1fd66b",
       timestamp: "2026-05-17T19:01:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-mc-a",
+      parentUuid: "00000000-0000-0000-0000-c79fdb1fd66b",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -530,13 +535,13 @@ test("parseSession() does not emit model_change when consecutive assistant envel
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-mc-b",
+      uuid: "00000000-0000-0000-0000-9132b281303c",
       timestamp: "2026-05-17T19:01:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-mc-b",
+      parentUuid: "00000000-0000-0000-0000-9132b281303c",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -544,7 +549,7 @@ test("parseSession() does not emit model_change when consecutive assistant envel
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "two" }],
       },
-      uuid: "u-mc-c",
+      uuid: "00000000-0000-0000-0000-62def5597eaf",
       timestamp: "2026-05-17T19:01:02.000Z",
       sessionId: "s",
       version: "v",
@@ -562,13 +567,13 @@ test("parseSession() marks the model_change entry with source.synthesized = true
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-syn-1",
+      uuid: "00000000-0000-0000-0000-e7535eef58ea",
       timestamp: "2026-05-17T19:02:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-syn-1",
+      parentUuid: "00000000-0000-0000-0000-e7535eef58ea",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -576,13 +581,13 @@ test("parseSession() marks the model_change entry with source.synthesized = true
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-syn-2",
+      uuid: "00000000-0000-0000-0000-e85cb2d828ec",
       timestamp: "2026-05-17T19:02:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-syn-2",
+      parentUuid: "00000000-0000-0000-0000-e85cb2d828ec",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -590,7 +595,7 @@ test("parseSession() marks the model_change entry with source.synthesized = true
         model: "claude-sonnet-4-5",
         content: [{ type: "text", text: "two" }],
       },
-      uuid: "u-syn-3",
+      uuid: "00000000-0000-0000-0000-53486fd8f3d0",
       timestamp: "2026-05-17T19:02:02.000Z",
       sessionId: "s",
       version: "v",
@@ -609,13 +614,13 @@ test("parseSession() does not emit model_change for the first assistant envelope
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-fm-1",
+      uuid: "00000000-0000-0000-0000-f272dc649c16",
       timestamp: "2026-05-17T19:03:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-fm-1",
+      parentUuid: "00000000-0000-0000-0000-f272dc649c16",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -623,7 +628,7 @@ test("parseSession() does not emit model_change for the first assistant envelope
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-fm-2",
+      uuid: "00000000-0000-0000-0000-f255c4f8a0c1",
       timestamp: "2026-05-17T19:03:01.000Z",
       sessionId: "s",
       version: "v",
@@ -652,12 +657,17 @@ test("parseSession() emits one model_change per shift across opus -> sonnet -> o
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-bf-0",
+      uuid: "00000000-0000-0000-0000-f16c2f53a0c9",
       timestamp: "2026-05-17T20:00:00.000Z",
       sessionId: "s",
       version: "v",
     }),
-    mkAssistant("u-bf-1", "u-bf-0", "claude-opus-4-7", "2026-05-17T20:00:01.000Z"),
+    mkAssistant(
+      "u-bf-1",
+      "00000000-0000-0000-0000-f16c2f53a0c9",
+      "claude-opus-4-7",
+      "2026-05-17T20:00:01.000Z",
+    ),
     mkAssistant("u-bf-2", "u-bf-1", "claude-sonnet-4-5", "2026-05-17T20:00:02.000Z"),
     mkAssistant("u-bf-3", "u-bf-2", "claude-opus-4-7", "2026-05-17T20:00:03.000Z"),
   ].join("\n")}\n`;
@@ -693,12 +703,17 @@ test("parseSession() emits model_change for three distinct models in sequence", 
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-3m-0",
+      uuid: "00000000-0000-0000-0000-bc8b0b6e8f1e",
       timestamp: "2026-05-17T20:10:00.000Z",
       sessionId: "s",
       version: "v",
     }),
-    mkAssistant("u-3m-1", "u-3m-0", "claude-opus-4-7", "2026-05-17T20:10:01.000Z"),
+    mkAssistant(
+      "u-3m-1",
+      "00000000-0000-0000-0000-bc8b0b6e8f1e",
+      "claude-opus-4-7",
+      "2026-05-17T20:10:01.000Z",
+    ),
     mkAssistant("u-3m-2", "u-3m-1", "claude-sonnet-4-5", "2026-05-17T20:10:02.000Z"),
     mkAssistant("u-3m-3", "u-3m-2", "claude-haiku-4-5", "2026-05-17T20:10:03.000Z"),
   ].join("\n")}\n`;
@@ -718,13 +733,13 @@ test("parseSession() does not update prevModel for assistant envelopes missing m
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-nm-0",
+      uuid: "00000000-0000-0000-0000-08ea6db7713d",
       timestamp: "2026-05-17T20:20:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-nm-0",
+      parentUuid: "00000000-0000-0000-0000-08ea6db7713d",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -732,23 +747,23 @@ test("parseSession() does not update prevModel for assistant envelopes missing m
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-nm-1",
+      uuid: "00000000-0000-0000-0000-d18fd025dcc9",
       timestamp: "2026-05-17T20:20:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-nm-1",
+      parentUuid: "00000000-0000-0000-0000-d18fd025dcc9",
       isSidechain: false,
       type: "assistant",
       message: { role: "assistant", content: [{ type: "text", text: "no-model" }] },
-      uuid: "u-nm-2",
+      uuid: "00000000-0000-0000-0000-5d2c43766d2c",
       timestamp: "2026-05-17T20:20:02.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-nm-2",
+      parentUuid: "00000000-0000-0000-0000-5d2c43766d2c",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -756,7 +771,7 @@ test("parseSession() does not update prevModel for assistant envelopes missing m
         model: "claude-sonnet-4-5",
         content: [{ type: "text", text: "two" }],
       },
-      uuid: "u-nm-3",
+      uuid: "00000000-0000-0000-0000-476b27563514",
       timestamp: "2026-05-17T20:20:03.000Z",
       sessionId: "s",
       version: "v",
@@ -779,13 +794,13 @@ test("parseSession() does not throw or emit model_change when an assistant envel
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-no-1",
+      uuid: "00000000-0000-0000-0000-c8feeb8026f3",
       timestamp: "2026-05-17T21:00:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-no-1",
+      parentUuid: "00000000-0000-0000-0000-c8feeb8026f3",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -793,13 +808,13 @@ test("parseSession() does not throw or emit model_change when an assistant envel
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-no-2",
+      uuid: "00000000-0000-0000-0000-2956eef5170f",
       timestamp: "2026-05-17T21:00:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-no-2",
+      parentUuid: "00000000-0000-0000-0000-2956eef5170f",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -826,13 +841,13 @@ test("parseSession() does not advance prevModel when an assistant envelope produ
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-pv-0",
+      uuid: "00000000-0000-0000-0000-3ec3494d045f",
       timestamp: "2026-05-17T21:10:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-pv-0",
+      parentUuid: "00000000-0000-0000-0000-3ec3494d045f",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -840,14 +855,14 @@ test("parseSession() does not advance prevModel when an assistant envelope produ
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-pv-1",
+      uuid: "00000000-0000-0000-0000-4e9eb3ebf18d",
       timestamp: "2026-05-17T21:10:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     // Sonnet envelope dropped: missing timestamp -> buildEntries returns [].
     JSON.stringify({
-      parentUuid: "u-pv-1",
+      parentUuid: "00000000-0000-0000-0000-4e9eb3ebf18d",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -855,13 +870,13 @@ test("parseSession() does not advance prevModel when an assistant envelope produ
         model: "claude-sonnet-4-5",
         content: [{ type: "text", text: "lost" }],
       },
-      uuid: "u-pv-2",
+      uuid: "00000000-0000-0000-0000-0e9103efa0f6",
       sessionId: "s",
       version: "v",
     }),
     // Next opus envelope must NOT emit a model_change because sonnet was never visible.
     JSON.stringify({
-      parentUuid: "u-pv-2",
+      parentUuid: "00000000-0000-0000-0000-0e9103efa0f6",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -869,7 +884,7 @@ test("parseSession() does not advance prevModel when an assistant envelope produ
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "three" }],
       },
-      uuid: "u-pv-3",
+      uuid: "00000000-0000-0000-0000-855d660e5686",
       timestamp: "2026-05-17T21:10:03.000Z",
       sessionId: "s",
       version: "v",
@@ -887,13 +902,13 @@ test("parseSession() records the synthesized model_change with source.original_t
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-ot-0",
+      uuid: "00000000-0000-0000-0000-21341a1eb2c2",
       timestamp: "2026-05-17T21:20:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-ot-0",
+      parentUuid: "00000000-0000-0000-0000-21341a1eb2c2",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -901,13 +916,13 @@ test("parseSession() records the synthesized model_change with source.original_t
         model: "claude-opus-4-7",
         content: [{ type: "text", text: "one" }],
       },
-      uuid: "u-ot-1",
+      uuid: "00000000-0000-0000-0000-d56f9fd9310b",
       timestamp: "2026-05-17T21:20:01.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-ot-1",
+      parentUuid: "00000000-0000-0000-0000-d56f9fd9310b",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -915,7 +930,7 @@ test("parseSession() records the synthesized model_change with source.original_t
         model: "claude-sonnet-4-5",
         content: [{ type: "text", text: "two" }],
       },
-      uuid: "u-ot-2",
+      uuid: "00000000-0000-0000-0000-50b6774c89e0",
       timestamp: "2026-05-17T21:20:02.000Z",
       sessionId: "s",
       version: "v",
@@ -934,13 +949,13 @@ test("parseSession() emits agent_thinking for a thinking block with empty text b
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "u-sig-1",
+      uuid: "00000000-0000-0000-0000-dd737d1f4015",
       timestamp: "2026-05-17T19:04:00.000Z",
       sessionId: "s",
       version: "v",
     }),
     JSON.stringify({
-      parentUuid: "u-sig-1",
+      parentUuid: "00000000-0000-0000-0000-dd737d1f4015",
       isSidechain: false,
       type: "assistant",
       message: {
@@ -948,14 +963,14 @@ test("parseSession() emits agent_thinking for a thinking block with empty text b
         model: "claude-opus-4-7",
         content: [{ type: "thinking", thinking: "", signature: "synthetic-sig-token" }],
       },
-      uuid: "u-sig-2",
+      uuid: "00000000-0000-0000-0000-d73659702ebf",
       timestamp: "2026-05-17T19:04:01.000Z",
       sessionId: "s",
       version: "v",
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const thinking = trail.entries.find((e) => e.id === "u-sig-2");
+  const thinking = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-d73659702ebf");
   expect(thinking?.type).toBe("agent_thinking");
   expect(thinking?.payload).toEqual({ text: "", model: "claude-opus-4-7" });
 });
@@ -971,60 +986,72 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
 
 test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {
   const trail = await parseFidelityFixture();
-  const ids = trail.entries.map((e) => e.id);
-  expect(ids.slice(0, 6)).toEqual([
-    "00000000-0000-0000-0000-aaaaaaaaaa11",
-    "00000000-0000-0000-0000-aaaaaaaaaa12-text-0",
-    "00000000-0000-0000-0000-aaaaaaaaaa12-thinking-1",
-    "00000000-0000-0000-0000-aaaaaaaaaa12-redacted_thinking-2",
-    "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
-    "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
+  // Multi-block envelopes mint fresh UUIDs per block (see entry-metadata.ts);
+  // assert source order + types instead of specific compound id strings. Block
+  // call_ids preserved via semantic.call_id remain stable across runs.
+  const types = trail.entries.slice(0, 6).map((e) => e.type);
+  expect(types).toEqual([
+    "user_message",
+    "agent_message",
+    "agent_thinking",
+    "agent_thinking",
+    "tool_call",
+    "tool_call",
   ]);
 
-  const text = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-text-0");
+  const text = trail.entries[1];
   expect(text?.type).toBe("agent_message");
   expect(text?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa11");
 
-  const thinking = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-thinking-1",
-  );
+  const thinking = trail.entries[2];
   expect(thinking?.type).toBe("agent_thinking");
-  expect(thinking?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa12-text-0");
+  expect(thinking?.parent_id).toBe(text?.id);
 
   const read = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-read",
   );
-  expect(read?.type).toBe("tool_call");
+  expect(read).toBeDefined();
   expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
   expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
   const bash = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
   );
-  expect(bash?.type).toBe("tool_call");
+  expect(bash).toBeDefined();
   expect(bash?.payload).toEqual({ tool: "shell_command", args: { command: "bun run check" } });
-  expect(bash?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3");
+  expect(bash?.parent_id).toBe(read?.id);
 });
 
 test("parseSession() emits multiple tool_results with error state and semantic pairing", async () => {
   const trail = await parseFidelityFixture();
-  const readResult = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa13-tool_result-1",
+  // tool_call and tool_result block ids are fresh UUIDs at runtime, but the
+  // tool_call's id is preserved as for_id on the paired tool_result. Pair by
+  // semantic.call_id and verify the for_id linkage.
+  const readCall = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-read",
   );
+  const readResult = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-read",
+  );
+  expect(readCall).toBeDefined();
   expect(readResult?.type).toBe("tool_result");
   expect(readResult?.payload).toEqual({
-    for_id: "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
+    for_id: readCall?.id,
     ok: true,
     output: '{"name":"agent-trail"}',
   });
   expect(readResult?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
-  const bashResult = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa13-tool_result-2",
+  const bashCall = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
   );
+  const bashResult = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-bash",
+  );
+  expect(bashCall).toBeDefined();
   expect(bashResult?.type).toBe("tool_result");
   expect(bashResult?.payload).toEqual({
-    for_id: "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
+    for_id: bashCall?.id,
     ok: false,
     output: "error: synthetic check failure",
     error: "error: synthetic check failure",
@@ -1066,15 +1093,17 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
 
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
   const trail = await parseInterruptModelFixture();
-  const ids = trail.entries.map((e) => e.id);
-  expect(ids).toEqual([
-    "00000000-0000-0000-0000-111111111111",
-    "00000000-0000-0000-0000-111111111112",
-    "00000000-0000-0000-0000-111111111113",
-    "00000000-0000-0000-0000-111111111114",
-    "00000000-0000-0000-0000-111111111115-model_change",
-    "00000000-0000-0000-0000-111111111115",
-    "00000000-0000-0000-0000-111111111116",
+  // Synthesized model_change id is a fresh UUID at runtime; assert the
+  // sequence by type so the random id doesn't break the test.
+  const types = trail.entries.map((e) => e.type);
+  expect(types).toEqual([
+    "user_message",
+    "agent_message",
+    "user_interrupt",
+    "user_message",
+    "model_change",
+    "agent_message",
+    "agent_message",
   ]);
 
   const interrupt = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-111111111113");
@@ -1082,9 +1111,7 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
   expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
   expect(interrupt?.parent_id).toBe("00000000-0000-0000-0000-111111111112");
 
-  const modelChange = trail.entries.find(
-    (e) => e.id === "00000000-0000-0000-0000-111111111115-model_change",
-  );
+  const modelChange = trail.entries.find((e) => e.type === "model_change");
   expect(modelChange?.type).toBe("model_change");
   expect(modelChange?.payload).toEqual({
     from_model: "claude-opus-4-7",
@@ -1151,7 +1178,7 @@ test("block-derived entries from the same assistant envelope dedup via envelope_
       cwd: "/tmp/synthetic",
     }),
     JSON.stringify({
-      uuid: "u-eref-1",
+      uuid: "00000000-0000-0000-0000-5c5bd01a113b",
       parentUuid: null,
       timestamp: "2026-05-21T16:00:01.000Z",
       type: "user",
@@ -1159,8 +1186,8 @@ test("block-derived entries from the same assistant envelope dedup via envelope_
       message: { role: "user", content: "go" },
     }),
     JSON.stringify({
-      uuid: "a-eref-1",
-      parentUuid: "u-eref-1",
+      uuid: "00000000-0000-0000-0000-25889ee230bc",
+      parentUuid: "00000000-0000-0000-0000-5c5bd01a113b",
       timestamp: "2026-05-21T16:00:02.000Z",
       type: "assistant",
       sessionId: "sess-eref",
@@ -1175,13 +1202,18 @@ test("block-derived entries from the same assistant envelope dedup via envelope_
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const first = trail.entries.find((e) => e.id === "a-eref-1-text-0");
-  const second = trail.entries.find((e) => e.id === "a-eref-1-text-1");
-  const toolCall = trail.entries.find((e) => e.id === "a-eref-1-tool_use-2");
+  // Block ids are fresh UUIDs at runtime. The dedup contract is positional:
+  // the first block-derived entry inlines its source.raw.envelope, and later
+  // block-derived entries reference back to it via source.raw.envelope_ref.
+  const assistantBlocks = trail.entries.filter((e) =>
+    ["agent_message", "agent_thinking", "tool_call"].includes(e.type),
+  );
+  expect(assistantBlocks.length).toBe(3);
+  const first = assistantBlocks[0];
   const firstRaw = first?.source?.raw as Record<string, unknown>;
   expect(firstRaw.envelope).toBeDefined();
   expect(firstRaw.envelope_ref).toBeUndefined();
-  for (const later of [second, toolCall]) {
+  for (const later of assistantBlocks.slice(1)) {
     const raw = later?.source?.raw as Record<string, unknown>;
     expect(raw.envelope_ref).toBe(first?.id);
     expect(raw.envelope).toBeUndefined();
@@ -1293,7 +1325,7 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       isSidechain: false,
       type: "user",
       message: { role: "user", content: "hi" },
-      uuid: "cc-vcs-1",
+      uuid: "00000000-0000-0000-0000-0ea0d628f3cb",
       timestamp: "2026-05-17T14:00:05.000Z",
       sessionId: "sess-cc-vcs",
       version: "1.0.0-synthetic",

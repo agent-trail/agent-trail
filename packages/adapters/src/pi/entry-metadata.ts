@@ -69,11 +69,14 @@ export function entryId(envelope: PiEnvelope, suffix?: string): string {
 
 export function blockId(
   envelope: PiEnvelope,
-  kind: string,
-  index: number,
+  _kind: string,
+  _index: number,
   totalBlocks: number,
 ): string {
-  return totalBlocks === 1 ? entryId(envelope) : entryId(envelope, `${kind}-${index}`);
+  // See claude-code/entry-metadata.ts: multi-block envelopes mint a fresh UUID
+  // per block so each trail event id remains a valid ULID/UUID. Source ids and
+  // per-block disambiguation live on `source.raw`.
+  return totalBlocks === 1 ? entryId(envelope) : crypto.randomUUID();
 }
 
 // Per-event audit tag (`metadata["dev.pi.raw_type"]`) recording which source variant produced

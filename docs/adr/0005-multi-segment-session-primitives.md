@@ -25,12 +25,13 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - The graph validator is unchanged in this slice. Reconciliation is a separate library API and CLI behaviour to land alongside #84-style follow-ups.
 - Existing adapter parsers and graph rules are unaffected; the new fields are inert until consumers opt in.
 - Spec §8.5 documents the primitives and the 6-step reconciliation algorithm.
-- Deferred to follow-up: `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, tightening of event `id` to a strict ULID-or-UUID union.
+- Landed in the reconciler follow-up (see ADR-0006): `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, tightening of event `id` to a strict ULID-or-UUID union.
+- Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, deterministic `session_uid` derivation from upstream source identifiers.
 
-**Bootstrap risk**: Spec §8.5 says writers SHOULD emit `session_uid` even for single-segment trails, but the claude-code and pi adapters in this PR were intentionally not updated to emit it (the session_uid-required attempt cascaded into broader adapter rework — see "Considered Options" above). Consequence: the v0.1 trail corpus has zero real-world `session_uid` coverage until adapters are updated. The reconciler follow-up PR MUST land adapter `session_uid` emission alongside the library, or reconciliation will only work on synthetic fixtures.
+**Bootstrap risk** (closed by the reconciler follow-up — see ADR-0006): the claude-code and pi adapters now mint a fresh `session_uid` via `crypto.randomUUID()` on every session, so the v0.1 corpus carries real-world coverage.
 
-Note that for the **multi-segment** case (`segment.seq >= 2`), the schema now enforces `session_uid` as required via an `if/then` block on the header. This closes the documented gap for continuation segments without requiring single-segment adapters to emit `session_uid`. v0.1 ships no real multi-segment writers, so this enforcement bites only synthetic fixtures and any future writer that opts into multi-segment emission.
+Note that for the **multi-segment** case (`segment.seq >= 2`), the schema enforces `session_uid` as required via an `if/then` block on the header. This closes the documented gap for continuation segments. v0.1 ships no real multi-segment writers, so this enforcement bites only synthetic fixtures and any future writer that opts into multi-segment emission.
 
-**Event-id uniqueness gap**: Spec §8.5 step 4 says writers MUST emit globally-unique event ids if their output is intended for reconciliation, but the schema only enforces `minLength: 4`. This is a writer-side contract with no validator enforcement in v0.1. The reconciler follow-up PR is expected to close the gap with a `event_id_not_globally_unique` validator warning and/or a tighter event-id regex bundled with the adapter id-format migration.
+**Event-id uniqueness gap** (closed by the reconciler follow-up — see ADR-0006): the schema now constrains every `id` to the ULID-or-UUID shape so cross-segment reconciliation can dedup by string equality.
 
-Tracks #73 spec contract. Reconciler implementation and `trail load` integration land in a follow-up issue.
+Tracks #73 spec contract. Reconciler implementation and `trail load` integration shipped in the follow-up — see ADR-0006.

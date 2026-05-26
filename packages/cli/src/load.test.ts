@@ -344,3 +344,109 @@ test("--out to a directory: exits 1, no register attempted", async () => {
     rmSync(outDir, { recursive: true, force: true });
   }
 });
+
+test("reconcile: second load with matching session_uid merges segments, summary line emitted", async () => {
+  const sessionUid = "01HSESSXD1111111111111111Z";
+
+  // Seg-1: header + user_message, stamped with real content_hash.
+  const seg1Header = (content_hash?: string): Record<string, unknown> => {
+    const h: Record<string, unknown> = {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      session_uid: sessionUid,
+      segment: { seq: 1 },
+      ts: "2026-05-26T10:00:00.000Z",
+      agent: { name: "codex-cli" },
+    };
+    if (content_hash !== undefined) h.content_hash = content_hash;
+    return h;
+  };
+  const seg1User = {
+    type: "user_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-26T10:00:05.000Z",
+    payload: { text: "hi from seg1" },
+  };
+
+  const draft1 = `${JSON.stringify(seg1Header())}\n${JSON.stringify(seg1User)}\n`;
+  const seg1Hash = computeContentHash(await parseJsonlString(draft1));
+  const seg1Canonical = canonicalizeRecords(
+    await parseJsonlString(
+      `${JSON.stringify(seg1Header(seg1Hash))}\n${JSON.stringify(seg1User)}\n`,
+    ),
+  );
+  const seg1Payload = Buffer.from(
+    gzipSync(Buffer.from(seg1Canonical, "utf8")).toString("base64"),
+    "ascii",
+  );
+
+  // Seg-2: continuation with valid chain back to seg-1.
+  const seg2Header = (content_hash?: string): Record<string, unknown> => {
+    const h: Record<string, unknown> = {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000002",
+      session_uid: sessionUid,
+      segment: { seq: 2, prev_content_hash: seg1Hash },
+      ts: "2026-05-26T10:05:00.000Z",
+      agent: { name: "codex-cli" },
+    };
+    if (content_hash !== undefined) h.content_hash = content_hash;
+    return h;
+  };
+  const seg2Agent = {
+    type: "agent_message",
+    id: "01HEVTA0000000000000000002",
+    ts: "2026-05-26T10:05:05.000Z",
+    payload: { text: "continuing" },
+  };
+  const draft2 = `${JSON.stringify(seg2Header())}\n${JSON.stringify(seg2Agent)}\n`;
+  const seg2Hash = computeContentHash(await parseJsonlString(draft2));
+  const seg2Canonical = canonicalizeRecords(
+    await parseJsonlString(
+      `${JSON.stringify(seg2Header(seg2Hash))}\n${JSON.stringify(seg2Agent)}\n`,
+    ),
+  );
+  const seg2Payload = Buffer.from(
+    gzipSync(Buffer.from(seg2Canonical, "utf8")).toString("base64"),
+    "ascii",
+  );
+
+  // First load: register seg-1 by itself.
+  const first = await runLoad(["https://gist.github.com/u/abc123def4567890abcd"], {
+    storeRoot,
+    gistFetch: fakeFetcher(seg1Payload, "seg1.trail.jsonl.gz.b64"),
+  });
+  expect(first.exitCode).toBe(0);
+  expect(first.stdout).toContain("Status: finalized");
+  // No reconcile on the first segment (no prior match in store).
+  expect(first.stdout).not.toContain("Reconciled:");
+
+  // Second load: incoming seg-2 carries matching session_uid → reconciler merges.
+  const second = await runLoad(["https://gist.github.com/u/0011223344556677aabb"], {
+    storeRoot,
+    gistFetch: fakeFetcher(seg2Payload, "seg2.trail.jsonl.gz.b64"),
+  });
+  expect(second.exitCode).toBe(0);
+  expect(second.stdout).toContain("Reconciled: 2 segments");
+  expect(second.stdout).toContain(`session_uid ${sessionUid}`);
+
+  // The store now contains a third object: the merged trail. Verify by
+  // reading the registered object referenced in the second-load stdout.
+  const hashMatch = /Loaded: [0-9a-f]+ \(([0-9a-f]{64})\)/.exec(second.stdout);
+  expect(hashMatch).not.toBeNull();
+  const mergedHash = (hashMatch ?? [])[1] as string;
+  const objectPath = join(storeRoot, "objects", "sha256", `${mergedHash}.trail.jsonl`);
+  const mergedBytes = await readFile(objectPath, "utf8");
+  const mergedRecords = await parseJsonlString(mergedBytes);
+  // Merged header has no segment.* per spec §8.5 step 6.
+  const header = mergedRecords[0]?.value as Record<string, unknown>;
+  expect(header.segment).toBeUndefined();
+  expect(header.session_uid).toBe(sessionUid);
+  // ts is preserved from seg-1 (real session start).
+  expect(header.ts).toBe("2026-05-26T10:00:00.000Z");
+  // Both event ids present.
+  const ids = mergedRecords.slice(1).map((r) => (r.value as { id: string }).id);
+  expect(ids).toEqual(["01HEVTA0000000000000000001", "01HEVTA0000000000000000002"]);
+});

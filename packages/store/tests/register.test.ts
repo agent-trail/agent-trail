@@ -252,7 +252,12 @@ test("registerTrail throws IndexCorruptError when index/objects.json entries is 
 test("four concurrent registerTrail calls for distinct hashes produce four index entries", async () => {
   const inputDir = mkdtempSync(join(tmpdir(), "trail-store-concurrent-"));
   const fixtures = await Promise.all(
-    ["sessA", "sessB", "sessC", "sessD"].map((id) => writeFinalizedFixture(inputDir, id)),
+    [
+      "01HSESS00000000000000000AA",
+      "01HSESS00000000000000000BB",
+      "01HSESS00000000000000000CC",
+      "01HSESS00000000000000000DD",
+    ].map((id) => writeFinalizedFixture(inputDir, id)),
   );
 
   const results = await Promise.all(fixtures.map((f) => registerTrail(f.path, { storeRoot })));
@@ -280,7 +285,10 @@ async function writeFinalizedFixture(
   };
   const event = {
     type: "user_message",
-    id: `${sessionId}-evt1`,
+    // Derive a per-session event id that satisfies the ULID/UUID id regex by
+    // swapping the prefix in a fixed-length canonical ULID. Concatenation
+    // (`${sessionId}-evt1`) would produce an invalid compound id.
+    id: `01HEVT${sessionId.slice(7, 26)}A`,
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text: "hi" },
   };

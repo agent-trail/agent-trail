@@ -588,7 +588,7 @@ test("accepts a session_end event with reason complete", () => {
     raw: "",
     value: {
       type: "session_end",
-      id: "evtend",
+      id: "01HEVTEND00000000000000001",
       ts: "2026-05-17T14:00:08.000Z",
       payload: { reason: "complete", final_message_id: "01HEVTA0000000000000000002" },
     },
@@ -603,7 +603,7 @@ test("rejects a session_end event missing required reason", () => {
     raw: "",
     value: {
       type: "session_end",
-      id: "evtend",
+      id: "01HEVTEND00000000000000001",
       ts: "2026-05-17T14:00:08.000Z",
       payload: {},
     },
@@ -624,7 +624,7 @@ test("rejects a session_end event with reason outside the enum", () => {
     raw: "",
     value: {
       type: "session_end",
-      id: "evtend",
+      id: "01HEVTEND00000000000000001",
       ts: "2026-05-17T14:00:08.000Z",
       payload: { reason: "absolutely_done" },
     },
@@ -673,7 +673,7 @@ test("warns when stream.state is open and the file contains a session_end event"
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
       '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000001","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
   );
 
@@ -691,8 +691,8 @@ test("warns when stream.state is open and the file contains a session_terminated
   const diagnostics = await validateTrailString(
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"tool_call","id":"01HEVTC1000000000000000A1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"shell_command","args":{"command":"sleep 99"}}}',
-      '{"type":"session_terminated","id":"01HEVTTERM0000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"process_terminated","open_call_ids":["evtc1"]}}',
+      '{"type":"tool_call","id":"01HEVTC10000000000000001AC","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"shell_command","args":{"command":"sleep 99"}}}',
+      '{"type":"session_terminated","id":"01HEVTTERM00000000000001AB","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"process_terminated","open_call_ids":["evtc1"]}}',
     ].join("\n"),
   );
 
@@ -711,7 +711,7 @@ test("reader-tolerant profile preserves stream_open_with_terminal_event warning"
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
       '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000001","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
     { profile: "reader-tolerant" },
   );
@@ -732,7 +732,7 @@ test("accepts a system_event with kind heartbeat as a streaming liveness ping", 
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
       '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"system_event","id":"01HEVTBEAT00000000000001","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"heartbeat","data":{"interval_ms":30000}}}',
+      '{"type":"system_event","id":"01HEVTBEAT0000000000000001","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"heartbeat","data":{"interval_ms":30000}}}',
     ].join("\n"),
   );
 
@@ -744,7 +744,7 @@ test("does not warn when stream.state is closed and the file contains session_en
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
       '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000001","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
   );
 
@@ -868,7 +868,7 @@ test("finalized streaming artifact with matching content_hash validates clean", 
   };
   const endValue: Record<string, unknown> = {
     type: "session_end",
-    id: "evtend",
+    id: "01HEVTEND00000000000000001",
     ts: "2026-05-17T14:00:08.000Z",
     payload: { reason: "complete", final_message_id: "01HEVTA0000000000000000002" },
   };
@@ -1292,8 +1292,8 @@ test("rejects a trail envelope at line 1 not followed by a session header", asyn
 test("rejects envelope and session sharing the same id", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"01HEVTDUP10000000000000A1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
-      '{"type":"session","schema_version":"0.1.0","id":"01HEVTDUP10000000000000A1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HEVTDUP10000000000000000","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HEVTDUP10000000000000000","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1302,7 +1302,7 @@ test("rejects envelope and session sharing the same id", async () => {
     path: "/id",
     severity: "error",
     code: "duplicate_id",
-    message: 'Duplicate id "01HEVTDUP10000000000000A1"; first seen on line 1',
+    message: 'Duplicate id "01HEVTDUP10000000000000000"; first seen on line 1',
   });
 });
 

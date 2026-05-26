@@ -43,9 +43,9 @@ Agent Trail defines a portable file format for coding agent sessions, so any com
 The smallest valid Agent Trail file:
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
-{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
-{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
 ```
 
 Line 1 is the header. Lines 2 and on are events. Everything else is optional structure layered on top.
@@ -142,7 +142,7 @@ Writer schemas are exact per release: the v0.1.0 writer schema requires `schema_
 
 ### 7.1 Session identity
 
-Every session has a local identifier `id` in the header. UUID, ULID, or any 4+ char unique string. Writers use this for in-progress sessions. It is not required to be globally unique outside the file.
+Every session has a local identifier `id` in the header. ULID (26 Crockford base32 chars, case-insensitive) or UUID (RFC 4122, hyphenated or unhyphenated). The schema enforces this shape so cross-segment reconciliation can dedup events by id; older v0.1 fixtures whose ids were free-form strings have been migrated.
 
 ### 7.2 Artifact classes
 
@@ -188,7 +188,7 @@ Writers that emit both hashes MUST stamp the session-level hash first, then comp
 
 ### 7.5 Event identifiers
 
-Event `id` values are unique within the file. They do not need to be globally unique. Recommended: 8+ characters, hex or alphanumeric.
+Event `id` values are globally unique. The schema enforces a ULID-or-UUID shape (see §7 / §17). Globally-unique ids let a reconciler dedup events across segments by exact string equality (spec §8.5 step 4).
 
 ---
 
@@ -321,7 +321,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 |---|---|---|---|
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
-| `id` | yes | string | UUID, ULID, or 4+ char alphanumeric |
+| `id` | yes | string | UUID or ULID per §7.1/§17 |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
 | `stream` | no | object | live-capture marker; see §8.4 |
@@ -384,7 +384,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). In v0.1 adapters do not yet emit `session_uid` for single-segment trails; that is planned alongside the reconciler implementation (#73 follow-up).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). The bundled claude-code and pi adapters emit a fresh `session_uid` per session via `crypto.randomUUID()` so the v0.1 corpus carries real coverage.
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -397,13 +397,14 @@ A reader presented with two or more segment trail files for one source session r
 1. Group input files by `header.session_uid`.
 2. Sort each group ascending by `header.segment.seq`.
 3. Verify chain: for each segment with `seq > 1`, check that `header.segment.prev_content_hash` matches the previous segment's `header.content_hash`. Mismatch is a `segment_chain_mismatch` warning, not an error — readers MAY continue with the rest of the merge.
-4. Concatenate events. Dedupe by event `id` (set membership) when ids are globally unique. Writers MUST emit globally-unique event ids if they intend their output to be reconciled. v0.1 enforces only `minLength: 4` on the schema; the global-uniqueness invariant is a writer-side contract until the follow-up issue lands a validator warning + reconciler that surfaces violations.
+4. Concatenate events. Dedupe by event `id` (set membership). The schema enforces a ULID-or-UUID shape on every `id`, so cross-segment reconciliation can rely on string equality without further normalisation.
 5. Drop intermediate `session_terminated` events with `payload.reason == "process_terminated"` — those are crash markers from killed writers; only the final terminator (if any) is kept.
 6. Emit one merged trail with a single header. The merged header is assembled field-by-field across segments:
    - `ts` (session start time) comes from the lowest-`seq` segment (seg-1 represents the real start of the source session, not the most recent resume).
    - `stream`, `content_hash`, `vcs`, `cwd`, `agent.version`, `meta`, and any other late-binding metadata come from the highest-`seq` segment (these reflect the session's final or most recent observed state).
    - `id`, `type`, `schema_version`, `agent.name`, and `session_uid` are stable across segments by definition; readers SHOULD warn if they diverge.
    - `segment.*` fields are dropped from the merged header (the merge collapses the segment chain into one logical session).
+   - Fields not enumerated above (e.g. `source`, vendor-namespaced extensions, future reserved fields) late-bind by default: readers SHOULD prefer the highest-`seq` segment's value. The default-late-binding rule keeps schema growth additive — new fields don't need a spec update to be reconciled. See [ADR-0006](docs/adr/0006-multi-segment-reconciler-and-id-tightening.md) for implementation notes, including the `agent.name` sub-field treatment when the rest of `agent.*` late-binds.
 
 Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
 
@@ -454,7 +455,7 @@ Every event entry has this base shape:
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | `type` | yes | string | event type; see §9.2-9.3 |
-| `id` | yes | string | unique within the file |
+| `id` | yes | string | globally unique; ULID or UUID per §17 |
 | `parent_id` | no | string | references another `id` for tree topology; absent = linear file order |
 | `ts` | yes | string | ISO-8601 timestamp |
 | `payload` | yes | object | type-specific data |
@@ -1100,60 +1101,60 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 ### 18.1 Session with tool calls and semantic pairing
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess2","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtb1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
-{"type":"tool_call","id":"evtb2","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
-{"type":"tool_result","id":"evtb3","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"evtb2","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
-{"type":"agent_message","id":"evtb4","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTB0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
+{"type":"tool_call","id":"01HEVTB0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
+{"type":"tool_result","id":"01HEVTB0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"01HEVTB0000000000000000002","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
+{"type":"agent_message","id":"01HEVTB0000000000000000004","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}
 ```
 
 ### 18.2 Tool result with missing for_id (fallback pairing)
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess2b","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtx1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Read package.json"}}
-{"type":"tool_call","id":"evtx2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_xyz"}}
-{"type":"tool_result","id":"evtx3","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_xyz"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000002B","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTX0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Read package.json"}}
+{"type":"tool_call","id":"01HEVTX0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_xyz"}}
+{"type":"tool_result","id":"01HEVTX0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_xyz"}}
 ```
 
-The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
+The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` via `semantic.call_id` (rule §9.5 step 1).
 
 ### 18.3 Tree with abandoned branch
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess3","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"pi"}}
-{"type":"user_message","id":"evtc1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Try approach A"}}
-{"type":"agent_message","id":"evtc2","parent_id":"evtc1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Approach A: ..."}}
-{"type":"user_message","id":"evtc3","parent_id":"evtc1","ts":"2026-05-17T14:01:00.000Z","payload":{"text":"Actually, try approach B"}}
-{"type":"branch_summary","id":"evtc4","parent_id":"evtc3","ts":"2026-05-17T14:01:01.000Z","payload":{"abandoned_branch_id":"evtc2","summary":"Approach A explored but didn't work because of X"}}
-{"type":"agent_message","id":"evtc5","parent_id":"evtc4","ts":"2026-05-17T14:01:05.000Z","payload":{"text":"For approach B: ..."}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000003","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"pi"}}
+{"type":"user_message","id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Try approach A"}}
+{"type":"agent_message","id":"01HEVTC0000000000000000002","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Approach A: ..."}}
+{"type":"user_message","id":"01HEVTC0000000000000000003","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:01:00.000Z","payload":{"text":"Actually, try approach B"}}
+{"type":"branch_summary","id":"01HEVTC0000000000000000004","parent_id":"01HEVTC0000000000000000003","ts":"2026-05-17T14:01:01.000Z","payload":{"abandoned_branch_id":"01HEVTC0000000000000000002","summary":"Approach A explored but didn't work because of X"}}
+{"type":"agent_message","id":"01HEVTC0000000000000000005","parent_id":"01HEVTC0000000000000000004","ts":"2026-05-17T14:01:05.000Z","payload":{"text":"For approach B: ..."}}
 ```
 
 ### 18.4 Synthesized event (Aider)
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess4","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"aider"},"vcs":{"type":"git","revision":"a1b2c3d4..."}}
-{"type":"user_message","id":"evtd1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
-{"type":"agent_message","id":"evtd2","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
-{"type":"tool_call","id":"evtd3","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"aider","original_type":"git_commit_diff","synthesized":true}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"aider"},"vcs":{"type":"git","revision":"a1b2c3d4..."}}
+{"type":"user_message","id":"01HEVTD0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
+{"type":"agent_message","id":"01HEVTD0000000000000000002","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
+{"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"aider","original_type":"git_commit_diff","synthesized":true}}
 ```
 
 ### 18.5 Incomplete session
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess6","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtf1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Run the test suite"}}
-{"type":"tool_call","id":"evtf2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"shell_command","args":{"command":"npm test"}}}
-{"type":"session_terminated","id":"evtf3","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["evtf2"]},"source":{"synthesized":true}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000006","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTF0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Run the test suite"}}
+{"type":"tool_call","id":"01HEVTF0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"shell_command","args":{"command":"npm test"}}}
+{"type":"session_terminated","id":"01HEVTF0000000000000000003","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["01HEVTF0000000000000000002"]},"source":{"synthesized":true}}
 ```
 
 ### 18.6 MCP call
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess5","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evte1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Find my open Linear issues"}}
-{"type":"tool_call","id":"evte2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"mcp_call","args":{"server":"linear","tool":"list_issues","args":{"status":"open","assignee":"me"},"headers":{"Authorization":"[REDACTED]"}}}}
-{"type":"tool_result","id":"evte3","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"evte2","ok":true,"output":"[{\"id\":\"ABC-123\",\"title\":\"Fix auth\"}]"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000005","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTE0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Find my open Linear issues"}}
+{"type":"tool_call","id":"01HEVTE0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"mcp_call","args":{"server":"linear","tool":"list_issues","args":{"status":"open","assignee":"me"},"headers":{"Authorization":"[REDACTED]"}}}}
+{"type":"tool_result","id":"01HEVTE0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTE0000000000000000002","ok":true,"output":"[{\"id\":\"ABC-123\",\"title\":\"Fix auth\"}]"}}
 ```
 
 ---
@@ -1186,7 +1187,7 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 ## Appendix A — Minimal valid record
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
 ```
 
 A session with only a header is valid. Events are optional.
@@ -1194,8 +1195,8 @@ A session with only a header is valid. Events are optional.
 ### Appendix A.1 — Minimal valid record with trail envelope
 
 ```jsonl
-{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"trail","schema_version":"0.1.0","id":"00000000-0000-0000-0000-000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
 ```
 
 An envelope at line 1 followed by a session header at line 2 is valid. Events are optional.

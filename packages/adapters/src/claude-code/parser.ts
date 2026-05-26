@@ -1,6 +1,6 @@
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
-import { type BuiltEntry, baseEntry, entryId } from "./entry-metadata.ts";
+import { type BuiltEntry, baseEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
 import { type CcEnvelope, isTracerEnvelope, parseLines, stringValue } from "./source.ts";
@@ -19,6 +19,7 @@ function buildHeader(envelopes: CcEnvelope[]): Header {
     type: "session",
     schema_version: "0.1.0",
     id: firstSession.sessionId,
+    session_uid: crypto.randomUUID(),
     ts: firstTs,
     agent: {
       name: "claude-code",
@@ -71,7 +72,10 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
       // Claude Code itself never emits a model_change source record.
       const mcBase = baseEntry(
         envelope,
-        entryId(envelope, "model_change"),
+        // Synthesized id must be a valid ULID/UUID. The envelope.uuid +
+        // suffix shape used previously produced a compound string that
+        // fails the v0.1 id regex.
+        crypto.randomUUID(),
         "assistant",
         undefined,
         undefined,

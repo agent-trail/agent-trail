@@ -41,14 +41,14 @@ const validTrail: TrailFile = {
   header: {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess-valid",
+    id: "01HSESSVAXD0000000000000A1",
     ts: "2026-05-17T14:00:00.000Z",
     agent: { name: "pi" },
   },
   entries: [
     {
       type: "user_message",
-      id: "evt-1",
+      id: "01HEVT1A0000000000000000A1",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { text: "hello" },
     },
@@ -123,28 +123,28 @@ test("validateAdapterTrail handles multiple entries with no error diagnostics", 
     header: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess-multi",
+      id: "01HSESSMXX10000000000000A1",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
     },
     entries: [
       {
         type: "user_message",
-        id: "evt-1",
+        id: "01HEVT1A0000000000000000A1",
         ts: "2026-05-17T14:00:05.000Z",
         payload: { text: "hello" },
       },
       {
         type: "agent_message",
-        id: "evt-2",
-        parent_id: "evt-1",
+        id: "01HEVT2A0000000000000000A1",
+        parent_id: "01HEVT1A0000000000000000A1",
         ts: "2026-05-17T14:00:06.000Z",
         payload: { text: "hi back" },
       },
       {
         type: "user_message",
-        id: "evt-3",
-        parent_id: "evt-2",
+        id: "01HEVT3A0000000000000000A1",
+        parent_id: "01HEVT2A0000000000000000A1",
         ts: "2026-05-17T14:00:07.000Z",
         payload: { text: "thanks" },
       },
@@ -165,14 +165,14 @@ test("buildTrailEnvelope produces a schema-valid envelope", () => {
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
     },
-    randomId: () => "envelope-fixed-id",
+    randomId: () => "01HENVFXED00000000000000A1",
     now: () => "2026-05-17T14:00:00.000Z",
   });
 
   expect(envelope).toEqual({
     type: "trail",
     schema_version: "0.1.0",
-    id: "envelope-fixed-id",
+    id: "01HENVFXED00000000000000A1",
     ts: "2026-05-17T14:00:00.000Z",
     producer: "@agent-trail/adapters-test/0.0.0",
     sessions: [{ id: "01HSESS0000000000000000001", agent: "pi" }],
@@ -216,7 +216,7 @@ test("validateAdapterTrail accepts a trail with an envelope at line 1", async ()
     entries: [
       {
         type: "user_message",
-        id: "evt-1",
+        id: "01HEVT1A0000000000000000A1",
         ts: "2026-05-17T14:00:05.000Z",
         payload: { text: "hello" },
       },

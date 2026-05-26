@@ -65,11 +65,15 @@ export function entryId(envelope: CcEnvelope, suffix?: string): string {
 
 export function blockId(
   envelope: CcEnvelope,
-  kind: string,
-  index: number,
+  _kind: string,
+  _index: number,
   totalBlocks: number,
 ): string {
-  return totalBlocks === 1 ? entryId(envelope) : entryId(envelope, `${kind}-${index}`);
+  // Single-block envelopes preserve the source uuid as the trail event id (1:1).
+  // Multi-block envelopes mint a fresh UUID per block so each event id stays a
+  // valid ULID/UUID per the v0.1 id regex. Source uuid and block index live on
+  // `source.raw` (and `block_index` for inline blocks) for traceability.
+  return totalBlocks === 1 ? entryId(envelope) : crypto.randomUUID();
 }
 
 export function baseEntry(

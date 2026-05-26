@@ -17,6 +17,12 @@ export type IndexEntry = {
    * source" and rely on `content_hash` for identity.
    */
   source_path: string | null;
+  /**
+   * `header.session_uid` from the registered trail (spec §8.5). `null` when
+   * the source header lacks the field (v0.1 single-segment trails). Used by
+   * `trail load` to detect multi-segment continuations and reconcile.
+   */
+  session_uid?: string | null;
 };
 
 export type IndexFile = {
@@ -137,4 +143,23 @@ export async function withIndexLock<T>(storeRoot: string, fn: () => Promise<T>):
 
 export function emptyIndex(): IndexFile {
   return { version: INDEX_VERSION, entries: {} };
+}
+
+/**
+ * Return all index entries whose `session_uid` matches the given value.
+ * Used by `trail load` to detect multi-segment continuations of a session
+ * already in the store (spec §8.5 reconciliation).
+ */
+export async function findEntriesBySessionUid(
+  storeRoot: string,
+  sessionUid: string,
+): Promise<Array<{ contentHash: string; entry: IndexEntry }>> {
+  const index = await readIndex(storeRoot);
+  const matches: Array<{ contentHash: string; entry: IndexEntry }> = [];
+  for (const [contentHash, entry] of Object.entries(index.entries)) {
+    if (entry.session_uid === sessionUid) {
+      matches.push({ contentHash, entry });
+    }
+  }
+  return matches;
 }
