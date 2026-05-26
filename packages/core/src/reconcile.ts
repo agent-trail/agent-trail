@@ -152,7 +152,13 @@ function passThrough(input: SegmentInput, sessionUid: string | null): ReconcileG
 function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup {
   const warnings: ReconcileWarning[] = [];
   // Sort by segment.seq ascending; segments without `segment` sort as seq=1.
-  const sorted = [...members].sort((a, b) => effectiveSeq(a) - effectiveSeq(b));
+  // Tie-break by `source` lexicographically so duplicate-seq groupings stay
+  // stable regardless of caller-supplied input order.
+  const sorted = [...members].sort((a, b) => {
+    const seqDelta = effectiveSeq(a) - effectiveSeq(b);
+    if (seqDelta !== 0) return seqDelta;
+    return a.source.localeCompare(b.source);
+  });
 
   // Detect gaps + duplicates in seq.
   let expected = 1;
