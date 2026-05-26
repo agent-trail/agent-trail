@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { findAbandonedBranchRootId } from "./divergence.ts";
@@ -132,8 +133,88 @@ export function parsePiJsonl(text: string): TrailFile {
     }
   }
 
+  const synthesizedTerminated = buildSynthesizedSessionTerminated(built, header);
+  if (synthesizedTerminated !== undefined) {
+    built.push({ entry: synthesizedTerminated, parentSourceId: null });
+  }
+
   return {
     header,
     entries: resolveEntryParents(built, parentBySourceId, sourceIdToLastEntryId) as Entry[],
   };
+}
+
+// Spec §9.3 / §16.4: when the file ends with one or more `tool_call` entries
+// that have no paired `tool_result` (e.g. an abandoned Pi tree branch where
+// the user navigated away before the tool returned), synthesize a terminal
+// `session_terminated` entry whose `open_call_ids` lists those calls.
+// Validator §16.4 suppresses `unmatched_tool_call_at_eof` per id.
+//
+// Pairing parity with validator (spec §9.5): we apply deterministic rules A
+// (explicit `for_id`) and B (`semantic.call_id` match) only. The validator
+// additionally applies rule C (sequential match) before emitting the warning.
+// Skipping C here means `open_call_ids` is over-inclusive — a call the
+// validator would pair sequentially still appears in our list — but that is
+// harmless: the validator's suppression is per-id, so listing a call already
+// paired in pass C just makes the explicit ack a no-op. We deliberately do
+// not duplicate sequential pairing to avoid silent drift with the validator.
+function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header): Entry | undefined {
+  const callIdToEntryId = new Map<string, string>();
+  const toolCallEntryIds = new Set<string>();
+  for (const b of built) {
+    if (b.entry.type !== "tool_call") continue;
+    toolCallEntryIds.add(b.entry.id);
+    const semCallId = b.entry.semantic?.call_id;
+    if (typeof semCallId === "string") {
+      callIdToEntryId.set(semCallId, b.entry.id);
+    }
+  }
+  if (toolCallEntryIds.size === 0) return undefined;
+
+  const matched = new Set<string>();
+  for (const b of built) {
+    if (b.entry.type !== "tool_result") continue;
+    const payload = b.entry.payload as { for_id?: unknown } | undefined;
+    const forId = payload?.for_id;
+    if (typeof forId === "string" && toolCallEntryIds.has(forId)) {
+      matched.add(forId);
+    }
+    const semCallId = b.entry.semantic?.call_id;
+    if (typeof semCallId === "string") {
+      const eid = callIdToEntryId.get(semCallId);
+      if (eid !== undefined) matched.add(eid);
+    }
+  }
+
+  // Set preserves insertion order, so converting + filtering keeps tool_call
+  // ids in file order without a third pass over `built`.
+  const openCallIds = Array.from(toolCallEntryIds).filter((id) => !matched.has(id));
+  if (openCallIds.length === 0) return undefined;
+
+  // Fall back to the session header ts when no entries were emitted (e.g. a
+  // truncated file with only a session record). That keeps the synthesized
+  // entry within the session timeline and is spec-compliant per §9.3.
+  const lastTs = built[built.length - 1]?.entry.ts ?? header.ts;
+  // Pi source ids are short hex; reuse the same shape so the synthesized id
+  // is unique within the file but doesn't shout "synthetic".
+  const synthId = `pi-eof-${cryptoRandomShort()}`;
+  const schemaVersion = header.agent.version;
+  return {
+    type: "session_terminated",
+    id: synthId,
+    ts: lastTs,
+    payload: {
+      reason: "eof_with_open_tool_calls",
+      open_call_ids: openCallIds,
+    },
+    source: {
+      agent: "pi",
+      ...(schemaVersion !== undefined ? { schema_version: schemaVersion } : {}),
+      synthesized: true,
+    },
+  };
+}
+
+function cryptoRandomShort(): string {
+  return randomUUID().slice(0, 8);
 }

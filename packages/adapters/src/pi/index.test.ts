@@ -273,7 +273,11 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   const ids = trail.entries.map((e) => e.id);
-  expect(ids).toEqual(["u-1", "a-1-text-0", "a-1-toolCall-1"]);
+  // Trailing pi-eof-* is the synthesized session_terminated produced because
+  // a-1-toolCall-1 has no paired tool_result in this fixture (spec §9.3).
+  expect(ids.slice(0, 3)).toEqual(["u-1", "a-1-text-0", "a-1-toolCall-1"]);
+  expect(ids.length).toBe(4);
+  expect(ids[3]).toMatch(/^pi-eof-[a-f0-9]{8}$/);
   const text0 = trail.entries.find((e) => e.id === "a-1-text-0");
   expect(text0?.type).toBe("agent_message");
   expect(text0?.parent_id).toBe("u-1");
@@ -2000,4 +2004,182 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
 test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
   const trail = await parseFixture();
   expect(trail.header.vcs).toBeUndefined();
+});
+
+test("parsePiJsonl synthesizes session_terminated for tool_calls left open at EOF (e.g. abandoned tree branches)", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  // Pi tree session where an assistant emits a toolCall, then the branch is
+  // abandoned via a session_info marker. No toolResult ever pairs with the
+  // call. Spec §9.3 / §16.4: adapter MUST synthesize session_terminated with
+  // open_call_ids so the validator suppresses unmatched_tool_call_at_eof.
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-abandoned",
+      timestamp: "2026-05-21T15:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:00:01.000Z",
+      message: { role: "user", content: "edit foo" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:00:02.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "toolUse",
+        content: [
+          {
+            type: "toolCall",
+            id: "call-open",
+            name: "read",
+            arguments: { path: "foo.md" },
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "session_info",
+      id: "si-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T15:00:03.000Z",
+    }),
+  ].join("\n")}\n`;
+
+  const trail = parsePiJsonl(text);
+  const terminated = trail.entries.find((e) => e.type === "session_terminated");
+  expect(terminated).toBeDefined();
+  expect(terminated?.payload).toMatchObject({
+    reason: "eof_with_open_tool_calls",
+    open_call_ids: ["a-1"],
+  });
+  expect(terminated?.source?.synthesized).toBe(true);
+});
+
+test("parsePiJsonl lists sequential-paired calls in open_call_ids (validator suppresses via per-id ack)", async () => {
+  // Two tool_calls and one tool_result. The result carries neither for_id nor
+  // semantic.call_id (Pi's toolResult source has no toolCallId in this case),
+  // so the result has no direct or semantic match to either call. The
+  // validator pairs the result with the most recent prior call via §9.5 rule
+  // C (sequential). The adapter intentionally does NOT replicate rule C and
+  // therefore lists both calls in open_call_ids; the validator's per-id
+  // suppression collapses the warning anyway.
+  const { parsePiJsonl } = await import("./parser.ts");
+  const { validateAdapterTrail } = await import("../index.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-seq",
+      timestamp: "2026-05-21T15:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:00:01.000Z",
+      message: { role: "user", content: "do two reads" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-a", name: "read", arguments: { path: "a.md" } }],
+      },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-2",
+      parentId: "a-1",
+      timestamp: "2026-05-21T15:00:03.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-b", name: "read", arguments: { path: "b.md" } }],
+      },
+    }),
+    // toolResult envelope without toolCallId — Pi sometimes omits it.
+    JSON.stringify({
+      type: "message",
+      id: "r-1",
+      parentId: "a-2",
+      timestamp: "2026-05-21T15:00:04.000Z",
+      message: { role: "toolResult", content: "ok" },
+    }),
+  ].join("\n")}\n`;
+
+  const trail = parsePiJsonl(text);
+  const terminated = trail.entries.find((e) => e.type === "session_terminated");
+  expect(terminated).toBeDefined();
+  // Adapter applies rules A+B only — both calls remain "unmatched" from its
+  // perspective and end up in open_call_ids in file order.
+  expect(terminated?.payload?.open_call_ids).toEqual(["a-1", "a-2"]);
+
+  // Validator runs rules A+B+C; with explicit open_call_ids covering both
+  // calls, no unmatched_tool_call_at_eof warning fires.
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.find((d) => d.code === "unmatched_tool_call_at_eof")).toBeUndefined();
+});
+
+test("parsePiJsonl does not synthesize session_terminated when every tool_call has a paired tool_result", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess-clean",
+      timestamp: "2026-05-21T15:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "u-1",
+      parentId: null,
+      timestamp: "2026-05-21T15:00:01.000Z",
+      message: { role: "user", content: "read foo" },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "a-1",
+      parentId: "u-1",
+      timestamp: "2026-05-21T15:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "read",
+            arguments: { path: "foo.md" },
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "r-1",
+      parentId: "a-1",
+      timestamp: "2026-05-21T15:00:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-1",
+        content: "ok",
+      },
+    }),
+  ].join("\n")}\n`;
+
+  const trail = parsePiJsonl(text);
+  expect(trail.entries.find((e) => e.type === "session_terminated")).toBeUndefined();
 });
