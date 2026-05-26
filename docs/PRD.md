@@ -717,7 +717,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 | Claude Code adapter | done | Verified; fixtures and matrix entry in place |
 | Adapters: Codex CLI, Cursor, OpenCode, Aider | not started | Trackers #32–#35; Aider requires storage verification before final mapping |
 | `@agent-trail/redact` module + integration with CLI | done | `@redactpii/node` + curated patterns; integrated into `trail share` |
-| `trail share` (gist transport) | done | Content-hash addressed; uses unlisted gist |
+| `trail share` (gist transport) | done | Unlisted gist transport; `content_hash` verified after fetch |
 | `trail load` | done | Fetches gist, verifies, reconciles segments, registers |
 | `trail export <id>` | done | Deterministic byte export of registered trails; consumed by `summarise` (#63) and `handoff` (#64) skills |
 | `trail discover` / `trail list` | done | Local source-agent discovery and registered-trail listing |
