@@ -15,11 +15,11 @@ import { implementedEventTypes } from "./validation.ts";
 test("accepts the minimal writer-strict session header", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 1,
-    raw: '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "codex-cli" },
     },
@@ -31,10 +31,10 @@ test("accepts the minimal writer-strict session header", () => {
 test("accepts a minimal writer-strict event after the header line", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
-    raw: '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    raw: '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     value: {
       type: "user_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { text: "hello" },
     },
@@ -46,11 +46,11 @@ test("accepts a minimal writer-strict event after the header line", () => {
 test("rejects a writer-strict header with the wrong schema version", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 1,
-    raw: '{"type":"session","schema_version":"0.2.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    raw: '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     value: {
       type: "session",
       schema_version: "0.2.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "codex-cli" },
     },
@@ -70,10 +70,10 @@ test("rejects a writer-strict header with the wrong schema version", () => {
 test("reports a line-aware diagnostic path for an invalid event payload", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
-    raw: '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{}}',
+    raw: '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{}}',
     value: {
       type: "user_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: {},
     },
@@ -91,8 +91,8 @@ test("reports a line-aware diagnostic path for an invalid event payload", () => 
 test("accepts a valid minimal trail through the schema JSONL string wrapper", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
     ].join("\n"),
   );
 
@@ -102,7 +102,7 @@ test("accepts a valid minimal trail through the schema JSONL string wrapper", as
 test("converts JSONL parse failures into writer-strict diagnostics", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       '{"type":"user_message"',
     ].join("\n"),
   );
@@ -120,7 +120,7 @@ test("converts JSONL parse failures into writer-strict diagnostics", async () =>
 
 test("reports invalid headers through the schema JSONL string wrapper", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
-    '{"type":"session","schema_version":"0.2.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
   );
 
   expect(diagnostics).toContainEqual({
@@ -136,8 +136,8 @@ test("reports invalid events through the schema JSONL stream wrapper", async () 
   const diagnostics = await collect(
     validateWriterStrictSchemaJsonlStream(
       chunks([
-        '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}\n',
-        '{"type":"tool_call","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_read","args":{}}}',
+        '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}\n',
+        '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_read","args":{}}}',
       ]),
     ),
   );
@@ -154,9 +154,9 @@ test("reports invalid events through the schema JSONL stream wrapper", async () 
 test("validateTrailString returns no diagnostics for a valid linear trail", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"agent_message","id":"evta2","parent_id":"evta1","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"01HEVTA0000000000000000002","parent_id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
     ].join("\n"),
   );
 
@@ -171,8 +171,8 @@ test("implemented event validator list stays aligned with schema event refs", ()
 
 test("invalid validation profiles throw instead of changing validation behavior", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
   ].join("\n");
 
   await expect(validateTrailString(text, { profile: "reader_tolerant" as never })).rejects.toThrow(
@@ -185,8 +185,8 @@ test("invalid validation profiles throw instead of changing validation behavior"
 
 test("reader-tolerant profile accepts compatible patch schema versions with a warning", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.1","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    '{"type":"session","schema_version":"0.1.1","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
   ].join("\n");
 
   const strictDiagnostics = await validateTrailString(text);
@@ -219,8 +219,8 @@ test("reader-tolerant profile accepts compatible patch schema versions with a wa
 
 test("reader-tolerant profile warns for unknown payload fields that strict rejects", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","future_field":true}}',
   ].join("\n");
 
   const strictDiagnostics = await validateTrailString(text);
@@ -245,8 +245,8 @@ test("reader-tolerant profile warns for unknown payload fields that strict rejec
 
 test("reader-tolerant profile warns for nested unknown payload fields", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","future_field":true}]}}',
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","future_field":true}]}}',
   ].join("\n");
 
   const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
@@ -264,8 +264,8 @@ test("reader-tolerant profile warns for nested unknown payload fields", async ()
 test("reader-tolerant profile keeps non-extension payload errors strict", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":42}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":42}}',
     ].join("\n"),
     { profile: "reader-tolerant" },
   );
@@ -281,17 +281,17 @@ test("reader-tolerant profile keeps non-extension payload errors strict", async 
 
 test("reader-tolerant profile preserves and warns for unknown future records", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"future_event","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"future_event","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
   ].join("\n");
 
   const records = await parseJsonlString(text);
   expect(records[1]).toEqual({
     line: 2,
-    raw: '{"type":"future_event","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+    raw: '{"type":"future_event","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
     value: {
       type: "future_event",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { future: true },
     },
@@ -311,8 +311,8 @@ test("reader-tolerant profile preserves and warns for unknown future records", a
 
 test("reader-tolerant profile preserves reserved future event types", async () => {
   const text = [
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"error","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"error","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"future":true}}',
   ].join("\n");
 
   const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
@@ -330,9 +330,9 @@ test("reader-tolerant profile preserves reserved future event types", async () =
 test("validateTrailString reports both per-line and whole-file diagnostics", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"agent_message","id":"evta1","ts":"not-a-timestamp","payload":{"text":"hi"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"not-a-timestamp","payload":{"text":"hi"}}',
     ].join("\n"),
   );
 
@@ -346,7 +346,7 @@ test("validateTrailString reports both per-line and whole-file diagnostics", asy
     path: "/id",
     severity: "error",
     code: "duplicate_id",
-    message: 'Duplicate id "evta1"; first seen on line 2',
+    message: 'Duplicate id "01HEVTA0000000000000000001"; first seen on line 2',
   });
 });
 
@@ -354,9 +354,9 @@ test("validateTrailStream emits graph diagnostics after schema diagnostics", asy
   const diagnostics = await collect(
     validateTrailStream(
       chunks([
-        '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}\n',
-        '{"type":"agent_message","id":"node-a","parent_id":"node-b","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"a"}}\n',
-        '{"type":"agent_message","id":"node-b","parent_id":"node-a","ts":"2026-05-17T14:00:06.000Z","payload":{"text":"b"}}',
+        '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}\n',
+        '{"type":"agent_message","id":"01HN0DE000000000000000000A","parent_id":"01HN0DE000000000000000000B","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"a"}}\n',
+        '{"type":"agent_message","id":"01HN0DE000000000000000000B","parent_id":"01HN0DE000000000000000000A","ts":"2026-05-17T14:00:06.000Z","payload":{"text":"b"}}',
       ]),
     ),
   );
@@ -368,9 +368,9 @@ test("validateTrailStream emits graph diagnostics after schema diagnostics", asy
 test("validateTrailString surfaces JSONL parse errors and still runs graph checks on prior records", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
       '{"type":"user_message"',
     ].join("\n"),
   );
@@ -390,16 +390,16 @@ test("validateTrailString surfaces JSONL parse errors and still runs graph check
     path: "/id",
     severity: "error",
     code: "duplicate_id",
-    message: 'Duplicate id "evta1"; first seen on line 2',
+    message: 'Duplicate id "01HEVTA0000000000000000001"; first seen on line 2',
   });
 });
 
 test("leaves whole-file graph checks to later validation layers", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}',
     ].join("\n"),
   );
 
@@ -410,25 +410,25 @@ test("does not emit content_hash_mismatch when a parse error truncates the recor
   const headerValue: Record<string, unknown> = {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess1",
+    id: "01HSESS0000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     agent: { name: "codex-cli" },
   };
   const userValue: Record<string, unknown> = {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text: "hello" },
   };
   const agentValue: Record<string, unknown> = {
     type: "agent_message",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-17T14:00:07.000Z",
     payload: { text: "hi" },
   };
   const droppedValue: Record<string, unknown> = {
     type: "user_message",
-    id: "evta3",
+    id: "01HEVTA0000000000000000003",
     ts: "2026-05-17T14:00:09.000Z",
     payload: { text: "dropped" },
   };
@@ -463,7 +463,7 @@ test("accepts a header with stream.state open and no content_hash", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: { state: "open", started_at: "2026-05-17T14:00:00.000Z" },
       agent: { name: "codex-cli" },
@@ -480,7 +480,7 @@ test("accepts a header with stream.state closed", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: { state: "closed" },
       agent: { name: "codex-cli" },
@@ -497,7 +497,7 @@ test("rejects a header with non-ISO started_at", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: { state: "open", started_at: "yesterday" },
       agent: { name: "codex-cli" },
@@ -520,7 +520,7 @@ test("rejects a header with stream.state outside the enum", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: { state: "halfway" },
       agent: { name: "codex-cli" },
@@ -543,7 +543,7 @@ test("rejects a header with stream missing required state", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: {},
       agent: { name: "codex-cli" },
@@ -566,7 +566,7 @@ test("rejects a header with unknown stream property", () => {
     value: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       stream: { state: "open", future_field: true },
       agent: { name: "codex-cli" },
@@ -590,7 +590,7 @@ test("accepts a session_end event with reason complete", () => {
       type: "session_end",
       id: "evtend",
       ts: "2026-05-17T14:00:08.000Z",
-      payload: { reason: "complete", final_message_id: "evta2" },
+      payload: { reason: "complete", final_message_id: "01HEVTA0000000000000000002" },
     },
   });
 
@@ -642,8 +642,8 @@ test("rejects a session_end event with reason outside the enum", () => {
 test("warns when stream.state is open but content_hash is populated", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -660,8 +660,8 @@ test("warns when stream.state is open but content_hash is populated", async () =
 test("does not warn when stream.state is open and content_hash is <pending>", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -671,9 +671,9 @@ test("does not warn when stream.state is open and content_hash is <pending>", as
 test("warns when stream.state is open and the file contains a session_end event", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
   );
 
@@ -690,9 +690,9 @@ test("warns when stream.state is open and the file contains a session_end event"
 test("warns when stream.state is open and the file contains a session_terminated event", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"tool_call","id":"evtc1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"shell_command","args":{"command":"sleep 99"}}}',
-      '{"type":"session_terminated","id":"evtterm","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"process_terminated","open_call_ids":["evtc1"]}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"01HEVTC1000000000000000A1","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"shell_command","args":{"command":"sleep 99"}}}',
+      '{"type":"session_terminated","id":"01HEVTTERM0000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"process_terminated","open_call_ids":["evtc1"]}}',
     ].join("\n"),
   );
 
@@ -709,9 +709,9 @@ test("warns when stream.state is open and the file contains a session_terminated
 test("reader-tolerant profile preserves stream_open_with_terminal_event warning", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
     { profile: "reader-tolerant" },
   );
@@ -730,9 +730,9 @@ test("reader-tolerant profile preserves stream_open_with_terminal_event warning"
 test("accepts a system_event with kind heartbeat as a streaming liveness ping", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"system_event","id":"evtbeat","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"heartbeat","data":{"interval_ms":30000}}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"system_event","id":"01HEVTBEAT00000000000001","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"heartbeat","data":{"interval_ms":30000}}}',
     ].join("\n"),
   );
 
@@ -742,9 +742,9 @@ test("accepts a system_event with kind heartbeat as a streaming liveness ping", 
 test("does not warn when stream.state is closed and the file contains session_end", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
-      '{"type":"session_end","id":"evtend","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session_end","id":"01HEVTEND00000000000000A1","ts":"2026-05-17T14:00:08.000Z","payload":{"reason":"complete"}}',
     ].join("\n"),
   );
 
@@ -754,8 +754,8 @@ test("does not warn when stream.state is closed and the file contains session_en
 test("stream.state open with <pending> hash skips hash verification cleanly", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"<pending>","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -765,8 +765,8 @@ test("stream.state open with <pending> hash skips hash verification cleanly", as
 test("stream.state open with non-hex content_hash reports both invalid + streaming warning", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"bogus","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"bogus","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -790,8 +790,8 @@ test("stream.state open with non-hex content_hash reports both invalid + streami
 test("stream.state open with mismatched hex content_hash reports mismatch + streaming warning", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -811,8 +811,8 @@ test("stream.state open with mismatched hex content_hash reports mismatch + stre
 test("stream.state closed with mismatched hash keeps existing content_hash_mismatch and emits no streaming warning", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"closed"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -825,8 +825,8 @@ test("stream.state closed with mismatched hash keeps existing content_hash_misma
 test("reader-tolerant profile keeps streaming warnings and downgrades hash mismatch to warning", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","content_hash":"0000000000000000000000000000000000000000000000000000000000000000","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
     { profile: "reader-tolerant" },
   );
@@ -849,20 +849,20 @@ test("finalized streaming artifact with matching content_hash validates clean", 
   const headerLive: Record<string, unknown> = {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess1",
+    id: "01HSESS0000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     stream: { state: "closed", started_at: "2026-05-17T14:00:00.000Z" },
     agent: { name: "codex-cli" },
   };
   const userValue: Record<string, unknown> = {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text: "hello" },
   };
   const agentValue: Record<string, unknown> = {
     type: "agent_message",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-17T14:00:07.000Z",
     payload: { text: "hi" },
   };
@@ -870,7 +870,7 @@ test("finalized streaming artifact with matching content_hash validates clean", 
     type: "session_end",
     id: "evtend",
     ts: "2026-05-17T14:00:08.000Z",
-    payload: { reason: "complete", final_message_id: "evta2" },
+    payload: { reason: "complete", final_message_id: "01HEVTA0000000000000000002" },
   };
 
   const records: JsonlRecord[] = [
@@ -898,20 +898,20 @@ test("round-trip finalize: live trail transitions to finalized artifact with ver
   const liveHeader: Record<string, unknown> = {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess1",
+    id: "01HSESS0000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     stream: { state: "open", started_at: "2026-05-17T14:00:00.000Z" },
     agent: { name: "codex-cli" },
   };
   const userValue: Record<string, unknown> = {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text: "hello" },
   };
   const agentValue: Record<string, unknown> = {
     type: "agent_message",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-17T14:00:07.000Z",
     payload: { text: "hi" },
   };
@@ -951,11 +951,11 @@ test("round-trip finalize: live trail transitions to finalized artifact with ver
 
 test("validateTrailStream processes lines incrementally as chunks arrive", async () => {
   const headerLine =
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
   const firstEvent =
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
   const secondEvent =
-    '{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}\n';
+    '{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}\n';
 
   const diagnostics = await collect(
     validateTrailStream(chunks([headerLine, firstEvent, secondEvent])),
@@ -966,13 +966,13 @@ test("validateTrailStream processes lines incrementally as chunks arrive", async
 
 test("validateTrailStream surfaces an invalid event mid-stream without losing earlier ones", async () => {
   const headerLine =
-    '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}\n';
   const goodEvent =
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}\n';
   const badEvent =
-    '{"type":"tool_call","id":"evta2","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{}}}\n';
+    '{"type":"tool_call","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{}}}\n';
   const recoveryEvent =
-    '{"type":"agent_message","id":"evta3","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"continuing"}}\n';
+    '{"type":"agent_message","id":"01HEVTA0000000000000000003","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"continuing"}}\n';
 
   const diagnostics = await collect(
     validateTrailStream(chunks([headerLine, goodEvent, badEvent, recoveryEvent])),
@@ -991,10 +991,10 @@ test("validateTrailStream surfaces an invalid event mid-stream without losing ea
 test("accepts an entry whose source.raw includes envelope_ref string", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
-    raw: '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":"evta0","block_index":1}}}',
+    raw: '{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":"evta0","block_index":1}}}',
     value: {
       type: "agent_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { text: "hi" },
       source: {
@@ -1010,10 +1010,10 @@ test("accepts an entry whose source.raw includes envelope_ref string", () => {
 test("rejects an entry whose source.raw.envelope_ref is not a string", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
-    raw: '{"type":"agent_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":42}}}',
+    raw: '{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi"},"source":{"agent":"claude-code","raw":{"envelope_ref":42}}}',
     value: {
       type: "agent_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { text: "hi" },
       source: {
@@ -1036,10 +1036,10 @@ test("emits source_raw_oversized warning when source.raw JSON exceeds 8 KB but s
   const big = "x".repeat(10_000);
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       JSON.stringify({
         type: "agent_message",
-        id: "evta1",
+        id: "01HEVTA0000000000000000001",
         ts: "2026-05-17T14:00:01.000Z",
         payload: { text: "hi" },
         source: { raw: { envelope: { body: big } } },
@@ -1061,10 +1061,10 @@ test("emits source_raw_oversized_hard error when source.raw JSON exceeds 32 KB",
   const huge = "x".repeat(33_000);
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       JSON.stringify({
         type: "agent_message",
-        id: "evta1",
+        id: "01HEVTA0000000000000000001",
         ts: "2026-05-17T14:00:01.000Z",
         payload: { text: "hi" },
         source: { raw: { envelope: { body: huge } } },
@@ -1085,10 +1085,10 @@ test("emits source_raw_oversized_hard error when source.raw JSON exceeds 32 KB",
 test("emits source_raw_unredacted_secret warning when source.raw contains a Bearer token", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       JSON.stringify({
         type: "agent_message",
-        id: "evta1",
+        id: "01HEVTA0000000000000000001",
         ts: "2026-05-17T14:00:01.000Z",
         payload: { text: "hi" },
         source: {
@@ -1111,10 +1111,10 @@ test("emits source_raw_unredacted_secret warning when source.raw contains a Bear
 test("stays silent when source.raw secret is already replaced by a placeholder", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       JSON.stringify({
         type: "agent_message",
-        id: "evta1",
+        id: "01HEVTA0000000000000000001",
         ts: "2026-05-17T14:00:01.000Z",
         payload: { text: "hi" },
         source: { raw: { envelope: { headers: { authorization: "Bearer [TOKEN]" } } } },
@@ -1128,10 +1128,10 @@ test("stays silent when source.raw secret is already replaced by a placeholder",
 test("stays silent on source.raw under the soft cap", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       JSON.stringify({
         type: "agent_message",
-        id: "evta1",
+        id: "01HEVTA0000000000000000001",
         ts: "2026-05-17T14:00:01.000Z",
         payload: { text: "hi" },
         source: { raw: { envelope: { body: "small" } } },
@@ -1148,7 +1148,7 @@ test("emits vcs_remote_url_with_credentials warning when remote_url contains use
       JSON.stringify({
         type: "session",
         schema_version: "0.1.0",
-        id: "sess1",
+        id: "01HSESS0000000000000000001",
         ts: "2026-05-17T14:00:00.000Z",
         agent: { name: "codex-cli" },
         vcs: {
@@ -1176,7 +1176,7 @@ test("escalates vcs_remote_url_with_credentials to error for url-encoded credent
       JSON.stringify({
         type: "session",
         schema_version: "0.1.0",
-        id: "sess1",
+        id: "01HSESS0000000000000000001",
         ts: "2026-05-17T14:00:00.000Z",
         agent: { name: "codex-cli" },
         vcs: {
@@ -1204,7 +1204,7 @@ test("stays silent when remote_url is clean", async () => {
       JSON.stringify({
         type: "session",
         schema_version: "0.1.0",
-        id: "sess1",
+        id: "01HSESS0000000000000000001",
         ts: "2026-05-17T14:00:00.000Z",
         agent: { name: "codex-cli" },
         vcs: {
@@ -1222,8 +1222,8 @@ test("stays silent when remote_url is clean", async () => {
 test("rejects a trail envelope missing the required producer field", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z"}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1239,8 +1239,8 @@ test("rejects a trail envelope missing the required producer field", async () =>
 test("rejects a trail envelope appearing after line 1", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
     ].join("\n"),
   );
 
@@ -1256,9 +1256,9 @@ test("rejects a trail envelope appearing after line 1", async () => {
 test("rejects multiple trail envelopes in the same file", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-2","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000002","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1274,8 +1274,8 @@ test("rejects multiple trail envelopes in the same file", async () => {
 test("rejects a trail envelope at line 1 not followed by a session header", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 
@@ -1292,8 +1292,8 @@ test("rejects a trail envelope at line 1 not followed by a session header", asyn
 test("rejects envelope and session sharing the same id", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"dup1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
-      '{"type":"session","schema_version":"0.1.0","id":"dup1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HEVTDUP10000000000000A1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HEVTDUP10000000000000A1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1302,15 +1302,15 @@ test("rejects envelope and session sharing the same id", async () => {
     path: "/id",
     severity: "error",
     code: "duplicate_id",
-    message: 'Duplicate id "dup1"; first seen on line 1',
+    message: 'Duplicate id "01HEVTDUP10000000000000A1"; first seen on line 1',
   });
 });
 
 test("warns when envelope.sessions manifest disagrees with the session header", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"WRONG","agent":"claude-code"}]}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"WRONG","agent":"claude-code"}]}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1319,7 +1319,8 @@ test("warns when envelope.sessions manifest disagrees with the session header", 
     path: "/sessions/0/id",
     severity: "warning",
     code: "envelope_sessions_manifest_drift",
-    message: 'envelope.sessions[0].id "WRONG" does not match session header id "sess1"',
+    message:
+      'envelope.sessions[0].id "WRONG" does not match session header id "01HSESS0000000000000000001"',
   });
   expect(diagnostics).toContainEqual({
     line: 1,
@@ -1334,8 +1335,8 @@ test("warns when envelope.sessions manifest disagrees with the session header", 
 test("accepts envelope.sessions manifest that matches the session header", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"sess1","agent":"codex-cli"}]}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"01HSESS0000000000000000001","agent":"codex-cli"}]}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
     ].join("\n"),
   );
 
@@ -1345,8 +1346,8 @@ test("accepts envelope.sessions manifest that matches the session header", async
 test("accepts envelope and session meta blocks", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","meta":{"x-acme/team":"platform","io.entire.checkpoint_id":"ckpt-7"}}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"meta":{"com.example.ticket":"OAUTH-42"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","meta":{"x-acme/team":"platform","io.entire.checkpoint_id":"ckpt-7"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"meta":{"com.example.ticket":"OAUTH-42"}}',
     ].join("\n"),
   );
 
@@ -1356,9 +1357,9 @@ test("accepts envelope and session meta blocks", async () => {
 test("accepts a trail envelope at line 1 followed by a session header", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}',
-      '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
     ].join("\n"),
   );
 

@@ -157,7 +157,7 @@ test("invalid-graph/duplicate-id.trail.jsonl reports duplicate_id at /id line 3"
     path: "/id",
     severity: "error",
     code: "duplicate_id",
-    message: 'Duplicate id "evta1"; first seen on line 2',
+    message: 'Duplicate id "01HEVTA0000000000000000001"; first seen on line 2',
   });
 });
 
@@ -170,7 +170,7 @@ test("invalid-graph/unknown-parent-id.trail.jsonl reports unknown_parent_id", as
     path: "/parent_id",
     severity: "error",
     code: "unknown_parent_id",
-    message: 'parent_id "ghost" does not reference an id in this file',
+    message: 'parent_id "01HGH0ST000000000000000001" does not reference an id in this file',
   });
 });
 
@@ -233,7 +233,7 @@ test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns about unmatched
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "evta1" has no matching tool_result at EOF',
+    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
   });
 });
 
@@ -247,7 +247,7 @@ test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns about
     severity: "warning",
     code: "unknown_final_message_id",
     message:
-      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
+      'session_end final_message_id "01HGH0ST000000000000000001" does not reference the session header or a prior event in this file',
   });
 });
 
@@ -262,7 +262,7 @@ test("invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl warns on
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "evta2" has no matching tool_result at EOF',
+      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
     },
   ]);
 });
@@ -278,7 +278,7 @@ test("invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "evta1" has no matching tool_result at EOF',
+    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
   });
 });
 
@@ -292,7 +292,7 @@ test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns under reader-to
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "evta1" has no matching tool_result at EOF',
+    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
   });
 });
 
@@ -307,7 +307,7 @@ test("invalid-graph/session-end-unknown-final-message-id.trail.jsonl warns under
     severity: "warning",
     code: "unknown_final_message_id",
     message:
-      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
+      'session_end final_message_id "01HGH0ST000000000000000001" does not reference the session header or a prior event in this file',
   });
 });
 
@@ -343,7 +343,7 @@ test("invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl w
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "evta2" has no matching tool_result at EOF',
+      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
     },
   ]);
 });
@@ -373,7 +373,7 @@ test("invalid-graph/duplicate-tool-result-for-id.trail.jsonl resolved for_id doe
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "evta2" has no matching tool_result at EOF',
+      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
     },
   ]);
 });
@@ -388,7 +388,7 @@ test("invalid-graph/session-end-forward-final-message-id.trail.jsonl warns on fo
     severity: "warning",
     code: "unknown_final_message_id",
     message:
-      'session_end final_message_id "evta2" does not reference the session header or a prior event in this file',
+      'session_end final_message_id "01HEVTA0000000000000000002" does not reference the session header or a prior event in this file',
   });
 });
 
@@ -425,7 +425,7 @@ test("hash-mismatch/content-hash-mismatch.trail.jsonl reports content_hash_misma
       severity: "error",
       code: "content_hash_mismatch",
       message:
-        "content_hash does not match canonical bytes (computed 3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2)",
+        "content_hash does not match canonical bytes (computed 8dbf946e5d4ccd2a4ff2681d2c2fe2614f0769bdfeafe5e4f242db14872db5f7)",
     },
   ]);
 });
@@ -442,7 +442,7 @@ test("hash-mismatch/content-hash-mismatch.trail.jsonl downgrades to warning unde
       severity: "warning",
       code: "content_hash_mismatch",
       message:
-        "content_hash does not match canonical bytes (computed 3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2)",
+        "content_hash does not match canonical bytes (computed 8dbf946e5d4ccd2a4ff2681d2c2fe2614f0769bdfeafe5e4f242db14872db5f7)",
     },
   ]);
 });
@@ -677,4 +677,36 @@ test("invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl warns envelo
     code: "envelope_sessions_manifest_drift",
     message: "envelope.sessions lists 2 session(s); v0.1.0 trail files contain exactly one session",
   });
+});
+
+test("valid/multi-segment-seg1.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multi-segment-seg1.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/multi-segment-seg2.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multi-segment-seg2.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/segment-seq-2-without-prev-hash.trail.jsonl rejects missing prev_content_hash", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/segment-seq-2-without-prev-hash.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/segment")).toBe(true);
+});
+
+test("invalid-schema/session-uid-not-ulid-or-uuid.trail.jsonl rejects non-conforming session_uid", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-uid-not-ulid-or-uuid.trail.jsonl"),
+  );
+  expect(
+    diagnostics.some(
+      (d) => d.severity === "error" && d.path === "/session_uid" && d.code === "pattern",
+    ),
+  ).toBe(true);
 });

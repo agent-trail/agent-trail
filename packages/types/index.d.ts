@@ -8,7 +8,7 @@
  */
 export type AgentTrailV010 = TrailEnvelope | Header | Entry;
 /**
- * Unique within the file. 8+ chars hex or alphanumeric recommended.
+ * Unique within the file. Globally-unique recommended (ULID/UUID) so cross-segment reconciliation can dedup by id. 8+ chars hex or alphanumeric recommended.
  */
 export type Id = string;
 /**
@@ -41,6 +41,17 @@ export type AgentName =
       | "clawdbot"
     )
   | string;
+/**
+ * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (§10).
+ */
+export type Segment =
+  | {
+      seq: 1;
+    }
+  | {
+      seq: number;
+      prev_content_hash: Sha256Hex | null;
+    };
 export type Entry = EntryBase &
   (
     | UserMessage
@@ -126,6 +137,11 @@ export interface Header {
   type: "session";
   schema_version: "0.1.0";
   id: Id;
+  /**
+   * Globally-unique source-session identifier. Stable across all segments of one source session (see §10 multi-segment sessions). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required when segment.seq > 1 (validator enforces). ULID is recommended (lexicographic tie-breaker); UUID accepted.
+   */
+  session_uid?: string;
+  segment?: Segment;
   content_hash?: Sha256Hex | "<pending>";
   ts: Iso8601;
   /**

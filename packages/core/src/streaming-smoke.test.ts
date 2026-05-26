@@ -14,7 +14,7 @@ async function makeLiveSession(): Promise<string> {
   const header = {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess-smoke",
+    id: "01HSESSSM0KE0000000000001A",
     ts: "2026-05-22T09:00:00.000Z",
     stream: { state: "open", started_at: "2026-05-22T09:00:00.000Z" },
     agent: { name: "codex-cli" },
@@ -46,13 +46,13 @@ test("smoke: live daemon emits a clean finalized session", async () => {
   // Live phase: validator should see only the live-stream marker, no errors.
   await appendEvent(path, {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-22T09:00:01.000Z",
     payload: { text: "summarize README" },
   });
   await appendEvent(path, {
     type: "tool_call",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-22T09:00:02.000Z",
     payload: { tool: "file_read", args: { path: "README.md" } },
   });
@@ -62,21 +62,21 @@ test("smoke: live daemon emits a clean finalized session", async () => {
 
   await appendEvent(path, {
     type: "tool_result",
-    id: "evta3",
+    id: "01HEVTA0000000000000000003",
     ts: "2026-05-22T09:00:03.000Z",
-    payload: { for_id: "evta2", ok: true, output: "# trail" },
+    payload: { for_id: "01HEVTA0000000000000000002", ok: true, output: "# trail" },
   });
   await appendEvent(path, {
     type: "agent_message",
-    id: "evta4",
+    id: "01HEVTA0000000000000000004",
     ts: "2026-05-22T09:00:04.000Z",
     payload: { text: "the readme starts with `# trail`" },
   });
   await appendEvent(path, {
     type: "session_end",
-    id: "evta5",
+    id: "01HEVTA0000000000000000005",
     ts: "2026-05-22T09:00:05.000Z",
-    payload: { reason: "complete", final_message_id: "evta4" },
+    payload: { reason: "complete", final_message_id: "01HEVTA0000000000000000004" },
   });
 
   await finalizeHeader(path);
@@ -89,13 +89,13 @@ test("smoke: daemon killed mid tool_call surfaces unmatched_tool_call_at_eof", a
   const path = await makeLiveSession();
   await appendEvent(path, {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-22T09:00:01.000Z",
     payload: { text: "run a build" },
   });
   await appendEvent(path, {
     type: "tool_call",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-22T09:00:02.000Z",
     payload: { tool: "shell_command", args: { command: "bun run build" } },
   });
@@ -110,7 +110,7 @@ test("smoke: crash supervisor writes session_terminated with open_call_ids", asy
   const path = await makeLiveSession();
   await appendEvent(path, {
     type: "tool_call",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-22T09:00:01.000Z",
     payload: { tool: "shell_command", args: { command: "sleep 9999" } },
   });
@@ -118,9 +118,9 @@ test("smoke: crash supervisor writes session_terminated with open_call_ids", asy
   // finalizing the header.
   await appendEvent(path, {
     type: "session_terminated",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-22T09:00:02.000Z",
-    payload: { reason: "process_terminated", open_call_ids: ["evta1"] },
+    payload: { reason: "process_terminated", open_call_ids: ["01HEVTA0000000000000000001"] },
   });
   await finalizeHeader(path);
 
@@ -132,21 +132,21 @@ test("smoke: streaming agent uses semantic.call_id pairing without for_id", asyn
   const path = await makeLiveSession();
   await appendEvent(path, {
     type: "tool_call",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-22T09:00:01.000Z",
     semantic: { call_id: "toolu_xyz" },
     payload: { tool: "file_read", args: { path: "README.md" } },
   });
   await appendEvent(path, {
     type: "tool_result",
-    id: "evta2",
+    id: "01HEVTA0000000000000000002",
     ts: "2026-05-22T09:00:02.000Z",
     semantic: { call_id: "toolu_xyz" },
     payload: { ok: true, output: "..." },
   });
   await appendEvent(path, {
     type: "session_end",
-    id: "evta3",
+    id: "01HEVTA0000000000000000003",
     ts: "2026-05-22T09:00:03.000Z",
     payload: { reason: "agent_idle" },
   });

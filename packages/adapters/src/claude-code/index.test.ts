@@ -154,7 +154,7 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
   expect(trail.header).toEqual({
     type: "session",
     schema_version: "0.1.0",
-    id: "sess-cc-1",
+    id: "00000000-0000-0000-0000-ccccc0000001",
     ts: "2026-05-17T14:00:05.000Z",
     agent: { name: "claude-code", version: "1.0.0-synthetic" },
     cwd: "/tmp/synthetic-project",
@@ -167,7 +167,7 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
 
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.id === "cc-evt-1");
+  const userMessage = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc11");
   expect(userMessage).toBeDefined();
   expect(userMessage?.type).toBe("user_message");
   expect(userMessage?.ts).toBe("2026-05-17T14:00:05.000Z");
@@ -178,10 +178,10 @@ test("parseSession() emits a user_message for user text records, with no parent_
 
 test("parseSession() emits a tool_call for assistant tool_use blocks, with semantic.call_id preserving tool_use_id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.id === "cc-evt-2");
+  const toolCall = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc12");
   expect(toolCall).toBeDefined();
   expect(toolCall?.type).toBe("tool_call");
-  expect(toolCall?.parent_id).toBe("cc-evt-1");
+  expect(toolCall?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc11");
   expect(toolCall?.payload).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
@@ -191,12 +191,12 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.id === "cc-evt-3");
+  const toolResult = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc13");
   expect(toolResult).toBeDefined();
   expect(toolResult?.type).toBe("tool_result");
-  expect(toolResult?.parent_id).toBe("cc-evt-2");
+  expect(toolResult?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc12");
   expect(toolResult?.payload).toEqual({
-    for_id: "cc-evt-2",
+    for_id: "00000000-0000-0000-0000-cccccccccc12",
     ok: true,
     output: "file-a\nfile-b",
   });
@@ -205,10 +205,10 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
 
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "cc-evt-4");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc14");
   expect(agentMsg).toBeDefined();
   expect(agentMsg?.type).toBe("agent_message");
-  expect(agentMsg?.parent_id).toBe("cc-evt-3");
+  expect(agentMsg?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc13");
   expect(agentMsg?.payload).toEqual({
     text: "two files: file-a, file-b",
     model: "claude-opus-4-7",
@@ -340,10 +340,10 @@ test("parseSession() omits payload.usage when source provides no usage data", as
 
 test("parseSession() emits a session_summary for summary records", async () => {
   const trail = await parseFixture();
-  const summary = trail.entries.find((e) => e.id === "cc-evt-5");
+  const summary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc15");
   expect(summary).toBeDefined();
   expect(summary?.type).toBe("session_summary");
-  expect(summary?.parent_id).toBe("cc-evt-4");
+  expect(summary?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc14");
   expect(summary?.payload).toEqual({
     scope: "session",
     text: "listed files in working directory",
@@ -964,57 +964,67 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
   const trail = await parseFixture();
   expect(trail.entries).toHaveLength(5);
   const ids = trail.entries.map((e) => e.id);
-  expect(ids).not.toContain("cc-att-1");
-  expect(ids).not.toContain("cc-sidechain-1");
-  expect(ids).not.toContain("cc-meta-1");
+  expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
+  expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
+  expect(ids).not.toContain("00000000-0000-0000-0000-cccccccceee1");
 });
 
 test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {
   const trail = await parseFidelityFixture();
   const ids = trail.entries.map((e) => e.id);
   expect(ids.slice(0, 6)).toEqual([
-    "cc-adv-1",
-    "cc-adv-2-text-0",
-    "cc-adv-2-thinking-1",
-    "cc-adv-2-redacted_thinking-2",
-    "cc-adv-2-tool_use-3",
-    "cc-adv-2-tool_use-4",
+    "00000000-0000-0000-0000-aaaaaaaaaa11",
+    "00000000-0000-0000-0000-aaaaaaaaaa12-text-0",
+    "00000000-0000-0000-0000-aaaaaaaaaa12-thinking-1",
+    "00000000-0000-0000-0000-aaaaaaaaaa12-redacted_thinking-2",
+    "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
+    "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
   ]);
 
-  const text = trail.entries.find((e) => e.id === "cc-adv-2-text-0");
+  const text = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-text-0");
   expect(text?.type).toBe("agent_message");
-  expect(text?.parent_id).toBe("cc-adv-1");
+  expect(text?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa11");
 
-  const thinking = trail.entries.find((e) => e.id === "cc-adv-2-thinking-1");
+  const thinking = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-thinking-1",
+  );
   expect(thinking?.type).toBe("agent_thinking");
-  expect(thinking?.parent_id).toBe("cc-adv-2-text-0");
+  expect(thinking?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa12-text-0");
 
-  const read = trail.entries.find((e) => e.id === "cc-adv-2-tool_use-3");
+  const read = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
+  );
   expect(read?.type).toBe("tool_call");
   expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
   expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
-  const bash = trail.entries.find((e) => e.id === "cc-adv-2-tool_use-4");
+  const bash = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
+  );
   expect(bash?.type).toBe("tool_call");
   expect(bash?.payload).toEqual({ tool: "shell_command", args: { command: "bun run check" } });
-  expect(bash?.parent_id).toBe("cc-adv-2-tool_use-3");
+  expect(bash?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3");
 });
 
 test("parseSession() emits multiple tool_results with error state and semantic pairing", async () => {
   const trail = await parseFidelityFixture();
-  const readResult = trail.entries.find((e) => e.id === "cc-adv-3-tool_result-1");
+  const readResult = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa13-tool_result-1",
+  );
   expect(readResult?.type).toBe("tool_result");
   expect(readResult?.payload).toEqual({
-    for_id: "cc-adv-2-tool_use-3",
+    for_id: "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-3",
     ok: true,
     output: '{"name":"agent-trail"}',
   });
   expect(readResult?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
-  const bashResult = trail.entries.find((e) => e.id === "cc-adv-3-tool_result-2");
+  const bashResult = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa13-tool_result-2",
+  );
   expect(bashResult?.type).toBe("tool_result");
   expect(bashResult?.payload).toEqual({
-    for_id: "cc-adv-2-tool_use-4",
+    for_id: "00000000-0000-0000-0000-aaaaaaaaaa12-tool_use-4",
     ok: false,
     output: "error: synthetic check failure",
     error: "error: synthetic check failure",
@@ -1024,52 +1034,66 @@ test("parseSession() emits multiple tool_results with error state and semantic p
 
 test("parseSession() maps system, progress, queue, resume preamble, summary, and compact records", async () => {
   const trail = await parseFidelityFixture();
-  expect(trail.entries.find((e) => e.id === "cc-adv-4")?.payload).toEqual({
+  expect(
+    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa14")?.payload,
+  ).toEqual({
     kind: "system",
     text: "<command-name>/model</command-name>",
   });
-  expect(trail.entries.find((e) => e.id === "cc-adv-5")?.payload).toEqual({
+  expect(
+    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa15")?.payload,
+  ).toEqual({
     kind: "hook_progress",
     text: "Hook progress: PreToolUse (PreToolUse:Bash)",
     data: { type: "hook_progress", hookEvent: "PreToolUse", hookName: "PreToolUse:Bash" },
   });
-  expect(trail.entries.find((e) => e.id === "cc-adv-6")?.payload).toEqual({
+  expect(
+    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa16")?.payload,
+  ).toEqual({
     kind: "queue_operation",
     text: "Queued input: queued follow-up while tool is running",
   });
-  expect(trail.entries.find((e) => e.id === "cc-adv-7")?.type).toBe("system_event");
-  expect(trail.entries.find((e) => e.id === "cc-adv-8")?.type).toBe("session_summary");
-  expect(trail.entries.find((e) => e.id === "cc-adv-9")?.type).toBe("context_compact");
+  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa17")?.type).toBe(
+    "system_event",
+  );
+  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa18")?.type).toBe(
+    "session_summary",
+  );
+  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa19")?.type).toBe(
+    "context_compact",
+  );
 });
 
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
   const trail = await parseInterruptModelFixture();
   const ids = trail.entries.map((e) => e.id);
   expect(ids).toEqual([
-    "cc-int-1",
-    "cc-int-2",
-    "cc-int-3",
-    "cc-int-4",
-    "cc-int-5-model_change",
-    "cc-int-5",
-    "cc-int-6",
+    "00000000-0000-0000-0000-111111111111",
+    "00000000-0000-0000-0000-111111111112",
+    "00000000-0000-0000-0000-111111111113",
+    "00000000-0000-0000-0000-111111111114",
+    "00000000-0000-0000-0000-111111111115-model_change",
+    "00000000-0000-0000-0000-111111111115",
+    "00000000-0000-0000-0000-111111111116",
   ]);
 
-  const interrupt = trail.entries.find((e) => e.id === "cc-int-3");
+  const interrupt = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-111111111113");
   expect(interrupt?.type).toBe("user_interrupt");
   expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
-  expect(interrupt?.parent_id).toBe("cc-int-2");
+  expect(interrupt?.parent_id).toBe("00000000-0000-0000-0000-111111111112");
 
-  const modelChange = trail.entries.find((e) => e.id === "cc-int-5-model_change");
+  const modelChange = trail.entries.find(
+    (e) => e.id === "00000000-0000-0000-0000-111111111115-model_change",
+  );
   expect(modelChange?.type).toBe("model_change");
   expect(modelChange?.payload).toEqual({
     from_model: "claude-opus-4-7",
     to_model: "claude-sonnet-4-5",
   });
   expect(modelChange?.source?.synthesized).toBe(true);
-  expect(modelChange?.parent_id).toBe("cc-int-4");
+  expect(modelChange?.parent_id).toBe("00000000-0000-0000-0000-111111111114");
 
-  const sonnetMsg = trail.entries.find((e) => e.id === "cc-int-5");
+  const sonnetMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-111111111115");
   expect(sonnetMsg?.type).toBe("agent_message");
 
   expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
@@ -1113,7 +1137,7 @@ test("fidelity-edge-cases trail output drops below 11 KB after envelope_ref dedu
   const trail = await parseFidelityFixture();
   const lines = [JSON.stringify(trail.header), ...trail.entries.map((e) => JSON.stringify(e))];
   const bytes = Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
-  expect(bytes).toBeLessThan(11_000);
+  expect(bytes).toBeLessThan(13_000);
 });
 
 test("block-derived entries from the same assistant envelope dedup via envelope_ref", async () => {

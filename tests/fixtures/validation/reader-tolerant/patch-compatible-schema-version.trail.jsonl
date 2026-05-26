@@ -1,2 +1,2 @@
-{"type":"session","schema_version":"0.1.1","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
-{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"agent":{"name":"codex-cli"},"content_hash":"ce5fa0171af29a5f05837c438cc31e62631e1125083ff468ca8b3932cb4f3e4d","id":"01HSESS0000000000000000001","schema_version":"0.1.1","ts":"2026-05-17T14:00:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000001","payload":{"text":"hello"},"ts":"2026-05-17T14:00:05.000Z","type":"user_message"}

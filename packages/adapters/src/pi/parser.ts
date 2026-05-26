@@ -53,6 +53,10 @@ function buildParentIndex(envelopes: PiEnvelope[]): Map<string, string | null> {
   return parentBySourceId;
 }
 
+function cryptoRandomShort(): string {
+  return randomUUID().slice(0, 8);
+}
+
 export function parsePiJsonl(text: string): TrailFile {
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes);
@@ -213,8 +217,4 @@ function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header):
       synthesized: true,
     },
   };
-}
-
-function cryptoRandomShort(): string {
-  return randomUUID().slice(0, 8);
 }
