@@ -57,8 +57,11 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | Term | Definition |
 |---|---|
 | **Trail file** | A JSONL file conforming to this specification. |
-| **Header** | The single object on line 1; metadata about the file. Not part of the event graph. |
-| **Event** | Any object on line 2 or later; one unit of session content. |
+| **Trail envelope** | Optional `type:"trail"` record at line 1 carrying file-level metadata (producer, file label, file-scope hash, manifest, vendor extensions). Not part of the event graph. |
+| **Header** | The session header (`type:"session"`). On line 1 when there is no envelope, on line 2 when the envelope is present. Not part of the event graph. |
+| **Event** | Any object after the header line; one unit of session content. |
+| **File-level content hash** | SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. |
+| **Session-level content hash** | SHA-256 of the canonical bytes covering ONLY the session header and its events (envelope excluded), with the session header's `content_hash` pinned to `<pending>`. |
 | **Entry** | Equivalent to "event"; either term may appear. |
 | **Adapter** | Software that reads a source agent's storage and emits a trail file. |
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
@@ -95,8 +98,11 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 
 Every valid trail file has:
 
-1. Exactly one header line (line 1).
-2. Zero or more event lines (lines 2 onward).
+1. **Optionally**, a trail envelope (`type:"trail"`) on line 1 (§8.0).
+2. Exactly one session header (`type:"session"`) — on line 1 when there is no envelope, on line 2 when an envelope is present.
+3. Zero or more event lines after the session header.
+
+When the envelope is absent, behaviour is unchanged from earlier drafts: line 1 is the session header.
 
 ---
 
@@ -171,13 +177,97 @@ Verifying a file's hash uses the same procedure: replace the present hash with `
 
 Writers that produce streaming or in-progress files may omit `content_hash` or leave it as `"<pending>"`. Readers may verify the hash but must not abort on mismatch — only warn. Strict validators must report a present but incorrect finalized `content_hash` as an error.
 
-### 7.4 Event identifiers
+### 7.4 Two-tier identity
+
+When a trail envelope is present, the file carries two independent content hashes:
+
+- **Session-level `content_hash`** lives on the session header. It is SHA-256 over the canonical bytes covering only the session header and its events (the envelope record is excluded from the hashed input). This makes the session's identity independent of whether it is wrapped in an envelope — extracting one session from a multi-session file recomputes the same digest.
+- **File-level `content_hash`** lives on the trail envelope. It is SHA-256 over the canonical bytes of the whole file, with the envelope's `content_hash` field replaced by `"<pending>"` per the same two-pass procedure as §7.3. The session-level `content_hash`, if already populated, is treated as opaque file content.
+
+Writers that emit both hashes MUST stamp the session-level hash first, then compute and stamp the file-level hash. Readers verify them independently. Different consumers care about different scopes: extraction tools recompute the session hash; share/transport tools verify the file hash.
+
+### 7.5 Event identifiers
 
 Event `id` values are unique within the file. They do not need to be globally unique. Recommended: 8+ characters, hex or alphanumeric.
 
 ---
 
-## 8. The header
+## 8.0 The trail envelope
+
+The trail envelope is an OPTIONAL record on line 1 that carries file-scope metadata distinct from per-session metadata. When absent, the session header occupies line 1 and behaviour matches earlier drafts. When present, the session header MUST follow on line 2 and at most one envelope is permitted per file.
+
+### 8.0.1 Schema
+
+```jsonc
+{
+  "type": "trail",
+  "schema_version": "0.1.0",
+  "id": "<file-uuid-or-ulid>",
+  "name": "<human-label>",                          // optional
+  "description": "<free text>",                     // optional
+  "ts": "<ISO-8601 timestamp>",
+  "producer": "trail-cli/0.3.0",
+  "content_hash": "<sha256-hex>",                   // optional; populated at finalize
+  "tags": ["..."],                                  // optional
+  "vcs": { "type": "git", "revision": "..." },      // optional; same shape as §8 vcs
+  "fork_from": {                                    // optional; file-level fork link
+    "trail_id": "<parent-file-id>",
+    "content_hash": "<parent-file-hash>"            // optional
+  },
+  "redacted_from": {                                // optional; redacted artifacts only
+    "content_hash": "<raw-file-content-hash>"
+  },
+  "sessions": [                                     // optional manifest
+    { "id": "<session-id>", "agent": "<canonical-name>", "role": "...", "follows": "..." }
+  ],
+  "meta": {                                         // optional; see §8.0.3
+    "io.entire.checkpoint_id": "ckpt-7"
+  }
+}
+```
+
+### 8.0.2 Fields
+
+| Field | Required | Type | Notes |
+|---|---|---|---|
+| `type` | yes | literal `"trail"` | discriminator |
+| `schema_version` | yes | string | currently `"0.1.0"` for the envelope shape — independent of session `schema_version` |
+| `id` | yes | string | file-level identifier; distinct from any session `id` in the file |
+| `name` | no | string | human label |
+| `description` | no | string | free text |
+| `ts` | yes | string | ISO-8601 timestamp when the file was assembled or exported |
+| `producer` | yes | string | identifier of the writer (e.g., `trail-cli/0.3.0`) |
+| `content_hash` | no | string | SHA-256 hex of the whole-file canonical bytes; see §7.4 |
+| `tags` | no | string[] | free-form labels |
+| `vcs` | no | object | working-tree context at file-assembly time |
+| `fork_from` | no | object | reference to a parent file when forked |
+| `redacted_from` | no | object | provenance link from a redacted file to its raw counterpart |
+| `sessions` | no | array | manifest of sessions in this file; validator warns on drift vs file content |
+| `meta` | no | object | free-form vendor extensions (§8.0.3) |
+
+The envelope MUST NOT carry a `parent_id`. It is not part of the event graph.
+
+### 8.0.3 The `meta` extension convention
+
+The envelope and the session header both accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use a reverse-DNS or `x-<adapter>/` namespace to avoid collisions (`com.example.team`, `x-acme/build_id`, `io.entire.checkpoint_id`). The validator treats `meta` as opaque; it is included in the file-level `content_hash` computation when present.
+
+No reserved keys ship in this draft. Standard keys may be promoted in later minor bumps based on observed usage.
+
+### 8.0.4 The `sessions` manifest
+
+When `sessions` is present, the validator warns if the manifest disagrees with the file:
+
+- For this draft, multi-session trail files are not yet supported. The manifest, if present, MUST list exactly one entry whose `id` and `agent` match the file's session header. Other shapes emit `envelope_sessions_manifest_drift` warnings.
+
+### 8.0.5 File identity defaults when envelope is absent
+
+When no envelope is written, file-level identity defaults derive from the session:
+
+- File `id` = session `id`.
+- File `name` is unset.
+- The file-level content hash is unavailable; only the session content hash is meaningful.
+
+## 8. The session header
 
 ### 8.1 Schema
 
@@ -218,6 +308,9 @@ Event `id` values are unique within the file. They do not need to be globally un
   },
   "metadata": {                                 // optional; see §11
     "com.example.custom_field": "..."
+  },
+  "meta": {                                     // optional; same convention as envelope (§8.0.3)
+    "com.example.custom_field": "..."
   }
 }
 ```
@@ -244,6 +337,7 @@ Event `id` values are unique within the file. They do not need to be globally un
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
 | `source` | no | object | metadata about the source file |
 | `metadata` | no | object | vendor extensions (§11) |
+| `meta` | no | object | additional vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention defined for the trail envelope (§8.0.3) |
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 
@@ -914,7 +1008,7 @@ Validators should report normalized diagnostics with `line`, `path` (JSON Pointe
 
 A v0.1.0-compliant trail file must also pass whole-file checks:
 
-1. First line matches the header schema with `type: "session"` and `schema_version: "0.1.0"`.
+1. The first line is either a trail envelope (`type: "trail"`, §8.0) or a session header (`type: "session"`, `schema_version: "0.1.0"`). When the envelope is present, the session header MUST occupy line 2.
 2. Subsequent lines match an event schema (`type`, `id`, `ts`, `payload`).
 3. All `id` values are unique within the file.
 4. Every non-null `parent_id` references an `id` in the same file.
@@ -938,6 +1032,11 @@ Warnings (non-fatal):
 - Validators MAY report implementation-defined size budgets for `source.raw`. The reference validator emits `source_raw_oversized` (warning) above a soft threshold and `source_raw_oversized_hard` (error) above a hard threshold; specific numbers are writer policy (§14.1).
 - `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
 - `source.raw.envelope_ref`, when set, must reference the `id` of an earlier entry in the same file (§9.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
+- Trail envelope position and uniqueness (§8.0):
+  - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
+  - `multiple_envelopes` (error): more than one envelope appears in the file.
+  - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
+  - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest disagrees with the session header's `id` or `agent`, or lists a number of sessions other than one.
 
 Streaming rules (§8.4):
 
@@ -1040,6 +1139,7 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 - Defines stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - Adds the optional header `stream` field, the optional `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3). These are additive and backward-compatible; v0.1.x readers ignore unknown header fields and event types.
 - Adds `source.raw.envelope_ref` for inline-first / ref-subsequent envelope dedup (§9.7), the elide marker shape `{ elided: true, size_bytes: N }` for whole-value or per-leaf elision in `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`. Backward-compatible; v0.1.0 readers that do not know `envelope_ref` ignore it as an unknown raw-source field.
+- Adds the optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`). Introduces two-tier identity (§7.4): session-level `content_hash` excludes the envelope from the hashed input, file-level `content_hash` covers the whole file. Adds the optional `meta` extension on both envelope and session header.
 
 ---
 
@@ -1050,6 +1150,15 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 ```
 
 A session with only a header is valid. Events are optional.
+
+### Appendix A.1 — Minimal valid record with trail envelope
+
+```jsonl
+{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
+{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+```
+
+An envelope at line 1 followed by a session header at line 2 is valid. Events are optional.
 
 ---
 

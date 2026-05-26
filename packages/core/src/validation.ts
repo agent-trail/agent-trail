@@ -13,6 +13,7 @@ const schemaId = schemaIdFrom(schema);
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 ajv.addSchema(schema);
 
+const validateTrailEnvelope = compileSchemaRef(`${schemaId}#/$defs/trailEnvelope`);
 const validateHeader = compileSchemaRef(`${schemaId}#/$defs/header`);
 const validateEntry = compileSchemaRef(`${schemaId}#/$defs/entry`);
 const validateEntryBase = compileSchemaRef(`${schemaId}#/$defs/entryBase`);
@@ -53,13 +54,36 @@ export type ValidateTrailOptions = {
 };
 
 export function validateWriterStrictRecord(record: JsonlRecord): Diagnostic[] {
-  const validate = record.line === 1 ? validateHeader : validateEntry;
+  const validate = pickRecordValidator(record);
 
   if (validate(record.value)) {
     return [];
   }
 
   return (validate.errors ?? []).map((error) => diagnosticFromSchemaError(error, record.line));
+}
+
+function pickRecordValidator(record: JsonlRecord): ValidateFunction<unknown> {
+  const recordType = record.value?.type;
+  if (recordType === "trail") {
+    return validateTrailEnvelope;
+  }
+  if (recordType === "session") {
+    return validateHeader;
+  }
+  // Line-1 fallback: only reached when `type` is missing or unknown. Validating
+  // as a session header surfaces the missing-type error inside header rules
+  // rather than the more confusing event-record rules. New header-like record
+  // types should be dispatched explicitly above this fallback.
+  if (record.line === 1) {
+    return validateHeader;
+  }
+  return validateEntry;
+}
+
+function isHeaderLikeRecord(record: JsonlRecord): boolean {
+  const recordType = record.value?.type;
+  return recordType === "trail" || recordType === "session";
 }
 
 function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfile): Diagnostic[] {
@@ -81,7 +105,7 @@ const VCS_REMOTE_URL_CREDENTIALS_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:([^/
 const URL_ENCODED_OCTET_PATTERN = /%[0-9A-Fa-f]{2}/;
 
 function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
-  if (record.line !== 1) {
+  if (!isHeaderLikeRecord(record)) {
     return [];
   }
   const vcs = (record.value as { vcs?: unknown }).vcs;
@@ -217,7 +241,7 @@ export async function validateTrailString(
 }
 
 function sourceRawSizeDiagnostics(record: JsonlRecord): Diagnostic[] {
-  if (record.line === 1) {
+  if (isHeaderLikeRecord(record)) {
     return [];
   }
   const source = record.value.source;
@@ -260,7 +284,7 @@ function sourceRawSizeDiagnostics(record: JsonlRecord): Diagnostic[] {
 // counts are out of scope for validator diagnostics; share-time redaction
 // (see @agent-trail/redact) records per-match counts in its summary.
 function sourceRawSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
-  if (record.line === 1) {
+  if (isHeaderLikeRecord(record)) {
     return [];
   }
   const source = record.value.source;
@@ -330,7 +354,7 @@ function escapeJsonPointerSegment(segment: string): string {
 
 function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {
   const eventType = record.value.type;
-  if (record.line === 1 || typeof eventType !== "string") {
+  if (isHeaderLikeRecord(record) || typeof eventType !== "string") {
     return [];
   }
 
@@ -354,7 +378,7 @@ function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {
 function readerTolerantUnknownRecordWarning(record: JsonlRecord): Diagnostic | undefined {
   const eventType = record.value.type;
   if (
-    record.line === 1 ||
+    isHeaderLikeRecord(record) ||
     typeof eventType !== "string" ||
     implementedEventTypeSet.has(eventType) ||
     !validateEntryBase(record.value)
@@ -377,7 +401,7 @@ function hasOnlyReaderTolerantPayloadFieldAdditions(
 ): boolean {
   const eventType = record.value.type;
   if (
-    record.line === 1 ||
+    isHeaderLikeRecord(record) ||
     typeof eventType !== "string" ||
     tolerantWarnings.length === 0 ||
     !validateEntryBase(record.value)

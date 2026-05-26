@@ -1,0 +1,3 @@
+{"content_hash":"355d1b7d326898ccc4ddb6e8a3afa5d5feb4b8d50372277a85c0ef7869f8dfde","id":"trl-1","producer":"trail-cli/0.3.0","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"trail"}
+{"agent":{"name":"codex-cli"},"content_hash":"d0b680cb57b2229e9b0530afef58b23ce19f037e68713c998763d36b1825cad8","id":"sess1","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"session"}
+{"id":"evta1","payload":{"text":"hello"},"ts":"2026-05-17T14:00:05.000Z","type":"user_message"}

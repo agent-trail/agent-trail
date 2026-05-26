@@ -6,6 +6,7 @@ import {
   computeContentHash,
   type JsonlRecord,
   parseJsonlString,
+  stampTrail,
 } from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import { registerTrail } from "@agent-trail/store";
@@ -140,13 +141,13 @@ export async function runShare(
       payloadHash = reg.contentHash;
     } else {
       // Finalize the redacted artifact's own content_hash so the shared
-      // gist payload is verifiable (spec §7.3). redactTrail stamps
-      // `<pending>` on the header when redaction mutates content; compute
-      // and write the real hash before canonicalizing for upload.
+      // gist payload is verifiable (spec §7.3, §7.4). redactTrail stamps
+      // `<pending>` on the header when redaction mutates content; stamp
+      // the real hashes (session-level first, then file-level when a
+      // trail envelope is present) before canonicalizing for upload.
       const records = redactedRecords ?? [];
-      payloadHash = computeContentHash(records);
-      const head = records[0]?.value as Record<string, unknown> | undefined;
-      if (head && head.type === "session") head.content_hash = payloadHash;
+      const { sessionHash } = stampTrail(records);
+      payloadHash = sessionHash ?? computeContentHash(records);
       jsonl = Buffer.from(canonicalizeRecords(records), "utf8");
     }
     const gzipped = gzipSync(jsonl);

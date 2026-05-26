@@ -12,6 +12,18 @@ See PRD [§7.2](./PRD.md) for the product specification of this matrix, and [`CO
 
 An adapter is only considered supported once its row is `verified` with at least one committed synthetic fixture.
 
+## Trail envelope emission (writer policy)
+
+Spec §8.0 introduces an optional `type:"trail"` record at line 1 — the **trail envelope** — that carries file-level metadata (`producer`, `id`, `name`, file-scope `content_hash`, optional `sessions` manifest, vendor `meta`). It is distinct from the source-side "envelopes" that some source agents wrap around blocks of content (referenced by `source.raw.envelope` / `source.raw.envelope_ref`, spec §9.7).
+
+Adapter writer policy:
+
+- Adapters SHOULD emit a trail envelope by default. `producer` is the adapter package name and version (for example, `@agent-trail/adapters/claude-code/0.3.0`). The envelope `id` is a fresh file-level identifier (UUID/ULID), distinct from the source-session id surfaced on the session header.
+- File-level `content_hash` is stamped after the session-level hash (spec §7.4 two-tier identity).
+- Writers MAY skip envelope emission only when the caller explicitly opts out.
+
+Adapter rows below reflect each adapter's current envelope-emission state once implemented; envelope-less output remains spec-compliant.
+
 ## Matrix
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
