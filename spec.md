@@ -384,7 +384,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix) or UUID (any v4/v7, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. In v0.1 adapters do not yet emit `session_uid`; this is planned alongside the reconciler implementation (#73 follow-up).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). In v0.1 adapters do not yet emit `session_uid` for single-segment trails; that is planned alongside the reconciler implementation (#73 follow-up).
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -399,7 +399,11 @@ A reader presented with two or more segment trail files for one source session r
 3. Verify chain: for each segment with `seq > 1`, check that `header.segment.prev_content_hash` matches the previous segment's `header.content_hash`. Mismatch is a `segment_chain_mismatch` warning, not an error — readers MAY continue with the rest of the merge.
 4. Concatenate events. Dedupe by event `id` (set membership) when ids are globally unique. Writers MUST emit globally-unique event ids if they intend their output to be reconciled. v0.1 enforces only `minLength: 4` on the schema; the global-uniqueness invariant is a writer-side contract until the follow-up issue lands a validator warning + reconciler that surfaces violations.
 5. Drop intermediate `session_terminated` events with `payload.reason == "process_terminated"` — those are crash markers from killed writers; only the final terminator (if any) is kept.
-6. Emit one merged trail with a single header. The merged header uses the highest-`seq` segment's `header` (minus `segment.*`), and `stream` from the final segment.
+6. Emit one merged trail with a single header. The merged header is assembled field-by-field across segments:
+   - `ts` (session start time) comes from the lowest-`seq` segment (seg-1 represents the real start of the source session, not the most recent resume).
+   - `stream`, `content_hash`, `vcs`, `cwd`, `agent.version`, `meta`, and any other late-binding metadata come from the highest-`seq` segment (these reflect the session's final or most recent observed state).
+   - `id`, `type`, `schema_version`, `agent.name`, and `session_uid` are stable across segments by definition; readers SHOULD warn if they diverge.
+   - `segment.*` fields are dropped from the merged header (the merge collapses the segment chain into one logical session).
 
 Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
 

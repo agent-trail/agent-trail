@@ -29,6 +29,8 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 
 **Bootstrap risk**: Spec §8.5 says writers SHOULD emit `session_uid` even for single-segment trails, but the claude-code and pi adapters in this PR were intentionally not updated to emit it (the session_uid-required attempt cascaded into broader adapter rework — see "Considered Options" above). Consequence: the v0.1 trail corpus has zero real-world `session_uid` coverage until adapters are updated. The reconciler follow-up PR MUST land adapter `session_uid` emission alongside the library, or reconciliation will only work on synthetic fixtures.
 
+Note that for the **multi-segment** case (`segment.seq >= 2`), the schema now enforces `session_uid` as required via an `if/then` block on the header. This closes the documented gap for continuation segments without requiring single-segment adapters to emit `session_uid`. v0.1 ships no real multi-segment writers, so this enforcement bites only synthetic fixtures and any future writer that opts into multi-segment emission.
+
 **Event-id uniqueness gap**: Spec §8.5 step 4 says writers MUST emit globally-unique event ids if their output is intended for reconciliation, but the schema only enforces `minLength: 4`. This is a writer-side contract with no validator enforcement in v0.1. The reconciler follow-up PR is expected to close the gap with a `event_id_not_globally_unique` validator warning and/or a tighter event-id regex bundled with the adapter id-format migration.
 
 Tracks #73 spec contract. Reconciler implementation and `trail load` integration land in a follow-up issue.

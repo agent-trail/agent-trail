@@ -724,3 +724,14 @@ test("invalid-schema/segment-seq-1-with-prev-hash.trail.jsonl rejects seq=1 with
   );
   expect(diagnostics.some((d) => d.severity === "error" && d.path === "/segment")).toBe(true);
 });
+
+test("invalid-schema/segment-seq-2-without-session-uid.trail.jsonl rejects missing session_uid", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/segment-seq-2-without-session-uid.trail.jsonl"),
+  );
+  expect(
+    diagnostics.some(
+      (d) => d.severity === "error" && d.code === "required" && d.path === "/session_uid",
+    ),
+  ).toBe(true);
+});
