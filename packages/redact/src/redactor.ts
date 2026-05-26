@@ -246,6 +246,33 @@ function escapeRegex(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Removes vcs.remote_url from the header. Default-on per spec §15 / PRD §8.6
+// step 7 because the field reveals repository identity (potentially private).
+// Records the strip in the summary so share-time previews surface it.
+function stripVcsRemoteUrl(
+  records: JsonlRecord[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "session") continue;
+    const vcs = value.vcs as Record<string, unknown> | undefined;
+    if (vcs === undefined || typeof vcs.remote_url !== "string") continue;
+    const before = vcs.remote_url;
+    delete vcs.remote_url;
+    summary.counts.vcs_remote_url = (summary.counts.vcs_remote_url ?? 0) + 1;
+    if (summary.samples.length < maxSamples) {
+      summary.samples.push({
+        patternId: "vcs_remote_url",
+        location: `records[${index}].vcs.remote_url`,
+        before: maskSample(before),
+        after: "[STRIPPED]",
+      });
+    }
+  }
+}
+
 function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
   // Note: if a user-supplied secret happens to equal a placeholder
   // ("[OPENAI_KEY]", "<home>", etc.) repeated redaction passes can shorten
@@ -277,8 +304,13 @@ export function redactTrail(
   const includeSourceRaw = options.includeSourceRaw ?? true;
   const outputMaxBytes = options.outputMaxBytes ?? 10_240;
   const maxSamples = options.maxSamples ?? 20;
+  const keepRemoteUrl = options.keepRemoteUrl ?? false;
   const out = records.map((record) => structuredClone(record));
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
+
+  if (!keepRemoteUrl) {
+    stripVcsRemoteUrl(out, rawSummary, maxSamples);
+  }
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {

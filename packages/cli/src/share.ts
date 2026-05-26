@@ -27,13 +27,15 @@ export type RunShareOptions = {
 
 const VIEWER_BASE = "https://agent-trail.dev/view/gist";
 
-const USAGE = "Usage: trail share <path> [--dry-run] [--yes] [--skip-redaction]";
+const USAGE =
+  "Usage: trail share <path> [--dry-run] [--yes] [--skip-redaction] [--keep-remote-url]";
 const SHORT_HASH_LEN = 12;
 
 type Values = {
   "dry-run": boolean;
   yes: boolean;
   "skip-redaction": boolean;
+  "keep-remote-url": boolean;
 };
 
 export async function runShare(
@@ -49,6 +51,7 @@ export async function runShare(
         "dry-run": { type: "boolean", default: false },
         yes: { type: "boolean", short: "y", default: false },
         "skip-redaction": { type: "boolean", default: false },
+        "keep-remote-url": { type: "boolean", default: false },
       },
       allowPositionals: true,
     });
@@ -93,7 +96,11 @@ export async function runShare(
       "WARNING: --skip-redaction will share unredacted trail content. Secrets, file paths, and PII may be exposed.\n";
     stdoutLines.push("Redaction summary: skipped (--skip-redaction)");
   } else {
-    const result = redactTrail(records);
+    if (values["keep-remote-url"]) {
+      stderr +=
+        "WARNING: --keep-remote-url will share the repository's remote URL in the gist. Project identity (and private repo identity) will be exposed.\n";
+    }
+    const result = redactTrail(records, { keepRemoteUrl: values["keep-remote-url"] });
     redactedRecords = result.records;
     stdoutLines.push("Redaction summary:");
     stdoutLines.push(...formatSummary(result.summary));

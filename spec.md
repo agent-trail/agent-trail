@@ -200,7 +200,8 @@ Event `id` values are unique within the file. They do not need to be globally un
   "cwd": "<absolute-path-or-normalized>",       // optional
   "vcs": {                                      // optional
     "type": "git" | "jj" | "hg" | "svn",
-    "revision": "<sha-or-change-id>"
+    "revision": "<sha-or-change-id>",
+    "remote_url": "<canonical-remote-url>"      // optional; see §8.2
   },
   "fork_from": {                                // optional
     "session_id": "<parent-session-id>",
@@ -236,10 +237,23 @@ Event `id` values are unique within the file. They do not need to be globally un
 | `agent.model_default` | no | string | default model for the session |
 | `cwd` | no | string | working directory; may be normalized for privacy |
 | `vcs` | no | object | version control context at session time |
+| `vcs.type` | yes (if `vcs` present) | enum | `git`, `jj`, `hg`, or `svn` |
+| `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
+| `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
 | `fork_from` | no | object | reference to a parent session if forked |
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
 | `source` | no | object | metadata about the source file |
 | `metadata` | no | object | vendor extensions (§11) |
+
+`vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
+
+- MUST normalize SSH and HTTPS variants of the same repository to a single canonical form. The reference normalization maps `git@host:org/repo.git`, `ssh://git@host/org/repo.git`, and `https://host/org/repo.git` to `https://host/org/repo` (strip trailing `.git`, strip userinfo, rewrite SSH to HTTPS).
+- MUST strip embedded credentials (`https://user:pass@host/...` → `https://host/...`) before emission.
+- SHOULD populate when the source agent records repository location or when `cwd` is detectably a versioned working directory. When the source declares multiple remotes (e.g., git `origin` plus `upstream`), prefer `origin`.
+- MUST omit the field when no remote is configured — do not fabricate one.
+- For submodules and worktrees, emit the remote of the outermost working tree's toplevel; `cwd` and `vcs.revision` disambiguate within.
+
+Privacy: `remote_url` reveals repository identity (and may identify a private repo). Share tools strip or normalize it in redacted artifacts by default (§15).
 
 ### 8.3 Example
 
@@ -870,6 +884,7 @@ Adapters and share tools should:
 - Normalize working directory paths when sharing.
 - Strip or warn about embedded images.
 - Cap inline output sizes per §14.
+- Strip or normalize `vcs.remote_url` (§8.2) in redacted artifacts unless the user opts in. The field reveals repository identity, including private repositories.
 
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
 

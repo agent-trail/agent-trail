@@ -1,6 +1,7 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import { readGitVcs } from "../vcs.ts";
 import { parsePiJsonl } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
 import { versionString } from "./source.ts";
@@ -110,7 +111,12 @@ export const piAdapter: TrailAdapter = {
       throw new Error("Pi adapter requires SessionRef.path");
     }
     const text = await Bun.file(ref.path).text();
-    return parsePiJsonl(text);
+    const trail = parsePiJsonl(text);
+    if (trail.header.vcs === undefined && typeof trail.header.cwd === "string") {
+      const vcs = await readGitVcs(trail.header.cwd);
+      if (vcs !== undefined) trail.header.vcs = vcs;
+    }
+    return trail;
   },
   async isAvailable(): Promise<boolean> {
     const sessionsDir = piSessionsDir();
