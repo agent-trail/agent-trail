@@ -43,9 +43,9 @@ Agent Trail defines a portable file format for coding agent sessions, so any com
 The smallest valid Agent Trail file:
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
-{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
-{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
 ```
 
 Line 1 is the header. Lines 2 and on are events. Everything else is optional structure layered on top.
@@ -321,7 +321,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 |---|---|---|---|
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
-| `id` | yes | string | UUID, ULID, or 4+ char alphanumeric |
+| `id` | yes | string | UUID or ULID per §7.5/§17 |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
 | `stream` | no | object | live-capture marker; see §8.4 |
@@ -1101,60 +1101,60 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 ### 18.1 Session with tool calls and semantic pairing
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess2","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtb1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
-{"type":"tool_call","id":"evtb2","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
-{"type":"tool_result","id":"evtb3","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"evtb2","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
-{"type":"agent_message","id":"evtb4","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTB0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
+{"type":"tool_call","id":"01HEVTB0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
+{"type":"tool_result","id":"01HEVTB0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"01HEVTB0000000000000000002","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
+{"type":"agent_message","id":"01HEVTB0000000000000000004","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}
 ```
 
 ### 18.2 Tool result with missing for_id (fallback pairing)
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess2b","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtx1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Read package.json"}}
-{"type":"tool_call","id":"evtx2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_xyz"}}
-{"type":"tool_result","id":"evtx3","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_xyz"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000002B","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTX0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Read package.json"}}
+{"type":"tool_call","id":"01HEVTX0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_xyz"}}
+{"type":"tool_result","id":"01HEVTX0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_xyz"}}
 ```
 
-The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
+The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` via `semantic.call_id` (rule §9.5 step 1).
 
 ### 18.3 Tree with abandoned branch
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess3","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"pi"}}
-{"type":"user_message","id":"evtc1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Try approach A"}}
-{"type":"agent_message","id":"evtc2","parent_id":"evtc1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Approach A: ..."}}
-{"type":"user_message","id":"evtc3","parent_id":"evtc1","ts":"2026-05-17T14:01:00.000Z","payload":{"text":"Actually, try approach B"}}
-{"type":"branch_summary","id":"evtc4","parent_id":"evtc3","ts":"2026-05-17T14:01:01.000Z","payload":{"abandoned_branch_id":"evtc2","summary":"Approach A explored but didn't work because of X"}}
-{"type":"agent_message","id":"evtc5","parent_id":"evtc4","ts":"2026-05-17T14:01:05.000Z","payload":{"text":"For approach B: ..."}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000003","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"pi"}}
+{"type":"user_message","id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Try approach A"}}
+{"type":"agent_message","id":"01HEVTC0000000000000000002","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Approach A: ..."}}
+{"type":"user_message","id":"01HEVTC0000000000000000003","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:01:00.000Z","payload":{"text":"Actually, try approach B"}}
+{"type":"branch_summary","id":"01HEVTC0000000000000000004","parent_id":"01HEVTC0000000000000000003","ts":"2026-05-17T14:01:01.000Z","payload":{"abandoned_branch_id":"01HEVTC0000000000000000002","summary":"Approach A explored but didn't work because of X"}}
+{"type":"agent_message","id":"01HEVTC0000000000000000005","parent_id":"01HEVTC0000000000000000004","ts":"2026-05-17T14:01:05.000Z","payload":{"text":"For approach B: ..."}}
 ```
 
 ### 18.4 Synthesized event (Aider)
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess4","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"aider"},"vcs":{"type":"git","revision":"a1b2c3d4..."}}
-{"type":"user_message","id":"evtd1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
-{"type":"agent_message","id":"evtd2","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
-{"type":"tool_call","id":"evtd3","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"aider","original_type":"git_commit_diff","synthesized":true}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"aider"},"vcs":{"type":"git","revision":"a1b2c3d4..."}}
+{"type":"user_message","id":"01HEVTD0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
+{"type":"agent_message","id":"01HEVTD0000000000000000002","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
+{"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"aider","original_type":"git_commit_diff","synthesized":true}}
 ```
 
 ### 18.5 Incomplete session
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess6","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evtf1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Run the test suite"}}
-{"type":"tool_call","id":"evtf2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"shell_command","args":{"command":"npm test"}}}
-{"type":"session_terminated","id":"evtf3","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["evtf2"]},"source":{"synthesized":true}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000006","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTF0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Run the test suite"}}
+{"type":"tool_call","id":"01HEVTF0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"shell_command","args":{"command":"npm test"}}}
+{"type":"session_terminated","id":"01HEVTF0000000000000000003","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["01HEVTF0000000000000000002"]},"source":{"synthesized":true}}
 ```
 
 ### 18.6 MCP call
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess5","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
-{"type":"user_message","id":"evte1","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Find my open Linear issues"}}
-{"type":"tool_call","id":"evte2","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"mcp_call","args":{"server":"linear","tool":"list_issues","args":{"status":"open","assignee":"me"},"headers":{"Authorization":"[REDACTED]"}}}}
-{"type":"tool_result","id":"evte3","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"evte2","ok":true,"output":"[{\"id\":\"ABC-123\",\"title\":\"Fix auth\"}]"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000005","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"claude-code"}}
+{"type":"user_message","id":"01HEVTE0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Find my open Linear issues"}}
+{"type":"tool_call","id":"01HEVTE0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"mcp_call","args":{"server":"linear","tool":"list_issues","args":{"status":"open","assignee":"me"},"headers":{"Authorization":"[REDACTED]"}}}}
+{"type":"tool_result","id":"01HEVTE0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTE0000000000000000002","ok":true,"output":"[{\"id\":\"ABC-123\",\"title\":\"Fix auth\"}]"}}
 ```
 
 ---
@@ -1187,7 +1187,7 @@ The reader pairs `evtx3` to `evtx2` via `semantic.call_id` (rule §9.5 step 1).
 ## Appendix A — Minimal valid record
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
 ```
 
 A session with only a header is valid. Events are optional.
@@ -1195,8 +1195,8 @@ A session with only a header is valid. Events are optional.
 ### Appendix A.1 — Minimal valid record with trail envelope
 
 ```jsonl
-{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"trail","schema_version":"0.1.0","id":"00000000-0000-0000-0000-000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0"}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
 ```
 
 An envelope at line 1 followed by a session header at line 2 is valid. Events are optional.
