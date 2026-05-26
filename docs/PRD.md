@@ -393,6 +393,7 @@ export interface TrailAdapter {
 - Adapters MUST redact known credential patterns in `source.raw` before emission (spec §14.1).
 - Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §9.7).
 - Adapters MUST populate `payload.usage` on `agent_message` when the source provides token data. MUST NOT fabricate usage (spec §9.2).
+- Adapters MUST populate `vcs.remote_url` when the source provides repo location info or `cwd` is a git working tree. MUST normalize URLs (strip embedded credentials, strip trailing `.git`, collapse SSH and HTTPS variants to a single canonical form). MUST omit the field when no remote is configured (spec §8.2).
 
 **`source.raw` size policy (reference implementation):**
 
@@ -592,7 +593,8 @@ Standalone TS package usable by CLI and any adapter.
 4. **PII via `@redactpii/node`** — emails, phones, SSNs, credit cards, names.
 5. **Curated API key patterns** — AWS, OpenAI, Anthropic, GitHub, Stripe, Slack, Google, JWT, SSH keys, Bearer headers, `.env`-style assignments (~30 patterns).
 6. **Output truncation** — tool outputs >10KB truncated with reference.
-7. **Confirmation UI** — terminal preview showing redaction count, sample lines, prompt for confirm.
+7. **Header VCS scrubbing** — strip or normalize `vcs.remote_url` (spec §8.2) in redacted artifacts unless the user opts in. The field identifies the repository (and may identify a private repository); default-on stripping keeps share artifacts from leaking project identity by accident.
+8. **Confirmation UI** — terminal preview showing redaction count, sample lines, prompt for confirm.
 
 **Threat model:**
 

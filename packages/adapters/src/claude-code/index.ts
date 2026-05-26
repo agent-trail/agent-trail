@@ -1,6 +1,7 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import { readGitVcs } from "../vcs.ts";
 import { parseClaudeCodeJsonl } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 
@@ -120,7 +121,12 @@ export const claudeCodeAdapter: TrailAdapter = {
       throw new Error("Claude Code adapter requires SessionRef.path");
     }
     const text = await Bun.file(ref.path).text();
-    return parseClaudeCodeJsonl(text);
+    const trail = parseClaudeCodeJsonl(text);
+    if (trail.header.vcs === undefined && typeof trail.header.cwd === "string") {
+      const vcs = await readGitVcs(trail.header.cwd);
+      if (vcs !== undefined) trail.header.vcs = vcs;
+    }
+    return trail;
   },
   async isAvailable(): Promise<boolean> {
     const configDir = claudeCodeConfigDir();

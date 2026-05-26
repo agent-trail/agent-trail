@@ -89,7 +89,11 @@
           "type": "string",
           "enum": ["git", "jj", "hg", "svn"]
         },
-        "revision": { "type": "string" }
+        "revision": { "type": "string" },
+        "remote_url": {
+          "type": "string",
+          "description": "Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path)."
+        }
       },
       "additionalProperties": false
     },

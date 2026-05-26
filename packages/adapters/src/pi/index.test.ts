@@ -1936,3 +1936,54 @@ test("compaction-and-model-change fixture emits context_compact and model_change
     to_model: "claude-opus-4-7",
   });
 });
+
+test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git working tree with an origin remote", async () => {
+  const repoDir = mkdtempSync(join(tmpdir(), "pi-vcs-repo-"));
+  try {
+    async function git(args: string[]): Promise<void> {
+      const proc = Bun.spawn(["git", ...args], { cwd: repoDir, stdout: "pipe", stderr: "pipe" });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
+    }
+    await git(["init", "-q"]);
+    await git([
+      "-c",
+      "user.email=a@b",
+      "-c",
+      "user.name=Tester",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ]);
+    await git(["remote", "add", "origin", "git@github.com:agent-trail/agent-trail.git"]);
+
+    const session = {
+      type: "session",
+      version: 3,
+      id: "sess-pi-vcs",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: repoDir,
+    };
+    const fixturePath = join(repoDir, "session.jsonl");
+    writeFileSync(fixturePath, `${JSON.stringify(session)}\n`);
+
+    const trail = await piAdapter.parseSession({
+      id: "sess-pi-vcs",
+      adapter: "pi",
+      path: fixturePath,
+    });
+    expect(trail.header.vcs).toBeDefined();
+    expect(trail.header.vcs?.type).toBe("git");
+    expect(trail.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
+    expect(trail.header.vcs?.remote_url).toBe("https://github.com/agent-trail/agent-trail");
+  } finally {
+    rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
+  const trail = await parseFixture();
+  expect(trail.header.vcs).toBeUndefined();
+});

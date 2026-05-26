@@ -22,6 +22,7 @@ type SeedOpts = {
   cwd?: string;
   id?: string;
   text?: string;
+  vcs?: Record<string, unknown>;
 };
 
 async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; contentHash: string }> {
@@ -37,6 +38,7 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
     agent: { name: agentName },
     cwd,
   };
+  if (opts.vcs !== undefined) header.vcs = opts.vcs;
   const userMsg = {
     type: "user_message",
     id: "evta1",
@@ -350,4 +352,49 @@ test("normal mode, confirm declined: exits 0 with Share cancelled and no upload"
   expect(uploadCalled).toBe(false);
   expect(result.stdout).toContain("Share cancelled");
   expect(result.stdout).not.toContain("view/gist/");
+});
+
+test("default share strips vcs.remote_url from uploaded gist and counts it in the summary", async () => {
+  const remoteUrl = "https://github.com/agent-trail/agent-trail";
+  const { filePath } = await seedTrail({
+    vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
+  });
+  let captured: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    captured = payload;
+    return { gistId: "strip-id" };
+  };
+
+  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).not.toContain("--keep-remote-url");
+  expect(result.stdout).toContain("vcs_remote_url: 1");
+  expect(captured).not.toBeNull();
+  const decoded = decodePayload(captured as unknown as Uint8Array);
+  expect(decoded).not.toContain(remoteUrl);
+});
+
+test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a warning, and suppresses the summary count", async () => {
+  const remoteUrl = "https://github.com/agent-trail/agent-trail";
+  const { filePath } = await seedTrail({
+    vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
+  });
+  let captured: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    captured = payload;
+    return { gistId: "keep-id" };
+  };
+
+  const result = await runShare([filePath, "--keep-remote-url", "--yes"], {
+    storeRoot,
+    gistUpload,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("WARNING: --keep-remote-url");
+  expect(result.stdout).not.toContain("vcs_remote_url");
+  expect(captured).not.toBeNull();
+  const decoded = decodePayload(captured as unknown as Uint8Array);
+  expect(decoded).toContain(remoteUrl);
 });

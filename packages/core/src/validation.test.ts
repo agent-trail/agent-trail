@@ -1142,6 +1142,83 @@ test("stays silent on source.raw under the soft cap", async () => {
   expect(diagnostics.some((d) => d.code === "source_raw_oversized")).toBe(false);
 });
 
+test("emits vcs_remote_url_with_credentials warning when remote_url contains user:pass@", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      JSON.stringify({
+        type: "session",
+        schema_version: "0.1.0",
+        id: "sess1",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        vcs: {
+          type: "git",
+          revision: "a1b2c3d4",
+          remote_url: "https://alice:s3cret@github.com/org/repo",
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 1,
+      path: "/vcs/remote_url",
+      severity: "warning",
+      code: "vcs_remote_url_with_credentials",
+    }),
+  );
+});
+
+test("escalates vcs_remote_url_with_credentials to error for url-encoded credentials", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      JSON.stringify({
+        type: "session",
+        schema_version: "0.1.0",
+        id: "sess1",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        vcs: {
+          type: "git",
+          revision: "a1b2c3d4",
+          remote_url: "https://alice:s%40cret@github.com/org/repo",
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 1,
+      path: "/vcs/remote_url",
+      severity: "error",
+      code: "vcs_remote_url_with_credentials",
+    }),
+  );
+});
+
+test("stays silent when remote_url is clean", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      JSON.stringify({
+        type: "session",
+        schema_version: "0.1.0",
+        id: "sess1",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        vcs: {
+          type: "git",
+          revision: "a1b2c3d4",
+          remote_url: "https://github.com/org/repo",
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics.some((d) => d.code === "vcs_remote_url_with_credentials")).toBe(false);
+});
+
 async function collect<T>(input: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
 

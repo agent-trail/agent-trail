@@ -123,6 +123,62 @@ test("redactTrail walks entry source.raw and redacts nested string secrets", () 
   ]);
 });
 
+test("redactTrail strips vcs.remote_url from the header by default", () => {
+  const records: JsonlRecord[] = [
+    header({
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        remote_url: "https://github.com/agent-trail/agent-trail",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { vcs: Record<string, unknown> };
+  expect(headerValue.vcs).toEqual({ type: "git", revision: "a1b2c3d4" });
+  expect(headerValue.vcs).not.toHaveProperty("remote_url");
+  expect(summary.counts.vcs_remote_url).toBe(1);
+  expect(summary.samples.find((s) => s.patternId === "vcs_remote_url")).toMatchObject({
+    patternId: "vcs_remote_url",
+    location: "records[0].vcs.remote_url",
+    after: "[STRIPPED]",
+  });
+});
+
+test("redactTrail is a no-op on headers without vcs.remote_url", () => {
+  const records: JsonlRecord[] = [header({ vcs: { type: "git", revision: "a1b2c3d4" } })];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { vcs: Record<string, unknown> };
+  expect(headerValue.vcs).toEqual({ type: "git", revision: "a1b2c3d4" });
+  expect(summary.counts.vcs_remote_url).toBeUndefined();
+});
+
+test("redactTrail keeps vcs.remote_url when keepRemoteUrl: true is passed", () => {
+  const records: JsonlRecord[] = [
+    header({
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        remote_url: "https://github.com/agent-trail/agent-trail",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { keepRemoteUrl: true });
+
+  const headerValue = out[0]?.value as { vcs: Record<string, unknown> };
+  expect(headerValue.vcs).toEqual({
+    type: "git",
+    revision: "a1b2c3d4",
+    remote_url: "https://github.com/agent-trail/agent-trail",
+  });
+  expect(summary.counts.vcs_remote_url).toBeUndefined();
+});
+
 test("redactTrail normalizes /Users/<name> and /home/<name> paths to <home>", () => {
   const records: JsonlRecord[] = [
     header({ cwd: "/Users/alice/projects/agent-trail" }),

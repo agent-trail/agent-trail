@@ -70,8 +70,45 @@ function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfil
   const sourceRawExtras = sourceRawSizeDiagnostics(record).concat(
     sourceRawSecretDiagnostics(record),
   );
+  const headerExtras = vcsRemoteUrlDiagnostics(record);
 
-  return baseDiagnosticsForProfile(record, profile).concat(sourceRawExtras);
+  return baseDiagnosticsForProfile(record, profile).concat(sourceRawExtras).concat(headerExtras);
+}
+
+// userinfo with explicit password (user:pass@host). Url-encoded passwords
+// stay caught because ":" remains literal.
+const VCS_REMOTE_URL_CREDENTIALS_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:([^/@\s]+)@/i;
+const URL_ENCODED_OCTET_PATTERN = /%[0-9A-Fa-f]{2}/;
+
+function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
+  if (record.line !== 1) {
+    return [];
+  }
+  const vcs = (record.value as { vcs?: unknown }).vcs;
+  if (typeof vcs !== "object" || vcs === null) {
+    return [];
+  }
+  const remoteUrl = (vcs as { remote_url?: unknown }).remote_url;
+  if (typeof remoteUrl !== "string") {
+    return [];
+  }
+  const match = VCS_REMOTE_URL_CREDENTIALS_PATTERN.exec(remoteUrl);
+  if (match === null) {
+    return [];
+  }
+  const password = match[1] ?? "";
+  const severity = URL_ENCODED_OCTET_PATTERN.test(password) ? "error" : "warning";
+  return [
+    createDiagnostic({
+      line: record.line,
+      path: "/vcs/remote_url",
+      severity,
+      code: "vcs_remote_url_with_credentials",
+      message: `vcs.remote_url contains embedded credentials; strip user:pass before emission${
+        severity === "error" ? " (url-encoded password detected)" : ""
+      }`,
+    }),
+  ];
 }
 
 function baseDiagnosticsForProfile(record: JsonlRecord, profile: ValidationProfile): Diagnostic[] {

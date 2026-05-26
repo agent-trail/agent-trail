@@ -120,6 +120,10 @@ export interface Header {
 export interface Vcs {
   type: "git" | "jj" | "hg" | "svn";
   revision: string;
+  /**
+   * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
+   */
+  remote_url?: string;
 }
 export interface EntryBase {
   type: string;
