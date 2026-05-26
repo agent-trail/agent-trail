@@ -710,3 +710,17 @@ test("invalid-schema/session-uid-not-ulid-or-uuid.trail.jsonl rejects non-confor
     ),
   ).toBe(true);
 });
+
+test("invalid-schema/segment-seq-zero.trail.jsonl rejects seq < 1", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/segment-seq-zero.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/segment")).toBe(true);
+});
+
+test("invalid-schema/segment-seq-1-with-prev-hash.trail.jsonl rejects seq=1 with prev_content_hash", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/segment-seq-1-with-prev-hash.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/segment")).toBe(true);
+});

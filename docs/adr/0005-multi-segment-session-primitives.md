@@ -27,4 +27,8 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - Spec §8.5 documents the primitives and the 6-step reconciliation algorithm.
 - Deferred to follow-up: `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, tightening of event `id` to a strict ULID-or-UUID union.
 
+**Bootstrap risk**: Spec §8.5 says writers SHOULD emit `session_uid` even for single-segment trails, but the claude-code and pi adapters in this PR were intentionally not updated to emit it (the session_uid-required attempt cascaded into broader adapter rework — see "Considered Options" above). Consequence: the v0.1 trail corpus has zero real-world `session_uid` coverage until adapters are updated. The reconciler follow-up PR MUST land adapter `session_uid` emission alongside the library, or reconciliation will only work on synthetic fixtures.
+
+**Event-id uniqueness gap**: Spec §8.5 step 4 says writers MUST emit globally-unique event ids if their output is intended for reconciliation, but the schema only enforces `minLength: 4`. This is a writer-side contract with no validator enforcement in v0.1. The reconciler follow-up PR is expected to close the gap with a `event_id_not_globally_unique` validator warning and/or a tighter event-id regex bundled with the adapter id-format migration.
+
 Tracks #73 spec contract. Reconciler implementation and `trail load` integration land in a follow-up issue.

@@ -42,7 +42,7 @@ export type AgentName =
     )
   | string;
 /**
- * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (§10).
+ * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (spec §8.5).
  */
 export type Segment =
   | {
@@ -138,7 +138,7 @@ export interface Header {
   schema_version: "0.1.0";
   id: Id;
   /**
-   * Globally-unique source-session identifier. Stable across all segments of one source session (see §10 multi-segment sessions). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required when segment.seq > 1 (validator enforces). ULID is recommended (lexicographic tie-breaker); UUID accepted.
+   * Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required by spec when segment.seq > 1; schema does not yet enforce that pairing (reconciler PR closes the gap). ULID is recommended (lexicographic tie-breaker); UUID accepted.
    */
   session_uid?: string;
   segment?: Segment;

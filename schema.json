@@ -33,12 +33,12 @@
     "sessionUid": {
       "type": "string",
       "pattern": "^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$",
-      "description": "Globally-unique source-session identifier shape: ULID (26 Crockford base32 chars), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Reconcilers group segments by session_uid (spec §10)."
+      "description": "Globally-unique source-session identifier shape: ULID (26 Crockford base32 chars), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Reconcilers group segments by session_uid (spec §8.5)."
     },
 
     "segment": {
       "type": "object",
-      "description": "Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (§10).",
+      "description": "Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (spec §8.5).",
       "oneOf": [
         {
           "type": "object",
@@ -263,7 +263,7 @@
         "id": { "$ref": "#/$defs/id" },
         "session_uid": {
           "$ref": "#/$defs/sessionUid",
-          "description": "Globally-unique source-session identifier. Stable across all segments of one source session (see §10 multi-segment sessions). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required when segment.seq > 1 (validator enforces). ULID is recommended (lexicographic tie-breaker); UUID accepted."
+          "description": "Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required by spec when segment.seq > 1; schema does not yet enforce that pairing (reconciler PR closes the gap). ULID is recommended (lexicographic tie-breaker); UUID accepted."
         },
         "segment": { "$ref": "#/$defs/segment" },
         "content_hash": {
