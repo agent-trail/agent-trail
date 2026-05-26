@@ -17,10 +17,12 @@ This ADR records the implementation choices for those follow-ups.
 3. Verifies the `prev_content_hash` chain on each non-first segment. Mismatch → `segment_chain_mismatch` warning. `null` prev hash or absent prior `content_hash` → `segment_chain_unverifiable`. Both keep the merge running.
 4. Concatenates events. Deduplicates by event `id` (set membership). Counts duplicates in `events_deduped`.
 5. Drops intermediate `session_terminated{reason: "process_terminated"}` markers — those are crash records from killed writers; only the final terminator is kept.
-6. Builds one merged header per spec §8.5 step 6: `ts` from the lowest-seq segment (real session start), late-binding fields (`stream`, `content_hash`, `vcs`, `cwd`, `meta`) from the highest-seq segment (latest state), stable fields (`id`, `type`, `schema_version`, `session_uid`) preferring the first header and warning on divergence. `segment.*` is dropped.
+6. Builds one merged header per spec §8.5 step 6: `ts` from the lowest-seq segment (real session start), late-binding fields (`stream`, `content_hash`, `vcs`, `cwd`, `meta`) from the highest-seq segment (latest state), stable fields (`id`, `type`, `schema_version`, `session_uid`) preferring the first header and warning on divergence. Header fields not enumerated by the spec late-bind by default via the `lastHeader` spread, which keeps schema growth additive. `segment.*` is dropped.
 7. Re-stamps `content_hash` on the merged trail via `stampTrail` so the produced bytes validate as a finalized artifact.
 
 Warnings carry a `source` label and a `code` from a closed enum (`segment_chain_mismatch`, `segment_chain_unverifiable`, `segment_seq_gap`, `segment_seq_duplicate`, `stable_field_divergence`, `missing_session_uid`, `missing_session_header`). Eight tracer-bullet tests in `packages/core/src/reconcile.test.ts` cover the algorithm.
+
+**`agent.name` sub-field caveat.** Spec §8.5 step 6 lists `agent.name` as stable, but the reconciler protects `agent.*` as a whole object and inherits it from the highest-seq segment (late-binding of the parent object). In practice `agent.name` does not change mid-session for any v0.1 writer, so the divergence is theoretical. If a future writer needs sub-field stable-vs-late-binding distinctions, the reconciler will need a per-path policy rather than the current top-level field policy; this is deferred to a follow-up.
 
 ## `trail load` integration
 

@@ -74,6 +74,12 @@ type Header = {
   meta?: unknown;
 } & Record<string, unknown>;
 
+// Header field merge policy for `buildMergedHeader`:
+//   STABLE_FIELDS         — explicit override list: prefer the first segment's value.
+//   LATE_BINDING_FIELDS   — enumerated for spec parity (matches spec §8.5 step 6); has no
+//                           runtime effect because the `lastHeader` spread on line 293
+//                           already inherits these. Kept as documentation.
+//   All other fields      — late-bind by default via the spread (agent, source, etc).
 const STABLE_FIELDS = ["id", "type", "schema_version", "session_uid"] as const;
 const LATE_BINDING_FIELDS = ["stream", "content_hash", "vcs", "cwd", "meta"] as const;
 
@@ -303,7 +309,9 @@ function buildMergedHeader(sorted: SegmentInput[]): JsonlRecord {
     if (v !== undefined) merged[field] = v;
   }
 
-  // Late-binding fields: already inherited from lastHeader via spread; explicit no-op for clarity.
+  // Late-binding fields: already inherited from lastHeader via the spread above.
+  // The reference exists for documentation; `void` suppresses the unused-binding
+  // warning. Any header field not in STABLE_FIELDS late-binds by the same path.
   void LATE_BINDING_FIELDS;
 
   return synthesizeRecord(merged, 1);

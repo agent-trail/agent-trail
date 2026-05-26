@@ -159,15 +159,18 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   await mkdir(tmpDir, { recursive: true });
   const tmpFile = join(tmpDir, "fetched.trail.jsonl");
   let reconcileSummary: ReconcileGroup | null = null;
+  let reconcileSkipReason: "no_session_uid" | null = null;
   try {
     // Reconcile against any existing trails with the same session_uid in the
     // store (spec §8.5). When a match is found, register the merged trail
     // instead of the raw incoming bytes; the merged trail's content_hash is
     // what the user actually shared as a logical session.
     const reconciled = await reconcileAgainstStore(jsonl, opts.storeRoot);
-    if (reconciled !== null) {
+    if (reconciled?.kind === "merged") {
       reconcileSummary = reconciled.group;
       jsonl = reconciled.merged;
+    } else if (reconciled?.kind === "skipped") {
+      reconcileSkipReason = reconciled.reason;
     }
     await writeFile(tmpFile, jsonl, "utf8");
     // The tmp file is deleted in the `finally` below, so recording it as
@@ -199,11 +202,13 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
     stdoutLines.push(`Status: ${reg.status}`);
     if (reconcileSummary !== null) {
       stdoutLines.push(
-        `Reconciled: ${reconcileSummary.segments.length} segments, ${reconcileSummary.events_deduped} events deduped, ${reconcileSummary.warnings.length} warnings (session_uid ${reconcileSummary.session_uid})`,
+        `Reconciled: ${reconcileSummary.segments.length} segments merged, ${reconcileSummary.events_deduped} events deduped, ${reconcileSummary.warnings.length} warnings (session_uid ${reconcileSummary.session_uid})`,
       );
       for (const warning of reconcileSummary.warnings) {
         stdoutLines.push(`  warning(${warning.code}): ${warning.message}`);
       }
+    } else if (reconcileSkipReason === "no_session_uid") {
+      stdoutLines.push("Reconciliation skipped: incoming trail has no session_uid");
     }
 
     if (values.out !== undefined) {
@@ -220,10 +225,14 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   }
 }
 
+type ReconcileOutcome =
+  | { kind: "merged"; merged: string; group: ReconcileGroup }
+  | { kind: "skipped"; reason: "no_session_uid" };
+
 async function reconcileAgainstStore(
   incomingJsonl: string,
   storeRoot: string | undefined,
-): Promise<{ merged: string; group: ReconcileGroup } | null> {
+): Promise<ReconcileOutcome | null> {
   let incomingRecords: JsonlRecord[];
   try {
     incomingRecords = await parseJsonlString(incomingJsonl);
@@ -231,7 +240,7 @@ async function reconcileAgainstStore(
     return null;
   }
   const incomingUid = headerSessionUid(incomingRecords);
-  if (incomingUid === null) return null;
+  if (incomingUid === null) return { kind: "skipped", reason: "no_session_uid" };
 
   const resolvedRoot = resolveStoreRoot(storeRoot);
   let matches: Awaited<ReturnType<typeof findEntriesBySessionUid>>;
@@ -261,7 +270,7 @@ async function reconcileAgainstStore(
   // Locate the group that contains the incoming segment.
   const group = result.groups.find((g) => g.segments.includes("incoming"));
   if (group === undefined || group.segments.length < 2) return null;
-  return { merged: group.canonical, group };
+  return { kind: "merged", merged: group.canonical, group };
 }
 
 function headerSessionUid(records: JsonlRecord[]): string | null {

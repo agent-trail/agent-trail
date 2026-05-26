@@ -404,6 +404,7 @@ A reader presented with two or more segment trail files for one source session r
    - `stream`, `content_hash`, `vcs`, `cwd`, `agent.version`, `meta`, and any other late-binding metadata come from the highest-`seq` segment (these reflect the session's final or most recent observed state).
    - `id`, `type`, `schema_version`, `agent.name`, and `session_uid` are stable across segments by definition; readers SHOULD warn if they diverge.
    - `segment.*` fields are dropped from the merged header (the merge collapses the segment chain into one logical session).
+   - Fields not enumerated above (e.g. `source`, vendor-namespaced extensions, future reserved fields) late-bind by default: readers SHOULD prefer the highest-`seq` segment's value. The default-late-binding rule keeps schema growth additive — new fields don't need a spec update to be reconciled. See [ADR-0006](docs/adr/0006-multi-segment-reconciler-and-id-tightening.md) for implementation notes, including the `agent.name` sub-field treatment when the rest of `agent.*` late-binds.
 
 Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
 
