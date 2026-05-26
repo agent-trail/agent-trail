@@ -28,8 +28,8 @@ Warnings carry a `source` label and a `code` from a closed enum (`segment_chain_
 
 `packages/cli/src/load.ts` now peeks at the incoming trail's `session_uid` and queries the store for prior entries via a new `findEntriesBySessionUid` helper on `@agent-trail/store`. When matches are found, the incoming trail is reconciled against them in-memory before registration, the merged trail is registered (its own fresh `content_hash`), and a summary line is appended to stdout:
 
-```
-Reconciled: 2 segments, 1 events deduped, 0 warnings (session_uid <uid>)
+```text
+Reconciled: 2 segments merged, 1 events deduped, 0 warnings (session_uid <uid>)
 ```
 
 Per-warning lines follow the summary so chain mismatches are visible at load time.
