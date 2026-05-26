@@ -149,7 +149,7 @@ test("parseSession() builds a header from session record id, ts, version (int->s
   expect(trail.header).toEqual({
     type: "session",
     schema_version: "0.1.0",
-    id: "sess-pi-1",
+    id: "00000000-0000-0000-0000-eeeee0000001",
     ts: "2026-05-21T14:00:00.000Z",
     agent: { name: "pi", version: "3" },
     cwd: "/tmp/synthetic-project",
@@ -163,7 +163,7 @@ test("parseSession() builds a header from session record id, ts, version (int->s
 // TDD step 3: user_message mapping
 test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.id === "pi-evt-1");
+  const userMessage = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee11");
   expect(userMessage).toBeDefined();
   expect(userMessage?.type).toBe("user_message");
   expect(userMessage?.ts).toBe("2026-05-21T14:00:01.000Z");
@@ -175,10 +175,10 @@ test("parseSession() emits a user_message for user role records with no parent_i
 // TDD step 4: agent_message text mapping
 test("parseSession() emits an agent_message for assistant text blocks with model and stop_reason", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-4");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee14");
   expect(agentMsg).toBeDefined();
   expect(agentMsg?.type).toBe("agent_message");
-  expect(agentMsg?.parent_id).toBe("pi-evt-3");
+  expect(agentMsg?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee13");
   expect(agentMsg?.payload).toEqual({
     text: "Spec loaded.",
     model: "claude-sonnet-4-5",
@@ -188,7 +188,7 @@ test("parseSession() emits an agent_message for assistant text blocks with model
 
 test("parseSession() populates agent_message.payload.usage from message.usage on Pi assistant envelopes", async () => {
   const trail = await parseUsageFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-2");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee12");
   expect(agentMsg?.type).toBe("agent_message");
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
@@ -203,37 +203,43 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
 
 test("parseSession() omits payload.usage on agent_message when Pi envelope has no usage", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "pi-evt-4");
+  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee14");
   expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 // TDD step 5: tool_call mapping (read -> file_read)
 test("parseSession() emits a tool_call for assistant toolCall blocks with semantic.call_id preserving toolCall.id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.id === "pi-evt-2");
+  const toolCall = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee12");
   expect(toolCall).toBeDefined();
   expect(toolCall?.type).toBe("tool_call");
-  expect(toolCall?.parent_id).toBe("pi-evt-1");
+  expect(toolCall?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee11");
   expect(toolCall?.payload).toEqual({
     tool: "file_read",
     args: { path: "spec.md" },
   });
-  expect(toolCall?.semantic).toEqual({ call_id: "pi-call-1", tool_kind: "file_read" });
+  expect(toolCall?.semantic).toEqual({
+    call_id: "00000000-0000-0000-0000-dddddccccc01",
+    tool_kind: "file_read",
+  });
 });
 
 // TDD step 6: tool_result pairing via toolCallId
 test("parseSession() emits a tool_result for toolResult envelopes linked via toolCallId to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.id === "pi-evt-3");
+  const toolResult = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee13");
   expect(toolResult).toBeDefined();
   expect(toolResult?.type).toBe("tool_result");
-  expect(toolResult?.parent_id).toBe("pi-evt-2");
+  expect(toolResult?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee12");
   expect(toolResult?.payload).toEqual({
-    for_id: "pi-evt-2",
+    for_id: "00000000-0000-0000-0000-eeeeeeeeee12",
     ok: true,
     output: "# Agent Trail Specification\n",
   });
-  expect(toolResult?.semantic).toEqual({ call_id: "pi-call-1", tool_kind: "file_read" });
+  expect(toolResult?.semantic).toEqual({
+    call_id: "00000000-0000-0000-0000-dddddccccc01",
+    tool_kind: "file_read",
+  });
 });
 
 // TDD step 7: multi-entry assistant envelope chained via localParentId
@@ -273,8 +279,6 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   const ids = trail.entries.map((e) => e.id);
-  // Trailing pi-eof-* is the synthesized session_terminated produced because
-  // a-1-toolCall-1 has no paired tool_result in this fixture (spec §9.3).
   expect(ids.slice(0, 3)).toEqual(["u-1", "a-1-text-0", "a-1-toolCall-1"]);
   expect(ids.length).toBe(4);
   expect(ids[3]).toMatch(/^pi-eof-[a-f0-9]{8}$/);
@@ -713,15 +717,19 @@ test("branch-flow fixture round-trips through validateAdapterTrail with zero err
 // TDD step 2: forked parentId graph produces multiple entries sharing one parent_id
 test("branch-flow produces a fork at pi-a1: both pi-u2 and pi-u3 reference it as parent_id", async () => {
   const trail = await parseBranchFixture();
-  const childIds = new Set(trail.entries.filter((e) => e.parent_id === "pi-a1").map((e) => e.id));
-  expect(childIds.has("pi-u2")).toBe(true);
-  expect(childIds.has("pi-u3")).toBe(true);
+  const childIds = new Set(
+    trail.entries
+      .filter((e) => e.parent_id === "00000000-0000-0000-0000-bbbbbbbb0001")
+      .map((e) => e.id),
+  );
+  expect(childIds.has("00000000-0000-0000-0000-aaaaaaaa0002")).toBe(true);
+  expect(childIds.has("00000000-0000-0000-0000-aaaaaaaa0003")).toBe(true);
 });
 
 // TDD step 3: branch_summary envelope produces a branch_summary entry with payload.summary
 test("branch-flow emits a branch_summary entry carrying payload.summary from the Pi envelope", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
   expect(branchSummary).toBeDefined();
   expect(branchSummary?.type).toBe("branch_summary");
   expect((branchSummary?.payload as { summary?: string }).summary).toBe(
@@ -732,8 +740,8 @@ test("branch-flow emits a branch_summary entry carrying payload.summary from the
 // TDD step 4: branch_summary entry's parent_id is resolved via the same parentId chain as messages
 test("branch-flow branch_summary entry has parent_id resolved from envelope parentId (pi-a1)", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
-  expect(branchSummary?.parent_id).toBe("pi-a1");
+  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
+  expect(branchSummary?.parent_id).toBe("00000000-0000-0000-0000-bbbbbbbb0001");
 });
 
 // TDD step 5: abandoned_branch_id walks fromId up to the divergence point with the active branch.
@@ -742,18 +750,18 @@ test("branch-flow branch_summary entry has parent_id resolved from envelope pare
 // Per spec §9.3 "root of abandoned branch" = topmost entry on abandoned side = child of divergence = pi-u2.
 test("branch-flow branch_summary.abandoned_branch_id resolves to root of abandoned branch (pi-u2)", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
-  expect(payload.abandoned_branch_id).toBe("pi-u2");
+  expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-aaaaaaaa0002");
 });
 
 // TDD step 6: source.raw preserves the original Pi envelope (fromId, summary, details)
 test("branch-flow branch_summary entry preserves the original envelope under source.raw", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
   const raw = branchSummary?.source?.raw as Record<string, unknown>;
   expect(raw?.type).toBe("branch_summary");
-  expect(raw?.fromId).toBe("pi-a2");
+  expect(raw?.fromId).toBe("00000000-0000-0000-0000-bbbbbbbb0002");
   expect(raw?.summary).toBe("Explored X, switching to Y.");
   expect(raw?.details).toEqual({ readFiles: ["spec.md"], modifiedFiles: ["x.md"] });
 });
@@ -761,7 +769,7 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
 // TDD step 7: Pi branch_summary.details surface in entry.metadata under reverse-domain key (spec §11)
 test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "pi-bs");
+  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
   const metadata = branchSummary?.metadata as Record<string, unknown> | undefined;
   expect(metadata).toBeDefined();
   expect(metadata?.["dev.pi.branch_details"]).toEqual({
@@ -1585,7 +1593,7 @@ test("prevModel does not advance when the assistant envelope emits no entries (m
         role: "assistant",
         provider: "anthropic",
         model: "claude-opus-4-7",
-        content: "ghost",
+        content: "01HGH0ST000000000000000001",
       },
     }),
     JSON.stringify({

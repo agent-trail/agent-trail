@@ -92,7 +92,7 @@ test("validateAdapterTrail is exported and callable", async () => {
     header: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
     },
@@ -161,7 +161,7 @@ test("buildTrailEnvelope produces a schema-valid envelope", () => {
     header: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
     },
@@ -175,7 +175,7 @@ test("buildTrailEnvelope produces a schema-valid envelope", () => {
     id: "envelope-fixed-id",
     ts: "2026-05-17T14:00:00.000Z",
     producer: "@agent-trail/adapters-test/0.0.0",
-    sessions: [{ id: "sess1", agent: "pi" }],
+    sessions: [{ id: "01HSESS0000000000000000001", agent: "pi" }],
   });
 });
 
@@ -185,7 +185,7 @@ test("buildTrailEnvelope propagates vcs from the session header", () => {
     header: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
       vcs: { type: "git", revision: "deadbeef" },
@@ -202,14 +202,14 @@ test("validateAdapterTrail accepts a trail with an envelope at line 1", async ()
     envelope: {
       type: "trail",
       schema_version: "0.1.0",
-      id: "trl-1",
+      id: "01HTRACE000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       producer: "@agent-trail/adapters-test/0.0.0",
     },
     header: {
       type: "session",
       schema_version: "0.1.0",
-      id: "sess1",
+      id: "01HSESS0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       agent: { name: "pi" },
     },

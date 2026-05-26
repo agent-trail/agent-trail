@@ -22,7 +22,7 @@ async function seedSharedPayload(
 ): Promise<{ payload: Uint8Array; filename: string; contentHash: string }> {
   const agentName = opts.agentName ?? "codex-cli";
   const cwd = opts.cwd ?? "/work/proj-a";
-  const id = opts.id ?? "sess1";
+  const id = opts.id ?? "01HSESS0000000000000000001";
   const text = opts.text ?? "hello";
   const header: Record<string, unknown> = {
     type: "session",
@@ -34,7 +34,7 @@ async function seedSharedPayload(
   };
   const userMsg = {
     type: "user_message",
-    id: "evta1",
+    id: "01HEVTA0000000000000000001",
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text },
   };

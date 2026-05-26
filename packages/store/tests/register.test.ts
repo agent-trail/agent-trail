@@ -16,7 +16,7 @@ const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url)
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
 
 const FINALIZED_FIXTURE = fixturePath("valid/minimal-with-content-hash.trail.jsonl");
-const FINALIZED_HASH = "3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2";
+const FINALIZED_HASH = "8dbf946e5d4ccd2a4ff2681d2c2fe2614f0769bdfeafe5e4f242db14872db5f7";
 const STREAMING_OPEN_FIXTURE = fixturePath("valid/streaming-open.trail.jsonl");
 const HASH_MISMATCH_FIXTURE = fixturePath("hash-mismatch/content-hash-mismatch.trail.jsonl");
 const SCHEMA_INVALID_FIXTURE = fixturePath(
@@ -83,10 +83,11 @@ test("registerTrail overwrites a corrupted/drifted existing object and returns '
   const first = await registerTrail(FINALIZED_FIXTURE, { storeRoot });
   const objectPath = first.objectPath as string;
 
-  // Simulate a drifted on-disk copy: re-order keys but keep content parseable
-  // back to the same hash (so verifyContentHash still matches on re-read).
+  // Simulate a drifted on-disk copy by inserting whitespace into the canonical
+  // bytes. The on-disk hash no longer matches the canonical hash, so the
+  // store should overwrite rather than return 'already_present'.
   const sourceRecords = await parseJsonlString(await readFile(FINALIZED_FIXTURE, "utf8"));
-  const drifted = `${JSON.stringify(sourceRecords[0]?.value)}\n${JSON.stringify(
+  const drifted = `  ${JSON.stringify(sourceRecords[0]?.value)}\n${JSON.stringify(
     sourceRecords[1]?.value,
   )}\n${JSON.stringify(sourceRecords[2]?.value)}\n`;
   await writeFile(objectPath, drifted, "utf8");

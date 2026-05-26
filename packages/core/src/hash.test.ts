@@ -15,7 +15,7 @@ function header(overrides: Record<string, unknown> = {}): JsonlRecord {
   return record(1, {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess1",
+    id: "01HSESS0000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     agent: { name: "codex-cli" },
     ...overrides,
@@ -26,7 +26,7 @@ function envelope(overrides: Record<string, unknown> = {}): JsonlRecord {
   return record(1, {
     type: "trail",
     schema_version: "0.1.0",
-    id: "trl-1",
+    id: "01HTRACE000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     producer: "trail-cli/0.3.0",
     ...overrides,
@@ -37,7 +37,7 @@ function sessionAtLine2(overrides: Record<string, unknown> = {}): JsonlRecord {
   return record(2, {
     type: "session",
     schema_version: "0.1.0",
-    id: "sess1",
+    id: "01HSESS0000000000000000001",
     ts: "2026-05-17T14:00:00.000Z",
     agent: { name: "codex-cli" },
     ...overrides,
@@ -55,7 +55,7 @@ test("computeContentHash produces a stable digest for a header + user_message tr
     header(),
     record(2, {
       type: "user_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:05.000Z",
       payload: { text: "hello" },
     }),
@@ -63,7 +63,7 @@ test("computeContentHash produces a stable digest for a header + user_message tr
 
   const digest = computeContentHash(records);
 
-  expect(digest).toBe("d0b680cb57b2229e9b0530afef58b23ce19f037e68713c998763d36b1825cad8");
+  expect(digest).toBe("2be81234cd4d38dd4b40e3b20a30addcebacc06dca1218cb66d97578eecba022");
 });
 
 test("computeContentHash ignores any existing header content_hash value", () => {
@@ -175,7 +175,7 @@ test("verifyContentHash returns missing when the header itself is missing or inv
   const wrongType = verifyContentHash([
     record(1, {
       type: "user_message",
-      id: "evta1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-17T14:00:00.000Z",
       payload: { text: "hi" },
     }),

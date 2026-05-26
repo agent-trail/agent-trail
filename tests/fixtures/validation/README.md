@@ -174,13 +174,13 @@ Expected (strict, subset): `error type /payload/final_message_id line 3`. No `un
 
 #### `invalid-graph/duplicate-id.trail.jsonl`
 
-Two entries share `id: "evta1"`.
+Two entries share `id: "01HEVTA0000000000000000001"`.
 
 Expected: `error duplicate_id /id line 3` ("first seen on line 2").
 
 #### `invalid-graph/unknown-parent-id.trail.jsonl`
 
-Event references `parent_id: "ghost"` which is not present in the file.
+Event references `parent_id: "01HGH0ST000000000000000001"` which is not present in the file.
 
 Expected: `error unknown_parent_id /parent_id line 2`.
 
@@ -204,7 +204,7 @@ Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2
 
 #### `invalid-graph/session-end-unknown-final-message-id.trail.jsonl`
 
-`session_end.payload.final_message_id` references `"ghost"`, which is not present in the file.
+`session_end.payload.final_message_id` references `"01HGH0ST000000000000000001"`, which is not present in the file.
 
 Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 3`.
 
@@ -222,19 +222,19 @@ Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2
 
 #### `invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl`
 
-Two `tool_call` events: `evta1` (no semantic) and `evta2` (semantic `call_b`). A single `tool_result` carries both `for_id: "evta1"` and `semantic.call_id: "call_b"`. The explicit `for_id` wins per spec §9.5 (primary method), pairing the result with `evta1`. `evta2` is left unmatched with no suppression.
+Two `tool_call` events: `evta1` (no semantic) and `evta2` (semantic `call_b`). A single `tool_result` carries both `for_id: "01HEVTA0000000000000000001"` and `semantic.call_id: "call_b"`. The explicit `for_id` wins per spec §9.5 (primary method), pairing the result with `evta1`. `evta2` is left unmatched with no suppression.
 
 Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2`.
 
 #### `invalid-graph/duplicate-tool-result-for-id.trail.jsonl`
 
-Two `tool_call` events (`evta1`, `evta2`) and two `tool_result` events, both with `payload.for_id: "evta1"`. The second result's `for_id` resolves to an existing call, so per spec §9.5 it is consumed by the primary rule and does not fall through to the sequential fallback (which would otherwise wrongly pair it with `evta2`). `evta2` therefore stays unmatched.
+Two `tool_call` events (`evta1`, `evta2`) and two `tool_result` events, both with `payload.for_id: "01HEVTA0000000000000000001"`. The second result's `for_id` resolves to an existing call, so per spec §9.5 it is consumed by the primary rule and does not fall through to the sequential fallback (which would otherwise wrongly pair it with `evta2`). `evta2` therefore stays unmatched.
 
 Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id line 3` for `evta2`.
 
 #### `invalid-graph/session-end-forward-final-message-id.trail.jsonl`
 
-`session_end` at line 2 references `final_message_id: "evta2"`, an event that appears at line 3 (after the terminator). Spec §16.4 says `final_message_id` should reference the session header or a *prior* event; forward references are flagged.
+`session_end` at line 2 references `final_message_id: "01HEVTA0000000000000000002"`, an event that appears at line 3 (after the terminator). Spec §16.4 says `final_message_id` should reference the session header or a *prior* event; forward references are flagged.
 
 Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 2`.
 

@@ -8,7 +8,7 @@
  */
 export type AgentTrailV010 = TrailEnvelope | Header | Entry;
 /**
- * Unique within the file. 8+ chars hex or alphanumeric recommended.
+ * Unique within the file. Globally-unique recommended (ULID/UUID) so cross-segment reconciliation can dedup by id. 8+ chars hex or alphanumeric recommended.
  */
 export type Id = string;
 /**
@@ -41,6 +41,73 @@ export type AgentName =
       | "clawdbot"
     )
   | string;
+/**
+ * Session header. Required at line 1, or at line 2 when a trail envelope occupies line 1. Not part of the event graph.
+ */
+export type Header = {
+  [k: string]: unknown;
+} & {
+  type: "session";
+  schema_version: "0.1.0";
+  id: Id;
+  /**
+   * Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted.
+   */
+  session_uid?: string;
+  segment?: Segment;
+  content_hash?: Sha256Hex | "<pending>";
+  ts: Iso8601;
+  /**
+   * Live-capture marker. Present means writer is actively appending or last appended in streaming mode. Absent means non-streaming or unaware writer.
+   */
+  stream?: {
+    state: "open" | "closed";
+    started_at?: Iso8601;
+  };
+  agent: {
+    name: AgentName;
+    version?: string;
+    model_default?: string;
+  };
+  cwd?: string;
+  vcs?: Vcs;
+  fork_from?: {
+    session_id: string;
+    content_hash?: Sha256Hex;
+    entry_id?: string;
+  };
+  redacted_from?: {
+    content_hash: Sha256Hex;
+  };
+  source?: {
+    agent?: AgentName;
+    path?: string;
+    format_version?: string;
+  };
+  /**
+   * Vendor extensions with reverse-domain keys (e.g., com.example.field)
+   */
+  metadata?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
+   */
+  meta?: {
+    [k: string]: unknown;
+  };
+};
+/**
+ * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (spec §8.5).
+ */
+export type Segment =
+  | {
+      seq: 1;
+    }
+  | {
+      seq: number;
+      prev_content_hash: Sha256Hex | null;
+    };
 export type Entry = EntryBase &
   (
     | UserMessage
@@ -118,55 +185,6 @@ export interface Vcs {
    * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
    */
   remote_url?: string;
-}
-/**
- * Session header. Required at line 1, or at line 2 when a trail envelope occupies line 1. Not part of the event graph.
- */
-export interface Header {
-  type: "session";
-  schema_version: "0.1.0";
-  id: Id;
-  content_hash?: Sha256Hex | "<pending>";
-  ts: Iso8601;
-  /**
-   * Live-capture marker. Present means writer is actively appending or last appended in streaming mode. Absent means non-streaming or unaware writer.
-   */
-  stream?: {
-    state: "open" | "closed";
-    started_at?: Iso8601;
-  };
-  agent: {
-    name: AgentName;
-    version?: string;
-    model_default?: string;
-  };
-  cwd?: string;
-  vcs?: Vcs;
-  fork_from?: {
-    session_id: string;
-    content_hash?: Sha256Hex;
-    entry_id?: string;
-  };
-  redacted_from?: {
-    content_hash: Sha256Hex;
-  };
-  source?: {
-    agent?: AgentName;
-    path?: string;
-    format_version?: string;
-  };
-  /**
-   * Vendor extensions with reverse-domain keys (e.g., com.example.field)
-   */
-  metadata?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
-   */
-  meta?: {
-    [k: string]: unknown;
-  };
 }
 export interface EntryBase {
   type: string;

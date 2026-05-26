@@ -9,9 +9,9 @@ const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url)
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
 
 const VALID_HEADER =
-  '{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
+  '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
 const VALID_USER_MESSAGE =
-  '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}';
+  '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}';
 
 async function writeFixture(content: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
@@ -79,7 +79,7 @@ test("missing file exits 1 with a stderr message", async () => {
 
 test("--profile reader-tolerant downgrades unknown payload fields to warnings (exit 0)", async () => {
   const tolerantMessage =
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${tolerantMessage}\n`);
 
   const result = await runValidate([path, "--profile", "reader-tolerant"]);
@@ -90,7 +90,7 @@ test("--profile reader-tolerant downgrades unknown payload fields to warnings (e
 
 test("--json prints a JSON array of diagnostics", async () => {
   const badHeader =
-    '{"type":"session","schema_version":"0.2.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
+    '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${badHeader}\n`);
 
   const result = await runValidate([path, "--json"]);
@@ -117,7 +117,7 @@ test("--json on valid file emits an empty JSON array with exit 0", async () => {
 
 test("invalid trail exits 1 with line-aware text diagnostic", async () => {
   const badHeader =
-    '{"type":"session","schema_version":"0.2.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
+    '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${badHeader}\n`);
 
   const result = await runValidate([path]);
@@ -128,7 +128,7 @@ test("invalid trail exits 1 with line-aware text diagnostic", async () => {
 
 test("same unknown payload field fails strict but passes reader-tolerant", async () => {
   const messageWithExtra =
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
 
   const strict = await runValidate([path, "--profile", "strict"]);
@@ -144,7 +144,7 @@ test("same unknown payload field fails strict but passes reader-tolerant", async
 
 test("patch-compatible schema_version fails strict but warns under reader-tolerant", async () => {
   const patchHeader =
-    '{"type":"session","schema_version":"0.1.1","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
+    '{"type":"session","schema_version":"0.1.1","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${patchHeader}\n`);
 
   const strict = await runValidate([path, "--profile", "strict", "--json"]);
@@ -198,7 +198,7 @@ test("unmatched tool_call at EOF fixture surfaces warning via trail validate --j
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "evta1" has no matching tool_result at EOF',
+    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
   });
 });
 
@@ -215,13 +215,13 @@ test("unknown final_message_id fixture surfaces warning via trail validate --jso
     severity: "warning",
     code: "unknown_final_message_id",
     message:
-      'session_end final_message_id "ghost" does not reference the session header or a prior event in this file',
+      'session_end final_message_id "01HGH0ST000000000000000001" does not reference the session header or a prior event in this file',
   });
 });
 
 test("--json under reader-tolerant serializes warnings with full diagnostic shape", async () => {
   const messageWithExtra =
-    '{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
 
   const result = await runValidate([path, "--profile", "reader-tolerant", "--json"]);

@@ -10,7 +10,7 @@ const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url)
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
 
 const FINALIZED_FIXTURE = fixturePath("valid/minimal-with-content-hash.trail.jsonl");
-const FINALIZED_HASH = "3936b470a29cb8e6814158eefb2d03871f4f96df480488b761b373b85ef594d2";
+const FINALIZED_HASH = "8dbf946e5d4ccd2a4ff2681d2c2fe2614f0769bdfeafe5e4f242db14872db5f7";
 
 let storeRoot: string;
 

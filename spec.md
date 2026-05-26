@@ -380,6 +380,46 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 ---
 
+### 8.5 Session segments (multi-segment sessions)
+
+A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
+
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). In v0.1 adapters do not yet emit `session_uid` for single-segment trails; that is planned alongside the reconciler implementation (#73 follow-up).
+
+- `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
+
+- `segment.prev_content_hash` — the **session-level** `content_hash` (§7.3) of the previous segment's finalized bytes. Required when `seq >= 2`. Forms a verifiable chain (HLS / Postgres-WAL pattern). If the previous segment was lost and the chain cannot be verified, writers MAY emit `null` and readers MUST emit a `segment_chain_break` warning.
+
+#### Reconciliation algorithm
+
+A reader presented with two or more segment trail files for one source session reconciles them by:
+
+1. Group input files by `header.session_uid`.
+2. Sort each group ascending by `header.segment.seq`.
+3. Verify chain: for each segment with `seq > 1`, check that `header.segment.prev_content_hash` matches the previous segment's `header.content_hash`. Mismatch is a `segment_chain_mismatch` warning, not an error — readers MAY continue with the rest of the merge.
+4. Concatenate events. Dedupe by event `id` (set membership) when ids are globally unique. Writers MUST emit globally-unique event ids if they intend their output to be reconciled. v0.1 enforces only `minLength: 4` on the schema; the global-uniqueness invariant is a writer-side contract until the follow-up issue lands a validator warning + reconciler that surfaces violations.
+5. Drop intermediate `session_terminated` events with `payload.reason == "process_terminated"` — those are crash markers from killed writers; only the final terminator (if any) is kept.
+6. Emit one merged trail with a single header. The merged header is assembled field-by-field across segments:
+   - `ts` (session start time) comes from the lowest-`seq` segment (seg-1 represents the real start of the source session, not the most recent resume).
+   - `stream`, `content_hash`, `vcs`, `cwd`, `agent.version`, `meta`, and any other late-binding metadata come from the highest-`seq` segment (these reflect the session's final or most recent observed state).
+   - `id`, `type`, `schema_version`, `agent.name`, and `session_uid` are stable across segments by definition; readers SHOULD warn if they diverge.
+   - `segment.*` fields are dropped from the merged header (the merge collapses the segment chain into one logical session).
+
+Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
+
+#### Writer guidance
+
+- Writers SHOULD generate `session_uid` once per source session and reuse it for every segment.
+- Writers SHOULD finalize each segment normally (compute `content_hash`, optionally append `session_terminated{reason: "process_terminated"}` for crash recovery) before starting a new segment.
+- To produce `segment.prev_content_hash` for segment N, finalize segment N-1 per §7.3 and copy its session-level `content_hash` (lowercase hex sha256) verbatim into segment N's header.
+- Recovered writers MAY emit `segment.prev_content_hash: null` when the previous segment is lost; the resulting chain break is a recoverable warning.
+
+#### Composition with multi-session files
+
+`session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A future multi-session trail file (deferred to #91) may contain N session headers, each independently multi-segmentable. The trail envelope (§8.0) is unaffected.
+
+---
+
 ## 9. Events
 
 ### 9.1 Base shape
