@@ -25,7 +25,8 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - The graph validator is unchanged in this slice. Reconciliation is a separate library API and CLI behaviour to land alongside #84-style follow-ups.
 - Existing adapter parsers and graph rules are unaffected; the new fields are inert until consumers opt in.
 - Spec §8.5 documents the primitives and the 6-step reconciliation algorithm.
-- Deferred to follow-up: `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, tightening of event `id` to a strict ULID-or-UUID union.
+- Landed in the reconciler follow-up (see ADR-0006): `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, tightening of event `id` to a strict ULID-or-UUID union.
+- Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, deterministic `session_uid` derivation from upstream source identifiers.
 
 **Bootstrap risk** (closed by the reconciler follow-up — see ADR-0006): the claude-code and pi adapters now mint a fresh `session_uid` via `crypto.randomUUID()` on every session, so the v0.1 corpus carries real-world coverage.
 
@@ -33,4 +34,4 @@ Note that for the **multi-segment** case (`segment.seq >= 2`), the schema enforc
 
 **Event-id uniqueness gap** (closed by the reconciler follow-up — see ADR-0006): the schema now constrains every `id` to the ULID-or-UUID shape so cross-segment reconciliation can dedup by string equality.
 
-Tracks #73 spec contract. Reconciler implementation and `trail load` integration land in a follow-up issue.
+Tracks #73 spec contract. Reconciler implementation and `trail load` integration shipped in the follow-up — see ADR-0006.
