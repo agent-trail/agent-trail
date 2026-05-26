@@ -290,6 +290,7 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
   const mergedHeaderValue = mergedHeaderRecord.value as Record<string, unknown>;
   if (isOpenStream(mergedHeaderValue.stream)) {
     delete mergedHeaderValue.content_hash;
+    mergedHeaderRecord.raw = JSON.stringify(mergedHeaderValue);
   } else {
     stampTrail(mergedRecords);
   }

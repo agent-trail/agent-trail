@@ -28,7 +28,7 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - Landed in the reconciler follow-up (see ADR-0006): `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, tightening of event `id` to a strict ULID-or-UUID union.
 - Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions.
 
-**Bootstrap risk** (closed by the reconciler follow-up — see ADR-0006): the claude-code and pi adapters now mint a fresh `session_uid` via `crypto.randomUUID()` on every session, so the v0.1 corpus carries real-world coverage.
+**Bootstrap risk** (closed by the reconciler follow-up — see ADR-0006): the claude-code and pi adapters derive `session_uid` deterministically from the upstream session id via RFC 4122 UUIDv5 with a per-adapter namespace UUID (`packages/adapters/src/session-uid.ts`), so the v0.1 corpus carries real-world coverage and re-parsing the same upstream session is idempotent.
 
 Note that for the **multi-segment** case (`segment.seq >= 2`), the schema enforces `session_uid` as required via an `if/then` block on the header. This closes the documented gap for continuation segments. v0.1 ships no real multi-segment writers, so this enforcement bites only synthetic fixtures and any future writer that opts into multi-segment emission.
 
