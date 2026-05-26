@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { canonicalizeRecords, computeContentHash } from "./hash.ts";
+import { canonicalizeRecords, computeContentHash, stampTrail } from "./hash.ts";
 import { parseJsonlString } from "./jsonl.ts";
 import { reconcileSegments, type SegmentInput } from "./reconcile.ts";
 
@@ -17,6 +17,7 @@ function trailHeader(opts: {
   segment?: { seq: number; prev_content_hash?: string | null };
   cwd?: string;
   content_hash?: string;
+  stream?: { state: "open" | "closed"; started_at?: string };
 }): string {
   const header: Record<string, unknown> = {
     type: "session",
@@ -29,6 +30,7 @@ function trailHeader(opts: {
   if (opts.segment !== undefined) header.segment = opts.segment;
   if (opts.cwd !== undefined) header.cwd = opts.cwd;
   if (opts.content_hash !== undefined) header.content_hash = opts.content_hash;
+  if (opts.stream !== undefined) header.stream = opts.stream;
   return JSON.stringify(header);
 }
 
@@ -314,4 +316,222 @@ test("missing session_uid on multi-segment input → missing_session_uid warning
 
   const result = reconcileSegments([{ source: "orphan", records: await records(segText) }]);
   expect(result.warnings.some((w) => w.code === "missing_session_uid")).toBe(true);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round-trip property — #73 Verification §1
+//
+// Capture one uninterrupted session as a reference trail. Capture the same
+// session sliced into 4 segments with daemon "kills" at 3 points (each
+// non-final segment finalized with a `process_terminated` marker, every
+// boundary repeating the prior segment's last event to exercise dedup).
+// Reconciler output must be byte-equal to the reference trail's canonical
+// bytes, modulo the dropped intermediate terminators.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("round-trip: 4-segment capture with kills at 3 points reconciles to bytes-equal reference (modulo intermediate terminators)", async () => {
+  const HEADER_ID = "01HSESS0000000000000000777";
+  const SUID = "01HSESSUID7777777777777777";
+  const START_TS = "2026-05-26T10:00:00.000Z";
+
+  // 8 events alternating user/agent. Ids are 26-char Crockford ULIDs.
+  const e1 = userMessage("01HEVT000000000000000000A1", "2026-05-26T10:00:05.000Z", "m1");
+  const e2 = agentMessage("01HEVT000000000000000000A2", "2026-05-26T10:00:10.000Z", "m2");
+  const e3 = userMessage("01HEVT000000000000000000A3", "2026-05-26T10:00:15.000Z", "m3");
+  const e4 = agentMessage("01HEVT000000000000000000A4", "2026-05-26T10:00:20.000Z", "m4");
+  const e5 = userMessage("01HEVT000000000000000000A5", "2026-05-26T10:00:25.000Z", "m5");
+  const e6 = agentMessage("01HEVT000000000000000000A6", "2026-05-26T10:00:30.000Z", "m6");
+  const e7 = userMessage("01HEVT000000000000000000A7", "2026-05-26T10:00:35.000Z", "m7");
+  const e8 = agentMessage("01HEVT000000000000000000A8", "2026-05-26T10:00:40.000Z", "m8");
+  const finalTerm = sessionTerminated(
+    "01HEVT888888888888888888TT",
+    "2026-05-26T10:00:50.000Z",
+    "complete",
+  );
+
+  // Reference: uninterrupted single-segment trail.
+  const referenceText = `${[
+    trailHeader({ id: HEADER_ID, ts: START_TS, session_uid: SUID }),
+    e1,
+    e2,
+    e3,
+    e4,
+    e5,
+    e6,
+    e7,
+    e8,
+    finalTerm,
+  ].join("\n")}\n`;
+  const referenceRecords = await records(referenceText);
+  stampTrail(referenceRecords);
+  const referenceCanonical = canonicalizeRecords(referenceRecords);
+  const referenceContentHash = (referenceRecords[0]?.value as { content_hash: string })
+    .content_hash;
+
+  // Helper: take a draft segment, stamp it, return the stamped text + its hash
+  // so the next segment can chain back to it via prev_content_hash.
+  async function stampSegment(
+    seq: number,
+    prev: string | undefined,
+    eventLines: string[],
+    terminator: string,
+  ): Promise<{ text: string; hash: string }> {
+    const segment: { seq: number; prev_content_hash?: string } = { seq };
+    if (prev !== undefined) segment.prev_content_hash = prev;
+    const draft = `${[
+      trailHeader({ id: HEADER_ID, ts: START_TS, session_uid: SUID, segment }),
+      ...eventLines,
+      terminator,
+    ].join("\n")}\n`;
+    const draftRecords = await records(draft);
+    stampTrail(draftRecords);
+    const hash = (draftRecords[0]?.value as { content_hash: string }).content_hash;
+    const stampedText = `${[
+      trailHeader({
+        id: HEADER_ID,
+        ts: START_TS,
+        session_uid: SUID,
+        segment,
+        content_hash: hash,
+      }),
+      ...eventLines,
+      terminator,
+    ].join("\n")}\n`;
+    return { text: stampedText, hash };
+  }
+
+  const kill1 = sessionTerminated(
+    "01HEVT999000000000000000K1",
+    "2026-05-26T10:00:16.000Z",
+    "process_terminated",
+  );
+  const kill2 = sessionTerminated(
+    "01HEVT999000000000000000K2",
+    "2026-05-26T10:00:26.000Z",
+    "process_terminated",
+  );
+  const kill3 = sessionTerminated(
+    "01HEVT999000000000000000K3",
+    "2026-05-26T10:00:36.000Z",
+    "process_terminated",
+  );
+
+  // Boundary overlap: each non-first segment repeats the previous segment's
+  // last event so dedup has work to do. Overlapping events: e3, e5, e7.
+  const seg1 = await stampSegment(1, undefined, [e1, e2, e3], kill1);
+  const seg2 = await stampSegment(2, seg1.hash, [e3, e4, e5], kill2);
+  const seg3 = await stampSegment(3, seg2.hash, [e5, e6, e7], kill3);
+  const seg4 = await stampSegment(4, seg3.hash, [e7, e8], finalTerm);
+
+  const result = reconcileSegments([
+    { source: "seg1", records: await records(seg1.text) },
+    { source: "seg2", records: await records(seg2.text) },
+    { source: "seg3", records: await records(seg3.text) },
+    { source: "seg4", records: await records(seg4.text) },
+  ]);
+
+  expect(result.warnings).toEqual([]);
+  expect(result.groups).toHaveLength(1);
+  const group = result.groups[0];
+  if (group === undefined) throw new Error("expected one merged group");
+
+  expect(group.warnings).toEqual([]);
+  expect(group.segments).toEqual(["seg1", "seg2", "seg3", "seg4"]);
+  expect(group.events_deduped).toBe(3);
+  expect(group.intermediate_terminators_dropped).toBe(3);
+
+  // The round-trip property: merged canonical bytes equal the reference.
+  expect(group.canonical).toBe(referenceCanonical);
+
+  // Diagnostic assertions — survive even if byte-equality drifts so future
+  // regressions point at the specific divergence.
+  const mergedHeader = group.records[0]?.value as Record<string, unknown>;
+  expect(mergedHeader.content_hash).toBe(referenceContentHash);
+  expect(mergedHeader.segment).toBeUndefined();
+  expect(mergedHeader.session_uid).toBe(SUID);
+  expect(mergedHeader.ts).toBe(START_TS);
+
+  const mergedEventIds = group.records.slice(1).map((r) => (r.value as { id: string }).id);
+  expect(mergedEventIds).toEqual([
+    "01HEVT000000000000000000A1",
+    "01HEVT000000000000000000A2",
+    "01HEVT000000000000000000A3",
+    "01HEVT000000000000000000A4",
+    "01HEVT000000000000000000A5",
+    "01HEVT000000000000000000A6",
+    "01HEVT000000000000000000A7",
+    "01HEVT000000000000000000A8",
+    "01HEVT888888888888888888TT",
+  ]);
+
+  const lastRecord = group.records[group.records.length - 1]?.value as {
+    type: string;
+    payload: { reason: string };
+  };
+  expect(lastRecord.type).toBe("session_terminated");
+  expect(lastRecord.payload.reason).toBe("complete");
+});
+
+test("open final segment: merged header keeps stream.state open and omits content_hash", async () => {
+  const HEADER_ID = "01HSESS0000000000000000888";
+  const SUID = "01HSESSUID8888888888888888";
+  const START_TS = "2026-05-26T11:00:00.000Z";
+
+  // Seg-1: finalized, real content_hash stamped.
+  const seg1Draft = `${[
+    trailHeader({
+      id: HEADER_ID,
+      ts: START_TS,
+      session_uid: SUID,
+      segment: { seq: 1 },
+    }),
+    userMessage("01HEVT000000000000000000B1", "2026-05-26T11:00:05.000Z", "m1"),
+    agentMessage("01HEVT000000000000000000B2", "2026-05-26T11:00:10.000Z", "m2"),
+    sessionTerminated(
+      "01HEVT999000000000000000K9",
+      "2026-05-26T11:00:11.000Z",
+      "process_terminated",
+    ),
+  ].join("\n")}\n`;
+  const seg1Records = await records(seg1Draft);
+  stampTrail(seg1Records);
+  const seg1Hash = (seg1Records[0]?.value as { content_hash: string }).content_hash;
+
+  // Seg-2: still streaming. stream.state: "open", no content_hash on header.
+  const seg2Text = `${[
+    trailHeader({
+      id: HEADER_ID,
+      ts: "2026-05-26T11:05:00.000Z",
+      session_uid: SUID,
+      segment: { seq: 2, prev_content_hash: seg1Hash },
+      stream: { state: "open", started_at: "2026-05-26T11:05:00.000Z" },
+    }),
+    userMessage("01HEVT000000000000000000B3", "2026-05-26T11:05:05.000Z", "m3"),
+  ].join("\n")}\n`;
+
+  const result = reconcileSegments([
+    { source: "seg1", records: seg1Records },
+    { source: "seg2", records: await records(seg2Text) },
+  ]);
+
+  expect(result.warnings).toEqual([]);
+  const group = result.groups[0];
+  if (group === undefined) throw new Error("expected one merged group");
+  expect(group.warnings).toEqual([]);
+
+  const mergedHeader = group.records[0]?.value as Record<string, unknown>;
+
+  // Stream state carried over from final (open) segment.
+  expect(mergedHeader.stream).toEqual({
+    state: "open",
+    started_at: "2026-05-26T11:05:00.000Z",
+  });
+
+  // Spec §7.3 + validator rule stream_open_with_content_hash: open header
+  // MUST NOT carry a populated content_hash. Reconciler must skip the stamp.
+  const contentHash = mergedHeader.content_hash;
+  expect(contentHash === undefined || contentHash === "<pending>").toBe(true);
+
+  // Canonical bytes match — the merged trail is self-consistent.
+  expect(group.canonical).toBe(canonicalizeRecords(group.records));
 });

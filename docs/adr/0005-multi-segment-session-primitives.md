@@ -26,7 +26,7 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - Existing adapter parsers and graph rules are unaffected; the new fields are inert until consumers opt in.
 - Spec §8.5 documents the primitives and the 6-step reconciliation algorithm.
 - Landed in the reconciler follow-up (see ADR-0006): `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, tightening of event `id` to a strict ULID-or-UUID union.
-- Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions, deterministic `session_uid` derivation from upstream source identifiers.
+- Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions.
 
 **Bootstrap risk** (closed by the reconciler follow-up — see ADR-0006): the claude-code and pi adapters now mint a fresh `session_uid` via `crypto.randomUUID()` on every session, so the v0.1 corpus carries real-world coverage.
 

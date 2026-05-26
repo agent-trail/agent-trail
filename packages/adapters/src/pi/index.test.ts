@@ -151,6 +151,9 @@ test("parseSession() builds a header from session record id, ts, version (int->s
   expect(session_uid).toMatch(
     /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/,
   );
+  // session_uid is deterministic — re-parsing the same source yields the same uid.
+  const reparsed = await parseFixture();
+  expect(reparsed.header.session_uid).toBe(session_uid);
   expect(header).toEqual({
     type: "session",
     schema_version: "0.1.0",

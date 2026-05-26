@@ -1,0 +1,54 @@
+import { createHash } from "node:crypto";
+
+/**
+ * Deterministic `session_uid` derivation for adapters (spec §8.5).
+ *
+ * Adapters previously minted `crypto.randomUUID()` per parse, which meant the
+ * same upstream session re-parsed twice produced two different `session_uid`s
+ * and the reconciler could not group them. RFC 4122 UUIDv5 derives a stable
+ * UUID from `(namespace_uuid, name_string)` via SHA-1; pinning a per-adapter
+ * namespace keeps upstream-id collisions across agents impossible while making
+ * re-parses idempotent.
+ *
+ * Namespace UUIDs below are arbitrary, random v4 UUIDs — they only need to be
+ * stable forever. Changing one is a corpus-wide migration.
+ */
+
+/** Namespace for Claude Code adapter session_uids. Stable forever — do not change. */
+export const CLAUDE_CODE_SESSION_UID_NAMESPACE = "b4a0f5e1-7c23-4d8a-9e12-3f4b5c6d7e8f";
+
+/** Namespace for Pi adapter session_uids. Stable forever — do not change. */
+export const PI_SESSION_UID_NAMESPACE = "c5b1f6e2-8d34-4e9b-af23-405c6d7e8f90";
+
+/**
+ * Derive a deterministic v5 UUID from `(namespace, upstreamId)` per RFC 4122
+ * §4.3. Output is the hyphenated 36-char form accepted by the `session_uid`
+ * schema (ULID/UUID union).
+ */
+export function deriveSessionUid(namespace: string, upstreamId: string): string {
+  const namespaceBytes = parseUuidBytes(namespace);
+  const hash = createHash("sha1").update(namespaceBytes).update(upstreamId, "utf8").digest();
+  const bytes = Uint8Array.prototype.slice.call(hash, 0, 16);
+  // Version 5 in the top nibble of byte 6.
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  // RFC 4122 variant (10xx) in the top bits of byte 8.
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  return formatUuid(bytes);
+}
+
+function parseUuidBytes(uuid: string): Uint8Array {
+  const hex = uuid.replace(/-/g, "");
+  if (hex.length !== 32 || /[^0-9a-fA-F]/.test(hex)) {
+    throw new TypeError(`Invalid namespace UUID: ${uuid}`);
+  }
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function formatUuid(bytes: Uint8Array): string {
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}

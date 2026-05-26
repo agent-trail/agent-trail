@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { deriveSessionUid, PI_SESSION_UID_NAMESPACE } from "../session-uid.ts";
 import { findAbandonedBranchRootId } from "./divergence.ts";
 import type { BuiltEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
@@ -28,7 +29,7 @@ function buildHeader(envelopes: PiEnvelope[]): Header {
     type: "session",
     schema_version: "0.1.0",
     id,
-    session_uid: randomUUID(),
+    session_uid: deriveSessionUid(PI_SESSION_UID_NAMESPACE, id),
     ts,
     agent: {
       name: "pi",
