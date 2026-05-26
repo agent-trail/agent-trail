@@ -8,7 +8,7 @@ The goal is to make sessions from tools like Claude Code, Cursor, Codex CLI, Pi,
 
 Draft. The current public format target is `0.1.0`.
 
-The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, and the first core JSONL parser plus writer-schema record validation slice.
+The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, a streaming JSONL parser with layered validation, a redaction module, a content-addressed local store, two source-agent adapters (Pi and Claude Code), and the `trail` CLI (`validate`, `discover`, `list`, `share`, `load`, `export`).
 
 ## Core Validation
 
@@ -44,16 +44,20 @@ With optional trail envelope (file-level metadata on line 1, session header on l
 
 The envelope is optional and decouples file-scope identity (producer, file label, file-level `content_hash`, optional sessions manifest, vendor `meta`) from per-session metadata. See [`spec.md`](./spec.md) §8.0 and §7.4 for full semantics including two-tier `content_hash` identity.
 
-## Planned Packages
+## Packages
 
-- `@agent-trail/schema`
-- `@agent-trail/types`
-- `@agent-trail/core`
-- `@agent-trail/adapters`
-- `@agent-trail/redact`
-- `@agent-trail/cli`
-- `@agent-trail/website`
-- `@agent-trail/mcp` (future)
+| Package | Purpose |
+|---|---|
+| `@agent-trail/schema` | Canonical JSON Schema, published to npm. |
+| `@agent-trail/types` | Generated TypeScript declarations. |
+| `@agent-trail/core` | Streaming JSONL parser, hashing, canonicalization, layered validation, multi-segment reconciler. |
+| `@agent-trail/adapters` | Source-agent parsers (Pi and Claude Code today; more pending). |
+| `@agent-trail/redact` | Share-time redaction pipeline. |
+| `@agent-trail/store` | Content-addressed local object store and index. |
+| `@agent-trail/cli` | The `trail` binary. |
+| `@agent-trail/website` | Website and web viewer app (`agent-trail.dev`). |
+
+`@agent-trail/mcp` is on the future roadmap and not yet started.
 
 ## Licensing
 

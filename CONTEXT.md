@@ -80,6 +80,14 @@ _Avoid_: Session hash, transport hash
 Optional envelope field `sessions` declaring the sessions present in a trail file. The session header in the file is authoritative; the validator warns on drift.
 _Avoid_: Session index, session list
 
+**Session segment**:
+One trail-file artifact carrying part of a logical source session. Segments are linked by `session_uid` and ordered by `segment.seq`; the reconciler merges them into one logical session.
+_Avoid_: Session shard, chunk
+
+**Session UID**:
+Header field `session_uid` identifying the source session a segment belongs to. Stable across all segments of one source session; ULID or UUID. Adapters derive it deterministically from upstream session ids so re-parsing is idempotent.
+_Avoid_: Session id (that's the per-artifact `id`), source id
+
 ## Relationships
 
 - A **Trail file** conforms to the **Format contract**.
@@ -92,6 +100,7 @@ _Avoid_: Session index, session list
 - The **Parser Source Matrix** records the evidence behind each **Adapter**.
 - A **Finalized object** lives in the **Local store**; the **Index** points at it by `content_hash`.
 - A **Pending hash** keeps a trail file out of the **Local store** as a **Finalized object**.
+- A **Session segment** belongs to a logical source session identified by **Session UID**; the reconciler groups segments by that UID and merges them.
 
 ## Example dialogue
 

@@ -1175,12 +1175,14 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 ### v0.1.0 (May 2026)
 
-- Initial public draft.
-- Defines JSONL file layout, header, core event envelope, five mandatory event types, optional events, tool taxonomy, metadata extensions, tree semantics, validation layers, and artifact-level content addressing.
-- Defines stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
-- Adds the optional header `stream` field, the optional `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3). These are additive and backward-compatible; v0.1.x readers ignore unknown header fields and event types.
-- Adds `source.raw.envelope_ref` for inline-first / ref-subsequent envelope dedup (§9.7), the elide marker shape `{ elided: true, size_bytes: N }` for whole-value or per-leaf elision in `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`. Backward-compatible; v0.1.0 readers that do not know `envelope_ref` ignore it as an unknown raw-source field.
-- Adds the optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`). Introduces two-tier identity (§7.4): session-level `content_hash` excludes the envelope from the hashed input, file-level `content_hash` covers the whole file. Adds the optional `meta` extension on both envelope and session header.
+Initial public draft. v0.1.0 defines:
+
+- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `metadata` / `meta` extensions, tree semantics, layered validation, and artifact-level content addressing.
+- Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
+- The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
+- Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
+- The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
+- The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 
 ---
 
