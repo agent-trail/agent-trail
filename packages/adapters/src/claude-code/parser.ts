@@ -1,5 +1,6 @@
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { type BuiltEntry, baseEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import { resolveEntryParents } from "./parenting.ts";
@@ -19,7 +20,7 @@ function buildHeader(envelopes: CcEnvelope[]): Header {
     type: "session",
     schema_version: "0.1.0",
     id: firstSession.sessionId,
-    session_uid: crypto.randomUUID(),
+    session_uid: deriveSessionUid(CLAUDE_CODE_SESSION_UID_NAMESPACE, firstSession.sessionId),
     ts: firstTs,
     agent: {
       name: "claude-code",

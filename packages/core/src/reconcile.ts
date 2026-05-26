@@ -281,7 +281,19 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
   // The merged trail is a fresh artifact whose canonical bytes differ from
   // any single segment. Re-stamp `content_hash` over the merged bytes so the
   // produced trail validates as a finalized v0.1 trail (spec §7.3).
-  stampTrail(mergedRecords);
+  //
+  // Exception: when the final segment is still streaming (`stream.state ==
+  // "open"`), the merged trail inherits the open state and MUST NOT carry a
+  // populated `content_hash` (spec §7.3, validator rule
+  // `stream_open_with_content_hash`). Skip stamping and strip any inherited
+  // hash so the merged open trail stays valid for downstream live-tail use.
+  const mergedHeaderValue = mergedHeaderRecord.value as Record<string, unknown>;
+  if (isOpenStream(mergedHeaderValue.stream)) {
+    delete mergedHeaderValue.content_hash;
+    mergedHeaderRecord.raw = JSON.stringify(mergedHeaderValue);
+  } else {
+    stampTrail(mergedRecords);
+  }
 
   return {
     session_uid: sessionUid,
@@ -364,6 +376,10 @@ function stringField(value: Record<string, unknown>, key: string): string | unde
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isOpenStream(stream: unknown): boolean {
+  return isObject(stream) && (stream as Record<string, unknown>).state === "open";
 }
 
 function shallowEqual(a: unknown, b: unknown): boolean {

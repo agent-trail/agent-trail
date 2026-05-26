@@ -38,7 +38,9 @@ The store index entry now carries `session_uid: string | null` so the lookup is 
 
 ## Adapter emission
 
-Both bundled adapters now emit `session_uid: crypto.randomUUID()` on the session header (`packages/adapters/src/{claude-code,pi}/parser.ts`). This is the simplest correct emission: each adapter run produces a fresh uid, so reconciliation only kicks in when a continuation segment is captured later (per spec §8.5 writers SHOULD reuse the uid across segments). Future adapter work that knows the upstream session id is stable across resumes can derive a deterministic uid instead; this PR does not bake that knowledge in.
+Both bundled adapters derive `session_uid` deterministically from the upstream session id via RFC 4122 UUIDv5 (`packages/adapters/src/session-uid.ts`). Each adapter pins its own stable namespace UUID (`CLAUDE_CODE_SESSION_UID_NAMESPACE`, `PI_SESSION_UID_NAMESPACE`) so the same upstream session id parsed twice yields the same `session_uid` and identical upstream ids across different agents do not collide. This makes re-parses idempotent — the reconciler can group segments captured across separate adapter runs without writer-side coordination — and is the behaviour spec §8.5 recommends ("writers SHOULD generate `session_uid` once per source session and reuse it for every segment").
+
+Earlier drafts minted `crypto.randomUUID()` per parse; the determinism upgrade landed alongside the round-trip verification work for #73 since the reconciler verification surface is what most needs the property.
 
 ## Event `id` regex tightening
 
@@ -54,7 +56,7 @@ Specific id assertions that previously depended on compound block ids (e.g., `a-
 ## Considered alternatives
 
 - **Validator warning instead of regex tightening** — rejected. The reconciler runs against arbitrary writer output; a soft warning is not enough to make string-equality dedup safe.
-- **Deterministic adapter `session_uid` from upstream session id** — deferred. Real-world session ids would need a stable namespacing scheme to avoid collisions across machines; not a v0.1 concern.
+- **Deterministic adapter `session_uid` from upstream session id** — adopted. UUIDv5 with a per-adapter namespace UUID provides the stable namespacing; see "Adapter emission" above.
 - **Separate `reconcile` CLI verb** — rejected. `trail load` is the natural entry point because the store already tracks the prior segments; a new verb would duplicate that lookup.
 
 ## Consequences
