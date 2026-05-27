@@ -80,6 +80,7 @@ Run the strongest relevant check for the change:
 | Machine-readable format contract | [`schema.json`](./schema.json) |
 | Project glossary | [`CONTEXT.md`](./CONTEXT.md) |
 | Product plan and roadmap | [`docs/PRD.md`](./docs/PRD.md) |
+| Potential applications (non-normative) | [`docs/applications.md`](./docs/applications.md) |
 | Architecture decisions | [`docs/adr/`](./docs/adr/) |
 | License policy | [`LICENSES.md`](./LICENSES.md) |
 | Schema package exports | [`packages/schema/package.json`](./packages/schema/package.json) |
