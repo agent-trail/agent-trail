@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { resolveEntryParents } from "../parenting.ts";
 import { deriveSessionUid, PI_SESSION_UID_NAMESPACE } from "../session-uid.ts";
 import { findAbandonedBranchRootId } from "./divergence.ts";
 import type { BuiltEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
-import { resolveEntryParents } from "./parenting.ts";
 import {
   type PiEnvelope,
   parseLines,

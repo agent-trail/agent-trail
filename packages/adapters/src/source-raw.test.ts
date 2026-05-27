@@ -1,9 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { BEARER_TOKEN, CREDENTIAL_PATTERNS } from "./secret-patterns.ts";
+import { BEARER_TOKEN, CREDENTIAL_PATTERNS } from "@agent-trail/core";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
 afterEach(() => {
   delete process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+});
+
+test("CREDENTIAL_PATTERNS includes BEARER_TOKEN", () => {
+  expect(CREDENTIAL_PATTERNS).toContain(BEARER_TOKEN);
 });
 
 test("redactValue replaces a Bearer token nested in an object", () => {
@@ -34,10 +38,6 @@ test("redactValue redacts a top-level string containing a credential", () => {
   expect(redactValue("Authorization: Bearer abcdefABCDEF0123456789xyzXYZ")).toBe(
     "Authorization: Bearer [TOKEN]",
   );
-});
-
-test("CREDENTIAL_PATTERNS includes BEARER_TOKEN", () => {
-  expect(CREDENTIAL_PATTERNS).toContain(BEARER_TOKEN);
 });
 
 test("enforceSourceRawSize returns the value as-is when under the hard cap", () => {
@@ -154,4 +154,30 @@ test("enforceSourceRawSize honors AGENT_TRAIL_SOURCE_RAW_HARD_CAP numeric overri
   const { elided, leavesTrimmed } = enforceSourceRawSize(value);
   expect(elided).toBe(false);
   expect(leavesTrimmed).toBe(1);
+});
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is NaN", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, { hardCapBytes: Number.NaN });
+  // NaN must not be honored as a cap; default cap kicks in and trims the leaf.
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
+});
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is negative", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, { hardCapBytes: -1 });
+  // Negative cap is invalid; default cap applies instead of "trim everything".
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
+});
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is Infinity", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, {
+    hardCapBytes: Number.POSITIVE_INFINITY,
+  });
+  // Infinity is not a finite cap; default cap applies and trims the leaf.
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
 });

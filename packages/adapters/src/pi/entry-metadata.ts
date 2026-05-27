@@ -1,7 +1,9 @@
-import { enforceSourceRawSize, redactValue } from "@agent-trail/core";
 import type { Entry } from "@agent-trail/types";
+import { createEntryId, createSourceFor, type SourceForOptions } from "../entries.ts";
 import type { PiBlock, PiEnvelope } from "./source.ts";
 import { timestampToIso, versionString } from "./source.ts";
+
+export type { SourceForOptions };
 
 export type BuiltEntry = {
   entry: Entry;
@@ -9,75 +11,16 @@ export type BuiltEntry = {
   localParentId?: string;
 };
 
-export type SourceForOptions = {
-  synthesized?: boolean;
-  schemaVersion?: string;
-  envelopeRef?: string;
-};
+export const sourceFor = createSourceFor<PiEnvelope, PiBlock>({
+  agent: "pi",
+  resolveSchemaVersion: (envelope, options) =>
+    versionString(envelope.version) ?? options?.schemaVersion,
+});
 
-export function sourceFor(
-  envelope: PiEnvelope,
-  originalType: string | undefined,
-  block?: PiBlock,
-  blockIndex?: number,
-  options?: SourceForOptions,
-): NonNullable<Entry["source"]> {
-  const schemaVersion = versionString(envelope.version) ?? options?.schemaVersion;
-  const raw = buildRaw(envelope, block, blockIndex, options?.envelopeRef);
-  return {
-    agent: "pi",
-    ...(originalType !== undefined ? { original_type: originalType } : {}),
-    ...(schemaVersion !== undefined ? { schema_version: schemaVersion } : {}),
-    ...(options?.synthesized === true ? { synthesized: true } : {}),
-    raw,
-  };
-}
-
-function buildRaw(
-  envelope: PiEnvelope,
-  block: PiBlock | undefined,
-  blockIndex: number | undefined,
-  envelopeRef: string | undefined,
-): Record<string, unknown> {
-  if (envelopeRef !== undefined) {
-    return {
-      envelope_ref: envelopeRef,
-      ...(block !== undefined ? { block: redactValue(block) as PiBlock } : {}),
-      ...(blockIndex !== undefined ? { block_index: blockIndex } : {}),
-    };
-  }
-  if (block === undefined) {
-    return enforceSourceRawSize(redactValue(envelope) as Record<string, unknown>).value as Record<
-      string,
-      unknown
-    >;
-  }
-  const inline = {
-    envelope: redactValue(envelope) as PiEnvelope,
-    block: redactValue(block) as PiBlock,
-    block_index: blockIndex,
-  };
-  return enforceSourceRawSize(inline).value as Record<string, unknown>;
-}
-
-export function entryId(envelope: PiEnvelope, suffix?: string): string {
-  if (envelope.id === undefined) {
-    throw new Error("Pi entry missing id");
-  }
-  return suffix === undefined ? envelope.id : `${envelope.id}-${suffix}`;
-}
-
-export function blockId(
-  envelope: PiEnvelope,
-  _kind: string,
-  _index: number,
-  totalBlocks: number,
-): string {
-  // See claude-code/entry-metadata.ts: multi-block envelopes mint a fresh UUID
-  // per block so each trail event id remains a valid ULID/UUID. Source ids and
-  // per-block disambiguation live on `source.raw`.
-  return totalBlocks === 1 ? entryId(envelope) : crypto.randomUUID();
-}
+export const entryId = createEntryId<PiEnvelope>({
+  sourceId: (envelope) => envelope.id,
+  missingMessage: "Pi entry missing id",
+});
 
 // Per-event audit tag (`metadata["dev.pi.raw_type"]`) recording which source variant produced
 // the entry. Schema source metadata is closed (additionalProperties:false in schema.json), so the

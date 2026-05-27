@@ -1,9 +1,9 @@
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
+import { resolveEntryParents } from "../parenting.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { type BuiltEntry, baseEntry } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
-import { resolveEntryParents } from "./parenting.ts";
 import { type CcEnvelope, isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
 function buildHeader(envelopes: CcEnvelope[]): Header {
@@ -89,14 +89,14 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
             type: "model_change",
             payload: { from_model: prevModel, to_model: currentModel },
           } as Entry,
-          parentUuid: envelope.parentUuid,
+          parentSourceId: envelope.parentUuid,
         });
       }
     }
     entries.forEach((entry, index) => {
       built.push({
         entry,
-        parentUuid: envelope.parentUuid,
+        parentSourceId: envelope.parentUuid,
         ...(index > 0 ? { localParentId: entries[index - 1]?.id } : {}),
       });
     });

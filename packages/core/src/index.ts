@@ -54,13 +54,7 @@ export {
   SSH_PRIVATE_KEY,
   STRIPE_API_KEY,
 } from "./secret-patterns.ts";
-export type { EnforceSourceRawSizeResult } from "./source-raw.ts";
-export {
-  enforceSourceRawSize,
-  redactValue,
-  SOURCE_RAW_HARD_CAP_BYTES,
-  SOURCE_RAW_SOFT_CAP_BYTES,
-} from "./source-raw.ts";
+export { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
   validateTrailStream,

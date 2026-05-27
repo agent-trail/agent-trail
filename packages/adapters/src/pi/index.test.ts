@@ -292,7 +292,7 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   expect(trail.entries.length).toBe(4);
-  // Multi-block envelopes mint fresh UUIDs per block (see blockId in entry-metadata.ts);
+  // Multi-block envelopes mint fresh UUIDs per block (see pickBlockId in entries.ts);
   // assert by type + parent chain. synthId for session_terminated is a full UUID now.
   const [user, text0, callBlock, terminated] = trail.entries;
   expect(user?.id).toBe("00000000-0000-0000-0000-a24a7f55f278");
