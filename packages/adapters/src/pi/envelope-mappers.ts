@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Entry } from "@agent-trail/types";
 import { pickBlockId } from "../entries.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
@@ -34,7 +35,7 @@ function synthesizeInterrupt(envelope: PiEnvelope, schemaVersion?: string): Entr
     envelope,
     // Synthesized id must be a valid ULID/UUID per v0.1 (spec §9). The
     // previous `entryId(envelope, "aborted")` produced a compound string.
-    crypto.randomUUID(),
+    randomUUID(),
     "assistant",
     undefined,
     undefined,
@@ -297,8 +298,6 @@ function mapThinkingLevelChangeEnvelope(envelope: PiEnvelope, schemaVersion?: st
   );
   if (base === undefined) return [];
   const level = stringValue(envelope.thinkingLevel);
-  const data: Record<string, unknown> = {};
-  if (level !== undefined) data.thinking_level = level;
   return [
     stampRawType(
       {
@@ -307,7 +306,7 @@ function mapThinkingLevelChangeEnvelope(envelope: PiEnvelope, schemaVersion?: st
         payload: {
           kind: "x-pi/thinking_level_change",
           text: level !== undefined ? `Thinking level set to ${level}` : "Thinking level change",
-          ...(Object.keys(data).length > 0 ? { data } : {}),
+          ...(level !== undefined ? { data: { thinking_level: level } } : {}),
         },
       } as Entry,
       "thinking_level_change_envelope",
@@ -361,13 +360,17 @@ function mapCustomEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[
   const inner = isObject(envelope.data) ? envelope.data : undefined;
   if (inner !== undefined) data.custom_data = inner;
   const content = stringValue(envelope.content);
-  const text =
-    content?.trim() ??
-    (customType !== undefined
+  // Plugin-extension surface: preserve `content` verbatim so leading/trailing
+  // whitespace authored by the plugin is not mutated. Only synthesize a fallback
+  // when content is missing or blank.
+  const hasContent = content !== undefined && content.trim().length > 0;
+  const text = hasContent
+    ? (content as string)
+    : customType !== undefined
       ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
       : isMessage
         ? "Custom message"
-        : "Custom event");
+        : "Custom event";
   return [
     stampRawType(
       {

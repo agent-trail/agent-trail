@@ -4,7 +4,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
-import { extractMetadataHints, parseClaudeCodeJsonl } from "./parser.ts";
+import { extractMetadataHints, parseClaudeCodeEnvelopes } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 import { parseLines } from "./source.ts";
 
@@ -126,8 +126,9 @@ export const claudeCodeAdapter: TrailAdapter = {
       throw new Error("Claude Code adapter requires SessionRef.path");
     }
     const text = await Bun.file(ref.path).text();
-    const trail = parseClaudeCodeJsonl(text);
-    const hints = extractMetadataHints(parseLines(text));
+    const envelopes = parseLines(text);
+    const trail = parseClaudeCodeEnvelopes(envelopes);
+    const hints = extractMetadataHints(envelopes);
     if (trail.header.vcs === undefined && typeof trail.header.cwd === "string") {
       const vcs = await readGitVcs(trail.header.cwd);
       if (vcs !== undefined) trail.header.vcs = vcs;

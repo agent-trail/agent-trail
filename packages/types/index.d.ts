@@ -330,36 +330,30 @@ export interface SystemEvent {
     /**
      * Lifecycle/hook signal category. Either one of the reserved cross-agent values, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name).
      */
-    kind: (
-      | (
-          | "session_start"
-          | "session_end"
-          | "turn_start"
-          | "turn_end"
-          | "subagent_start"
-          | "subagent_end"
-          | "pre_tool_use"
-          | "post_tool_use"
-          | "hook_fired"
-          | "permission_request"
-          | "permission_decision"
-          | "permission_mode_change"
-          | "cwd_change"
-          | "env_snapshot"
-          | "task_started"
-          | "task_completed"
-          | "plan_completed"
-          | "turn_aborted"
-          | "tool_decision"
-          | "hook_progress"
-          | "queue_operation"
-          | "heartbeat"
-        )
-      | {
-          [k: string]: unknown;
-        }
-    ) &
-      string;
+    kind:
+      | "session_start"
+      | "session_end"
+      | "turn_start"
+      | "turn_end"
+      | "subagent_start"
+      | "subagent_end"
+      | "pre_tool_use"
+      | "post_tool_use"
+      | "hook_fired"
+      | "permission_request"
+      | "permission_decision"
+      | "permission_mode_change"
+      | "cwd_change"
+      | "env_snapshot"
+      | "task_started"
+      | "task_completed"
+      | "plan_completed"
+      | "turn_aborted"
+      | "tool_decision"
+      | "hook_progress"
+      | "queue_operation"
+      | "heartbeat"
+      | `x-${string}/${string}`;
     text?: string;
     data?: {
       [k: string]: unknown;

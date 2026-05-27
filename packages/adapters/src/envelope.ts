@@ -1,9 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { Header, TrailEnvelope } from "@agent-trail/types";
 
 export type BuildTrailEnvelopeOptions = {
   producer: string;
   header: Header;
-  /** Override for deterministic tests; defaults to crypto.randomUUID(). */
+  /** Override for deterministic tests; defaults to node:crypto randomUUID(). */
   randomId?: () => string;
   /** Override for deterministic tests; defaults to new Date().toISOString(). */
   now?: () => string;
@@ -12,7 +13,7 @@ export type BuildTrailEnvelopeOptions = {
 };
 
 export function buildTrailEnvelope(opts: BuildTrailEnvelopeOptions): TrailEnvelope {
-  const randomId = opts.randomId ?? (() => crypto.randomUUID());
+  const randomId = opts.randomId ?? randomUUID;
   const now = opts.now ?? (() => new Date().toISOString());
   const envelope: TrailEnvelope = {
     type: "trail",

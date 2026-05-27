@@ -93,10 +93,8 @@ export async function readGitVcs(cwd: string): Promise<HeaderVcs | undefined> {
     const normalized = normalizeRemoteUrl(remoteRaw);
     if (normalized !== undefined) vcs.remote_url = normalized;
   }
-  if (branchRaw !== undefined) {
-    const branch = branchRaw.trim();
-    if (branch.length > 0) vcs.branch = branch;
-  }
+  // runGit already trims output and returns undefined for empty strings.
+  if (branchRaw !== undefined) vcs.branch = branchRaw;
   // head_commit is a vcs-neutral alias for revision. For git they're the same
   // hash; the explicit field survives across vcs-type migrations.
   vcs.head_commit = trimmedRevision;

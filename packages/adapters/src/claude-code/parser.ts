@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
@@ -105,7 +106,10 @@ function buildParentIndex(envelopes: CcEnvelope[]): Map<string, string | null> {
 }
 
 export function parseClaudeCodeJsonl(text: string): TrailFile {
-  const envelopes = parseLines(text);
+  return parseClaudeCodeEnvelopes(parseLines(text));
+}
+
+export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
   const header = buildHeader(envelopes);
   const parentByUuid = buildParentIndex(envelopes);
   const toolUseIdToEventId = new Map<string, string>();
@@ -176,7 +180,7 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
         // Synthesized id must be a valid ULID/UUID. The envelope.uuid +
         // suffix shape used previously produced a compound string that
         // fails the v0.1 id regex.
-        crypto.randomUUID(),
+        randomUUID(),
         "assistant",
         undefined,
         undefined,

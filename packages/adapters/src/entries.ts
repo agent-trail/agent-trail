@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Entry } from "@agent-trail/types";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
@@ -85,5 +86,5 @@ export function createEntryId<Env>(
 // envelope-ID field name (claude-code uses `uuid`, pi uses `id`); this
 // function is adapter-neutral.
 export function pickBlockId(stableEntryId: string, totalBlocks: number): string {
-  return totalBlocks === 1 ? stableEntryId : crypto.randomUUID();
+  return totalBlocks === 1 ? stableEntryId : randomUUID();
 }
