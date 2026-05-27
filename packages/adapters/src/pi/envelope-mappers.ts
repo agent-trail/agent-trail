@@ -1,6 +1,7 @@
 import type { Entry } from "@agent-trail/types";
+import { pickBlockId } from "../entries.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
-import { baseEntry, blockId, entryId, stampRawType } from "./entry-metadata.ts";
+import { baseEntry, entryId, stampRawType } from "./entry-metadata.ts";
 import {
   asBlocks,
   idValue,
@@ -96,9 +97,8 @@ function mapAssistantEnvelope(
       emittable.push({ block, originalIndex });
     }
   });
-  const emittable_ids = emittable.map(({ block }, emittedIndex) =>
-    blockId(envelope, block.type ?? "block", emittedIndex, emittable.length),
-  );
+  const stableId = entryId(envelope);
+  const emittable_ids = emittable.map(() => pickBlockId(stableId, emittable.length));
   const firstEntryId = emittable_ids[0];
   let usageEmitted = false;
   const emittedBlocks: Entry[] = emittable.flatMap(({ block, originalIndex }, emittedIndex) => {

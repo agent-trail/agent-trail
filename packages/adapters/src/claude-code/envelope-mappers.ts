@@ -1,6 +1,7 @@
 import type { Entry } from "@agent-trail/types";
+import { pickBlockId } from "../entries.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
-import { baseEntry, blockId, entryId } from "./entry-metadata.ts";
+import { baseEntry, entryId } from "./entry-metadata.ts";
 import {
   asBlocks,
   type CcEnvelope,
@@ -131,9 +132,8 @@ function mapUserEnvelope(
   const emittedBlocks = blocks.filter(
     (block) => block.type === "text" || block.type === "tool_result",
   );
-  const userBlockIds = emittedBlocks.map((block, emittedIndex) =>
-    blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length),
-  );
+  const stableId = entryId(envelope);
+  const userBlockIds = emittedBlocks.map(() => pickBlockId(stableId, emittedBlocks.length));
   const userFirstId = userBlockIds[0];
   return emittedBlocks.flatMap((block, emittedIndex) => {
     const id = userBlockIds[emittedIndex] ?? "";
@@ -206,9 +206,8 @@ function mapAssistantEnvelope(
       block.type === "redacted_thinking" ||
       block.type === "tool_use",
   );
-  const asstBlockIds = emittedBlocks.map((block, emittedIndex) =>
-    blockId(envelope, block.type ?? "block", emittedIndex, emittedBlocks.length),
-  );
+  const stableId = entryId(envelope);
+  const asstBlockIds = emittedBlocks.map(() => pickBlockId(stableId, emittedBlocks.length));
   const asstFirstId = asstBlockIds[0];
   const envelopeUsage = mapAgentMessageUsage(envelope.message?.usage);
   let usageEmitted = false;

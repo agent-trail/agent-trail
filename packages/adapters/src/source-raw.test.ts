@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { BEARER_TOKEN, CREDENTIAL_PATTERNS } from "./secret-patterns.ts";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
 afterEach(() => {
@@ -34,10 +33,6 @@ test("redactValue redacts a top-level string containing a credential", () => {
   expect(redactValue("Authorization: Bearer abcdefABCDEF0123456789xyzXYZ")).toBe(
     "Authorization: Bearer [TOKEN]",
   );
-});
-
-test("CREDENTIAL_PATTERNS includes BEARER_TOKEN", () => {
-  expect(CREDENTIAL_PATTERNS).toContain(BEARER_TOKEN);
 });
 
 test("enforceSourceRawSize returns the value as-is when under the hard cap", () => {

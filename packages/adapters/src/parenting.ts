@@ -1,5 +1,10 @@
 import type { Entry } from "@agent-trail/types";
-import type { BuiltEntry } from "./entry-metadata.ts";
+
+export type ParentableEntry = {
+  entry: Entry;
+  parentSourceId: string | null | undefined;
+  localParentId?: string;
+};
 
 function resolveParentId(
   startParentSourceId: string | null | undefined,
@@ -19,7 +24,7 @@ function resolveParentId(
 }
 
 export function resolveEntryParents(
-  built: BuiltEntry[],
+  built: ParentableEntry[],
   parentBySourceId: Map<string, string | null>,
   sourceIdToLastEntryId: Map<string, string>,
 ): Entry[] {
