@@ -21,6 +21,7 @@ Implementation packages are licensed under MIT unless otherwise noted:
 - `packages/types/`
 - `packages/adapters/`
 - `packages/redact/`
+- `packages/store/`
 - `packages/cli/`
 - `apps/website/`
 - future implementation packages such as `packages/mcp/` and `apps/desktop/`

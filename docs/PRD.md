@@ -241,7 +241,7 @@ Explicitly out of scope to keep focus:
 
 Core components, with MCP and desktop deferred:
 
-### 7.1 The spec and schema package (shipped: v0.1.0 draft)
+### 7.1 The spec and schema package
 
 - `spec.md` — human-readable spec, edited in-repo under a stable filename.
 - `schema.json` — canonical writer-strict JSON Schema and format contract, edited in-repo under a stable filename.
@@ -282,7 +282,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 - `trail load <url>` — fetch and decode a shared session.
 - `trail export <id>` — write canonical trail bytes to stdout or `--out <path>`.
 - `trail validate <file>` — validate against schema.
-- `trail analyze <file>` — deterministic stats and findings on a trail (v0.2; tracker #66).
+- `trail analyze <file>` — deterministic stats and findings on a trail (tracker #66).
 
 LLM-driven workflows (summarising a trail, packaging a handoff for another agent, distilling a session into a reusable prompt) ship as **skills** rather than CLI commands so the user's own agent and model do the synthesis. See §7.9.
 
@@ -342,7 +342,7 @@ Surfaces that are not in v1 scope but stay on the roadmap. Each is an applicatio
 
 | Surface | Phase | Notes |
 |---|---|---|
-| `@agent-trail/analyze` package and `trail analyze` command | Phase 1 → v0.2 | Tracker #66. Stats + findings v1; pairwise comparison (`trail diff`) follow-on. Cost section lights up when token usage spec lands (#65). |
+| `@agent-trail/analyze` package and `trail analyze` command | Phase 2 | Tracker #66. Stats + findings first; pairwise comparison (`trail diff`) follow-on. Cost section lights up when token usage spec lands (#65). |
 | `@agent-trail/replay` — replay tool calls against new tool implementations and diff outputs | Phase 2 | Turns trails into regression-test corpora. Sandboxed defaults; per-tool-kind opt-in for side-effecting tools. |
 | GitHub Action for PR session digests | Phase 2 | Surfaces analyze output as a PR comment when a PR description references a trail (gist URL, inline JSONL, or Agent Trace `conversation.url`). Adoption depends on the share or attribution flow being active. |
 | VS Code extension — native `.trail.jsonl` viewer | Phase 3 | Custom editor with timeline render, sidebar workspace list, jump-to-source. Shares `@agent-trail/viewer-core` with the website. Cursor (VS Code fork) works automatically. |
@@ -353,7 +353,7 @@ Surfaces that are not in v1 scope but stay on the roadmap. Each is an applicatio
 
 ## 8. Detailed requirements
 
-### 8.1 Spec (already in v0.1.0)
+### 8.1 Spec
 
 See `../spec.md`. Open items tracked in §19 of that doc.
 
@@ -693,24 +693,13 @@ npm install @agent-trail/adapters    # for tool builders
 
 Honest weeks-of-effort estimates for a single developer working evenings/weekends.
 
-### 10.1 Phase 0 — Foundation (weeks 1-4)
+### 10.1 Phase 0 — Foundation
 
 **Goal:** Contract-first implementation: schema package, generated types, core validation, and `trail validate`.
 
-| Deliverable | Effort | Status |
-|---|---|---|
-| Spec v0.1.0 draft (`spec.md`) | done | ✅ |
-| JSON Schema v0.1.0 draft (`schema.json`) | done | ✅ |
-| GitHub monorepo set up (`agent-trail/agent-trail`) | 1 day | not started |
-| Bun workspace scaffold in the monorepo | 1 day | not started |
-| `@agent-trail/schema` — npm package with latest and v0.1.0 exports | 1 day | not started |
-| `@agent-trail/types` — committed TS types generated from schema | 1 day | not started |
-| `@agent-trail/core` — streaming JSONL parser and layered validation APIs | 3 days | not started |
-| `@agent-trail/cli` — `trail validate` with text and `--json` output | 2 days | not started |
-| Synthetic validation fixtures | 1 day | not started |
-| README + getting started | 1 day | not started |
+**Status: complete.** The repo ships the spec and JSON Schema, the `@agent-trail/schema` and `@agent-trail/types` packages with generated type drift checks, the `@agent-trail/core` streaming parser with layered validation and content-hash verification (including the trail envelope and multi-segment reconciler — see ADR-0004, ADR-0005, ADR-0006), the `trail validate` CLI verb with text and `--json` output, the synthetic validation fixture corpus under `tests/fixtures/validation/`, and the Bun-workspace monorepo scaffold.
 
-**Phase 0 exit criteria:**
+**Phase 0 exit criteria (met):**
 
 - `@agent-trail/schema` publishes the v0.1.0 schema and exposes explicit versioned exports.
 - Generated TypeScript types are committed and checked against `schema.json`.
@@ -722,18 +711,22 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 **Goal:** Six adapters, sharing works end-to-end, website ships (landing + spec hosting + viewer), public announcement. This phase intentionally keeps all six launch adapters as the proof target and defers MCP to protect adapter quality.
 
-| Deliverable | Effort | Notes |
+| Deliverable | Status | Notes |
 |---|---|---|
-| Adapters: Codex CLI, Cursor, OpenCode, Aider | 6-8 weeks | Aider requires storage verification before final mapping |
-| `@agent-trail/redact` module + integration with CLI | 1 week | `@redactpii/node` + curated patterns |
-| `trail register` + `trail share` (gist transport) | 4 days | Reuses Pi's gist pattern; content-hash addressing |
-| `trail load` command | 2 days | |
-| `trail export <id>` | 1 day | Deterministic byte export of registered trails; consumed by `summarise` (#63) and `handoff` (#64) skills |
-| **Website (Next.js, static):** landing + spec rendering + schema serving + viewer | 2 weeks | Four routes, one deployment. Landing copy from spec §1 verbatim |
-| Parser Source Matrix completed for all 6 launch adapters | 1 week | Document version + observed schema for each |
-| Real-data verification CI job (opt-in, on schedule) | 2 days | Catches silent schema drift early |
-| Mapping cheatsheet docs (per adapter) | 2 days | |
-| Public announcement: HN, X, Discord, agent communities | 1 day | |
+| Pi adapter | done | Verified; fixtures and matrix entry in place |
+| Claude Code adapter | done | Verified; fixtures and matrix entry in place |
+| Adapters: Codex CLI, Cursor, OpenCode, Aider | not started | Trackers #32–#35; Aider requires storage verification before final mapping |
+| `@agent-trail/redact` module + integration with CLI | done | `@redactpii/node` + curated patterns; integrated into `trail share` |
+| `trail share` (gist transport) | done | Unlisted gist transport; `content_hash` verified after fetch |
+| `trail load` | done | Fetches gist, verifies, reconciles segments, registers |
+| `trail export <id>` | done | Deterministic byte export of registered trails; consumed by `summarise` (#63) and `handoff` (#64) skills |
+| `trail discover` / `trail list` | done | Local source-agent discovery and registered-trail listing |
+| `trail view` terminal renderer | not started | Tracker #23 |
+| **Website (Next.js, static):** landing + spec rendering + schema serving + viewer | scaffold only | Trackers #29 (shell + routes), #30 (gist viewer decode), #31 (event renderer) |
+| Parser Source Matrix completed for all 6 launch adapters | partial | Pi and Claude Code verified; remaining four `pending verification` |
+| Real-data verification CI job (opt-in, on schedule) | not started | Tracker #37 |
+| Mapping cheatsheet docs (per adapter) | partial | Adapter-side notes live in `docs/parser-source-matrix.md`; per-adapter cheatsheets pending |
+| Public announcement: HN, X, Discord, agent communities | not started | After exit criteria below are met |
 
 **Phase 1 exit criteria:**
 
@@ -760,7 +753,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 | Deliverable | Effort | Notes |
 |---|---|---|
-| Spec v0.2 — based on implementation feedback | ongoing | Likely compression, signing, multi-file. Token usage tracking (#65) and source.raw envelope_ref (#60) already scoped. |
+| Spec follow-ups — based on implementation feedback | ongoing | Likely compression, signing, multi-file. Token usage tracking (#65) already scoped. |
 | Community adapter PRs reviewed and merged | ongoing | Target: 5 more adapters via community |
 | `@agent-trail/analyze` package and `trail analyze` command | 3 weeks | Tracker #66. Deterministic stats + findings; cost section unlocks via #65. |
 | Summarise, handoff, distill, profile skills | 3-4 weeks total | Trackers #63, #64, #67, #68. Compose with `trail export` and the user's own agent. `profile` is cross-session and produces a `PROFILE.md` portable across agents. |

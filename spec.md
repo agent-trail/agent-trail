@@ -384,7 +384,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). The bundled claude-code and pi adapters emit a fresh `session_uid` per session via `crypto.randomUUID()` so the v0.1 corpus carries real coverage.
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable). The bundled claude-code and pi adapters derive `session_uid` deterministically from the upstream source-session id via RFC 4122 UUIDv5 with a per-adapter namespace UUID, so re-parsing the same upstream session is idempotent (see ADR-0006).
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -1175,12 +1175,14 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 ### v0.1.0 (May 2026)
 
-- Initial public draft.
-- Defines JSONL file layout, header, core event envelope, five mandatory event types, optional events, tool taxonomy, metadata extensions, tree semantics, validation layers, and artifact-level content addressing.
-- Defines stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
-- Adds the optional header `stream` field, the optional `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3). These are additive and backward-compatible; v0.1.x readers ignore unknown header fields and event types.
-- Adds `source.raw.envelope_ref` for inline-first / ref-subsequent envelope dedup (§9.7), the elide marker shape `{ elided: true, size_bytes: N }` for whole-value or per-leaf elision in `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`. Backward-compatible; v0.1.0 readers that do not know `envelope_ref` ignore it as an unknown raw-source field.
-- Adds the optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`). Introduces two-tier identity (§7.4): session-level `content_hash` excludes the envelope from the hashed input, file-level `content_hash` covers the whole file. Adds the optional `meta` extension on both envelope and session header.
+Initial public draft. v0.1.0 defines:
+
+- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `metadata` / `meta` extensions, tree semantics, layered validation, and artifact-level content addressing.
+- Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
+- The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
+- Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
+- The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
+- The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 
 ---
 

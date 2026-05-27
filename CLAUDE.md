@@ -27,13 +27,14 @@ When you need depth on a topic, follow the link instead of reading from memory. 
 
 Workspace packages:
 
-- [`packages/schema`](./packages/schema) — JSON Schema package.
+- [`packages/schema`](./packages/schema) — published JSON Schema package.
 - [`packages/types`](./packages/types) — generated TypeScript types.
-- [`packages/core`](./packages/core) — initial JSONL parser; planned validation, hashing, and canonicalization utilities.
-- [`packages/adapters`](./packages/adapters) — planned source-agent adapter interfaces and parsers.
-- [`packages/redact`](./packages/redact) — planned redaction utilities.
-- [`packages/cli`](./packages/cli) — planned `trail` CLI.
-- [`apps/website`](./apps/website) — planned website and web viewer.
+- [`packages/core`](./packages/core) — streaming JSONL parser, layered validation, hashing/canonicalization, multi-segment reconciler.
+- [`packages/adapters`](./packages/adapters) — source-agent parsers; Pi and Claude Code verified, Codex CLI / Cursor / OpenCode / Aider pending.
+- [`packages/redact`](./packages/redact) — share-time redaction pipeline.
+- [`packages/store`](./packages/store) — content-addressed local object store and index.
+- [`packages/cli`](./packages/cli) — the `trail` binary: `validate`, `discover`, `list`, `share`, `load`, `export`.
+- [`apps/website`](./apps/website) — website and web viewer app (scaffold).
 
 ## Load-bearing conventions
 
