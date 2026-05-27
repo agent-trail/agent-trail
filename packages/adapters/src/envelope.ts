@@ -8,6 +8,7 @@ export type BuildTrailEnvelopeOptions = {
   /** Override for deterministic tests; defaults to new Date().toISOString(). */
   now?: () => string;
   name?: string;
+  meta?: Record<string, unknown>;
 };
 
 export function buildTrailEnvelope(opts: BuildTrailEnvelopeOptions): TrailEnvelope {
@@ -21,6 +22,7 @@ export function buildTrailEnvelope(opts: BuildTrailEnvelopeOptions): TrailEnvelo
     producer: opts.producer,
   };
   if (opts.name !== undefined) envelope.name = opts.name;
+  if (opts.meta !== undefined && Object.keys(opts.meta).length > 0) envelope.meta = opts.meta;
   if (opts.header.vcs !== undefined) envelope.vcs = opts.header.vcs;
   // Populate a minimal sessions manifest so indexers can enumerate sessions
   // without parsing event records. The session header remains authoritative;

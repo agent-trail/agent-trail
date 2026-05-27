@@ -40,22 +40,111 @@ function systemEventText(envelope: CcEnvelope): string {
       ? `Queued input: ${content.trim()}`
       : `Queue operation: ${operation}`;
   }
+  if (envelope.type === "pr-link") {
+    const num = envelope.prNumber;
+    const url = stringValue(envelope.prUrl);
+    if (typeof num === "number" && url !== undefined) return `PR #${num}: ${url}`;
+    if (url !== undefined) return url;
+    return "PR link";
+  }
   return "System event";
+}
+
+// Maps Claude Code hook lifecycle events to reserved system_event kinds (spec §9.3).
+// Unrecognized hookEvent values fall back to `hook_fired` so timelines surface them.
+function hookEventToKind(hookEvent: string | undefined): string {
+  switch (hookEvent) {
+    case "SessionStart":
+      return "session_start";
+    case "SessionEnd":
+      return "session_end";
+    case "Stop":
+      return "turn_end";
+    case "SubagentStop":
+      return "subagent_end";
+    case "PreToolUse":
+      return "pre_tool_use";
+    case "PostToolUse":
+      return "post_tool_use";
+    case "Notification":
+      return "permission_request";
+    default:
+      return "hook_fired";
+  }
+}
+
+const SYSTEM_SUBTYPE_PATTERN = /^[a-z0-9][a-z0-9_]*$/;
+
+// Maps Claude Code `system` envelope subtypes to reserved or vendor-namespaced kinds.
+// stop_hook_summary marks the turn boundary; turn_duration is duration-only metadata
+// retained as a vendor extension. compact_boundary is preserved under x-claudecode
+// because the canonical context_compact entry is produced by the summary envelope.
+function systemSubtypeToKind(subtype: string | undefined): string {
+  switch (subtype) {
+    case "stop_hook_summary":
+      return "turn_end";
+    case "turn_duration":
+      return "x-claudecode/turn_duration";
+    case "compact_boundary":
+      return "x-claudecode/compact_boundary";
+    case "api_error":
+      return "x-claudecode/api_error";
+    case "away_summary":
+      return "x-claudecode/away_summary";
+    case "local_command":
+      return "x-claudecode/local_command";
+    case "bridge_status":
+      return "x-claudecode/bridge_status";
+    default:
+      return subtype !== undefined && SYSTEM_SUBTYPE_PATTERN.test(subtype)
+        ? `x-claudecode/${subtype}`
+        : "x-claudecode/system";
+  }
 }
 
 function systemEventKind(envelope: CcEnvelope): string {
   if (envelope.type === "queue-operation") return "queue_operation";
+  if (envelope.type === "pr-link") return "x-claudecode/pr_link";
   if (envelope.type === "progress") {
     const data = jsonObjectValue(envelope.data);
-    return stringValue(data?.type) === "hook_progress" ? "hook_progress" : "progress";
+    if (stringValue(data?.type) === "hook_progress") {
+      return hookEventToKind(stringValue(data?.hookEvent));
+    }
+    return "x-claudecode/progress";
   }
-  return "system";
+  return systemSubtypeToKind(stringValue(envelope.subtype));
+}
+
+function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefined {
+  if (envelope.type === "progress") return jsonObjectValue(envelope.data);
+  if (envelope.type === "pr-link") {
+    const out: Record<string, unknown> = {};
+    if (typeof envelope.prNumber === "number") out.pr_number = envelope.prNumber;
+    const url = stringValue(envelope.prUrl);
+    if (url !== undefined) out.pr_url = url;
+    const repo = stringValue(envelope.prRepository);
+    if (repo !== undefined) out.pr_repository = repo;
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+  return undefined;
 }
 
 function mapSystemEventEnvelope(envelope: CcEnvelope): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), envelope.type);
+  // Some Claude Code envelopes (queue-operation, pr-link) lack a `uuid` field
+  // but carry a usable timestamp. Synthesize a deterministic-shaped id so they
+  // survive validation and stamp `source.synthesized` for traceability.
+  const synthesized = typeof envelope.uuid !== "string";
+  const id = synthesized ? crypto.randomUUID() : entryId(envelope);
+  const base = baseEntry(
+    envelope,
+    id,
+    envelope.type,
+    undefined,
+    undefined,
+    synthesized ? { synthesized: true } : undefined,
+  );
   if (base === undefined) return [];
-  const data = envelope.type === "progress" ? jsonObjectValue(envelope.data) : undefined;
+  const data = systemEventData(envelope);
   return [
     {
       ...base,
@@ -64,6 +153,46 @@ function mapSystemEventEnvelope(envelope: CcEnvelope): Entry[] {
         kind: systemEventKind(envelope),
         text: systemEventText(envelope),
         ...(data !== undefined ? { data } : {}),
+      },
+    } as Entry,
+  ];
+}
+
+// Claude Code's `permission-mode` envelope reports a mode change
+// (default / acceptEdits / plan / bypassPermissions). It lacks `uuid` and
+// `timestamp`, so the adapter synthesizes both: a fresh UUID for the entry id,
+// and the most recent prior envelope's timestamp for ordering. The new mode
+// goes under `data.to`; the prior mode (when tracked) under `data.from`.
+export function mapPermissionModeEnvelope(
+  envelope: CcEnvelope,
+  inheritedTimestamp: string | undefined,
+  prevPermissionMode: string | undefined,
+): Entry[] {
+  const mode = stringValue(envelope.permissionMode);
+  if (mode === undefined) return [];
+  const ts = stringValue(envelope.timestamp) ?? inheritedTimestamp;
+  if (ts === undefined) return [];
+  const enriched: CcEnvelope = { ...envelope, timestamp: ts };
+  const base = baseEntry(enriched, crypto.randomUUID(), envelope.type, undefined, undefined, {
+    synthesized: true,
+  });
+  if (base === undefined) return [];
+  const data: Record<string, unknown> = { to: mode };
+  if (prevPermissionMode !== undefined && prevPermissionMode !== mode) {
+    data.from = prevPermissionMode;
+  }
+  const text =
+    prevPermissionMode !== undefined && prevPermissionMode !== mode
+      ? `Permission mode changed: ${prevPermissionMode} → ${mode}`
+      : `Permission mode: ${mode}`;
+  return [
+    {
+      ...base,
+      type: "system_event",
+      payload: {
+        kind: "permission_mode_change",
+        text,
+        data,
       },
     } as Entry,
   ];
@@ -121,7 +250,7 @@ function mapUserEnvelope(
         {
           ...base,
           type: "system_event",
-          payload: { kind: "system", text: content },
+          payload: { kind: "session_start", text: content },
         } as Entry,
       ];
     }
@@ -157,7 +286,7 @@ function mapUserEnvelope(
           ? ({
               ...base,
               type: "system_event",
-              payload: { kind: "system", text },
+              payload: { kind: "x-claudecode/system", text },
             } as Entry)
           : ({ ...base, type: "user_message", payload: { text } } as Entry),
       ];
@@ -280,12 +409,22 @@ export function buildEntries(
   toolUseIdToEventId: Map<string, string>,
   toolUseIdToToolKind: Map<string, string>,
 ): Entry[] {
-  if (envelope.uuid === undefined || envelope.timestamp === undefined) return [];
+  // queue-operation and pr-link envelopes lack `uuid` across many Claude Code
+  // versions (null or absent). The mapper synthesizes an id for those types,
+  // so the uuid presence check is relaxed for them.
+  const allowsSynthesizedId = envelope.type === "queue-operation" || envelope.type === "pr-link";
+  if (
+    (!allowsSynthesizedId && typeof envelope.uuid !== "string") ||
+    envelope.timestamp === undefined
+  ) {
+    return [];
+  }
 
   if (
     envelope.type === "system" ||
     envelope.type === "progress" ||
-    envelope.type === "queue-operation"
+    envelope.type === "queue-operation" ||
+    envelope.type === "pr-link"
   ) {
     return mapSystemEventEnvelope(envelope);
   }

@@ -283,6 +283,107 @@ function mapCompactionEnvelope(envelope: PiEnvelope, schemaVersion?: string): En
   ];
 }
 
+// Pi `thinking_level_change` carries a single field (`thinkingLevel`: low|medium|high).
+// No reserved kind matches — `model_change` covers model id only, not thinking level.
+// Surface as a vendor-namespaced system_event so consumers see the boundary.
+function mapThinkingLevelChangeEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+  const base = baseEntry(
+    envelope,
+    entryId(envelope),
+    "thinking_level_change",
+    undefined,
+    undefined,
+    { schemaVersion },
+  );
+  if (base === undefined) return [];
+  const level = stringValue(envelope.thinkingLevel);
+  const data: Record<string, unknown> = {};
+  if (level !== undefined) data.thinking_level = level;
+  return [
+    stampRawType(
+      {
+        ...base,
+        type: "system_event",
+        payload: {
+          kind: "x-pi/thinking_level_change",
+          text: level !== undefined ? `Thinking level set to ${level}` : "Thinking level change",
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        },
+      } as Entry,
+      "thinking_level_change_envelope",
+    ),
+  ];
+}
+
+// Pi `session_info` carries an auto-generated session name (pi-mono session-namer hook).
+// No portable equivalent yet — surface as `x-pi/session_info` so the rename is preserved
+// without claiming cross-agent semantics.
+function mapSessionInfoEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+  const base = baseEntry(envelope, entryId(envelope), "session_info", undefined, undefined, {
+    schemaVersion,
+  });
+  if (base === undefined) return [];
+  const name = stringValue(envelope.name);
+  return [
+    stampRawType(
+      {
+        ...base,
+        type: "system_event",
+        payload: {
+          kind: "x-pi/session_info",
+          text: name !== undefined ? `Session info: ${name}` : "Session info",
+          ...(name !== undefined ? { data: { name } } : {}),
+        },
+      } as Entry,
+      "session_info_envelope",
+    ),
+  ];
+}
+
+// Pi `custom` / `custom_message` are the plugin extension surface. The adapter does NOT
+// enumerate every `customType` — plugins author their own. Collapse both into one
+// vendor kind per envelope-type and preserve the source `customType` under `data` so
+// consumers can disambiguate without us pretending to support every plugin shape.
+function mapCustomEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+  const isMessage = envelope.type === "custom_message";
+  const base = baseEntry(
+    envelope,
+    entryId(envelope),
+    isMessage ? "custom_message" : "custom",
+    undefined,
+    undefined,
+    { schemaVersion },
+  );
+  if (base === undefined) return [];
+  const customType = stringValue(envelope.customType);
+  const data: Record<string, unknown> = {};
+  if (customType !== undefined) data.custom_type = customType;
+  const inner = isObject(envelope.data) ? envelope.data : undefined;
+  if (inner !== undefined) data.custom_data = inner;
+  const content = stringValue(envelope.content);
+  const text =
+    content?.trim() ??
+    (customType !== undefined
+      ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
+      : isMessage
+        ? "Custom message"
+        : "Custom event");
+  return [
+    stampRawType(
+      {
+        ...base,
+        type: "system_event",
+        payload: {
+          kind: isMessage ? "x-pi/custom_message" : "x-pi/custom",
+          text,
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        },
+      } as Entry,
+      isMessage ? "custom_message_envelope" : "custom_envelope",
+    ),
+  ];
+}
+
 function mapBranchSummaryEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
   const base = baseEntry(envelope, entryId(envelope), "branch_summary", undefined, undefined, {
     schemaVersion,
@@ -324,6 +425,15 @@ export function buildEntries(
   }
   if (envelope.type === "model_change") {
     return mapModelChangeEnvelope(envelope, prevModel, schemaVersion);
+  }
+  if (envelope.type === "thinking_level_change") {
+    return mapThinkingLevelChangeEnvelope(envelope, schemaVersion);
+  }
+  if (envelope.type === "session_info") {
+    return mapSessionInfoEnvelope(envelope, schemaVersion);
+  }
+  if (envelope.type === "custom" || envelope.type === "custom_message") {
+    return mapCustomEnvelope(envelope, schemaVersion);
   }
   if (envelope.type !== "message") return [];
   const role = envelope.message?.role;

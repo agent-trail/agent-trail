@@ -980,7 +980,9 @@ test("parseSession() emits agent_thinking for a thinking block with empty text b
 
 test("parseSession() filters attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
-  expect(trail.entries).toHaveLength(5);
+  // 5 message-derived entries + 1 system_event for the synthetic queue-operation
+  // (issue #88 now emits queue-operation envelopes with synthesized ids).
+  expect(trail.entries).toHaveLength(6);
   const ids = trail.entries.map((e) => e.id);
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
@@ -1067,13 +1069,13 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   expect(
     trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa14")?.payload,
   ).toEqual({
-    kind: "system",
+    kind: "x-claudecode/local_command",
     text: "<command-name>/model</command-name>",
   });
   expect(
     trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa15")?.payload,
   ).toEqual({
-    kind: "hook_progress",
+    kind: "pre_tool_use",
     text: "Hook progress: PreToolUse (PreToolUse:Bash)",
     data: { type: "hook_progress", hookEvent: "PreToolUse", hookName: "PreToolUse:Bash" },
   });
@@ -1354,4 +1356,353 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
 test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
   const trail = await parseFixture();
   expect(trail.header.vcs).toBeUndefined();
+});
+
+// Issue #88: lifecycle vocabulary mapping. Each progress hookEvent routes to a
+// reserved system_event.kind so cross-agent analysis can rely on the enum.
+test.each([
+  ["SessionStart", "session_start"],
+  ["SessionEnd", "session_end"],
+  ["Stop", "turn_end"],
+  ["SubagentStop", "subagent_end"],
+  ["PreToolUse", "pre_tool_use"],
+  ["PostToolUse", "post_tool_use"],
+  ["Notification", "permission_request"],
+  ["UnrecognizedHook", "hook_fired"],
+])("parseSession() maps progress hookEvent %s to system_event kind %s", async (hookEvent, expectedKind) => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-000000000001",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "00000000-0000-0000-0000-000000000001",
+      isSidechain: false,
+      type: "progress",
+      data: { type: "hook_progress", hookEvent, hookName: `${hookEvent}:Bash` },
+      uuid: "00000000-0000-0000-0000-000000000002",
+      timestamp: "2026-05-17T22:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  expect((sys?.payload as { kind?: string })?.kind).toBe(expectedKind);
+});
+
+// Issue #88: system envelope subtypes map to reserved kinds where portable
+// (stop_hook_summary → turn_end) and to x-claudecode/* otherwise.
+test.each([
+  ["stop_hook_summary", "turn_end"],
+  ["turn_duration", "x-claudecode/turn_duration"],
+  ["api_error", "x-claudecode/api_error"],
+  ["away_summary", "x-claudecode/away_summary"],
+  ["local_command", "x-claudecode/local_command"],
+  ["bridge_status", "x-claudecode/bridge_status"],
+  ["compact_boundary", "x-claudecode/compact_boundary"],
+  ["unrecognized_subtype", "x-claudecode/unrecognized_subtype"],
+])("parseSession() maps system subtype %s to system_event kind %s", async (subtype, expectedKind) => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-000000000010",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      parentUuid: "00000000-0000-0000-0000-000000000010",
+      isSidechain: false,
+      type: "system",
+      subtype,
+      content: `subtype ${subtype} payload`,
+      uuid: "00000000-0000-0000-0000-000000000011",
+      timestamp: "2026-05-17T22:00:01.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  expect((sys?.payload as { kind?: string })?.kind).toBe(expectedKind);
+});
+
+// Issue #88: queue-operation envelopes lack uuid across Claude Code versions
+// (null or absent). The adapter synthesizes a UUID and stamps source.synthesized.
+test("parseSession() emits queue_operation system_event with synthesized id when uuid is absent", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-000000000020",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      type: "queue-operation",
+      operation: "enqueue",
+      content: "queued prompt",
+      timestamp: "2026-05-17T22:00:01.000Z",
+      sessionId: "s",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  expect(sys).toBeDefined();
+  expect((sys?.payload as { kind?: string })?.kind).toBe("queue_operation");
+  expect(sys?.source?.synthesized).toBe(true);
+  expect(sys?.id).toMatch(
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  );
+});
+
+// Issue #88: ai-title envelope populates envelope.name + meta breadcrumb.
+test("parseSession() surfaces ai-title under envelope.name and envelope.meta", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const tmp = mkdtempSync(join(tmpdir(), "cc-aititle-"));
+  try {
+    const fixturePath = join(tmp, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "00000000-0000-0000-0000-000000000040",
+        timestamp: "2026-05-17T22:00:00.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+      JSON.stringify({ type: "ai-title", aiTitle: "Wire ai-title plumbing", sessionId: "s" }),
+      JSON.stringify({ type: "agent-name", agentName: "wire-ai-title-plumbing", sessionId: "s" }),
+    ].join("\n");
+    writeFileSync(fixturePath, `${lines}\n`);
+    const trail = await claudeCodeAdapter.parseSession({
+      id: "s",
+      adapter: "claude-code",
+      path: fixturePath,
+    });
+    expect(trail.envelope?.name).toBe("Wire ai-title plumbing");
+    expect(trail.envelope?.meta).toEqual({
+      "x-claudecode/ai_title": "Wire ai-title plumbing",
+      "x-claudecode/agent_name": "wire-ai-title-plumbing",
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// Issue #88: agent-name alone (no ai-title) still populates envelope.name.
+test("parseSession() falls back to agent-name when ai-title is absent", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const tmp = mkdtempSync(join(tmpdir(), "cc-agentname-"));
+  try {
+    const fixturePath = join(tmp, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "00000000-0000-0000-0000-000000000041",
+        timestamp: "2026-05-17T22:00:00.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+      JSON.stringify({ type: "agent-name", agentName: "fallback-slug", sessionId: "s" }),
+    ].join("\n");
+    writeFileSync(fixturePath, `${lines}\n`);
+    const trail = await claudeCodeAdapter.parseSession({
+      id: "s",
+      adapter: "claude-code",
+      path: fixturePath,
+    });
+    expect(trail.envelope?.name).toBe("fallback-slug");
+    expect(trail.envelope?.meta).toEqual({ "x-claudecode/agent_name": "fallback-slug" });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// Issue #88: worktree-state populates vcs.branch + vcs.head_commit + vcs.worktree.
+// Falls back to envelope-supplied head_commit when the worktree directory is no
+// longer readable (paseo-style ephemeral worktrees).
+test("parseSession() populates vcs.worktree from worktree-state envelope when cwd is unreadable", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const tmp = mkdtempSync(join(tmpdir(), "cc-worktree-"));
+  try {
+    const fixturePath = join(tmp, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "00000000-0000-0000-0000-000000000050",
+        timestamp: "2026-05-17T22:00:00.000Z",
+        sessionId: "s",
+        version: "v",
+        cwd: "/this/path/does/not/exist",
+      }),
+      JSON.stringify({
+        type: "worktree-state",
+        sessionId: "s",
+        worktreeSession: {
+          originalCwd: "/orig/repo",
+          worktreePath: "/orig/repo/.worktrees/topic",
+          worktreeName: "topic",
+          worktreeBranch: "feature/topic",
+          originalBranch: "main",
+          originalHeadCommit: "abcdef0123456789abcdef0123456789abcdef01",
+          sessionId: "s",
+        },
+      }),
+    ].join("\n");
+    writeFileSync(fixturePath, `${lines}\n`);
+    const trail = await claudeCodeAdapter.parseSession({
+      id: "s",
+      adapter: "claude-code",
+      path: fixturePath,
+    });
+    expect(trail.header.vcs?.type).toBe("git");
+    expect(trail.header.vcs?.branch).toBe("feature/topic");
+    expect(trail.header.vcs?.head_commit).toBe("abcdef0123456789abcdef0123456789abcdef01");
+    expect(trail.header.vcs?.worktree).toEqual({
+      name: "topic",
+      path: "/orig/repo/.worktrees/topic",
+      original_cwd: "/orig/repo",
+      original_branch: "main",
+      original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// Issue #88: permission-mode envelopes synthesize a system_event with kind
+// permission_mode_change. Timestamp inherited from prior envelope, prev mode
+// surfaces under data.from on subsequent transitions.
+test("parseSession() emits permission_mode_change with inherited timestamp + from/to data", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const tmp = mkdtempSync(join(tmpdir(), "cc-perm-"));
+  try {
+    const fixturePath = join(tmp, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "00000000-0000-0000-0000-000000000060",
+        timestamp: "2026-05-17T22:00:00.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+      JSON.stringify({ type: "permission-mode", permissionMode: "plan", sessionId: "s" }),
+      JSON.stringify({
+        parentUuid: "00000000-0000-0000-0000-000000000060",
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "next" },
+        uuid: "00000000-0000-0000-0000-000000000061",
+        timestamp: "2026-05-17T22:00:05.000Z",
+        sessionId: "s",
+        version: "v",
+      }),
+      JSON.stringify({
+        type: "permission-mode",
+        permissionMode: "bypassPermissions",
+        sessionId: "s",
+      }),
+    ].join("\n");
+    writeFileSync(fixturePath, `${lines}\n`);
+    const trail = await claudeCodeAdapter.parseSession({
+      id: "s",
+      adapter: "claude-code",
+      path: fixturePath,
+    });
+    const pmEvents = trail.entries.filter(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: string }).kind === "permission_mode_change",
+    );
+    expect(pmEvents).toHaveLength(2);
+    const first = pmEvents[0];
+    const second = pmEvents[1];
+    expect(first?.ts).toBe("2026-05-17T22:00:00.000Z");
+    expect((first?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
+      to: "plan",
+    });
+    expect(first?.source?.synthesized).toBe(true);
+    expect(second?.ts).toBe("2026-05-17T22:00:05.000Z");
+    expect((second?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
+      to: "bypassPermissions",
+      from: "plan",
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// Issue #88: pr-link envelopes lack uuid; adapter synthesizes id and surfaces
+// pr metadata under payload.data.
+test("parseSession() emits x-claudecode/pr_link system_event with pr metadata under data", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-000000000030",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s",
+      version: "v",
+    }),
+    JSON.stringify({
+      type: "pr-link",
+      sessionId: "s",
+      prNumber: 42,
+      prUrl: "https://github.com/example/repo/pull/42",
+      prRepository: "example/repo",
+      timestamp: "2026-05-17T22:00:01.000Z",
+    }),
+  ].join("\n")}\n`;
+  const trail = parseClaudeCodeJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  expect(sys).toBeDefined();
+  const payload = sys?.payload as {
+    kind?: string;
+    data?: { pr_number?: number; pr_url?: string; pr_repository?: string };
+  };
+  expect(payload?.kind).toBe("x-claudecode/pr_link");
+  expect(payload?.data).toEqual({
+    pr_number: 42,
+    pr_url: "https://github.com/example/repo/pull/42",
+    pr_repository: "example/repo",
+  });
 });

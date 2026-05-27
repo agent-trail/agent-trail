@@ -45,7 +45,9 @@ export function isTracerEnvelope(envelope: CcEnvelope): boolean {
     envelope.type === "summary" ||
     envelope.type === "system" ||
     envelope.type === "progress" ||
-    envelope.type === "queue-operation"
+    envelope.type === "queue-operation" ||
+    envelope.type === "pr-link" ||
+    envelope.type === "permission-mode"
   );
 }
 

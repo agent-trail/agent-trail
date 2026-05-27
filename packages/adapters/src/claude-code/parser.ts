@@ -2,9 +2,68 @@ import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import type { WorktreeInfo } from "../vcs.ts";
 import { type BuiltEntry, baseEntry } from "./entry-metadata.ts";
-import { buildEntries } from "./envelope-mappers.ts";
+import { buildEntries, mapPermissionModeEnvelope } from "./envelope-mappers.ts";
 import { type CcEnvelope, isTracerEnvelope, parseLines, stringValue } from "./source.ts";
+
+export type ClaudeCodeMetadataHints = {
+  envelopeName?: string;
+  envelopeMeta?: Record<string, unknown>;
+  worktree?: WorktreeInfo;
+  worktreeBranch?: string;
+  worktreeHeadCommit?: string;
+};
+
+// Pre-scan extracts session-level metadata that does not belong on the timeline:
+// `ai-title` / `agent-name` populate `envelope.name` (and a meta breadcrumb);
+// `worktree-state` enriches `header.vcs` with branch + worktree subobject.
+// These envelope types stay out of `isTracerEnvelope` because they are session
+// metadata, not events.
+export function extractMetadataHints(envelopes: CcEnvelope[]): ClaudeCodeMetadataHints {
+  const hints: ClaudeCodeMetadataHints = {};
+  const meta: Record<string, unknown> = {};
+
+  const aiTitleEnv = envelopes.find((env) => env.type === "ai-title");
+  const agentNameEnv = envelopes.find((env) => env.type === "agent-name");
+  const worktreeEnv = envelopes.find((env) => env.type === "worktree-state");
+
+  const aiTitle = stringValue(aiTitleEnv?.aiTitle);
+  const agentName = stringValue(agentNameEnv?.agentName);
+  if (aiTitle !== undefined) meta["x-claudecode/ai_title"] = aiTitle;
+  if (agentName !== undefined) meta["x-claudecode/agent_name"] = agentName;
+  hints.envelopeName = aiTitle ?? agentName;
+
+  if (worktreeEnv !== undefined) {
+    const ws = worktreeEnv.worktreeSession;
+    if (ws !== null && typeof ws === "object") {
+      const sess = ws as Record<string, unknown>;
+      const name = stringValue(sess.worktreeName);
+      const path = stringValue(sess.worktreePath);
+      if (name !== undefined && path !== undefined) {
+        const worktree: WorktreeInfo = { name, path };
+        const originalCwd = stringValue(sess.originalCwd);
+        const originalBranch = stringValue(sess.originalBranch);
+        const originalHeadCommit = stringValue(sess.originalHeadCommit);
+        if (originalCwd !== undefined) worktree.original_cwd = originalCwd;
+        if (originalBranch !== undefined) worktree.original_branch = originalBranch;
+        if (originalHeadCommit !== undefined && /^[a-f0-9]{7,64}$/.test(originalHeadCommit)) {
+          worktree.original_head_commit = originalHeadCommit;
+        }
+        hints.worktree = worktree;
+      }
+      const branch = stringValue(sess.worktreeBranch);
+      if (branch !== undefined) hints.worktreeBranch = branch;
+      // Claude Code's worktree-state envelope carries `originalHeadCommit`
+      // (the fork-point commit). The current HEAD may have moved since, so
+      // `vcs.revision` / `vcs.head_commit` should come from a live git read
+      // when possible; the original commit lives under `worktree`.
+    }
+  }
+
+  if (Object.keys(meta).length > 0) hints.envelopeMeta = meta;
+  return hints;
+}
 
 function buildHeader(envelopes: CcEnvelope[]): Header {
   const first = envelopes.find((env) => isTracerEnvelope(env) && env.timestamp !== undefined);
@@ -54,9 +113,27 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
   const built: BuiltEntry[] = [];
   const sourceUuidToLastEntryId = new Map<string, string>();
   let prevModel: string | undefined;
+  let prevPermissionMode: string | undefined;
+  // Tracks the most recent envelope timestamp seen in source order. Envelopes
+  // missing `timestamp` (Claude Code emits `permission-mode` records with no
+  // timestamp) inherit this value so their synthesized entries land in
+  // session-order rather than failing validation.
+  let inheritedTimestamp: string | undefined;
 
   for (const envelope of envelopes) {
     if (!isTracerEnvelope(envelope)) continue;
+    if (typeof envelope.timestamp === "string") {
+      inheritedTimestamp = envelope.timestamp;
+    }
+    if (envelope.type === "permission-mode") {
+      const pmEntries = mapPermissionModeEnvelope(envelope, inheritedTimestamp, prevPermissionMode);
+      for (const entry of pmEntries) {
+        built.push({ entry, parentSourceId: envelope.parentUuid ?? null });
+      }
+      const mode = stringValue(envelope.permissionMode);
+      if (mode !== undefined) prevPermissionMode = mode;
+      continue;
+    }
     const currentModel =
       envelope.type === "assistant" ? stringValue(envelope.message?.model) : undefined;
     const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind);

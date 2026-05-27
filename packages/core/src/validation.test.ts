@@ -739,6 +739,87 @@ test("accepts a system_event with kind heartbeat as a streaming liveness ping", 
   expect(diagnostics).toEqual([]);
 });
 
+test("writer-strict rejects a system_event with a bare unknown kind", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"system_event","id":"01HEVTSE000000000000000001","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"made_up_thing"}}',
+    value: {
+      type: "system_event",
+      id: "01HEVTSE000000000000000001",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { kind: "made_up_thing" },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/kind")).toBe(true);
+});
+
+test("writer-strict accepts a system_event with an x-<adapter>/<name> extension kind", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"system_event","id":"01HEVTSE000000000000000002","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"x-claudecode/notification"}}',
+    value: {
+      type: "system_event",
+      id: "01HEVTSE000000000000000002",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { kind: "x-claudecode/notification" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test.each([
+  "session_start",
+  "session_end",
+  "turn_start",
+  "turn_end",
+  "subagent_start",
+  "subagent_end",
+  "pre_tool_use",
+  "post_tool_use",
+  "hook_fired",
+  "permission_request",
+  "permission_decision",
+  "permission_mode_change",
+  "cwd_change",
+  "env_snapshot",
+  "task_started",
+  "task_completed",
+  "plan_completed",
+  "turn_aborted",
+  "tool_decision",
+  "hook_progress",
+  "queue_operation",
+  "heartbeat",
+])("writer-strict accepts the reserved system_event kind %s", (kind) => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: `{"type":"system_event","id":"01HEVTSE000000000000000003","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"${kind}"}}`,
+    value: {
+      type: "system_event",
+      id: "01HEVTSE000000000000000003",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { kind },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("reader-tolerant profile passes a system_event with an unknown x-* kind without diagnostics", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","stream":{"state":"open"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+      '{"type":"system_event","id":"01HEVTSE000000000000000004","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"x-otheragent/foo"}}',
+    ].join("\n"),
+    { profile: "reader-tolerant" },
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
 test("does not warn when stream.state is closed and the file contains session_end", async () => {
   const diagnostics = await validateTrailString(
     [
