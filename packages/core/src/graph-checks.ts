@@ -166,11 +166,10 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     if (bucket === undefined || bucket.length === 0) {
       continue;
     }
-    const call = bucket.shift();
-    if (call !== undefined) {
-      call.matched = true;
-      result.matched = true;
-    }
+    // shift() on a non-empty array always returns the element.
+    const call = bucket.shift() as Call;
+    call.matched = true;
+    result.matched = true;
   }
 
   // Pass C: sequential — spec §9.5 fallback rule 2. Each remaining unmatched
@@ -180,8 +179,10 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
       continue;
     }
     for (let i = result.callIndex - 1; i >= 0; i -= 1) {
-      const call = calls[i];
-      if (call !== undefined && !call.matched) {
+      // i is bounded by calls.length (callIndex was captured as calls.length at
+      // result-emit time, and calls is append-only thereafter).
+      const call = calls[i] as Call;
+      if (!call.matched) {
         call.matched = true;
         result.matched = true;
         break;
