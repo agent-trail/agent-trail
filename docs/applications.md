@@ -14,7 +14,7 @@ The canonical format contract lives in [`spec.md`](../spec.md) and [`schema.json
 
 4. **Cross-tool text search** — grep over a local trail store regardless of which agent produced each session, since every trail uses the same canonical event vocabulary.
 5. **Semantic search** — a skill (using the user's chosen embedding API) indexes local trails and answers "find sessions where I debugged race conditions" without bundling a vector store.
-6. **Causality graph queries** — follow `fork_from` and `derived_from` chains across the local store to answer "show me all sessions that descend from this one."
+6. **Causality graph queries** — follow `fork_from` and `redacted_from` chains across the local store to answer "show me all sessions that descend from this one."
 
 ## Analysis & diagnostics
 
@@ -47,7 +47,7 @@ The canonical format contract lives in [`spec.md`](../spec.md) and [`schema.json
 ## Audit, compliance & research
 
 20. **Tamper-evident artifacts** — finalized trail files carry a `content_hash` over canonical bytes, so any modification produces a different hash and can be detected by re-verification.
-21. **Provenance chains** — `redacted_from` and `derived_from` header fields record artifact lineage end to end, enabling consumers to trace a shared artifact back to its raw source.
+21. **Provenance chains** — `redacted_from` and `fork_from` header fields record artifact lineage end to end, enabling consumers to trace a shared artifact back to its raw source.
 22. **OSS transparency** — projects that commit trail files alongside source code document AI-assisted contributions in a machine-readable, reviewer-friendly form.
 23. **Research artifacts** — academic studies of AI-assisted coding can publish anonymized trail files for reproducibility, with content hashes guaranteeing artifact identity across runs.
 24. **Compliance audit trail** — regulated industries can capture session history with content-addressed identity, supporting audits without committing to a vendor's proprietary format.
