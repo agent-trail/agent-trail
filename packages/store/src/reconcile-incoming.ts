@@ -12,12 +12,21 @@ import { objectPath } from "./paths.ts";
  * Outcome of attempting to reconcile an incoming segment trail against the
  * local store. `passthrough` means the caller should register the original
  * incoming bytes unchanged; `merged` means the caller should register the
- * merged canonical bytes instead. `reason` on passthrough is set only when
- * the outcome is worth surfacing to the user (today: incoming has no
- * `session_uid`); other passthrough paths leave it `undefined`.
+ * merged canonical bytes instead.
+ *
+ * On `passthrough`, `reason` distinguishes intentional non-merge cases from
+ * failures:
+ *   - `"no_session_uid"`: incoming trail has no `session_uid`, so it can't
+ *     be matched against priors. Intentional, not an error.
+ *   - `"store_error"`: incoming bytes failed to parse, or the store index
+ *     could not be queried. Reconciliation could not run.
+ *   - `"corrupt_prior"`: a matching prior was found but no usable prior
+ *     records could be loaded (all reads/parses failed).
+ *   - `undefined`: no priors matched, or only the incoming segment survived
+ *     reconciliation. Intentional, not an error.
  */
 export type ReconcileIncomingResult =
-  | { kind: "passthrough"; reason?: "no_session_uid" }
+  | { kind: "passthrough"; reason?: "no_session_uid" | "store_error" | "corrupt_prior" }
   | { kind: "merged"; canonical: string; group: ReconcileGroup };
 
 const SHORT_HASH_LEN = 12;
@@ -29,8 +38,9 @@ const SHORT_HASH_LEN = 12;
  * canonical bytes are returned for the caller to register; otherwise the
  * caller should register the incoming bytes unchanged.
  *
- * Failures (parse error, missing index, unreadable prior object) degrade to
- * `passthrough` so the load path never blocks on a partial store.
+ * Never throws: failures degrade to a `passthrough` result with `reason`
+ * set so the caller can surface the cause. See `ReconcileIncomingResult`
+ * for the full list of reasons.
  */
 export async function reconcileIncomingSegment(
   storeRoot: string,
@@ -40,7 +50,7 @@ export async function reconcileIncomingSegment(
   try {
     incomingRecords = await parseJsonlString(incomingJsonl);
   } catch {
-    return { kind: "passthrough" };
+    return { kind: "passthrough", reason: "store_error" };
   }
   const incomingUid = headerSessionUid(incomingRecords);
   if (incomingUid === null) return { kind: "passthrough", reason: "no_session_uid" };
@@ -49,7 +59,7 @@ export async function reconcileIncomingSegment(
   try {
     matches = await findEntriesBySessionUid(storeRoot, incomingUid);
   } catch {
-    return { kind: "passthrough" };
+    return { kind: "passthrough", reason: "store_error" };
   }
   if (matches.length === 0) return { kind: "passthrough" };
 
@@ -66,7 +76,9 @@ export async function reconcileIncomingSegment(
     }
   }
 
-  if (inputs.length < 2) return { kind: "passthrough" };
+  // Matches existed but every prior failed to load: surface as corrupt_prior
+  // so the caller can warn the user that reconciliation was supposed to run.
+  if (inputs.length < 2) return { kind: "passthrough", reason: "corrupt_prior" };
 
   const result = reconcileSegments(inputs);
   const group = result.groups.find((g) => g.segments.includes("incoming"));
@@ -75,6 +87,8 @@ export async function reconcileIncomingSegment(
 }
 
 function headerSessionUid(records: JsonlRecord[]): string | null {
+  // Spec requires exactly one `session` header per trail; the first match is
+  // authoritative. Reader-tolerant parsing in core handles malformed inputs.
   for (const record of records) {
     if (record.value.type === "session") {
       const uid = (record.value as { session_uid?: unknown }).session_uid;

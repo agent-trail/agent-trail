@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseJsonlString, stampTrail } from "@agent-trail/core";
-import { reconcileIncomingSegment, registerTrail } from "../src/index.ts";
+import { objectPath, reconcileIncomingSegment, registerTrail } from "../src/index.ts";
 
 let storeRoot: string;
 let scratch: string;
@@ -63,6 +63,11 @@ async function seedPriorSegment(text: string): Promise<string> {
   const path = join(scratch, `seg-${randomUUID()}.trail.jsonl`);
   await writeFile(path, text, "utf8");
   const reg = await registerTrail(path, { storeRoot });
+  if (reg.status !== "finalized" && reg.status !== "already_present") {
+    throw new Error(
+      `seed register unexpected status: ${reg.status} (${reg.diagnostics.map((d) => d.message).join("; ")})`,
+    );
+  }
   if (reg.contentHash === null) {
     throw new Error(`seed register failed: ${reg.diagnostics.map((d) => d.message).join("; ")}`);
   }
@@ -161,6 +166,47 @@ test("chain mismatch surfaces as a warning on the merged group, merge still proc
   expect(outcome.kind).toBe("merged");
   if (outcome.kind !== "merged") return;
   expect(outcome.group.warnings.some((w) => w.code === "segment_chain_mismatch")).toBe(true);
+});
+
+test("passthrough with reason=store_error when incoming JSONL is unparseable", async () => {
+  const outcome = await reconcileIncomingSegment(storeRoot, "not valid jsonl\n{broken");
+  expect(outcome.kind).toBe("passthrough");
+  if (outcome.kind === "passthrough") {
+    expect(outcome.reason).toBe("store_error");
+  }
+});
+
+test("passthrough with reason=corrupt_prior when prior object file is missing", async () => {
+  const HEADER_ID = randomUUID();
+  const seg1 = await stampedTrail([
+    header({
+      id: HEADER_ID,
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 1 },
+    }),
+    userMessage(randomUUID(), "2026-05-26T10:00:05.000Z"),
+  ]);
+  const priorHash = await seedPriorSegment(seg1.text);
+  // Delete the stored object so the index still points at it but the file
+  // can no longer be read.
+  await rm(objectPath(storeRoot, priorHash), { force: true });
+
+  const incoming = `${[
+    header({
+      id: HEADER_ID,
+      ts: "2026-05-26T10:05:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 2, prev_content_hash: seg1.hash },
+    }),
+    agentMessage(randomUUID(), "2026-05-26T10:05:05.000Z"),
+  ].join("\n")}\n`;
+
+  const outcome = await reconcileIncomingSegment(storeRoot, incoming);
+  expect(outcome.kind).toBe("passthrough");
+  if (outcome.kind === "passthrough") {
+    expect(outcome.reason).toBe("corrupt_prior");
+  }
 });
 
 test("passthrough when an unrelated session_uid is in the store but no priors match", async () => {

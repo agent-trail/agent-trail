@@ -244,6 +244,14 @@ test("intermediate session_terminated{process_terminated} is dropped, terminal o
     (group?.records[group.records.length - 1]?.value as { payload: { reason: string } }).payload
       .reason,
   ).toBe("complete");
+  // Explicit assertion that no intermediate process_terminated markers
+  // survived the merge — record count alone is an indirect proxy.
+  const intermediateTerminators = group?.records.filter(
+    (r) =>
+      (r.value as { type: string }).type === "session_terminated" &&
+      (r.value as { payload?: { reason?: string } }).payload?.reason === "process_terminated",
+  );
+  expect(intermediateTerminators).toHaveLength(0);
 });
 
 test("two different session_uids → two merged groups returned", async () => {

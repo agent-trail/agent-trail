@@ -151,19 +151,19 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
 
   const tmpDir = join(tmpdir(), `trail-load-${randomUUID()}`);
   await mkdir(tmpDir, { recursive: true });
-  const tmpFile = join(tmpDir, "fetched.trail.jsonl");
-  // Reconcile against any existing trails with the same session_uid in the
-  // store (spec §8.5). When a match is found, register the merged trail
-  // instead of the raw incoming bytes; the merged trail's content_hash is
-  // what the user actually shared as a logical session.
-  const outcome: ReconcileIncomingResult = await reconcileIncomingSegment(
-    resolveStoreRoot(opts.storeRoot),
-    jsonl,
-  );
-  if (outcome.kind === "merged") {
-    jsonl = outcome.canonical;
-  }
   try {
+    const tmpFile = join(tmpDir, "fetched.trail.jsonl");
+    // Reconcile against any existing trails with the same session_uid in the
+    // store (spec §8.5). When a match is found, register the merged trail
+    // instead of the raw incoming bytes; the merged trail's content_hash is
+    // what the user actually shared as a logical session.
+    const outcome: ReconcileIncomingResult = await reconcileIncomingSegment(
+      resolveStoreRoot(opts.storeRoot),
+      jsonl,
+    );
+    if (outcome.kind === "merged") {
+      jsonl = outcome.canonical;
+    }
     await writeFile(tmpFile, jsonl, "utf8");
     // The tmp file is deleted in the `finally` below, so recording it as
     // `source_path` would index a guaranteed-stale path. Pass null instead;
@@ -202,6 +202,10 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
       }
     } else if (outcome.reason === "no_session_uid") {
       stdoutLines.push("Reconciliation skipped: incoming trail has no session_uid");
+    } else if (outcome.reason === "store_error") {
+      stdoutLines.push("Reconciliation skipped: local store unavailable or unreadable");
+    } else if (outcome.reason === "corrupt_prior") {
+      stdoutLines.push("Reconciliation skipped: prior segments in store could not be read");
     }
 
     if (values.out !== undefined) {
