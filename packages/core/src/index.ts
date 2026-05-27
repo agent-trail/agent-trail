@@ -11,7 +11,6 @@ export { validateTrailGraph } from "./graph.ts";
 export type { ContentHashStatus, StampTrailResult, VerifyContentHashResult } from "./hash.ts";
 export {
   canonicalizeRecords,
-  canonicalizeRecordsForHashing,
   computeContentHash,
   computeTrailEnvelopeContentHash,
   stampTrail,
