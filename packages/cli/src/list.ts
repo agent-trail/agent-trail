@@ -20,16 +20,19 @@ export type RunListOptions = {
   storeRoot?: string;
 };
 
+type RowKind = "session" | "trail";
+
 type Row = {
   content_hash: string;
   agent: string | null;
   cwd: string | null;
   registered_at: string;
   source_path: string | null;
+  kind: RowKind;
 };
 
 const USAGE =
-  "Usage: trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]";
+  "Usage: trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>] [--kind session|trail]";
 const SHORT_HASH_LEN = 12;
 const MISSING_TEXT = "-";
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
@@ -43,6 +46,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
       cwd: { type: "string" },
       since: { type: "string" },
       until: { type: "string" },
+      kind: { type: "string" },
     },
     allowPositionals: false,
   } as const;
@@ -53,6 +57,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
     cwd?: string;
     since?: string;
     until?: string;
+    kind?: string;
   };
   let values: Values;
   try {
@@ -108,6 +113,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
       cwd: extractCwd(headerResult.header),
       registered_at: entry.registered_at,
       source_path: entry.source_path,
+      kind: entry.kind,
     });
   }
 
@@ -116,9 +122,19 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
 
+  if (values.kind !== undefined && values.kind !== "session" && values.kind !== "trail") {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `--kind must be "session" or "trail"; got "${values.kind}"\n${USAGE}\n`,
+    };
+  }
+  const kindFilter = values.kind as RowKind | undefined;
+
   const filtered = rows.filter((r) => {
     if (values.agent !== undefined && r.agent !== values.agent) return false;
     if (values.cwd !== undefined && r.cwd !== values.cwd) return false;
+    if (kindFilter !== undefined && r.kind !== kindFilter) return false;
     return boundedBy(r.registered_at, sinceMs, untilMs);
   });
 
@@ -143,7 +159,7 @@ function renderText(rows: Row[]): string {
   return `${rows
     .map(
       (r) =>
-        `${r.content_hash.slice(0, SHORT_HASH_LEN)}  ${r.agent ?? MISSING_TEXT}  ${
+        `${r.content_hash.slice(0, SHORT_HASH_LEN)}  ${r.kind}  ${r.agent ?? MISSING_TEXT}  ${
           r.cwd ?? MISSING_TEXT
         }  ${r.registered_at}  ${r.source_path ?? MISSING_TEXT}`,
     )
@@ -198,7 +214,11 @@ function extractAgentName(header: Record<string, unknown> | null): string | null
   return typeof name === "string" ? name : null;
 }
 
-type NormalizedEntry = { registered_at: string; source_path: string | null };
+type NormalizedEntry = {
+  registered_at: string;
+  source_path: string | null;
+  kind: RowKind;
+};
 
 function normalizeIndexEntry(raw: unknown): NormalizedEntry | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
@@ -207,7 +227,11 @@ function normalizeIndexEntry(raw: unknown): NormalizedEntry | null {
   if (typeof registeredAt !== "string") return null;
   const sourcePath = record.source_path;
   if (sourcePath !== null && typeof sourcePath !== "string") return null;
-  return { registered_at: registeredAt, source_path: sourcePath };
+  const rawKind = record.kind;
+  // Missing `kind` defaults to "session" so pre-multi-session index entries
+  // keep listing under the existing single-session shape.
+  const kind: RowKind = rawKind === "trail" ? "trail" : "session";
+  return { registered_at: registeredAt, source_path: sourcePath, kind };
 }
 
 function extractCwd(header: Record<string, unknown> | null): string | null {

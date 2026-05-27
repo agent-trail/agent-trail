@@ -7,11 +7,13 @@ import {
   diagnosticFromJsonlParseError,
   JsonlParseError,
   parseJsonlString,
+  splitSessionGroups,
   validateTrailGraph,
   validateWriterStrictSchemaJsonlString,
-  verifyContentHash,
+  verifyAllSessionContentHashes,
+  verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
-import { upsertIndexEntry } from "./index-file.ts";
+import { type IndexEntry, upsertIndexEntry } from "./index-file.ts";
 import { objectPath as computeObjectPath, resolveStoreRoot } from "./paths.ts";
 
 export type RegisterStatus = "finalized" | "already_present" | "skipped_pending" | "invalid";
@@ -73,12 +75,10 @@ export async function registerTrail(
     };
   }
 
-  const verification = verifyContentHash(records);
-  if (
-    verification.status === "missing" ||
-    verification.status === "pending" ||
-    verification.expected === null
-  ) {
+  const split = splitSessionGroups(records);
+  const sessionResults = verifyAllSessionContentHashes(records);
+  const allFinalized = sessionResults.every((r) => r.status === "match");
+  if (sessionResults.length === 0 || !allFinalized) {
     return {
       status: "skipped_pending",
       contentHash: null,
@@ -86,44 +86,95 @@ export async function registerTrail(
       diagnostics: [],
     };
   }
-  const contentHash = verification.expected;
-  const target = computeObjectPath(storeRoot, contentHash);
+  const envelopeResult = split.envelope !== null ? verifyTrailEnvelopeContentHash(records) : null;
+  if (envelopeResult !== null && envelopeResult.status !== "match") {
+    return {
+      status: "skipped_pending",
+      contentHash: null,
+      objectPath: null,
+      diagnostics: [],
+    };
+  }
 
+  // Multi-session files (spec §8.6) write one blob keyed by the envelope hash
+  // when present, and one blob per session keyed by its session-level hash.
+  // Object storage dedups identical bytes; the index just gains N+1 rows
+  // pointing at the same source_path with distinct `kind` discriminators.
   const canonical = canonicalizeRecords(records);
-  await mkdir(dirname(target), { recursive: true });
-
   const sourcePath = opts.sourcePath === undefined ? resolvePath(filePath) : opts.sourcePath;
-  const existing = await readFileIfExists(target);
+  const registeredAt = new Date().toISOString();
+
+  // The "primary" content hash returned in RegisterResult: envelope hash when
+  // present (file-level identity), otherwise the first session hash. Mirrors
+  // finalize-redacted's identity choice (spec §8.0.5 file-identity default).
+  const primaryHash = envelopeResult?.expected ?? (sessionResults[0]?.expected as string | null);
+  if (primaryHash === null || primaryHash === undefined) {
+    return {
+      status: "skipped_pending",
+      contentHash: null,
+      objectPath: null,
+      diagnostics: [],
+    };
+  }
+  const primaryTarget = computeObjectPath(storeRoot, primaryHash);
+  await mkdir(dirname(primaryTarget), { recursive: true });
+  const existing = await readFileIfExists(primaryTarget);
   let status: RegisterStatus;
   if (existing === canonical) {
     status = "already_present";
   } else {
-    await atomicWriteFile(target, canonical);
+    await atomicWriteFile(primaryTarget, canonical);
     status = "finalized";
   }
 
-  await upsertIndexEntry(storeRoot, contentHash, {
-    registered_at: new Date().toISOString(),
-    source_path: sourcePath,
-    session_uid: extractSessionUid(records),
-  });
+  // Per-session index rows. Each row carries the same source_path; the file's
+  // canonical bytes already sit at `primaryTarget` so the per-session blobs
+  // would be duplicates. Store the same canonical bytes under each session
+  // hash too so `trail export <session-hash>` can resolve directly without
+  // re-loading the multi-session parent.
+  const sessionUidByGroup = split.groups.map(extractSessionUidFromHeader);
+  for (let i = 0; i < sessionResults.length; i += 1) {
+    const hash = sessionResults[i]?.expected;
+    if (typeof hash !== "string") continue;
+    const target = computeObjectPath(storeRoot, hash);
+    if (target !== primaryTarget) {
+      await mkdir(dirname(target), { recursive: true });
+      const existingSession = await readFileIfExists(target);
+      if (existingSession !== canonical) {
+        await atomicWriteFile(target, canonical);
+      }
+    }
+    const entry: IndexEntry = {
+      registered_at: registeredAt,
+      source_path: sourcePath,
+      session_uid: sessionUidByGroup[i] ?? null,
+      kind: "session",
+    };
+    await upsertIndexEntry(storeRoot, hash, entry);
+  }
+
+  // Envelope (file-level) row when present.
+  if (envelopeResult?.expected && typeof envelopeResult.expected === "string") {
+    const entry: IndexEntry = {
+      registered_at: registeredAt,
+      source_path: sourcePath,
+      session_uid: null,
+      kind: "trail",
+    };
+    await upsertIndexEntry(storeRoot, envelopeResult.expected, entry);
+  }
 
   return {
     status,
-    contentHash,
-    objectPath: target,
+    contentHash: primaryHash,
+    objectPath: primaryTarget,
     diagnostics: [],
   };
 }
 
-function extractSessionUid(records: JsonlRecord[]): string | null {
-  for (const record of records) {
-    if (record.value.type === "session") {
-      const uid = (record.value as { session_uid?: unknown }).session_uid;
-      return typeof uid === "string" ? uid : null;
-    }
-  }
-  return null;
+function extractSessionUidFromHeader(group: { header: JsonlRecord }): string | null {
+  const uid = (group.header.value as { session_uid?: unknown }).session_uid;
+  return typeof uid === "string" ? uid : null;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {

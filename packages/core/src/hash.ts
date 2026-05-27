@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import type { JsonlRecord } from "./jsonl.ts";
+import { splitSessionGroups } from "./session-groups.ts";
+
+export type ComputeContentHashOptions = {
+  /**
+   * Which session group to hash in a multi-session file (spec §8.6).
+   * Defaults to 0 (the first group), preserving the single-session contract.
+   */
+  groupIndex?: number;
+};
 
 const PENDING = "<pending>";
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -77,13 +86,38 @@ function canonicalizeRecordsForHashing(
  * present, is computed against the finalized session hash rather than
  * `<pending>`.
  */
-export function computeContentHash(records: JsonlRecord[]): string {
-  const sessionIndex = findRecordIndex(records, "session");
-  const sliceFrom = sessionIndex === -1 ? 0 : sessionIndex;
-  const slice = records.slice(sliceFrom);
+export function computeContentHash(
+  records: JsonlRecord[],
+  options: ComputeContentHashOptions = {},
+): string {
+  const slice = sliceSessionGroup(records, options.groupIndex ?? 0);
   return createHash("sha256")
     .update(canonicalizeRecordsForHashing(slice, "session"), "utf8")
     .digest("hex");
+}
+
+/**
+ * Records covering exactly one session group (header + its events) for hashing.
+ * Multi-session files (spec §8.6): each group's session-level hash is computed
+ * over only its own slice, so an extracted single-session file recomputes the
+ * same digest as the in-file value.
+ */
+function sliceSessionGroup(records: JsonlRecord[], groupIndex: number): JsonlRecord[] {
+  const split = splitSessionGroups(records);
+  const group = split.groups[groupIndex];
+  if (group === undefined) {
+    return records;
+  }
+  const headerPos = records.indexOf(group.header);
+  if (headerPos === -1) {
+    return records;
+  }
+  const next = split.groups[groupIndex + 1];
+  if (next === undefined) {
+    return records.slice(headerPos);
+  }
+  const nextPos = records.indexOf(next.header);
+  return records.slice(headerPos, nextPos === -1 ? undefined : nextPos);
 }
 
 /**
@@ -111,54 +145,64 @@ export function computeTrailEnvelopeContentHash(records: JsonlRecord[]): string 
 }
 
 export type StampTrailResult = {
-  sessionHash: string | null;
+  /** Session-level digests in file order, one per `(session header, events*)` group (spec §8.6). */
+  sessionHashes: string[];
   envelopeHash: string | null;
 };
 
 /**
- * Spec §7.4 two-pass stamping: mutate the records in place so the session
- * header's `content_hash` is the session-level digest and (when an envelope
- * is present) the envelope's `content_hash` is the file-level digest.
- * Returns the digests for convenience.
+ * Spec §7.4 two-pass stamping: mutate the records in place so every session
+ * header's `content_hash` is its session-level digest and (when an envelope
+ * is present) the envelope's `content_hash` is the file-level digest. Multi-
+ * session files (spec §8.6) stamp each group's hash before the envelope hash.
  *
  * Callers that already manage stamping order may continue to use
  * {@link computeContentHash} and {@link computeTrailEnvelopeContentHash}
  * directly; this helper exists so writers cannot accidentally stamp the
- * file-level hash before the session-level hash.
+ * file-level hash before the session-level hashes.
  */
 export function stampTrail(records: JsonlRecord[]): StampTrailResult {
-  const sessionIndex = findRecordIndex(records, "session");
-  let sessionHash: string | null = null;
-  if (sessionIndex !== -1) {
-    sessionHash = computeContentHash(records);
-    const sessionRecord = records[sessionIndex];
-    if (sessionRecord !== undefined) {
-      (sessionRecord.value as { content_hash?: string }).content_hash = sessionHash;
-    }
+  const split = splitSessionGroups(records);
+  const sessionHashes: string[] = [];
+  for (let i = 0; i < split.groups.length; i += 1) {
+    const group = split.groups[i] as { header: JsonlRecord };
+    const digest = computeContentHash(records, { groupIndex: i });
+    (group.header.value as { content_hash?: string }).content_hash = digest;
+    group.header.raw = JSON.stringify(group.header.value);
+    sessionHashes.push(digest);
   }
-  const envelopeIndex = trailEnvelopeIndex(records);
   let envelopeHash: string | null = null;
-  if (envelopeIndex !== -1) {
+  if (split.envelope !== null) {
     envelopeHash = computeTrailEnvelopeContentHash(records);
-    const envelopeRecord = records[envelopeIndex];
-    if (envelopeHash !== null && envelopeRecord !== undefined) {
-      (envelopeRecord.value as { content_hash?: string }).content_hash = envelopeHash;
+    if (envelopeHash !== null) {
+      (split.envelope.value as { content_hash?: string }).content_hash = envelopeHash;
+      split.envelope.raw = JSON.stringify(split.envelope.value);
     }
   }
-  return { sessionHash, envelopeHash };
+  return { sessionHashes, envelopeHash };
 }
 
-export function verifyContentHash(records: JsonlRecord[]): VerifyContentHashResult {
-  const sessionIndex = findRecordIndex(records, "session");
-  if (sessionIndex === -1) {
+export function verifyContentHash(
+  records: JsonlRecord[],
+  options: ComputeContentHashOptions = {},
+): VerifyContentHashResult {
+  const split = splitSessionGroups(records);
+  const groupIndex = options.groupIndex ?? 0;
+  const group = split.groups[groupIndex];
+  if (group === undefined) {
     return { status: "missing", expected: null, actual: null };
   }
-  const sessionRecord = records[sessionIndex];
-  if (sessionRecord === undefined) {
-    return { status: "missing", expected: null, actual: null };
-  }
-  const slice = records.slice(sessionIndex);
-  return verifyAt(slice, "session", sessionRecord);
+  const slice = sliceSessionGroup(records, groupIndex);
+  return verifyAt(slice, "session", group.header);
+}
+
+/**
+ * Verify the session-level `content_hash` of every group in a multi-session
+ * file (spec §8.6). Returns one result per group in file order.
+ */
+export function verifyAllSessionContentHashes(records: JsonlRecord[]): VerifyContentHashResult[] {
+  const split = splitSessionGroups(records);
+  return split.groups.map((_, index) => verifyContentHash(records, { groupIndex: index }));
 }
 
 /**

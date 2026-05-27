@@ -22,8 +22,10 @@ export type FinalizedRedactedTrail = {
  * rather than load-bearing.
  */
 export function finalizeRedactedTrail(records: JsonlRecord[]): FinalizedRedactedTrail {
-  const { sessionHash } = stampTrail(records);
-  const contentHash = sessionHash ?? computeContentHash(records);
+  const { sessionHashes, envelopeHash } = stampTrail(records);
+  // Multi-session (spec §8.6): envelope hash identifies the whole file; the
+  // first session hash is the fallback identity for envelope-less artifacts.
+  const contentHash = envelopeHash ?? sessionHashes[0] ?? computeContentHash(records);
   const canonical = canonicalizeRecords(records);
   return { canonical, contentHash };
 }

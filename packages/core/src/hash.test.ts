@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   computeContentHash,
   computeTrailEnvelopeContentHash,
+  stampTrail,
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "./hash.ts";
@@ -168,6 +169,107 @@ test("verifyTrailEnvelopeContentHash flags a mismatched envelope digest", () => 
   const result = verifyTrailEnvelopeContentHash(finalized);
 
   expect(result).toEqual({ status: "mismatch", expected: wrong, actual: computed });
+});
+
+test("computeContentHash with groupIndex 1 hashes the second session group in isolation", () => {
+  const session1 = record(1, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  });
+  const evt1 = record(2, {
+    type: "user_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hi" },
+  });
+  const session2 = record(3, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000002",
+    ts: "2026-05-17T14:05:00.000Z",
+    agent: { name: "claude-code" },
+  });
+  const evt2 = record(4, {
+    type: "user_message",
+    id: "01HEVTA0000000000000000002",
+    ts: "2026-05-17T14:05:05.000Z",
+    payload: { text: "yo" },
+  });
+
+  const multiSessionDigest = computeContentHash([session1, evt1, session2, evt2], {
+    groupIndex: 1,
+  });
+  const standaloneDigest = computeContentHash([session2, evt2]);
+
+  expect(multiSessionDigest).toBe(standaloneDigest);
+});
+
+test("computeContentHash with groupIndex 0 still hashes the first group (single-session default)", () => {
+  const session1 = record(1, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  });
+  const session2 = record(2, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000002",
+    ts: "2026-05-17T14:01:00.000Z",
+    agent: { name: "claude-code" },
+  });
+
+  const defaultDigest = computeContentHash([session1, session2]);
+  const explicitGroup0 = computeContentHash([session1, session2], { groupIndex: 0 });
+  const standaloneFirst = computeContentHash([session1]);
+
+  expect(defaultDigest).toBe(standaloneFirst);
+  expect(explicitGroup0).toBe(standaloneFirst);
+});
+
+test("stampTrail stamps every session header in a multi-session file and the envelope", () => {
+  const env = envelope();
+  const s1 = record(2, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  });
+  const e1 = record(3, {
+    type: "user_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "hi" },
+  });
+  const s2 = record(4, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000002",
+    ts: "2026-05-17T14:05:00.000Z",
+    agent: { name: "claude-code" },
+  });
+  const e2 = record(5, {
+    type: "user_message",
+    id: "01HEVTA0000000000000000002",
+    ts: "2026-05-17T14:05:05.000Z",
+    payload: { text: "yo" },
+  });
+
+  const records: JsonlRecord[] = [env, s1, e1, s2, e2];
+  const result = stampTrail(records);
+
+  expect(result.sessionHashes).toHaveLength(2);
+  expect(result.sessionHashes[0]).toBe((s1.value as { content_hash: string }).content_hash);
+  expect(result.sessionHashes[1]).toBe((s2.value as { content_hash: string }).content_hash);
+  expect(result.envelopeHash).toBe((env.value as { content_hash: string }).content_hash);
+  expect(verifyContentHash(records).status).toBe("match");
+  expect(verifyContentHash(records, { groupIndex: 1 }).status).toBe("match");
+  expect(verifyTrailEnvelopeContentHash(records).status).toBe("match");
 });
 
 test("verifyContentHash returns missing when the header itself is missing or invalid", () => {

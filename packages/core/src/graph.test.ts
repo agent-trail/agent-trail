@@ -3,6 +3,8 @@ import { validateTrailGraph } from "./graph.ts";
 import { computeContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 
+void computeContentHash;
+
 function record(line: number, value: Record<string, unknown>): JsonlRecord {
   return { line, raw: JSON.stringify(value), value };
 }
@@ -17,6 +19,258 @@ function header(line = 1, overrides: Record<string, unknown> = {}): JsonlRecord 
     ...overrides,
   });
 }
+
+test("accepts a multi-session trail with two well-formed session groups (spec §8.6)", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      }),
+      record(3, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      }),
+      record(4, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000002",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "continue" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("emits events_before_first_session_header for orphan prelude entries (spec §8.6)", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000000",
+        ts: "2026-05-17T14:00:00.000Z",
+        payload: { text: "oops" },
+      }),
+      record(2, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/type",
+    severity: "error",
+    code: "events_before_first_session_header",
+    message: "Entry appears before the first session header",
+  });
+});
+
+test("emits vcs_revision_divergence when two groups carry different vcs.revision", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        vcs: { type: "git", revision: "aaaa" },
+      }),
+      record(2, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+        vcs: { type: "git", revision: "bbbb" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/vcs/revision",
+    severity: "warning",
+    code: "vcs_revision_divergence",
+    message:
+      'vcs.revision "bbbb" diverges from earlier session vcs.revision "aaaa" in the same trail file',
+  });
+});
+
+test("emits out_of_order_session_headers when group ts decreases", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+      record(2, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "claude-code" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/ts",
+    severity: "warning",
+    code: "out_of_order_session_headers",
+    message:
+      'session header ts "2026-05-17T14:00:00.000Z" precedes earlier session header ts "2026-05-17T14:05:00.000Z"',
+  });
+});
+
+test("emits cross_group_fork_from_hash_mismatch when sibling content_hash diverges", () => {
+  // group 1 has a real session-level content_hash; group 2 declares fork_from.session_id
+  // pointing at group 1 but with a wrong content_hash. Compute group 1's stamped hash
+  // via the same canonicalization used in the validator.
+  const sess1 = record(1, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  });
+  const realHash = computeContentHash([sess1, sess1]); // hashed-as-group-0 of sess1 alone
+  (sess1.value as { content_hash: string }).content_hash = realHash;
+  sess1.raw = JSON.stringify(sess1.value);
+
+  const sess2 = record(2, {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000002",
+    ts: "2026-05-17T14:05:00.000Z",
+    agent: { name: "claude-code" },
+    fork_from: {
+      session_id: "01HSESS0000000000000000001",
+      content_hash: "0".repeat(64),
+    },
+  });
+
+  const diagnostics = validateTrailGraph([sess1, sess2], { canonicalBytesComplete: false });
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/fork_from/content_hash",
+    severity: "warning",
+    code: "cross_group_fork_from_hash_mismatch",
+    message: `fork_from.content_hash "${"0".repeat(64)}" does not match in-file sibling session content_hash "${realHash}"`,
+  });
+});
+
+test("tool_call/tool_result pairing is scoped per session group (no cross-group satisfaction)", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+      record(2, {
+        type: "tool_call",
+        id: "01HCALL0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { name: "shell", arguments: { cmd: "ls" } },
+      }),
+      record(3, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      }),
+      record(4, {
+        type: "tool_result",
+        id: "01HRES00000000000000000001",
+        ts: "2026-05-17T14:05:01.000Z",
+        payload: { for_id: "01HCALL0000000000000000001", text: "out" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message: 'tool_call "01HCALL0000000000000000001" has no matching tool_result at EOF',
+  });
+});
+
+test("parent_id scoped per group: pointing at another group's entry id is unknown_parent_id", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      }),
+      record(3, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      }),
+      record(4, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "ref" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 4,
+    path: "/parent_id",
+    severity: "error",
+    code: "unknown_parent_id",
+    message: 'parent_id "01HEVTA0000000000000000001" does not reference an id in this file',
+  });
+});
 
 test("accepts a minimal valid linear trail with no parent_ids", () => {
   const diagnostics = validateTrailGraph([

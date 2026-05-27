@@ -662,7 +662,7 @@ test("invalid-graph/envelope-sessions-manifest-empty.trail.jsonl warns envelope_
     path: "/sessions",
     severity: "warning",
     code: "envelope_sessions_manifest_drift",
-    message: "envelope.sessions lists 0 session(s); v0.1.0 trail files contain exactly one session",
+    message: "envelope.sessions lists 0 session(s); file contains 1",
   });
 });
 
@@ -675,7 +675,7 @@ test("invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl warns envelo
     path: "/sessions",
     severity: "warning",
     code: "envelope_sessions_manifest_drift",
-    message: "envelope.sessions lists 2 session(s); v0.1.0 trail files contain exactly one session",
+    message: "envelope.sessions lists 2 session(s); file contains 1",
   });
 });
 

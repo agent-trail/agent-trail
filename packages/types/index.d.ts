@@ -38,7 +38,7 @@ export type AgentName =
     )
   | string;
 /**
- * Session header. Required at line 1, or at line 2 when a trail envelope occupies line 1. Not part of the event graph.
+ * Session header. The first session header is required at line 1, or at line 2 when a trail envelope occupies line 1. Multi-session files (spec §8.6) carry additional session headers later in the file; each opens a new (header, events*) group. Not part of the event graph.
  */
 export type Header = {
   [k: string]: unknown;
@@ -135,7 +135,7 @@ export type ToolKind =
   | "other";
 
 /**
- * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the session header MUST follow on line 2. At most one per file.
+ * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.
  */
 export interface TrailEnvelope {
   type: "trail";
@@ -159,7 +159,7 @@ export interface TrailEnvelope {
     content_hash: Sha256Hex;
   };
   /**
-   * Optional manifest of sessions contained in the file. Validator warns on drift vs actual file content.
+   * Optional manifest of sessions contained in the file, one entry per session group in file order (spec §8.0.4, §8.6). Validator warns on length mismatch or per-entry drift vs actual file content.
    */
   sessions?: {
     /**

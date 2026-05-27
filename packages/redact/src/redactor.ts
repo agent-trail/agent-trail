@@ -338,16 +338,22 @@ export function redactTrail(
   truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);
 
   // Redacted bytes differ from the input artifact, so any finalized
-  // content_hash carried on the input header is now stale. Reset to the
-  // <pending> sentinel (spec §7.3) so strict verifiers do not flag the
-  // mismatch and so share tooling recomputes the hash on the redacted
-  // artifact before publishing. Skip the reset on a true no-op pass so
-  // a finalized clean trail remains verifiable after this call.
+  // content_hash carried on the input is now stale. Reset to the
+  // <pending> sentinel (spec §7.3) on every session header and on the trail
+  // envelope (spec §7.4, §8.6 multi-session) so strict verifiers do not flag
+  // the mismatch and so share tooling recomputes the hashes on the redacted
+  // artifact before publishing. Skip the reset on a true no-op pass so a
+  // finalized clean trail remains verifiable after this call.
   const changed = Object.keys(rawSummary.counts).length > 0;
   if (changed) {
-    const head = out[0]?.value as Record<string, unknown> | undefined;
-    if (head && head.type === "session" && typeof head.content_hash === "string") {
-      head.content_hash = "<pending>";
+    for (const record of out) {
+      const value = record.value as Record<string, unknown>;
+      if (
+        (value.type === "session" || value.type === "trail") &&
+        typeof value.content_hash === "string"
+      ) {
+        value.content_hash = "<pending>";
+      }
     }
   }
 

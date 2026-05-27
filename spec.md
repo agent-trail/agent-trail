@@ -99,10 +99,9 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 Every valid trail file has:
 
 1. **Optionally**, a trail envelope (`type:"trail"`) on line 1 (§8.0).
-2. Exactly one session header (`type:"session"`) — on line 1 when there is no envelope, on line 2 when an envelope is present.
-3. Zero or more event lines after the session header.
+2. One **or more** session header groups in file order. Each group starts with a `type:"session"` record and continues with zero or more event lines until the next `type:"session"` record or EOF (§8.6). The first session header MUST appear on line 1 when there is no envelope, or on line 2 when an envelope is present.
 
-When the envelope is absent, behaviour is unchanged from earlier drafts: line 1 is the session header.
+When the file contains exactly one group, behaviour is unchanged from earlier drafts. Multi-group ("multi-session") files are described in §8.6.
 
 ---
 
@@ -181,10 +180,10 @@ Writers that produce streaming or in-progress files may omit `content_hash` or l
 
 When a trail envelope is present, the file carries two independent content hashes:
 
-- **Session-level `content_hash`** lives on the session header. It is SHA-256 over the canonical bytes covering only the session header and its events (the envelope record is excluded from the hashed input). This makes the session's identity independent of whether it is wrapped in an envelope — extracting one session from a multi-session file recomputes the same digest.
+- **Session-level `content_hash`** lives on the session header. It is SHA-256 over the canonical bytes covering only the session header and its events (the envelope record is excluded from the hashed input). In a multi-session file (§8.6) the slice for a session covers that session's header and the events between it and the next `type:"session"` record (or EOF). This makes each session's identity independent of whether it is wrapped in an envelope or sits beside sibling sessions — extracting one session from a multi-session file recomputes the same digest.
 - **File-level `content_hash`** lives on the trail envelope. It is SHA-256 over the canonical bytes of the whole file, with the envelope's `content_hash` field replaced by `"<pending>"` per the same two-pass procedure as §7.3. The session-level `content_hash`, if already populated, is treated as opaque file content.
 
-Writers that emit both hashes MUST stamp the session-level hash first, then compute and stamp the file-level hash. Readers verify them independently. Different consumers care about different scopes: extraction tools recompute the session hash; share/transport tools verify the file hash.
+Writers that emit both hashes MUST stamp every session-level hash first, then compute and stamp the file-level hash. Readers verify them independently. Different consumers care about different scopes: extraction tools recompute the session hash; share/transport tools verify the file hash.
 
 #### 7.4.1 Hash tier for `fork_from` and `redacted_from`
 
@@ -269,7 +268,7 @@ No reserved keys ship in this draft. Standard keys may be promoted in later mino
 
 When `sessions` is present, the validator warns if the manifest disagrees with the file:
 
-- For this draft, multi-session trail files are not yet supported. The manifest, if present, MUST list exactly one entry whose `id` and `agent` match the file's session header. Other shapes emit `envelope_sessions_manifest_drift` warnings.
+- The manifest MUST list one entry per session group (§8.6) in file order. Each entry's `id` and `agent` MUST match the corresponding session header's `id` and `agent.name`. Length mismatch and per-entry drift both emit `envelope_sessions_manifest_drift` warnings — never errors, so renderers can still display the file.
 
 ### 8.0.5 File identity defaults when envelope is absent
 
@@ -435,7 +434,71 @@ Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segm
 
 #### Composition with multi-session files
 
-`session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A future multi-session trail file (deferred to #91) may contain N session headers, each independently multi-segmentable. The trail envelope (§8.0) is unaffected.
+`session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A multi-session trail file (§8.6) may contain N session headers, each independently multi-segmentable. Reconcilers pre-split each input file into per-session sub-segments, then apply the group-by-`session_uid` algorithm above unchanged. The trail envelope (§8.0) is unaffected.
+
+---
+
+### 8.6 Multi-session trail files
+
+A trail file MAY contain one OR more `(session header, events*)` groups concatenated. Boundaries are positional: a group extends from a `type:"session"` record up to (but excluding) the next `type:"session"` record, or to EOF. Single-session trails are the N=1 case and are unchanged.
+
+#### 8.6.1 File grammar
+
+```
+trail-file := envelope? group+
+envelope   := <one JSONL record with type:"trail"> on line 1
+group      := <one JSONL record with type:"session"> events*
+events     := zero or more event records (§9)
+```
+
+The trail envelope (§8.0) remains optional even when N ≥ 2. When absent, file-level identity defaults from §8.0.5 apply (no file-level `content_hash` is meaningful; only per-session hashes).
+
+#### 8.6.2 Group boundaries and reader-tolerant recovery
+
+Readers detect group boundaries by `type:"session"` alone. A record with `type:"session"` always opens a new group, regardless of `schema_version` value: this lets reader-tolerant parsers (§6) recover from a malformed mid-file header and continue parsing subsequent groups instead of treating the rest of the file as orphan events. The strict validator still errors on individual records that fail schema validation; recovery affects parsing structure, not per-record validity.
+
+Entries that appear before the first `type:"session"` record (and after any envelope) are not part of any group and are always invalid: `events_before_first_session_header`.
+
+#### 8.6.3 Per-group validation
+
+Whole-file graph rules (§16) apply **within** a group, not across:
+
+- `parent_id` resolution is scoped to the enclosing group. A `parent_id` that references an `id` in another group is treated as `unknown_parent_id` (cross-group references go through `fork_from`, not `parent_id`).
+- `tool_call` / `tool_result` pairing (§9.5) runs per group. An unmatched `tool_call` in group A is not satisfied by a `tool_result` in group B.
+- `session_end.payload.final_message_id`, `source.raw.envelope_ref`, `payload.usage` checks, and the `stream` consistency rule each run per group.
+
+Event `id` uniqueness (§7.5) remains **file-scoped**: every `id` (across every group's header and events) MUST be unique within the file.
+
+#### 8.6.4 Per-group `content_hash`
+
+Each group's session-level `content_hash` is computed over the canonical bytes of that group's slice only (header + its events, envelope and sibling groups excluded). This is the same procedure as §7.3 / §7.4 applied to the slice. As a consequence, extracting one session from a multi-session file (drop the envelope, drop sibling groups, write only that group's canonical bytes) reproduces the same digest as the in-file value.
+
+When an extracted single session's recomputed `content_hash` does not match the value stored in the in-file header, readers SHOULD emit a warning rather than an error — canonicalization differences across writers can cause spurious mismatches that the reader can still display safely.
+
+#### 8.6.5 Cross-group references
+
+The only sanctioned cross-group reference primitive is the session header's `fork_from`:
+
+- `fork_from.session_id` MAY reference a sibling session within the same file or an external session.
+- When `fork_from.session_id` matches a sibling's `id` in the same file and `fork_from.content_hash` is also present, the hash MUST match that sibling's session-level `content_hash`. Mismatch is a `cross_group_fork_from_hash_mismatch` warning.
+- External references (`session_id` not matched in-file) are not validated here; if the referenced session's bytes are available, callers may verify the hash through their own resolver.
+
+`parent_id` is event-graph topology only and MUST NOT span groups.
+
+#### 8.6.6 Order, divergence, and per-session metadata
+
+- Sessions in a file SHOULD appear in chronological order by header `ts`. Out-of-order placement emits `out_of_order_session_headers` (warning, not error).
+- Per-session `cwd` and `vcs` MAY diverge across sessions in the same file. Divergent `vcs.revision` across groups emits `vcs_revision_divergence` (warning, not error) — useful for spotting accidental cross-checkout bundling.
+- `schema_version` is carried on every session header. Sessions in the same file are independently versioned (reader-tolerant patch acceptance per §6 applies per-header).
+- Empty groups (a header with zero events) are legal — they represent "session started, nothing happened."
+
+#### 8.6.7 Redaction of multi-session files
+
+Redacting a multi-session trail produces a multi-session redacted trail with the same group count in the same order, redacted in place. The redactor resets `content_hash` to `<pending>` on every session header (and on the envelope when present) before share/transport tooling re-stamps via the two-pass §7.4 procedure. Header-level `redacted_from.content_hash` links the redacted session to its raw counterpart; envelope-level `redacted_from.content_hash` links the redacted file to its raw counterpart.
+
+#### 8.6.8 No hard cap
+
+This spec does not impose a maximum on the number of session groups per file. Consumers may apply their own limits.
 
 ---
 

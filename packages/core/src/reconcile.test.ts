@@ -541,3 +541,76 @@ test("open final segment: merged header keeps stream.state open and omits conten
   // Canonical bytes match — the merged trail is self-consistent.
   expect(group.canonical).toBe(canonicalizeRecords(group.records));
 });
+
+test("multi-session input splits into per-session sub-inputs and reconciles each independently", async () => {
+  // One file contains two session groups; another file contains a segment
+  // for one of those sessions. After split-then-group, we expect two
+  // reconciled output groups: one merged (multi-segment), one pass-through.
+  const file1 = `${[
+    trailHeader({
+      id: "01HSESS000000000000000FILE1",
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 1 },
+    }),
+    userMessage("01HEVT0000000000000000FILE1", "2026-05-26T10:00:05.000Z", "msg1"),
+    trailHeader({
+      id: "01HSESS000000000000000FILE2",
+      ts: "2026-05-26T10:10:00.000Z",
+      session_uid: SESSION_UID_B,
+    }),
+    userMessage("01HEVT0000000000000000FILE2", "2026-05-26T10:10:05.000Z", "msg2"),
+  ].join("\n")}\n`;
+  const file1Records = await records(file1);
+  // Stamp each group's hash so the multi-segment chain check has a real prior hash.
+  stampTrail(file1Records);
+  // Recover seg1's stamped hash by slicing.
+  const seg1OnlyText = `${[
+    trailHeader({
+      id: "01HSESS000000000000000FILE1",
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 1 },
+    }),
+    userMessage("01HEVT0000000000000000FILE1", "2026-05-26T10:00:05.000Z", "msg1"),
+  ].join("\n")}\n`;
+  const seg1Hash = await hashOf(seg1OnlyText);
+
+  const file2 = `${[
+    trailHeader({
+      id: "01HSESS000000000000000FILE3",
+      ts: "2026-05-26T10:05:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 2, prev_content_hash: seg1Hash },
+    }),
+    userMessage("01HEVT0000000000000000FILE3", "2026-05-26T10:05:05.000Z", "msg3"),
+  ].join("\n")}\n`;
+  const file2Records = await records(file2);
+
+  const result = reconcileSegments([
+    { source: "file1", records: file1Records },
+    { source: "file2", records: file2Records },
+  ]);
+
+  expect(result.warnings).toEqual([]);
+  expect(result.groups).toHaveLength(2);
+
+  const merged = result.groups.find((g) => g.session_uid === SESSION_UID);
+  const passThrough = result.groups.find((g) => g.session_uid === SESSION_UID_B);
+  if (merged === undefined || passThrough === undefined) {
+    throw new Error("expected both session_uids present");
+  }
+
+  // Multi-segment merge: msg1 from file1#0, msg3 from file2.
+  const mergedEventTexts = merged.records
+    .slice(1)
+    .map((r) => (r.value.payload as { text: string }).text);
+  expect(mergedEventTexts).toEqual(["msg1", "msg3"]);
+
+  // Pass-through: file1's second session group, unmodified entry count.
+  expect(passThrough.records.length).toBeGreaterThan(0);
+  const ptEventTexts = passThrough.records
+    .slice(1)
+    .map((r) => (r.value.payload as { text: string }).text);
+  expect(ptEventTexts).toEqual(["msg2"]);
+});

@@ -8,6 +8,8 @@ const LOCK_ANCHOR = ".lockanchor";
 
 export const INDEX_VERSION = 1;
 
+export type IndexEntryKind = "session" | "trail";
+
 export type IndexEntry = {
   registered_at: string;
   /**
@@ -23,6 +25,15 @@ export type IndexEntry = {
    * `trail load` to detect multi-segment continuations and reconcile.
    */
   session_uid?: string | null;
+  /**
+   * Discriminator for multi-session files (spec §8.6). `"session"` rows
+   * (default for back-compat) are keyed by a session-level `content_hash` and
+   * may be extracted as standalone single-session trails. `"trail"` rows are
+   * keyed by the file-level (envelope) `content_hash` and represent the whole
+   * multi-session file. Multiple `"session"` rows + at most one `"trail"` row
+   * may share the same `source_path`.
+   */
+  kind?: IndexEntryKind;
 };
 
 export type IndexFile = {

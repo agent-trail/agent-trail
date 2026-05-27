@@ -340,3 +340,96 @@ test("non-JSON header line: row included with null agent/cwd, warning on stderr"
   expect(parsed[0]?.agent).toBeNull();
   expect(parsed[0]?.cwd).toBeNull();
 });
+
+test("multi-session file → 2 session rows + 1 trail row; --kind filter selects", async () => {
+  const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
+
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000A001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "ok" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const bytes = canon(records);
+
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-list-msfix-"));
+  const filePath = join(dir, "multi.trail.jsonl");
+  await writeFile(filePath, bytes, "utf8");
+  await registerTrail(filePath, { storeRoot });
+
+  const all = await runList(["--json"], { storeRoot });
+  expect(all.exitCode).toBe(0);
+  const allRows = JSON.parse(all.stdout) as Array<{ content_hash: string; kind: string }>;
+  expect(allRows).toHaveLength(3);
+  expect(
+    allRows
+      .filter((r) => r.kind === "session")
+      .map((r) => r.content_hash)
+      .sort(),
+  ).toEqual([...stamped.sessionHashes].sort());
+  expect(allRows.find((r) => r.kind === "trail")?.content_hash).toBe(
+    stamped.envelopeHash as string,
+  );
+
+  const sessionOnly = await runList(["--json", "--kind", "session"], { storeRoot });
+  const sessionRows = JSON.parse(sessionOnly.stdout) as Array<{ kind: string }>;
+  expect(sessionRows).toHaveLength(2);
+  expect(sessionRows.every((r) => r.kind === "session")).toBe(true);
+
+  const trailOnly = await runList(["--json", "--kind", "trail"], { storeRoot });
+  const trailRows = JSON.parse(trailOnly.stdout) as Array<{ kind: string }>;
+  expect(trailRows).toHaveLength(1);
+  expect(trailRows[0]?.kind).toBe("trail");
+
+  rmSync(dir, { recursive: true, force: true });
+});

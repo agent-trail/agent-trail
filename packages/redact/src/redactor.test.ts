@@ -721,6 +721,57 @@ test("redactTrail resets header content_hash to <pending> after mutation", () =>
   expect(headerValue.content_hash).toBe("<pending>");
 });
 
+test("redactTrail resets content_hash to <pending> on every session header and the envelope in a multi-session file", () => {
+  const stamped = "a".repeat(64);
+  const envStamped = "b".repeat(64);
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "trl1",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+      content_hash: envStamped,
+    }),
+    record(2, {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess1",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      content_hash: stamped,
+    }),
+    record(3, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        text: "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789",
+      },
+    }),
+    record(4, {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "sess2",
+      ts: "2026-05-17T14:05:00.000Z",
+      agent: { name: "claude-code" },
+      content_hash: stamped,
+    }),
+    record(5, {
+      type: "user_message",
+      id: "evt2",
+      ts: "2026-05-17T14:05:01.000Z",
+      payload: { text: "ok" },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+
+  expect((out[0]?.value as { content_hash: string }).content_hash).toBe("<pending>");
+  expect((out[1]?.value as { content_hash: string }).content_hash).toBe("<pending>");
+  expect((out[3]?.value as { content_hash: string }).content_hash).toBe("<pending>");
+});
+
 test("redactTrail walks payload of unknown / forward-compatible event types", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
