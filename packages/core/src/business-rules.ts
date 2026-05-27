@@ -2,6 +2,7 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { CREDENTIAL_PATTERNS, type RedactionPattern } from "./secret-patterns.ts";
 import { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
+import { isHeaderLikeRecord } from "./validation-utils.ts";
 
 /**
  * Business-rule sniffs: per-record heuristics layered on top of schema and
@@ -127,11 +128,6 @@ export function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
       }`,
     }),
   ];
-}
-
-function isHeaderLikeRecord(record: JsonlRecord): boolean {
-  const recordType = record.value?.type;
-  return recordType === "trail" || recordType === "session";
 }
 
 function matchesPattern(text: string, pattern: RedactionPattern): boolean {

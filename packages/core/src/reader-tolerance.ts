@@ -8,6 +8,11 @@ import {
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import type { ValidationProfile } from "./profile.ts";
+import {
+  appendJsonPointerSegment,
+  hasStringParam,
+  isHeaderLikeRecord,
+} from "./validation-utils.ts";
 
 /**
  * Reader-tolerance policy layer. Owns the strict-vs-reader-tolerant branching:
@@ -170,20 +175,4 @@ function isDowngradedByReaderTolerance(
     diagnostic.severity === "error" &&
     tolerantWarnings.some((warning) => warning.path === diagnostic.path)
   );
-}
-
-function isHeaderLikeRecord(record: JsonlRecord): boolean {
-  const recordType = record.value?.type;
-  return recordType === "trail" || recordType === "session";
-}
-
-function appendJsonPointerSegment(path: string, segment: string): string {
-  return `${path}/${segment.replaceAll("~", "~0").replaceAll("/", "~1")}`;
-}
-
-function hasStringParam<T extends string>(
-  params: ErrorObject["params"],
-  key: T,
-): params is ErrorObject["params"] & Record<T, string> {
-  return key in params && typeof params[key] === "string";
 }

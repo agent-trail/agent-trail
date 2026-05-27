@@ -3,6 +3,7 @@ import type { ErrorObject, ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { appendJsonPointerSegment, hasStringParam } from "./validation-utils.ts";
 
 /**
  * AJV schema-validation layer. Owns the singleton AJV instance, the compiled
@@ -122,15 +123,4 @@ function jsonPointerPathForError(error: ErrorObject): string {
     return appendJsonPointerSegment(error.instancePath, error.params.additionalProperty);
   }
   return error.instancePath;
-}
-
-function appendJsonPointerSegment(path: string, segment: string): string {
-  return `${path}/${segment.replaceAll("~", "~0").replaceAll("/", "~1")}`;
-}
-
-function hasStringParam<T extends string>(
-  params: ErrorObject["params"],
-  key: T,
-): params is ErrorObject["params"] & Record<T, string> {
-  return key in params && typeof params[key] === "string";
 }
