@@ -688,7 +688,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `plan_completed` | Source emits a plan or todo completion marker (Codex `item_completed` with `item.type == "plan"`). | `{ plan_id, preview? }` |
 | `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error). Distinct from `user_interrupt`. | `{ reason }` |
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call (Cursor `tool_former_data.user_decision`). | `{ decision, tool_call_id }` |
-| `hook_progress` | Source emitted a progress, hook, or queue lifecycle record. | `{ hook_event?, hook_name?, ... }` |
+| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `session_end` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
 

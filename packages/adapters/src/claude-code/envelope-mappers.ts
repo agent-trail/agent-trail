@@ -1,5 +1,9 @@
 import type { Entry } from "@agent-trail/types";
 import { pickBlockId } from "../entries.ts";
+import {
+  CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE,
+  deriveSynthesizedEntryId,
+} from "../session-uid.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
 import { baseEntry, entryId } from "./entry-metadata.ts";
 import {
@@ -129,12 +133,15 @@ function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefi
   return undefined;
 }
 
-function mapSystemEventEnvelope(envelope: CcEnvelope): Entry[] {
+function mapSystemEventEnvelope(envelope: CcEnvelope, synthSeed: readonly string[]): Entry[] {
   // Some Claude Code envelopes (queue-operation, pr-link) lack a `uuid` field
-  // but carry a usable timestamp. Synthesize a deterministic-shaped id so they
-  // survive validation and stamp `source.synthesized` for traceability.
+  // but carry a usable timestamp. Synthesize a deterministic v5 UUID from
+  // session+position so re-parsing the same JSONL yields the same id, and
+  // stamp `source.synthesized` for traceability.
   const synthesized = typeof envelope.uuid !== "string";
-  const id = synthesized ? crypto.randomUUID() : entryId(envelope);
+  const id = synthesized
+    ? deriveSynthesizedEntryId(CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE, synthSeed)
+    : entryId(envelope);
   const base = baseEntry(
     envelope,
     id,
@@ -160,20 +167,23 @@ function mapSystemEventEnvelope(envelope: CcEnvelope): Entry[] {
 
 // Claude Code's `permission-mode` envelope reports a mode change
 // (default / acceptEdits / plan / bypassPermissions). It lacks `uuid` and
-// `timestamp`, so the adapter synthesizes both: a fresh UUID for the entry id,
+// `timestamp`, so the adapter synthesizes both: a deterministic v5 UUID
+// derived from session+position+mode (so re-parsing yields the same id),
 // and the most recent prior envelope's timestamp for ordering. The new mode
 // goes under `data.to`; the prior mode (when tracked) under `data.from`.
 export function mapPermissionModeEnvelope(
   envelope: CcEnvelope,
   inheritedTimestamp: string | undefined,
   prevPermissionMode: string | undefined,
+  synthSeed: readonly string[],
 ): Entry[] {
   const mode = stringValue(envelope.permissionMode);
   if (mode === undefined) return [];
   const ts = stringValue(envelope.timestamp) ?? inheritedTimestamp;
   if (ts === undefined) return [];
   const enriched: CcEnvelope = { ...envelope, timestamp: ts };
-  const base = baseEntry(enriched, crypto.randomUUID(), envelope.type, undefined, undefined, {
+  const id = deriveSynthesizedEntryId(CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE, synthSeed);
+  const base = baseEntry(enriched, id, envelope.type, undefined, undefined, {
     synthesized: true,
   });
   if (base === undefined) return [];
@@ -408,6 +418,7 @@ export function buildEntries(
   envelope: CcEnvelope,
   toolUseIdToEventId: Map<string, string>,
   toolUseIdToToolKind: Map<string, string>,
+  synthSeed: readonly string[],
 ): Entry[] {
   // queue-operation and pr-link envelopes lack `uuid` across many Claude Code
   // versions (null or absent). The mapper synthesizes an id for those types,
@@ -426,7 +437,7 @@ export function buildEntries(
     envelope.type === "queue-operation" ||
     envelope.type === "pr-link"
   ) {
-    return mapSystemEventEnvelope(envelope);
+    return mapSystemEventEnvelope(envelope, synthSeed);
   }
   if (envelope.type === "summary") return mapSummaryEnvelope(envelope);
   if (envelope.type === "user") {

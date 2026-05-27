@@ -120,13 +120,31 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
   // session-order rather than failing validation.
   let inheritedTimestamp: string | undefined;
 
-  for (const envelope of envelopes) {
+  // Synth seed bases entry ids on (sessionId, file position) so re-parsing the
+  // same JSONL produces identical ids for envelopes that lack a source uuid
+  // (queue-operation, pr-link, permission-mode). File position uniquely
+  // disambiguates duplicate envelopes within the same session.
+  const sessionIdForSeed = header.id;
+  for (let envelopeIndex = 0; envelopeIndex < envelopes.length; envelopeIndex++) {
+    const envelope = envelopes[envelopeIndex];
+    if (envelope === undefined) continue;
     if (!isTracerEnvelope(envelope)) continue;
     if (typeof envelope.timestamp === "string") {
       inheritedTimestamp = envelope.timestamp;
     }
     if (envelope.type === "permission-mode") {
-      const pmEntries = mapPermissionModeEnvelope(envelope, inheritedTimestamp, prevPermissionMode);
+      const synthSeed: readonly string[] = [
+        sessionIdForSeed,
+        "permission-mode",
+        String(envelopeIndex),
+        stringValue(envelope.permissionMode) ?? "",
+      ];
+      const pmEntries = mapPermissionModeEnvelope(
+        envelope,
+        inheritedTimestamp,
+        prevPermissionMode,
+        synthSeed,
+      );
       for (const entry of pmEntries) {
         built.push({ entry, parentSourceId: envelope.parentUuid ?? null });
       }
@@ -136,7 +154,12 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
     }
     const currentModel =
       envelope.type === "assistant" ? stringValue(envelope.message?.model) : undefined;
-    const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind);
+    const synthSeed: readonly string[] = [
+      sessionIdForSeed,
+      typeof envelope.type === "string" ? envelope.type : "unknown",
+      String(envelopeIndex),
+    ];
+    const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind, synthSeed);
     if (
       envelope.type === "assistant" &&
       currentModel !== undefined &&

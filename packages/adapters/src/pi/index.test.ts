@@ -2370,3 +2370,44 @@ test("parsePiJsonl() collapses custom envelopes into x-pi/custom and preserves c
   expect(msgPayload?.data?.custom_type).toBe("another-plugin-thing");
   expect(msgPayload?.text).toBe("free-form message");
 });
+
+// Issue #88: custom_message without `content` must still produce a non-empty
+// text — the synthesized fallback uses customType so the timeline never carries
+// a payload with an empty text field.
+test("parsePiJsonl() falls back to synthesized text when custom_message omits content", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-310000000001",
+      timestamp: "2026-05-21T21:30:00.000Z",
+      cwd: "/tmp/p",
+    }),
+    JSON.stringify({
+      type: "custom_message",
+      customType: "no-content-plugin",
+      id: "00000000-0000-0000-0000-310000000002",
+      parentId: null,
+      timestamp: "2026-05-21T21:30:01.000Z",
+    }),
+    JSON.stringify({
+      type: "custom_message",
+      id: "00000000-0000-0000-0000-310000000003",
+      parentId: null,
+      timestamp: "2026-05-21T21:30:02.000Z",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const sys = trail.entries.filter(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/custom_message",
+  );
+  expect(sys).toHaveLength(2);
+  const withType = sys[0]?.payload as { text?: string; data?: { custom_type?: string } };
+  expect(withType.text).toBe("Custom message: no-content-plugin");
+  expect(withType.data?.custom_type).toBe("no-content-plugin");
+  const bare = sys[1]?.payload as { text?: string; data?: { custom_type?: string } };
+  expect(bare.text).toBe("Custom message");
+  expect(bare.data).toBeUndefined();
+});

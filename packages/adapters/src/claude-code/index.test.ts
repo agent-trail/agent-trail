@@ -1706,3 +1706,54 @@ test("parseSession() emits x-claudecode/pr_link system_event with pr metadata un
     pr_repository: "example/repo",
   });
 });
+
+// Issue #88: synthesized entry ids (queue-operation, pr-link, permission-mode)
+// must be deterministic — re-parsing the same JSONL must yield the same ids
+// so downstream tooling can dedupe across re-parses.
+test("parseClaudeCodeJsonl() produces stable synthesized ids across re-parses", async () => {
+  const { parseClaudeCodeJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-0000000000d0",
+      timestamp: "2026-05-17T22:00:00.000Z",
+      sessionId: "s-stable",
+      version: "v",
+    }),
+    JSON.stringify({
+      type: "queue-operation",
+      sessionId: "s-stable",
+      operation: "enqueue",
+      content: "queued one",
+      timestamp: "2026-05-17T22:00:01.000Z",
+    }),
+    JSON.stringify({
+      type: "pr-link",
+      sessionId: "s-stable",
+      prNumber: 7,
+      prUrl: "https://example.test/pr/7",
+      timestamp: "2026-05-17T22:00:02.000Z",
+    }),
+    JSON.stringify({ type: "permission-mode", permissionMode: "plan", sessionId: "s-stable" }),
+    // Duplicate envelope at a different file position — distinct synthesized id
+    // is required (same payload, but file index differs).
+    JSON.stringify({
+      type: "queue-operation",
+      sessionId: "s-stable",
+      operation: "enqueue",
+      content: "queued one",
+      timestamp: "2026-05-17T22:00:03.000Z",
+    }),
+  ].join("\n")}\n`;
+  const first = parseClaudeCodeJsonl(text);
+  const second = parseClaudeCodeJsonl(text);
+  const synthIdsFirst = first.entries.filter((e) => e.source?.synthesized).map((e) => e.id);
+  const synthIdsSecond = second.entries.filter((e) => e.source?.synthesized).map((e) => e.id);
+  expect(synthIdsFirst.length).toBeGreaterThan(0);
+  expect(synthIdsSecond).toEqual(synthIdsFirst);
+  // Distinct duplicate envelopes must still get distinct ids (no in-file collision).
+  expect(new Set(synthIdsFirst).size).toBe(synthIdsFirst.length);
+});
