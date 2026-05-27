@@ -793,13 +793,13 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
   expect(raw?.details).toEqual({ readFiles: ["spec.md"], modifiedFiles: ["x.md"] });
 });
 
-// TDD step 7: Pi branch_summary.details surface in entry.metadata under reverse-domain key (spec §11)
-test("branch-flow branch_summary entry mirrors Pi details into metadata['dev.pi.branch_details']", async () => {
+// TDD step 7: Pi branch_summary.details surface in entry.meta under reverse-domain key (spec §8.0.3 / §11)
+test("branch-flow branch_summary entry mirrors Pi details into meta['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
   const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
-  const metadata = branchSummary?.metadata as Record<string, unknown> | undefined;
-  expect(metadata).toBeDefined();
-  expect(metadata?.["dev.pi.branch_details"]).toEqual({
+  const meta = branchSummary?.meta as Record<string, unknown> | undefined;
+  expect(meta).toBeDefined();
+  expect(meta?.["dev.pi.branch_details"]).toEqual({
     readFiles: ["spec.md"],
     modifiedFiles: ["x.md"],
   });
@@ -1417,8 +1417,8 @@ test("Pi `compaction` envelope emits context_compact with summary/tokens_before/
     tokens_before: 12000,
     trigger: "auto",
   });
-  const metadata = compact?.metadata as Record<string, unknown> | undefined;
-  expect(metadata?.["dev.pi.compaction"]).toEqual({
+  const meta = compact?.meta as Record<string, unknown> | undefined;
+  expect(meta?.["dev.pi.compaction"]).toEqual({
     firstKeptEntryId: "00000000-0000-0000-0000-2f8fe63a6224",
     details: { artifacts: ["spec.md"] },
     fromHook: false,
@@ -1555,8 +1555,8 @@ test("Pi `model_change` envelope emits model_change with to_model and from_model
     to_model: "claude-opus-4-7",
   });
   expect(mc?.source?.original_type).toBe("model_change");
-  const metadata = mc?.metadata as Record<string, unknown> | undefined;
-  expect(metadata?.["dev.pi.model_change"]).toEqual({ provider: "anthropic" });
+  const meta = mc?.meta as Record<string, unknown> | undefined;
+  expect(meta?.["dev.pi.model_change"]).toEqual({ provider: "anthropic" });
 });
 
 // Slice 5b: first model_change with no prior assistant — emit to_model only (no from_model).
@@ -1905,8 +1905,8 @@ test("every emitted entry stamps metadata['dev.pi.raw_type'] with the source var
   const trail = parsePiJsonl(text);
   // Block-derived entries have fresh UUIDs at runtime; assert by source variant
   // tag presence per entry type rather than specific id strings.
-  const tag = (entry: { metadata?: Record<string, unknown> } | undefined): unknown =>
-    entry?.metadata?.["dev.pi.raw_type"];
+  const tag = (entry: { meta?: Record<string, unknown> } | undefined): unknown =>
+    entry?.meta?.["dev.pi.raw_type"];
   const byType = (type: string) => trail.entries.find((e) => e.type === type);
 
   expect(tag(byType("user_message"))).toBe("user_message_envelope");

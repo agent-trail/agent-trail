@@ -22,12 +22,12 @@ export const entryId = createEntryId<PiEnvelope>({
   missingMessage: "Pi entry missing id",
 });
 
-// Per-event audit tag (`metadata["dev.pi.raw_type"]`) recording which source variant produced
+// Per-event audit tag (`meta["dev.pi.raw_type"]`) recording which source variant produced
 // the entry. Schema source metadata is closed (additionalProperties:false in schema.json), so the
-// tag lives under reverse-DNS entry metadata per spec §11.
+// tag lives under reverse-DNS entry meta per spec §8.0.3 / §11.
 export function stampRawType<T extends Entry>(entry: T, rawType: string): T {
-  const existing = (entry.metadata as Record<string, unknown> | undefined) ?? {};
-  return { ...entry, metadata: { ...existing, "dev.pi.raw_type": rawType } } as T;
+  const existing = (entry.meta as Record<string, unknown> | undefined) ?? {};
+  return { ...entry, meta: { ...existing, "dev.pi.raw_type": rawType } } as T;
 }
 
 export function baseEntry(

@@ -185,12 +185,9 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       yield* walkContainer(payload, `records[${index}].payload`);
     }
 
-    const metadata = value.metadata;
-    if (metadata !== null && typeof metadata === "object") {
-      yield* walkContainer(
-        metadata as Record<string, unknown> | unknown[],
-        `records[${index}].metadata`,
-      );
+    const meta = value.meta;
+    if (meta !== null && typeof meta === "object") {
+      yield* walkContainer(meta as Record<string, unknown> | unknown[], `records[${index}].meta`);
     }
 
     if (includeSourceRaw && type !== "session") {
