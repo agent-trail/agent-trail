@@ -18,15 +18,20 @@ import { objectPath } from "./paths.ts";
  * failures:
  *   - `"no_session_uid"`: incoming trail has no `session_uid`, so it can't
  *     be matched against priors. Intentional, not an error.
- *   - `"store_error"`: incoming bytes failed to parse, or the store index
- *     could not be queried. Reconciliation could not run.
+ *   - `"invalid_incoming"`: incoming bytes failed to parse. The store was
+ *     never accessed.
+ *   - `"store_error"`: the store index could not be queried.
+ *     Reconciliation could not run.
  *   - `"corrupt_prior"`: a matching prior was found but no usable prior
  *     records could be loaded (all reads/parses failed).
  *   - `undefined`: no priors matched, or only the incoming segment survived
  *     reconciliation. Intentional, not an error.
  */
 export type ReconcileIncomingResult =
-  | { kind: "passthrough"; reason?: "no_session_uid" | "store_error" | "corrupt_prior" }
+  | {
+      kind: "passthrough";
+      reason?: "no_session_uid" | "invalid_incoming" | "store_error" | "corrupt_prior";
+    }
   | { kind: "merged"; canonical: string; group: ReconcileGroup };
 
 const SHORT_HASH_LEN = 12;
@@ -50,7 +55,7 @@ export async function reconcileIncomingSegment(
   try {
     incomingRecords = await parseJsonlString(incomingJsonl);
   } catch {
-    return { kind: "passthrough", reason: "store_error" };
+    return { kind: "passthrough", reason: "invalid_incoming" };
   }
   const incomingUid = headerSessionUid(incomingRecords);
   if (incomingUid === null) return { kind: "passthrough", reason: "no_session_uid" };

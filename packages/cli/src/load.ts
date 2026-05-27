@@ -202,6 +202,8 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
       }
     } else if (outcome.reason === "no_session_uid") {
       stdoutLines.push("Reconciliation skipped: incoming trail has no session_uid");
+    } else if (outcome.reason === "invalid_incoming") {
+      stdoutLines.push("Reconciliation skipped: incoming trail could not be parsed");
     } else if (outcome.reason === "store_error") {
       stdoutLines.push("Reconciliation skipped: local store unavailable or unreadable");
     } else if (outcome.reason === "corrupt_prior") {

@@ -168,11 +168,11 @@ test("chain mismatch surfaces as a warning on the merged group, merge still proc
   expect(outcome.group.warnings.some((w) => w.code === "segment_chain_mismatch")).toBe(true);
 });
 
-test("passthrough with reason=store_error when incoming JSONL is unparseable", async () => {
+test("passthrough with reason=invalid_incoming when incoming JSONL is unparseable", async () => {
   const outcome = await reconcileIncomingSegment(storeRoot, "not valid jsonl\n{broken");
   expect(outcome.kind).toBe("passthrough");
   if (outcome.kind === "passthrough") {
-    expect(outcome.reason).toBe("store_error");
+    expect(outcome.reason).toBe("invalid_incoming");
   }
 });
 
