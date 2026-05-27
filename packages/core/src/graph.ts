@@ -208,13 +208,14 @@ export function validateTrailGraph(
     diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
     diagnostics.push(...agentMessageUsageWarnings(group.entries));
   }
-  // File-scoped cross-group warnings only fire when there are ≥2 groups AND
-  // every group has a valid header (otherwise the cross-group comparison
-  // would compare against malformed inputs).
-  if (split.groups.length > 1 && headerValidByGroup.every(Boolean)) {
-    diagnostics.push(...outOfOrderSessionHeadersWarnings(split.groups));
-    diagnostics.push(...vcsRevisionDivergenceWarnings(split.groups));
-    diagnostics.push(...crossGroupForkFromWarnings(split.groups));
+  // File-scoped cross-group warnings compare among valid-header groups only.
+  // A malformed header in one group does not silence comparisons among its
+  // valid-header siblings.
+  const validGroups = split.groups.filter((_, i) => headerValidByGroup[i]);
+  if (validGroups.length > 1) {
+    diagnostics.push(...outOfOrderSessionHeadersWarnings(validGroups));
+    diagnostics.push(...vcsRevisionDivergenceWarnings(validGroups));
+    diagnostics.push(...crossGroupForkFromWarnings(validGroups));
   }
 
   if (canonicalBytesComplete) {
