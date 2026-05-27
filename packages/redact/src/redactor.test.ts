@@ -564,7 +564,11 @@ test("redactTrail redacts payload.text on agent_thinking and system_event", () =
       type: "system_event",
       id: "evt2",
       ts: "2026-05-22T00:00:02.000Z",
-      payload: { kind: "diag", text: `loaded ${key}`, data: { env: { OPENAI_API_KEY: key } } },
+      payload: {
+        kind: "x-claudecode/diag",
+        text: `loaded ${key}`,
+        data: { env: { OPENAI_API_KEY: key } },
+      },
     }),
     record(4, {
       type: "user_interrupt",

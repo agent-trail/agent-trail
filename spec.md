@@ -333,6 +333,14 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `vcs.type` | yes (if `vcs` present) | enum | `git`, `jj`, `hg`, or `svn` |
 | `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
 | `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
+| `vcs.branch` | no | string | active branch / bookmark / topic name the session is running on (e.g., `feature/x`). Detached-HEAD sessions MAY omit. |
+| `vcs.head_commit` | no | string | commit hash at session start (lowercase hex, 7–64 chars). For git, typically equals `vcs.revision`; the explicit field exists as a vcs-neutral alias. |
+| `vcs.worktree` | no | object | worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.) |
+| `vcs.worktree.name` | yes (if `vcs.worktree` present) | string | worktree short name |
+| `vcs.worktree.path` | yes (if `vcs.worktree` present) | string | absolute path to the worktree |
+| `vcs.worktree.original_cwd` | no | string | working directory of the parent repository at worktree-creation time |
+| `vcs.worktree.original_branch` | no | string | branch the parent repository was on when the worktree was created |
+| `vcs.worktree.original_head_commit` | no | string | commit the worktree was forked from (lowercase hex, 7–64 chars) |
 | `fork_from` | no | object | reference to a parent session if forked |
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
 | `source` | no | object | metadata about the source file |
@@ -641,16 +649,37 @@ A meaningful source timeline record that is not a user message, agent message, t
   "id": "...",
   "ts": "...",
   "payload": {
-    "kind": "progress",
+    "kind": "hook_fired",
     "text": "Hook progress: PreToolUse",
     "data": { "hook": "PreToolUse" }
   }
 }
 ```
 
-`kind` is a short normalized category such as `system`, `progress`, `queue_operation`, `hook_progress`, or `status`. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
+`kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-Recommended `kind` values when an adapter encounters these source signals. The set is open; adapters may add new kinds with reverse-domain prefixes for vendor extensions. Use these strings verbatim when applicable so timelines stay consistent across agents.
+`context_compact`, `user_interrupt`, and `model_change` are first-class record types (§9.3, §9.2). Do not duplicate them under `system_event.kind`.
+
+##### Reserved lifecycle vocabulary
+
+| `kind` | When to use |
+| --- | --- |
+| `session_start` | Explicit mid-stream session-start marker (header already covers, useful for tooling that splits on events). |
+| `session_end` | Clean exit marker. |
+| `turn_start` | User prompt accepted, agent begins work. |
+| `turn_end` | Agent finishes a turn (Claude `Stop` hook equivalent). |
+| `subagent_start` | A spawned subagent begins. |
+| `subagent_end` | A spawned subagent returns. |
+| `pre_tool_use` | Tool about to fire (hook intercept point). |
+| `post_tool_use` | Tool finished. |
+| `hook_fired` | Generic adapter-emitted hook trace. |
+| `permission_request` | Agent asked the user for tool approval. |
+| `permission_decision` | User allowed/denied a specific tool invocation. |
+| `permission_mode_change` | Agent's tool-permission mode shifted (e.g., Claude Code: `default` / `acceptEdits` / `plan` / `bypassPermissions`). Distinct from per-tool `permission_decision`. |
+| `cwd_change` | Working directory shifted. |
+| `env_snapshot` | Shell/env state capture. |
+
+##### Reserved source-signal vocabulary
 
 | `kind` | When to use | Suggested `data` shape |
 | --- | --- | --- |
@@ -659,9 +688,27 @@ Recommended `kind` values when an adapter encounters these source signals. The s
 | `plan_completed` | Source emits a plan or todo completion marker (Codex `item_completed` with `item.type == "plan"`). | `{ plan_id, preview? }` |
 | `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error). Distinct from `user_interrupt`. | `{ reason }` |
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call (Cursor `tool_former_data.user_decision`). | `{ decision, tool_call_id }` |
-| `hook_progress` | Source emitted a progress, hook, or queue lifecycle record (Claude Code `progress`, hook events). | `{ hook_event?, hook_name?, ... }` |
+| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `session_end` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
+
+##### Recommended `payload.data` shapes (permission kinds)
+
+`data` stays freeform at the schema layer. Adapters SHOULD use the shapes below so cross-agent consumers can render permission flow without per-adapter switches. Promote to schema-enforced once 2+ adapters converge.
+
+| `kind` | Recommended `data` |
+| --- | --- |
+| `permission_request` | `{ tool_call_id?: string, capability?: string, prompt?: string }` |
+| `permission_decision` | `{ decision: "allow" \| "deny", tool_call_id?: string, capability?: string }` |
+| `permission_mode_change` | `{ to: string, from?: string }` — `to` is the new mode (e.g., `default`, `acceptEdits`, `plan`, `bypassPermissions` for Claude Code). Adapters MAY use vendor-specific mode strings; cross-agent consumers SHOULD treat them as opaque tokens. |
+
+##### Extension policy and promotion
+
+- Reserved values above are the only bare strings allowed by writer-strict validation.
+- Anything else must use `x-<adapter>/<name>` form, e.g. `x-claudecode/notification`.
+- Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
+- Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
+- If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
 #### `agent_thinking`
 

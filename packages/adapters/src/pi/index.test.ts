@@ -868,7 +868,7 @@ test("branch_summary with fromId on an unmapped envelope climbs to the nearest m
       message: { role: "user", content: "go" },
     }),
     JSON.stringify({
-      type: "session_info",
+      type: "unknown_future_envelope",
       id: "00000000-0000-0000-0000-3e86c732132d",
       parentId: "00000000-0000-0000-0000-a24a7f55f278",
       timestamp: "2026-05-21T20:00:02.000Z",
@@ -879,7 +879,7 @@ test("branch_summary with fromId on an unmapped envelope climbs to the nearest m
       parentId: "00000000-0000-0000-0000-3e86c732132d",
       timestamp: "2026-05-21T20:00:03.000Z",
       fromId: "00000000-0000-0000-0000-3e86c732132d",
-      summary: "navigated through session_info",
+      summary: "navigated through an unmapped envelope",
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
@@ -2260,4 +2260,154 @@ test("parsePiJsonl does not synthesize session_terminated when every tool_call h
 
   const trail = parsePiJsonl(text);
   expect(trail.entries.find((e) => e.type === "session_terminated")).toBeUndefined();
+});
+
+// Issue #88: Pi `thinking_level_change` is a built-in pi-mono envelope. It maps
+// to x-pi/thinking_level_change because no reserved kind covers thinking-level
+// transitions (model_change is for model id only).
+test("parsePiJsonl() emits x-pi/thinking_level_change for built-in thinking_level_change envelopes", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-100000000001",
+      timestamp: "2026-05-21T21:00:00.000Z",
+      cwd: "/tmp/p",
+    }),
+    JSON.stringify({
+      type: "thinking_level_change",
+      id: "00000000-0000-0000-0000-100000000002",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:01.000Z",
+      thinkingLevel: "high",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  expect((sys?.payload as { kind?: string; data?: { thinking_level?: string } })?.kind).toBe(
+    "x-pi/thinking_level_change",
+  );
+  expect((sys?.payload as { data?: { thinking_level?: string } })?.data?.thinking_level).toBe(
+    "high",
+  );
+});
+
+// Issue #88: Pi `session_info` is the built-in session-namer hook. Surface as
+// x-pi/session_info (vendor; no portable equivalent yet).
+test("parsePiJsonl() emits x-pi/session_info for built-in session_info envelopes", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-200000000001",
+      timestamp: "2026-05-21T21:00:00.000Z",
+      cwd: "/tmp/p",
+    }),
+    JSON.stringify({
+      type: "session_info",
+      id: "00000000-0000-0000-0000-200000000002",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:01.000Z",
+      name: "set $EDITOR to zed",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const sys = trail.entries.find((e) => e.type === "system_event");
+  const payload = sys?.payload as { kind?: string; data?: { name?: string } };
+  expect(payload?.kind).toBe("x-pi/session_info");
+  expect(payload?.data?.name).toBe("set $EDITOR to zed");
+});
+
+// Issue #88: Pi `custom` / `custom_message` are the plugin extension surface.
+// Adapter collapses every plugin-defined customType into one vendor kind per
+// envelope-type and preserves the source customType under payload.data.custom_type.
+test("parsePiJsonl() collapses custom envelopes into x-pi/custom and preserves customType under data", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-300000000001",
+      timestamp: "2026-05-21T21:00:00.000Z",
+      cwd: "/tmp/p",
+    }),
+    JSON.stringify({
+      type: "custom",
+      customType: "plugin-defined-thing",
+      data: { detail: "value" },
+      id: "00000000-0000-0000-0000-300000000002",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:01.000Z",
+    }),
+    JSON.stringify({
+      type: "custom_message",
+      customType: "another-plugin-thing",
+      content: "free-form message",
+      id: "00000000-0000-0000-0000-300000000003",
+      parentId: null,
+      timestamp: "2026-05-21T21:00:02.000Z",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const sys = trail.entries.filter((e) => e.type === "system_event");
+  expect(sys).toHaveLength(2);
+
+  const customEntry = sys.find((e) => (e.payload as { kind?: string }).kind === "x-pi/custom");
+  expect(customEntry).toBeDefined();
+  const customPayload = customEntry?.payload as {
+    data?: { custom_type?: string; custom_data?: { detail?: string } };
+  };
+  expect(customPayload?.data?.custom_type).toBe("plugin-defined-thing");
+  expect(customPayload?.data?.custom_data).toEqual({ detail: "value" });
+
+  const customMsg = sys.find(
+    (e) => (e.payload as { kind?: string }).kind === "x-pi/custom_message",
+  );
+  expect(customMsg).toBeDefined();
+  const msgPayload = customMsg?.payload as { data?: { custom_type?: string }; text?: string };
+  expect(msgPayload?.data?.custom_type).toBe("another-plugin-thing");
+  expect(msgPayload?.text).toBe("free-form message");
+});
+
+// Issue #88: custom_message without `content` must still produce a non-empty
+// text — the synthesized fallback uses customType so the timeline never carries
+// a payload with an empty text field.
+test("parsePiJsonl() falls back to synthesized text when custom_message omits content", async () => {
+  const { parsePiJsonl } = await import("./parser.ts");
+  const text = `${[
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-310000000001",
+      timestamp: "2026-05-21T21:30:00.000Z",
+      cwd: "/tmp/p",
+    }),
+    JSON.stringify({
+      type: "custom_message",
+      customType: "no-content-plugin",
+      id: "00000000-0000-0000-0000-310000000002",
+      parentId: null,
+      timestamp: "2026-05-21T21:30:01.000Z",
+    }),
+    JSON.stringify({
+      type: "custom_message",
+      id: "00000000-0000-0000-0000-310000000003",
+      parentId: null,
+      timestamp: "2026-05-21T21:30:02.000Z",
+    }),
+  ].join("\n")}\n`;
+  const trail = parsePiJsonl(text);
+  const sys = trail.entries.filter(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/custom_message",
+  );
+  expect(sys).toHaveLength(2);
+  const withType = sys[0]?.payload as { text?: string; data?: { custom_type?: string } };
+  expect(withType.text).toBe("Custom message: no-content-plugin");
+  expect(withType.data?.custom_type).toBe("no-content-plugin");
+  const bare = sys[1]?.payload as { text?: string; data?: { custom_type?: string } };
+  expect(bare.text).toBe("Custom message");
+  expect(bare.data).toBeUndefined();
 });

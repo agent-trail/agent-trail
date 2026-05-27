@@ -28,7 +28,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
 | Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
@@ -105,8 +105,20 @@ Cross-cutting hardenings on the Pi adapter:
   `string`, but a non-conforming source emitting a numeric id is coerced to a string at the adapter
   boundary so it never leaks into `semantic.call_id` / `tool_result.payload.for_id` as a number.
 
-Remaining deferred shapes: `thinking_level_change`, `bashExecution`, `custom` / `custom_message`,
-`label`, `session_info`, `parentSession` forked sessions.
+Issue #88 (`system_event.kind` standardization) added Pi `system_event` coverage. The adapter
+distinguishes built-in pi-mono envelope types from the plugin extension surface (`custom`,
+`custom_message`). Plugin-defined `customType` values are not enumerated by the adapter — the source
+`customType` is preserved verbatim under `payload.data.custom_type` so consumers can disambiguate
+without the adapter claiming to support every plugin shape.
+
+Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
+
+- `x-pi/thinking_level_change` — pi-mono `thinking_level_change` envelope. `payload.data.thinking_level` carries `low | medium | high`. No reserved kind matches (model_change covers model id, not thinking level).
+- `x-pi/session_info` — pi-mono `session_info` envelope (auto-named session summary from pi-mono's session-namer hook). `payload.data.name` carries the generated name.
+- `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
+- `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`.
+
+Remaining deferred shapes: `bashExecution`, `label`, `parentSession` forked sessions.
 
 Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
@@ -120,6 +132,46 @@ variants observed in real sessions), and in-session model switches (emitted as s
 `model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
 Deferred shapes include image attachments, server-tool result blocks, cross-file subagent merging,
 and overflow blob storage.
+
+Emitted `system_event.kind` values (spec §9.3):
+
+Reserved lifecycle vocabulary (cross-agent portable):
+
+- `session_start` — `progress` envelope with `data.hookEvent == "SessionStart"`, plus continuation-preamble user messages.
+- `session_end` — `progress` envelope with `data.hookEvent == "SessionEnd"`.
+- `turn_end` — `progress` envelope with `data.hookEvent == "Stop"`, plus `system` envelope with `subtype == "stop_hook_summary"`.
+- `subagent_end` — `progress` envelope with `data.hookEvent == "SubagentStop"`.
+- `pre_tool_use` — `progress` envelope with `data.hookEvent == "PreToolUse"`.
+- `post_tool_use` — `progress` envelope with `data.hookEvent == "PostToolUse"`.
+- `permission_request` — `progress` envelope with `data.hookEvent == "Notification"`.
+- `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
+- `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
+- `permission_mode_change` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `data.to` carries the new mode (e.g., `plan`, `bypassPermissions`); `data.from` carries the previous mode when a prior mode is known.
+
+Vendor extensions (Claude Code-specific):
+
+- `x-claudecode/turn_duration` — `system` envelope with `subtype == "turn_duration"` (duration metadata for the just-completed turn; `turn_end` is preferred for boundary semantics).
+- `x-claudecode/api_error` — `system` envelope with `subtype == "api_error"`.
+- `x-claudecode/away_summary` — `system` envelope with `subtype == "away_summary"` (Claude Code "you were away" recap).
+- `x-claudecode/local_command` — `system` envelope with `subtype == "local_command"` (slash-command stdout).
+- `x-claudecode/bridge_status` — `system` envelope with `subtype == "bridge_status"` (remote-control bridge).
+- `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope).
+- `x-claudecode/<subtype>` — fallback for unknown safe-named `system` subtypes.
+- `x-claudecode/system` — fallback for `system` envelopes without a recognizable subtype.
+- `x-claudecode/progress` — fallback for `progress` envelopes whose `data.type` is not `hook_progress`.
+- `x-claudecode/pr_link` — `pr-link` envelope. id synthesized (`source.synthesized: true`).
+
+Vendor kinds are not portable across agents. Promote to the reserved enum (with a minor spec version bump) if another adapter ends up emitting the same shape.
+
+Header / envelope enrichment from non-timeline envelopes:
+
+- `ai-title` and `agent-name` envelopes are NOT in `isTracerEnvelope` (they don't belong on the timeline). The parser extracts them and surfaces:
+  - `envelope.name` ← first non-empty of `aiTitle`, `agentName`.
+  - `envelope.meta["x-claudecode/ai_title"]` / `envelope.meta["x-claudecode/agent_name"]` preserve both raw values for traceability.
+- `worktree-state` envelopes are NOT in `isTracerEnvelope`. The parser extracts them and surfaces under `header.vcs`:
+  - `vcs.branch` ← `worktreeSession.worktreeBranch` (overrides the live `git symbolic-ref` value, which may differ).
+  - `vcs.worktree` ← `{ name, path, original_cwd?, original_branch?, original_head_commit? }`.
+  - When the live working tree is unreadable (e.g., paseo-style ephemeral worktrees), `vcs.revision` and `vcs.head_commit` fall back to `originalHeadCommit` from the envelope.
 
 ## Fixture policy
 

@@ -59,10 +59,21 @@ function stripDotGit(path: string): string {
   return path.endsWith(".git") ? path.slice(0, -4) : path;
 }
 
+export type WorktreeInfo = {
+  name: string;
+  path: string;
+  original_cwd?: string;
+  original_branch?: string;
+  original_head_commit?: string;
+};
+
 export type HeaderVcs = {
   type: "git";
   revision: string;
   remote_url?: string;
+  branch?: string;
+  head_commit?: string;
+  worktree?: WorktreeInfo;
 };
 
 // Resolves a git working tree's vcs header block. Runs git binaries against
@@ -73,11 +84,20 @@ export async function readGitVcs(cwd: string): Promise<HeaderVcs | undefined> {
   const revision = await runGit(["rev-parse", "HEAD"], cwd);
   if (revision === undefined) return undefined;
   const remoteRaw = await runGit(["config", "--get", "remote.origin.url"], cwd);
-  const vcs: HeaderVcs = { type: "git", revision: revision.trim() };
+  // `symbolic-ref --short` exits non-zero on detached HEAD; treat that as
+  // "no branch" rather than failing the whole vcs block.
+  const branchRaw = await runGit(["symbolic-ref", "--short", "HEAD"], cwd);
+  const trimmedRevision = revision.trim();
+  const vcs: HeaderVcs = { type: "git", revision: trimmedRevision };
   if (remoteRaw !== undefined) {
     const normalized = normalizeRemoteUrl(remoteRaw);
     if (normalized !== undefined) vcs.remote_url = normalized;
   }
+  // runGit already trims output and returns undefined for empty strings.
+  if (branchRaw !== undefined) vcs.branch = branchRaw;
+  // head_commit is a vcs-neutral alias for revision. For git they're the same
+  // hash; the explicit field survives across vcs-type migrations.
+  vcs.head_commit = trimmedRevision;
   return vcs;
 }
 

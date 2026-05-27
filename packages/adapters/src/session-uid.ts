@@ -21,13 +21,34 @@ export const CLAUDE_CODE_SESSION_UID_NAMESPACE = "b4a0f5e1-7c23-4d8a-9e12-3f4b5c
 export const PI_SESSION_UID_NAMESPACE = "c5b1f6e2-8d34-4e9b-af23-405c6d7e8f90";
 
 /**
+ * Namespace for Claude Code synthesized entry ids (queue-operation, pr-link,
+ * permission-mode envelopes that lack a source uuid). Stable forever — do not
+ * change.
+ */
+export const CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE = "d6c2f7e3-9e45-4fac-bf34-516d7e8f9a01";
+
+/**
  * Derive a deterministic v5 UUID from `(namespace, upstreamId)` per RFC 4122
  * §4.3. Output is the hyphenated 36-char form accepted by the `session_uid`
  * schema (ULID/UUID union).
  */
 export function deriveSessionUid(namespace: string, upstreamId: string): string {
+  return deriveUuidV5(namespace, upstreamId);
+}
+
+/**
+ * Derive a deterministic v5 UUID for an entry id synthesized by an adapter
+ * (e.g., Claude Code's queue-operation/pr-link/permission-mode envelopes that
+ * carry no source `uuid`). Seed parts are joined with the ASCII unit separator
+ * (\x1f) so that distinct part sequences cannot alias each other.
+ */
+export function deriveSynthesizedEntryId(namespace: string, seedParts: readonly string[]): string {
+  return deriveUuidV5(namespace, seedParts.join("\x1f"));
+}
+
+function deriveUuidV5(namespace: string, name: string): string {
   const namespaceBytes = parseUuidBytes(namespace);
-  const hash = createHash("sha1").update(namespaceBytes).update(upstreamId, "utf8").digest();
+  const hash = createHash("sha1").update(namespaceBytes).update(name, "utf8").digest();
   const bytes = Uint8Array.prototype.slice.call(hash, 0, 16);
   // Version 5 in the top nibble of byte 6.
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;

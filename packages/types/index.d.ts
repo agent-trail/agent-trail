@@ -190,6 +190,33 @@ export interface Vcs {
    * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
    */
   remote_url?: string;
+  /**
+   * Active branch / bookmark / topic name the session is running on. For git, the short branch name (e.g., `feature/x`). Detached-HEAD sessions MAY omit this field.
+   */
+  branch?: string;
+  /**
+   * Commit hash at session start (lowercase hex, 7-64 chars). For git this is typically the same value as `revision`; the field exists as an explicit, version-control-neutral alias and survives across VCS migrations.
+   */
+  head_commit?: string;
+  /**
+   * Worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.).
+   */
+  worktree?: {
+    name: string;
+    path: string;
+    /**
+     * Working directory of the parent repository at the time the worktree was created.
+     */
+    original_cwd?: string;
+    /**
+     * Branch the parent repository was on when the worktree was created.
+     */
+    original_branch?: string;
+    /**
+     * Commit hash the worktree was forked from.
+     */
+    original_head_commit?: string;
+  };
 }
 export interface EntryBase {
   type: string;
@@ -300,7 +327,33 @@ export interface SessionSummary {
 export interface SystemEvent {
   type?: "system_event";
   payload?: {
-    kind: string;
+    /**
+     * Lifecycle/hook signal category. Either one of the reserved cross-agent values, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name).
+     */
+    kind:
+      | "session_start"
+      | "session_end"
+      | "turn_start"
+      | "turn_end"
+      | "subagent_start"
+      | "subagent_end"
+      | "pre_tool_use"
+      | "post_tool_use"
+      | "hook_fired"
+      | "permission_request"
+      | "permission_decision"
+      | "permission_mode_change"
+      | "cwd_change"
+      | "env_snapshot"
+      | "task_started"
+      | "task_completed"
+      | "plan_completed"
+      | "turn_aborted"
+      | "tool_decision"
+      | "hook_progress"
+      | "queue_operation"
+      | "heartbeat"
+      | `x-${string}/${string}`;
     text?: string;
     data?: {
       [k: string]: unknown;
