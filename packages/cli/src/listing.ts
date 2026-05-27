@@ -42,10 +42,12 @@ export function parseTimeBounds(since: string | undefined, until: string | undef
 
 /**
  * Time-bound predicate: returns true when the timestamp falls within
- * `[sinceMs, untilMs)` — inclusive lower, exclusive upper (matches the
- * semantics list.ts and discover.ts share today). A null `iso` is treated
- * as out-of-bounds when either side is set, and a parse failure is also
- * out-of-bounds; both are conservative drops rather than silent inclusions.
+ * `[sinceMs, untilMs)` — inclusive lower, exclusive upper. A timestamp at
+ * `untilMs` is treated as out-of-bounds because the comparison is `>=`, not
+ * `>`. Matches the semantics list.ts and discover.ts share today. A null
+ * `iso` is treated as out-of-bounds when either side is set, and a parse
+ * failure is also out-of-bounds; both are conservative drops rather than
+ * silent inclusions.
  */
 export function boundedBy(
   iso: string | null | undefined,
