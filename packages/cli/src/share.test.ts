@@ -25,6 +25,8 @@ type SeedOpts = {
   id?: string;
   text?: string;
   vcs?: Record<string, unknown>;
+  /** Skip the content_hash stamp so the trail enters `registerTrail` as pending. */
+  stampHash?: boolean;
 };
 
 async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; contentHash: string }> {
@@ -32,6 +34,7 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
   const cwd = opts.cwd ?? "/work/proj-a";
   const id = opts.id ?? "01HSESS0000000000000000001";
   const text = opts.text ?? "hello";
+  const stampHash = opts.stampHash ?? true;
   const header: Record<string, unknown> = {
     type: "session",
     schema_version: "0.1.0",
@@ -50,7 +53,9 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
   const draftBytes = `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`;
   const draftRecords = await parseJsonlString(draftBytes);
   const contentHash = computeContentHash(draftRecords);
-  header.content_hash = contentHash;
+  if (stampHash) {
+    header.content_hash = contentHash;
+  }
   const finalRecords = await parseJsonlString(
     `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
   );
@@ -78,6 +83,15 @@ test("missing path arg: exits 1 with usage on stderr", async () => {
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("Usage: trail share");
+});
+
+test("trail missing finalized content_hash: exits 1 with spec-referenced message", async () => {
+  const { filePath } = await seedTrail({ stampHash: false });
+  const result = await runShare([filePath, "--dry-run"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("missing finalized content_hash");
+  expect(result.stderr).toContain("spec §7.3");
 });
 
 test("normal mode, confirm accepted: registers, prints summary, uploads and prints viewer URL", async () => {

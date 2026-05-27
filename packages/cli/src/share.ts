@@ -1,15 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
-import {
-  canonicalizeRecords,
-  computeContentHash,
-  type JsonlRecord,
-  parseJsonlString,
-  stampTrail,
-} from "@agent-trail/core";
+import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import { registerTrail } from "@agent-trail/store";
+import { finalizeRedactedTrail } from "./finalize-redacted.ts";
 import { ghGistUpload } from "./gist-upload.ts";
 
 export type RunShareResult = {
@@ -69,6 +64,13 @@ export async function runShare(
   const filePath = positionals[0] as string;
 
   const reg = await registerTrail(filePath, { storeRoot: opts.storeRoot });
+  if (reg.status === "skipped_pending") {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `share: trail at ${filePath} missing finalized content_hash (spec §7.3); stamp before sharing\n`,
+    };
+  }
   if (reg.status === "invalid" || reg.contentHash === null || reg.objectPath === null) {
     const lines = reg.diagnostics.map((d) => d.message).join("\n");
     return {
@@ -140,15 +142,9 @@ export async function runShare(
       jsonl = await readFile(reg.objectPath);
       payloadHash = reg.contentHash;
     } else {
-      // Finalize the redacted artifact's own content_hash so the shared
-      // gist payload is verifiable (spec §7.3, §7.4). redactTrail stamps
-      // `<pending>` on the header when redaction mutates content; stamp
-      // the real hashes (session-level first, then file-level when a
-      // trail envelope is present) before canonicalizing for upload.
-      const records = redactedRecords ?? [];
-      const { sessionHash } = stampTrail(records);
-      payloadHash = sessionHash ?? computeContentHash(records);
-      jsonl = Buffer.from(canonicalizeRecords(records), "utf8");
+      const { canonical, contentHash } = finalizeRedactedTrail(redactedRecords ?? []);
+      payloadHash = contentHash;
+      jsonl = Buffer.from(canonical, "utf8");
     }
     const gzipped = gzipSync(jsonl);
     const base64 = gzipped.toString("base64");

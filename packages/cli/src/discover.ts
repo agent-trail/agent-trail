@@ -6,6 +6,7 @@ import {
   type SessionRef,
   type TrailAdapter,
 } from "@agent-trail/adapters";
+import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunDiscoverResult = {
   exitCode: number;
@@ -69,15 +70,7 @@ export async function runDiscover(
     return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
   }
 
-  const sinceMs = parseBound(values.since);
-  const untilMs = parseBound(values.until);
-  const boundErrors: string[] = [];
-  if (values.since !== undefined && sinceMs === null) {
-    boundErrors.push(`invalid --since value: ${values.since}`);
-  }
-  if (values.until !== undefined && untilMs === null) {
-    boundErrors.push(`invalid --until value: ${values.until}`);
-  }
+  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(values.since, values.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
@@ -127,16 +120,7 @@ export async function runDiscover(
     path: r.path ?? null,
   }));
 
-  const filtered = rows.filter((r) => {
-    if (sinceMs !== null || untilMs !== null) {
-      if (r.modified_at === null) return false;
-      const ts = Date.parse(r.modified_at);
-      if (Number.isNaN(ts)) return false;
-      if (sinceMs !== null && ts < sinceMs) return false;
-      if (untilMs !== null && ts >= untilMs) return false;
-    }
-    return true;
-  });
+  const filtered = rows.filter((r) => boundedBy(r.modified_at, sinceMs, untilMs));
 
   filtered.sort((a, b) => {
     const aTs = a.modified_at;
@@ -168,14 +152,4 @@ function renderText(rows: Row[]): string {
         }  ${r.path ?? MISSING_TEXT}`,
     )
     .join("\n")}\n`;
-}
-
-function renderJson(rows: Row[]): string {
-  return `${JSON.stringify(rows)}\n`;
-}
-
-function parseBound(value: string | undefined): number | null {
-  if (value === undefined) return null;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : ms;
 }
