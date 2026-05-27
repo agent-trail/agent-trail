@@ -83,7 +83,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 ### 5.1 File extension and MIME type
 
 - Recommended extension: `.trail.jsonl`
-- MIME type: `application/vnd.trail+jsonl`
+- MIME type: `application/vnd.trail+jsonl`. The `vnd.` form is the intended canonical type and follows IANA conventions for vendor MIME types. IANA registration is deferred to v1.0; until then the type is documented here but not officially registered.
 - Editors render as JSON via the `.jsonl` suffix. A dedicated language extension may provide richer highlighting later.
 
 ### 5.2 Encoding
@@ -186,6 +186,16 @@ When a trail envelope is present, the file carries two independent content hashe
 
 Writers that emit both hashes MUST stamp the session-level hash first, then compute and stamp the file-level hash. Readers verify them independently. Different consumers care about different scopes: extraction tools recompute the session hash; share/transport tools verify the file hash.
 
+#### 7.4.1 Hash tier for `fork_from` and `redacted_from`
+
+Lineage references mirror the tier of the linking context:
+
+- **Header-level `fork_from.content_hash` and `redacted_from.content_hash`** refer to the **session-level** `content_hash` of the parent artifact (the forked-from session or the raw session that was redacted). This keeps session lineage independent of any envelope wrapper — extracting either side recomputes the same digest.
+- **Envelope-level `fork_from.content_hash` and `redacted_from.content_hash`** refer to the **file-level** `content_hash` of the parent file (envelope and all sessions included). Use these to link whole files rather than individual sessions.
+- `segment.prev_content_hash` (§8.5) is always session-level, since segments chain at session grain.
+
+Writers MUST choose the matching tier; mixing tiers across a chain breaks verification.
+
 ### 7.5 Event identifiers
 
 Event `id` values are globally unique. The schema enforces a ULID-or-UUID shape (see §7 / §17). Globally-unique ids let a reconciler dedup events across segments by exact string equality (spec §8.5 step 4).
@@ -249,7 +259,9 @@ The envelope MUST NOT carry a `parent_id`. It is not part of the event graph.
 
 ### 8.0.3 The `meta` extension convention
 
-The envelope and the session header both accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use a reverse-DNS or `x-<adapter>/` namespace to avoid collisions (`com.example.team`, `x-acme/build_id`, `io.entire.checkpoint_id`). The validator treats `meta` as opaque; it is included in the file-level `content_hash` computation when present.
+The trail envelope (§8.0), the session header (§8), and every event entry (§9.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use a reverse-DNS or `x-<adapter>/` namespace to avoid collisions (`com.example.team`, `x-acme/build_id`, `io.entire.checkpoint_id`). The validator treats `meta` as opaque; it is included in the file-level `content_hash` computation when present.
+
+For verbatim source-event preservation, use `source.raw` (§9.6, §14.1) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
 No reserved keys ship in this draft. Standard keys may be promoted in later minor bumps based on observed usage.
 
@@ -306,10 +318,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
     "path": "<original-file-path>",
     "format_version": "<source-format-version>"
   },
-  "metadata": {                                 // optional; see §11
-    "com.example.custom_field": "..."
-  },
-  "meta": {                                     // optional; same convention as envelope (§8.0.3)
+  "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
     "com.example.custom_field": "..."
   }
 }
@@ -343,9 +352,8 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `vcs.worktree.original_head_commit` | no | string | commit the worktree was forked from (lowercase hex, 7–64 chars) |
 | `fork_from` | no | object | reference to a parent session if forked |
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
-| `source` | no | object | metadata about the source file |
-| `metadata` | no | object | vendor extensions (§11) |
-| `meta` | no | object | additional vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention defined for the trail envelope (§8.0.3) |
+| `source` | no | object | source-file metadata block (agent, path, format_version) |
+| `meta` | no | object | vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention (§8.0.3 / §11) |
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 
@@ -356,6 +364,8 @@ When no envelope is written, file-level identity defaults derive from the sessio
 - For submodules and worktrees, emit the remote of the outermost working tree's toplevel; `cwd` and `vcs.revision` disambiguate within.
 
 Privacy: `remote_url` reveals repository identity (and may identify a private repo). Share tools strip or normalize it in redacted artifacts by default (§15).
+
+When a trail file carries both header-level `vcs` (session-time context) and envelope-level `vcs` (file-assembly-time context, §8.0), they represent different observation points and there is no winner: tools rendering session state read `header.vcs`; tools rendering file provenance read `envelope.vcs`. File-assembly tools SHOULD preserve both when present. For multi-segment reconciliation rules, see §8.5.
 
 ### 8.3 Example
 
@@ -454,7 +464,7 @@ Every event entry has this base shape:
     "raw": { /* opaque source object; see §9.6 and §14 */ },
     "synthesized": false
   },
-  "metadata": {                                 // optional; see §11
+  "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
     "com.example.field": "..."
   }
 }
@@ -469,7 +479,7 @@ Every event entry has this base shape:
 | `payload` | yes | object | type-specific data |
 | `semantic` | no | object | linking metadata for fallback pairing |
 | `source` | no | object | adapter-provided source metadata |
-| `metadata` | no | object | vendor extensions (§11) |
+| `meta` | no | object | vendor extensions (§8.0.3 / §11) |
 
 ### 9.2 Mandatory event types
 
@@ -553,7 +563,7 @@ Model identification for cost reporting uses `payload.model` first, falls back t
 
 When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first `agent_message` derived from that envelope and MUST NOT repeat it on later derived entries. Tool calls and thinking blocks within the same envelope do not carry `usage`.
 
-Latency and wall-clock cost fields are deferred to a future minor version; sources rarely expose them. Vendor extensions may use reverse-domain keys in `payload.metadata` until standardized.
+Latency and wall-clock cost fields are deferred to a future minor version; sources rarely expose them. Vendor extensions may use reverse-domain keys on the entry's `meta` field (§8.0.3) until standardized.
 
 #### `tool_call`
 
@@ -804,6 +814,11 @@ Active model changed mid-session.
 }
 ```
 
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `from_model` | no | string | previous model id; omit when the source did not track the prior model |
+| `to_model` | yes | string | new active model id |
+
 #### `session_terminated`
 
 Marks an incomplete session ending. Adapters may emit this synthetically at EOF when the source file ends with unmatched `tool_call` events (process killed mid-execution, file truncated, etc.).
@@ -878,7 +893,7 @@ Readers must tolerate unknown types:
 - Render with a generic fallback.
 - Do not abort parsing.
 
-Writers should not invent new top-level types. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `metadata` (§11) for vendor extensions.
+Writers should not invent new top-level types. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `meta` (§8.0.3 / §11) for vendor extensions.
 
 ### 9.7 Source envelope referencing
 
@@ -954,19 +969,19 @@ For tools not covered above, use `tool: "other"` with `args: { name, args }`. Re
 
 ## 11. Vendor extensions
 
-Implementations and vendors can add custom data via `metadata` fields on the header or any event. Use reverse-domain notation for keys to avoid collisions:
+Implementations and vendors can add custom data via the `meta` field on the trail envelope, session header, or any event entry. Use reverse-domain notation for keys to avoid collisions:
 
 ```jsonc
-"metadata": {
+"meta": {
   "com.cursor.workspace_id": "ws-abc123",
   "dev.example.custom_flag": true,
   "io.anthropic.usage": { "input_tokens": 1234, "output_tokens": 567 }
 }
 ```
 
-Readers may preserve, ignore, or render `metadata` fields. They must not abort on unknown keys.
+Readers may preserve, ignore, or render `meta` fields. They must not abort on unknown keys.
 
-The `metadata` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` instead.
+The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` (§14.1) instead. See §8.0.3 for the full convention.
 
 ---
 
@@ -1126,12 +1141,12 @@ Warnings (non-fatal):
   - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
   - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest disagrees with the session header's `id` or `agent`, or lists a number of sessions other than one.
 
-Streaming rules (§8.4):
+Streaming rules (§8.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
 
-9. If `stream.state == "open"`:
+9. If the current header.stream.state == "open":
    - **9a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
-   - **9b.** Terminal events (`session_end`, `session_terminated`) should not appear. Their presence on a live file is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
-10. If `stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 9b does not apply once the stream is no longer marked live.
+   - **9b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
+10. If the current header.stream.state == "closed" or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 9b does not apply once the stream is no longer marked live.
 
 ---
 
@@ -1206,25 +1221,13 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 ---
 
-## 19. Open questions for v0.2
-
-- Compression: native gzip support? `.trail.jsonl.gz`?
-- Multi-file sessions: how to represent very large sessions split across files.
-- Image and binary content: external blob store vs inline base64 vs reference URIs.
-- Cryptographic signing for tamper-evident sharing.
-- End-to-end encrypted sharing — sender encrypts before gist upload; receiver decrypts via shared key or asymmetric scheme (age, PGP). Header field shape for derived-from-ciphertext provenance. Same family as signing.
-- Standardization of common `other` tool args.
-- Cost and token tracking: dedicated event type vs payload field?
-
----
-
 ## Changelog
 
 ### v0.1.0 (May 2026)
 
 Initial public draft. v0.1.0 defines:
 
-- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `metadata` / `meta` extensions, tree semantics, layered validation, and artifact-level content addressing.
+- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
@@ -1252,15 +1255,7 @@ An envelope at line 1 followed by a session header at line 2 is valid. Events ar
 
 ---
 
-## Appendix B — Reserved type names
-
-The following are reserved for future spec versions. Adapters must not emit them in v0.1.x:
-
-`session_metadata_update`, `attachment_uploaded`, `error`, `system_message`, `permission_request`, `permission_response`, `cost_report`, `signature`.
-
----
-
-## Appendix C — Design rationale
+## Appendix B — Design rationale
 
 - **JSONL over JSON:** streamable, append-friendly, line-grep-able, no parser-bomb risk.
 - **Optional `parent_id`:** most agents produce linear sessions; tree complexity should be paid only by sessions that need it.
@@ -1272,11 +1267,11 @@ The following are reserved for future spec versions. Adapters must not emit them
 - **Content-addressed identity:** finalized artifacts get a verifiable hash; enables dedup and tamper-evidence without treating hash lookup as a v0.1.0 transport.
 - **Semantic linking with fallback:** real source data has missing or null IDs; the spec must work with imperfect inputs.
 - **`session_terminated`:** incomplete sessions are real; naming the condition lets renderers handle them gracefully.
-- **Vendor `metadata` with reverse-domain keys:** lets implementations extend without collisions, without growing the canonical vocabulary, and without requiring a central registry.
+- **Vendor `meta` with reverse-domain keys:** lets implementations extend without collisions, without growing the canonical vocabulary, and without requiring a central registry.
 
 ---
 
-## Appendix D — FAQ
+## Appendix C — FAQ
 
 **Why JSONL instead of one big JSON object?**
 
@@ -1303,7 +1298,7 @@ The spec doesn't impose limits. Practical guidance: keep individual files under 
 Yes, three ways depending on the data:
 
 1. **Verbatim source preservation:** put it in `source.raw`.
-2. **Vendor extension with semantics:** put it in `metadata` with a reverse-domain key (`com.example.field`).
+2. **Vendor extension with semantics:** put it in `meta` (§8.0.3) with a reverse-domain key (`com.example.field`).
 3. **Source-agent-specific tools:** use `tool: "other"` with `args: { name, args }`.
 
 Don't invent new top-level event types in v0.1.x.
@@ -1318,65 +1313,11 @@ Redaction policy varies by context (unlisted gist vs public dataset vs HF upload
 
 **What is the relationship to Agent Trace, OpenSession, HAIL, etc.?**
 
-Agent Trail is a session content format. [Agent Trace](https://agent-trace.dev) is a code attribution format. These are at different layers and can interoperate (an Agent Trace `conversation.url` can point to a trail file). OpenSession (hwisu/opensession) and HAIL JSONL are independent prior art with different design goals — see Appendix F.
+Agent Trail is a session content format. [Agent Trace](https://agent-trace.dev) is a code attribution format. These are at different layers and can interoperate (an Agent Trace `conversation.url` can point to a trail file). OpenSession (hwisu/opensession) and HAIL JSONL are independent prior art with different design goals — see Appendix D.
 
 ---
 
-## Appendix E — Potential applications
-
-This appendix is **non-normative**. It illustrates the kinds of tools and workflows that can be built on top of the Agent Trail format. The format itself defines none of these; they are intended as orientation for adopters considering whether Agent Trail fits their use case.
-
-### Sharing & collaboration
-
-1. **Cross-agent sharing** — one share command produces an artifact that any compliant viewer renders, regardless of which agent produced the session.
-2. **Agent-to-agent handoff** — a skill packs a curated subset of the current session into a portable artifact (markdown primer or JSONL trail) so a different agent can continue the work.
-3. **Pull-request review integration** — a GitHub Action surfaces a session digest as a PR comment when the PR description references a trail, giving reviewers visibility into the AI-assisted work behind the change.
-
-### Search & recall
-
-4. **Cross-tool text search** — grep over a local trail store regardless of which agent produced each session, since every trail uses the same canonical event vocabulary.
-5. **Semantic search** — a skill (using the user's chosen embedding API) indexes local trails and answers "find sessions where I debugged race conditions" without bundling a vector store.
-6. **Causality graph queries** — follow `fork_from` and `derived_from` chains across the local store to answer "show me all sessions that descend from this one."
-
-### Analysis & diagnostics
-
-7. **Deterministic statistics** — counts and distributions over events, tool kinds, durations, success rates, and file touch sets, all derivable from the canonical schema without semantic interpretation.
-8. **Pattern findings** — pre-defined mechanical checks for stuck loops, error storms, unmatched tool calls, oversized outputs, and other quality signals visible from event sequences.
-9. **Cost and token analytics** — per-model pricing applied to token usage captured by adapters. Today usage lives in vendor metadata under reverse-domain keys (e.g., `io.anthropic.usage`, see §11); a canonical `usage` slot on `agent_message.payload` is proposed for v0.2.0. Either source enables cache-utilization tracking and cross-tool comparison for the same task.
-
-### Quality & regression
-
-10. **Tool-call replay** — re-run historical `tool_call` events against a new tool implementation and diff outputs against recorded `tool_result` payloads, turning trails into regression-test corpora.
-11. **Cross-agent benchmarking** — same task captured under multiple agents, then compared via pairwise diff to surface differences in approach, cost, and success rate.
-
-### Knowledge capture & reuse
-
-12. **Session summarisation** — a skill reads any trail file and emits a focused summary in the calling agent's context using the user's own model, with no LLM dependency in Agent Trail's toolchain.
-13. **Prompt distillation** — a skill converts a trail file into a reusable system prompt or skill scaffold, extracting the lessons learned through a long session into a concise reusable form.
-14. **Documentation generation** — turn a debugging session into a runbook or post-mortem document by walking the canonical event sequence.
-15. **Portable user profile** — a skill aggregates patterns across many sessions and many agents into a `PROFILE.md` artifact (communication style, working preferences, domain context, common workflows, anti-patterns, preferred tools). Users reference the file from any agent so new sessions cold-start with a coherent picture of the user.
-
-### Personalization & coaching
-
-16. **Prompt-improvement coaching** — downstream apps watch a user's session corpus and PROFILE.md evolution over time, surface where prompting habits could improve, and suggest skill templates to install. Built on the profile skill (#15) and analyze package; Agent Trail provides substrate, not the app.
-
-### Editor & ecosystem integration
-
-17. **Native editor viewer** — a VS Code extension renders `.trail.jsonl` files with a timeline UI, jump-to-source for `file_read` paths, and inline diff rendering for `file_edit` events, sharing a renderer with the web viewer.
-18. **MCP server** — exposes local sessions to coding agents via Model Context Protocol so agents can list, search, load, and share trails without leaving their UI.
-19. **Code-attribution interop** — formats such as Agent Trace can use a trail file as the target of their `conversation.url` field, linking attribution records in source repos to the sessions that produced them.
-
-### Audit, compliance & research
-
-20. **Tamper-evident artifacts** — finalized trail files carry a `content_hash` over canonical bytes, so any modification produces a different hash and can be detected by re-verification.
-21. **Provenance chains** — `redacted_from` and `derived_from` header fields record artifact lineage end to end, enabling consumers to trace a shared artifact back to its raw source.
-22. **OSS transparency** — projects that commit trail files alongside source code document AI-assisted contributions in a machine-readable, reviewer-friendly form.
-23. **Research artifacts** — academic studies of AI-assisted coding can publish anonymized trail files for reproducibility, with content hashes guaranteeing artifact identity across runs.
-24. **Compliance audit trail** — regulated industries can capture session history with content-addressed identity, supporting audits without committing to a vendor's proprietary format.
-
----
-
-## Appendix F — Acknowledgements
+## Appendix D — Acknowledgements
 
 Agent Trail draws on prior art:
 
