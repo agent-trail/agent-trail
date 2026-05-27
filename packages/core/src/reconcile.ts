@@ -48,8 +48,6 @@ export type ReconcileGroup = {
   segments: string[];
   /** Number of events skipped because their id already appeared in an earlier segment. */
   events_deduped: number;
-  /** Number of intermediate session_terminated{process_terminated} markers dropped. */
-  intermediate_terminators_dropped: number;
   /** Warnings scoped to this merge group. */
   warnings: ReconcileWarning[];
 };
@@ -144,7 +142,6 @@ function passThrough(input: SegmentInput, sessionUid: string | null): ReconcileG
     canonical: canonicalizeRecords(input.records),
     segments: [input.source],
     events_deduped: 0,
-    intermediate_terminators_dropped: 0,
     warnings: [],
   };
 }
@@ -191,7 +188,6 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
   const mergedEvents: JsonlRecord[] = [];
   const seenEventIds = new Set<string>();
   let eventsDeduped = 0;
-  let intermediateDropped = 0;
   let prevContentHash: string | null | undefined;
 
   // Track stable-field divergence across segment headers.
@@ -259,7 +255,6 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
         isObject(value.payload) &&
         value.payload.reason === "process_terminated"
       ) {
-        intermediateDropped += 1;
         continue;
       }
 
@@ -301,7 +296,6 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
     canonical: canonicalizeRecords(mergedRecords),
     segments: sorted.map((s) => s.source),
     events_deduped: eventsDeduped,
-    intermediate_terminators_dropped: intermediateDropped,
     warnings,
   };
 }

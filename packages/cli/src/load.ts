@@ -5,14 +5,8 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { gunzipSync } from "node:zlib";
 import {
-  type JsonlRecord,
-  parseJsonlString,
-  type ReconcileGroup,
-  reconcileSegments,
-} from "@agent-trail/core";
-import {
-  objectPath as computeObjectPath,
-  findEntriesBySessionUid,
+  type ReconcileIncomingResult,
+  reconcileIncomingSegment,
   registerTrail,
   resolveStoreRoot,
 } from "@agent-trail/store";
@@ -158,20 +152,18 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   const tmpDir = join(tmpdir(), `trail-load-${randomUUID()}`);
   await mkdir(tmpDir, { recursive: true });
   const tmpFile = join(tmpDir, "fetched.trail.jsonl");
-  let reconcileSummary: ReconcileGroup | null = null;
-  let reconcileSkipReason: "no_session_uid" | null = null;
+  // Reconcile against any existing trails with the same session_uid in the
+  // store (spec §8.5). When a match is found, register the merged trail
+  // instead of the raw incoming bytes; the merged trail's content_hash is
+  // what the user actually shared as a logical session.
+  const outcome: ReconcileIncomingResult = await reconcileIncomingSegment(
+    resolveStoreRoot(opts.storeRoot),
+    jsonl,
+  );
+  if (outcome.kind === "merged") {
+    jsonl = outcome.canonical;
+  }
   try {
-    // Reconcile against any existing trails with the same session_uid in the
-    // store (spec §8.5). When a match is found, register the merged trail
-    // instead of the raw incoming bytes; the merged trail's content_hash is
-    // what the user actually shared as a logical session.
-    const reconciled = await reconcileAgainstStore(jsonl, opts.storeRoot);
-    if (reconciled?.kind === "merged") {
-      reconcileSummary = reconciled.group;
-      jsonl = reconciled.merged;
-    } else if (reconciled?.kind === "skipped") {
-      reconcileSkipReason = reconciled.reason;
-    }
     await writeFile(tmpFile, jsonl, "utf8");
     // The tmp file is deleted in the `finally` below, so recording it as
     // `source_path` would index a guaranteed-stale path. Pass null instead;
@@ -200,14 +192,15 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
     const stdoutLines: string[] = [];
     stdoutLines.push(`Loaded: ${reg.contentHash.slice(0, SHORT_HASH_LEN)} (${reg.contentHash})`);
     stdoutLines.push(`Status: ${reg.status}`);
-    if (reconcileSummary !== null) {
+    if (outcome.kind === "merged") {
+      const group = outcome.group;
       stdoutLines.push(
-        `Reconciled: ${reconcileSummary.segments.length} segments merged, ${reconcileSummary.events_deduped} events deduped, ${reconcileSummary.warnings.length} warnings (session_uid ${reconcileSummary.session_uid})`,
+        `Reconciled: ${group.segments.length} segments merged, ${group.events_deduped} events deduped, ${group.warnings.length} warnings (session_uid ${group.session_uid})`,
       );
-      for (const warning of reconcileSummary.warnings) {
+      for (const warning of group.warnings) {
         stdoutLines.push(`  warning(${warning.code}): ${warning.message}`);
       }
-    } else if (reconcileSkipReason === "no_session_uid") {
+    } else if (outcome.reason === "no_session_uid") {
       stdoutLines.push("Reconciliation skipped: incoming trail has no session_uid");
     }
 
@@ -223,64 +216,6 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
-}
-
-type ReconcileOutcome =
-  | { kind: "merged"; merged: string; group: ReconcileGroup }
-  | { kind: "skipped"; reason: "no_session_uid" };
-
-async function reconcileAgainstStore(
-  incomingJsonl: string,
-  storeRoot: string | undefined,
-): Promise<ReconcileOutcome | null> {
-  let incomingRecords: JsonlRecord[];
-  try {
-    incomingRecords = await parseJsonlString(incomingJsonl);
-  } catch {
-    return null;
-  }
-  const incomingUid = headerSessionUid(incomingRecords);
-  if (incomingUid === null) return { kind: "skipped", reason: "no_session_uid" };
-
-  const resolvedRoot = resolveStoreRoot(storeRoot);
-  let matches: Awaited<ReturnType<typeof findEntriesBySessionUid>>;
-  try {
-    matches = await findEntriesBySessionUid(resolvedRoot, incomingUid);
-  } catch {
-    return null;
-  }
-  if (matches.length === 0) return null;
-
-  const inputs = [{ source: "incoming", records: incomingRecords }];
-  for (const match of matches) {
-    const objPath = computeObjectPath(resolvedRoot, match.contentHash);
-    try {
-      const raw = await readFile(objPath, "utf8");
-      const records = await parseJsonlString(raw);
-      inputs.push({ source: match.contentHash.slice(0, SHORT_HASH_LEN), records });
-    } catch {
-      // Skip unreadable / corrupted store entries; reconcile still proceeds
-      // with whatever segments are intact.
-    }
-  }
-
-  if (inputs.length < 2) return null;
-
-  const result = reconcileSegments(inputs);
-  // Locate the group that contains the incoming segment.
-  const group = result.groups.find((g) => g.segments.includes("incoming"));
-  if (group === undefined || group.segments.length < 2) return null;
-  return { kind: "merged", merged: group.canonical, group };
-}
-
-function headerSessionUid(records: JsonlRecord[]): string | null {
-  for (const record of records) {
-    if (record.value.type === "session") {
-      const uid = (record.value as { session_uid?: unknown }).session_uid;
-      return typeof uid === "string" ? uid : null;
-    }
-  }
-  return null;
 }
 
 async function preflightOutPath(outPath: string, force: boolean): Promise<RunLoadResult | null> {
