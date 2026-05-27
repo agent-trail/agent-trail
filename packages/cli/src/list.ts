@@ -8,6 +8,7 @@ import {
   readIndex,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunListResult = {
   exitCode: number;
@@ -110,15 +111,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
     });
   }
 
-  const sinceMs = parseBound(values.since);
-  const untilMs = parseBound(values.until);
-  const boundErrors: string[] = [];
-  if (values.since !== undefined && sinceMs === null) {
-    boundErrors.push(`invalid --since value: ${values.since}`);
-  }
-  if (values.until !== undefined && untilMs === null) {
-    boundErrors.push(`invalid --until value: ${values.until}`);
-  }
+  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(values.since, values.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
@@ -126,13 +119,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
   const filtered = rows.filter((r) => {
     if (values.agent !== undefined && r.agent !== values.agent) return false;
     if (values.cwd !== undefined && r.cwd !== values.cwd) return false;
-    if (sinceMs !== null || untilMs !== null) {
-      const ts = Date.parse(r.registered_at);
-      if (Number.isNaN(ts)) return false;
-      if (sinceMs !== null && ts < sinceMs) return false;
-      if (untilMs !== null && ts >= untilMs) return false;
-    }
-    return true;
+    return boundedBy(r.registered_at, sinceMs, untilMs);
   });
 
   filtered.sort((a, b) => {
@@ -161,10 +148,6 @@ function renderText(rows: Row[]): string {
         }  ${r.registered_at}  ${r.source_path ?? MISSING_TEXT}`,
     )
     .join("\n")}\n`;
-}
-
-function renderJson(rows: Row[]): string {
-  return `${JSON.stringify(rows)}\n`;
 }
 
 type HeaderReadResult = {
@@ -213,12 +196,6 @@ function extractAgentName(header: Record<string, unknown> | null): string | null
   if (typeof agent !== "object" || agent === null || Array.isArray(agent)) return null;
   const name = (agent as Record<string, unknown>).name;
   return typeof name === "string" ? name : null;
-}
-
-function parseBound(value: string | undefined): number | null {
-  if (value === undefined) return null;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : ms;
 }
 
 type NormalizedEntry = { registered_at: string; source_path: string | null };
