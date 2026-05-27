@@ -77,10 +77,12 @@ export function createEntryId<Env>(
   };
 }
 
-// Single-block envelopes preserve the source uuid as the trail event id (1:1).
-// Multi-block envelopes mint a fresh UUID per block so each event id stays a
-// valid ULID/UUID per the v0.1 id regex. Source uuid and per-block index live
-// on `source.raw` for traceability.
+// Single-block envelopes preserve the source envelope ID as the trail event id
+// (1:1). Multi-block envelopes mint a fresh UUID per block so each event id
+// stays a valid ULID/UUID per the v0.1 id regex. The source envelope ID and
+// per-block index live on `source.raw` for traceability. Adapters differ in
+// envelope-ID field name (claude-code uses `uuid`, pi uses `id`); this
+// function is adapter-neutral.
 export function pickBlockId(stableEntryId: string, totalBlocks: number): string {
   return totalBlocks === 1 ? stableEntryId : crypto.randomUUID();
 }

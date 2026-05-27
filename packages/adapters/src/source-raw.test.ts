@@ -1,8 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
+import { BEARER_TOKEN, CREDENTIAL_PATTERNS } from "@agent-trail/core";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
 afterEach(() => {
   delete process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+});
+
+test("CREDENTIAL_PATTERNS includes BEARER_TOKEN", () => {
+  expect(CREDENTIAL_PATTERNS).toContain(BEARER_TOKEN);
 });
 
 test("redactValue replaces a Bearer token nested in an object", () => {
