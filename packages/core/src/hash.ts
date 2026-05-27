@@ -33,21 +33,22 @@ export function canonicalizeRecords(records: JsonlRecord[]): string {
 }
 
 /**
- * Canonical JSONL bytes used to compute or verify a `content_hash`, per
- * spec §7.3 step 1: same as {@link canonicalizeRecords} but with the
+ * Internal: canonical JSONL bytes used to compute or verify a `content_hash`,
+ * per spec §7.3 step 1: same as {@link canonicalizeRecords} but with the
  * record matching `recordType` ("session" or "trail") having its
  * `content_hash` field replaced by the literal `"<pending>"`. The hash is
  * computed over these bytes; finalized disk bytes are produced by
  * {@link canonicalizeRecords} after the pinned record is stamped with the
  * resulting hex digest.
  *
- * Spec §7.4 two-tier identity: when hashing the session ("session"), pass
- * the session-slice only — envelope bytes do not contribute. When hashing
- * the file-level envelope ("trail"), pass the full records array; the
- * session header's already-stamped `content_hash` is treated as opaque
- * file content.
+ * Not exported because the caller must already understand the spec §7.4
+ * two-tier identity (pin the session record vs the trail envelope record)
+ * and the per-callsite stamp order. External callers should go through
+ * {@link computeContentHash}, {@link computeTrailEnvelopeContentHash},
+ * {@link verifyContentHash}, or {@link stampTrail}, all of which apply the
+ * correct pinning and slicing.
  */
-export function canonicalizeRecordsForHashing(
+function canonicalizeRecordsForHashing(
   records: JsonlRecord[],
   recordType: "session" | "trail" = "session",
 ): string {
@@ -69,6 +70,12 @@ export function canonicalizeRecordsForHashing(
  * events, with the session header's `content_hash` pinned to `<pending>`.
  * Envelope records (when present) are excluded so the session's identity is
  * independent of whether the file carries a trail envelope.
+ *
+ * For writers that also need to stamp the digest into the session header,
+ * prefer {@link stampTrail}: it enforces the spec §7.4 two-pass stamp order
+ * (session-level hash before file-level hash) so the envelope hash, when
+ * present, is computed against the finalized session hash rather than
+ * `<pending>`.
  */
 export function computeContentHash(records: JsonlRecord[]): string {
   const sessionIndex = findRecordIndex(records, "session");
@@ -83,9 +90,13 @@ export function computeContentHash(records: JsonlRecord[]): string {
  * SHA-256 of the canonical bytes covering the entire file with the trail
  * envelope's `content_hash` pinned to `<pending>`. The session header's
  * already-stamped `content_hash` is treated as opaque file content
- * (spec §7.4). Writers MUST stamp the session-level hash first via
- * {@link computeContentHash}, then compute this file-level hash; use
- * {@link stampTrail} to perform both in the correct order.
+ * (spec §7.4).
+ *
+ * The session-level `content_hash` MUST already be stamped before calling
+ * this; otherwise the envelope hash will be computed over the literal
+ * `<pending>` and will not match the eventual finalized session hash.
+ * Prefer {@link stampTrail}, which performs both passes in the spec §7.4
+ * order so this misuse is impossible by construction.
  *
  * Returns null when there is no envelope at line 1.
  */
