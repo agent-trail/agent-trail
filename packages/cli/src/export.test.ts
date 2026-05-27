@@ -273,6 +273,89 @@ test("malformed index key with traversal payload is not matched by prefix", asyn
   expect(result.stderr).not.toContain("..");
 });
 
+test("export <session-hash> on a multi-session file emits just that group's bytes (envelope dropped)", async () => {
+  const { stampTrail } = await import("@agent-trail/core");
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000A001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "first" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "second" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const bytes = canonicalizeRecords(records);
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-cli-export-msfix-"));
+  const filePath = join(inputDir, "multi.trail.jsonl");
+  writeFileSync(filePath, bytes, "utf8");
+  await registerTrail(filePath, { storeRoot });
+
+  const sess2Hash = stamped.sessionHashes[1] as string;
+  const result = await runExport([sess2Hash], { storeRoot });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("export: extracted session group 2 of 2 from multi-session file\n");
+
+  const exported = await parseJsonlString(result.stdout);
+  expect(exported).toHaveLength(2); // header + 1 event
+  expect(exported[0]?.value.type).toBe("session");
+  expect(exported[0]?.value.id).toBe("01HSESS0000000000000000A02");
+  expect((exported[1]?.value.payload as { text: string }).text).toBe("second");
+
+  // Trail (envelope) hash export still dumps the whole file unchanged.
+  const trailResult = await runExport([stamped.envelopeHash as string], { storeRoot });
+  expect(trailResult.exitCode).toBe(0);
+  expect(trailResult.stdout).toBe(bytes);
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
 test("--out writes bytes to file, stdout empty", async () => {
   const seed = await seedRegistered(storeRoot);
   const outPath = join(storeRoot, "out.trail.jsonl");

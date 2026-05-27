@@ -450,3 +450,86 @@ test("reconcile: second load with matching session_uid merges segments, summary 
   const ids = mergedRecords.slice(1).map((r) => (r.value as { id: string }).id);
   expect(ids).toEqual(["01HEVTA0000000000000000001", "01HEVTA0000000000000000002"]);
 });
+
+test("loading a multi-session shared payload registers N session rows + 1 trail row", async () => {
+  const { stampTrail } = await import("@agent-trail/core");
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000A001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "a" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000A02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "b" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const canonical = canonicalizeRecords(records);
+  const gzipped = gzipSync(Buffer.from(canonical, "utf8"));
+  const base64 = gzipped.toString("base64");
+  const payload = Buffer.from(base64, "ascii");
+
+  const result = await runLoad(["https://gist.github.com/someuser/abc123def4567890abcd"], {
+    storeRoot,
+    gistFetch: fakeFetcher(payload, "multi.trail.jsonl.gz.b64"),
+  });
+
+  expect(result.exitCode).toBe(0);
+
+  const indexValue = JSON.parse(
+    await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+  ) as { entries: Record<string, { kind?: string }> };
+
+  expect(Object.keys(indexValue.entries).sort()).toEqual(
+    [stamped.envelopeHash as string, ...stamped.sessionHashes].sort(),
+  );
+  expect(indexValue.entries[stamped.envelopeHash as string]?.kind).toBe("trail");
+  for (const sh of stamped.sessionHashes) {
+    expect(indexValue.entries[sh]?.kind).toBe("session");
+  }
+});

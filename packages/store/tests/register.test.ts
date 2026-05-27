@@ -272,6 +272,82 @@ test("four concurrent registerTrail calls for distinct hashes produce four index
   rmSync(inputDir, { recursive: true, force: true });
 });
 
+test("registerTrail on a multi-session file writes one row per session + a trail row", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-msfix-"));
+  try {
+    const sess1Header = {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000A01",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      session_uid: "01HSESSXA0000000000000A001",
+    };
+    const sess1Event = {
+      type: "user_message",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { text: "hi" },
+    };
+    const sess2Header = {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000A02",
+      ts: "2026-05-17T14:05:00.000Z",
+      agent: { name: "claude-code" },
+      session_uid: "01HSESSXA0000000000000A002",
+    };
+    const sess2Event = {
+      type: "user_message",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:05:05.000Z",
+      payload: { text: "ok" },
+    };
+    const envelope = {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "01HTRA0X00000000000000A001",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+    };
+    const { stampTrail } = await import("@agent-trail/core");
+    const records = [
+      { line: 1, raw: "", value: { ...envelope } },
+      { line: 2, raw: "", value: { ...sess1Header } },
+      { line: 3, raw: "", value: { ...sess1Event } },
+      { line: 4, raw: "", value: { ...sess2Header } },
+      { line: 5, raw: "", value: { ...sess2Event } },
+    ];
+    const stamped = stampTrail(records);
+    const bytes = canonicalizeRecords(records);
+    const path = join(inputDir, "multi.trail.jsonl");
+    await writeFile(path, bytes, "utf8");
+
+    const result = await registerTrail(path, { storeRoot });
+    expect(result.status).toBe("finalized");
+    expect(result.contentHash).toBe(stamped.envelopeHash as string);
+
+    const indexValue = JSON.parse(
+      await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+    ) as { entries: Record<string, { kind?: string; session_uid?: string | null }> };
+
+    const entries = indexValue.entries;
+    expect(Object.keys(entries).sort()).toEqual(
+      [stamped.envelopeHash as string, ...stamped.sessionHashes].sort(),
+    );
+    expect(entries[stamped.envelopeHash as string]?.kind).toBe("trail");
+    expect(entries[stamped.sessionHashes[0] as string]?.kind).toBe("session");
+    expect(entries[stamped.sessionHashes[0] as string]?.session_uid).toBe(
+      "01HSESSXA0000000000000A001",
+    );
+    expect(entries[stamped.sessionHashes[1] as string]?.session_uid).toBe(
+      "01HSESSXA0000000000000A002",
+    );
+  } finally {
+    rmSync(inputDir, { recursive: true, force: true });
+  }
+});
+
 async function writeFinalizedFixture(
   dir: string,
   sessionId: string,

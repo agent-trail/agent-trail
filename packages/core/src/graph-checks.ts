@@ -1,5 +1,6 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import type { SessionGroup } from "./session-groups.ts";
 
 /**
  * Stateless whole-file checks invoked by `validateTrailGraph` after the
@@ -338,13 +339,109 @@ export function agentMessageUsageWarnings(entries: JsonlRecord[]): Diagnostic[] 
 }
 
 // Validates the optional envelope `sessions` manifest against the actual
-// session header in the file. For v0.1.0 a trail file holds one session;
-// the manifest, if present, must list exactly that session by id and agent
-// name. Manifest drift is a warning so renderers can still display the file
-// while flagging the inconsistency.
+// session groups in the file (spec §8.0.4, §8.6). The manifest, when present,
+// must list one entry per group in file order. Manifest drift (wrong length,
+// mismatched id or agent) is a warning so renderers can still display the
+// file while flagging the inconsistency.
+// Spec §8.6: sessions in a multi-session file SHOULD appear in chronological
+// order by header `ts`. Out-of-order placement is a warning, not an error —
+// readers tolerate it but writers SHOULD sort.
+export function outOfOrderSessionHeadersWarnings(groups: SessionGroup[]): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  let prevTs: string | undefined;
+  for (const group of groups) {
+    const ts = group.header.value.ts;
+    if (typeof ts !== "string") continue;
+    if (prevTs !== undefined && ts < prevTs) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/ts",
+          severity: "warning",
+          code: "out_of_order_session_headers",
+          message: `session header ts "${ts}" precedes earlier session header ts "${prevTs}"`,
+        }),
+      );
+    }
+    if (prevTs === undefined || ts > prevTs) {
+      prevTs = ts;
+    }
+  }
+  return diagnostics;
+}
+
+// Spec §8.6: sessions in the same trail file MAY carry different working-tree
+// state, but divergent `vcs.revision` is unusual enough to flag once per
+// later-occurring group.
+export function vcsRevisionDivergenceWarnings(groups: SessionGroup[]): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  let earliest: string | undefined;
+  for (const group of groups) {
+    const vcs = group.header.value.vcs;
+    if (typeof vcs !== "object" || vcs === null) continue;
+    const revision = (vcs as { revision?: unknown }).revision;
+    if (typeof revision !== "string") continue;
+    if (earliest === undefined) {
+      earliest = revision;
+      continue;
+    }
+    if (revision !== earliest) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/vcs/revision",
+          severity: "warning",
+          code: "vcs_revision_divergence",
+          message: `vcs.revision "${revision}" diverges from earlier session vcs.revision "${earliest}" in the same trail file`,
+        }),
+      );
+    }
+  }
+  return diagnostics;
+}
+
+// Spec §8.6: `fork_from.session_id` MAY reference a sibling session in the
+// same trail file. When it does and `fork_from.content_hash` is also present,
+// the hash MUST match the sibling's session-level `content_hash`. Mismatch is
+// a warning so renderers can still display the file. External references
+// (session_id not matched in-file) are out of scope here.
+export function crossGroupForkFromWarnings(groups: SessionGroup[]): Diagnostic[] {
+  const siblingHashes = new Map<string, string>();
+  for (const group of groups) {
+    const id = group.header.value.id;
+    const ch = group.header.value.content_hash;
+    if (typeof id === "string" && typeof ch === "string" && ch !== "<pending>") {
+      siblingHashes.set(id, ch);
+    }
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  for (const group of groups) {
+    const forkFrom = group.header.value.fork_from;
+    if (typeof forkFrom !== "object" || forkFrom === null) continue;
+    const sessionId = (forkFrom as { session_id?: unknown }).session_id;
+    const claimedHash = (forkFrom as { content_hash?: unknown }).content_hash;
+    if (typeof sessionId !== "string" || typeof claimedHash !== "string") continue;
+    const siblingHash = siblingHashes.get(sessionId);
+    if (siblingHash === undefined) continue;
+    if (claimedHash !== siblingHash) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/fork_from/content_hash",
+          severity: "warning",
+          code: "cross_group_fork_from_hash_mismatch",
+          message: `fork_from.content_hash "${claimedHash}" does not match in-file sibling session content_hash "${siblingHash}"`,
+        }),
+      );
+    }
+  }
+  return diagnostics;
+}
+
 export function envelopeSessionsManifestWarnings(
   envelopeRecord: JsonlRecord,
-  headerRecord: JsonlRecord | undefined,
+  groups: SessionGroup[],
 ): Diagnostic[] {
   const sessions = (envelopeRecord.value as { sessions?: unknown }).sessions;
   if (!Array.isArray(sessions)) {
@@ -352,56 +449,58 @@ export function envelopeSessionsManifestWarnings(
   }
   const diagnostics: Diagnostic[] = [];
 
-  if (sessions.length !== 1) {
+  if (sessions.length !== groups.length) {
     diagnostics.push(
       createDiagnostic({
         line: envelopeRecord.line,
         path: "/sessions",
         severity: "warning",
         code: "envelope_sessions_manifest_drift",
-        message: `envelope.sessions lists ${sessions.length} session(s); v0.1.0 trail files contain exactly one session`,
-      }),
-    );
-    return diagnostics;
-  }
-
-  if (headerRecord === undefined || headerRecord.value.type !== "session") {
-    return diagnostics;
-  }
-
-  const declared = sessions[0];
-  if (typeof declared !== "object" || declared === null) {
-    return diagnostics;
-  }
-  const declaredId = (declared as { id?: unknown }).id;
-  const declaredAgent = (declared as { agent?: unknown }).agent;
-  const actualId = headerRecord.value.id;
-  const actualAgentName =
-    typeof headerRecord.value.agent === "object" && headerRecord.value.agent !== null
-      ? (headerRecord.value.agent as { name?: unknown }).name
-      : undefined;
-
-  if (typeof declaredId === "string" && declaredId !== actualId) {
-    diagnostics.push(
-      createDiagnostic({
-        line: envelopeRecord.line,
-        path: "/sessions/0/id",
-        severity: "warning",
-        code: "envelope_sessions_manifest_drift",
-        message: `envelope.sessions[0].id "${declaredId}" does not match session header id "${actualId ?? "<unknown>"}"`,
+        message: `envelope.sessions lists ${sessions.length} session(s); file contains ${groups.length}`,
       }),
     );
   }
-  if (typeof declaredAgent === "string" && declaredAgent !== actualAgentName) {
-    diagnostics.push(
-      createDiagnostic({
-        line: envelopeRecord.line,
-        path: "/sessions/0/agent",
-        severity: "warning",
-        code: "envelope_sessions_manifest_drift",
-        message: `envelope.sessions[0].agent "${declaredAgent}" does not match session header agent.name "${typeof actualAgentName === "string" ? actualAgentName : "<unknown>"}"`,
-      }),
-    );
+
+  // Per-entry id/agent checks run on the prefix common to both arrays. Extra
+  // manifest entries (or extra file groups) past the shared prefix are
+  // silently truncated here — the length-mismatch warning above already
+  // surfaces the problem at the file level, so renderers can still display
+  // the file without a wall of per-entry drift warnings.
+  const pairCount = Math.min(sessions.length, groups.length);
+  for (let i = 0; i < pairCount; i += 1) {
+    const declared = sessions[i];
+    const group = groups[i] as SessionGroup;
+    if (typeof declared !== "object" || declared === null) continue;
+    const declaredId = (declared as { id?: unknown }).id;
+    const declaredAgent = (declared as { agent?: unknown }).agent;
+    const actualId = group.header.value.id;
+    const actualAgentName =
+      typeof group.header.value.agent === "object" && group.header.value.agent !== null
+        ? (group.header.value.agent as { name?: unknown }).name
+        : undefined;
+
+    if (typeof declaredId === "string" && declaredId !== actualId) {
+      diagnostics.push(
+        createDiagnostic({
+          line: envelopeRecord.line,
+          path: `/sessions/${i}/id`,
+          severity: "warning",
+          code: "envelope_sessions_manifest_drift",
+          message: `envelope.sessions[${i}].id "${declaredId}" does not match session header id "${actualId ?? "<unknown>"}"`,
+        }),
+      );
+    }
+    if (typeof declaredAgent === "string" && declaredAgent !== actualAgentName) {
+      diagnostics.push(
+        createDiagnostic({
+          line: envelopeRecord.line,
+          path: `/sessions/${i}/agent`,
+          severity: "warning",
+          code: "envelope_sessions_manifest_drift",
+          message: `envelope.sessions[${i}].agent "${declaredAgent}" does not match session header agent.name "${typeof actualAgentName === "string" ? actualAgentName : "<unknown>"}"`,
+        }),
+      );
+    }
   }
 
   return diagnostics;

@@ -2,6 +2,12 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
+  canonicalizeRecords,
+  computeContentHash,
+  parseJsonlString,
+  splitSessionGroups,
+} from "@agent-trail/core";
+import {
   IndexCorruptError,
   type IndexFile,
   IndexVersionError,
@@ -118,6 +124,39 @@ export async function runExport(
     }
     throw error;
   }
+
+  // Multi-session extraction (spec §8.6): when `contentHash` keys a session
+  // row whose stored file actually contains ≥2 session groups, slice out the
+  // requested group's canonical bytes (envelope dropped, sibling groups
+  // dropped) so the export is independently verifiable. Single-session files
+  // pass through unchanged.
+  let extractionStderr = "";
+  try {
+    const records = await parseJsonlString(bytes);
+    const split = splitSessionGroups(records);
+    if (split.groups.length > 1) {
+      const matchIndex = split.groups.findIndex(
+        (g) => (g.header.value as { content_hash?: unknown }).content_hash === contentHash,
+      );
+      if (matchIndex !== -1) {
+        const group = split.groups[matchIndex];
+        if (group !== undefined) {
+          const slice = [group.header, ...group.entries];
+          const sliceBytes = canonicalizeRecords(slice);
+          const recomputed = computeContentHash(slice);
+          extractionStderr = `export: extracted session group ${matchIndex + 1} of ${split.groups.length} from multi-session file\n`;
+          if (recomputed !== contentHash) {
+            extractionStderr += `export: warning: extracted session content_hash ${recomputed} does not match stored value ${contentHash}\n`;
+          }
+          bytes = sliceBytes;
+        }
+      }
+    }
+  } catch {
+    // Stored bytes failed to parse — fall through and emit the raw bytes as
+    // today's behavior. The validator surfaces parse errors via `trail
+    // validate` rather than the export verb.
+  }
   if (values.out !== undefined) {
     const outPath = values.out;
     const dirCheck = await checkNotDirectory(outPath);
@@ -139,10 +178,10 @@ export async function runExport(
       }
       throw error;
     }
-    return { exitCode: 0, stdout: "", stderr: "" };
+    return { exitCode: 0, stdout: "", stderr: extractionStderr };
   }
 
-  return { exitCode: 0, stdout: bytes, stderr: "" };
+  return { exitCode: 0, stdout: bytes, stderr: extractionStderr };
 }
 
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;

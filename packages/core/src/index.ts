@@ -8,12 +8,18 @@ export {
 } from "./diagnostics.ts";
 export type { ValidateTrailGraphOptions } from "./graph.ts";
 export { validateTrailGraph } from "./graph.ts";
-export type { ContentHashStatus, StampTrailResult, VerifyContentHashResult } from "./hash.ts";
+export type {
+  ComputeContentHashOptions,
+  ContentHashStatus,
+  StampTrailResult,
+  VerifyContentHashResult,
+} from "./hash.ts";
 export {
   canonicalizeRecords,
   computeContentHash,
   computeTrailEnvelopeContentHash,
   stampTrail,
+  verifyAllSessionContentHashes,
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "./hash.ts";
@@ -53,6 +59,8 @@ export {
   SSH_PRIVATE_KEY,
   STRIPE_API_KEY,
 } from "./secret-patterns.ts";
+export type { SessionGroup, SplitSessionGroupsResult } from "./session-groups.ts";
+export { splitSessionGroups } from "./session-groups.ts";
 export { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
