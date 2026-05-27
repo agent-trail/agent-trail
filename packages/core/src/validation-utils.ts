@@ -13,6 +13,6 @@ export function hasStringParam<T extends string>(
 }
 
 export function isHeaderLikeRecord(record: JsonlRecord): boolean {
-  const recordType = record.value?.type;
+  const recordType = record.value.type;
   return recordType === "trail" || recordType === "session";
 }

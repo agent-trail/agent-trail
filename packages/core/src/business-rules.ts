@@ -37,7 +37,7 @@ export function sourceRawSizeDiagnostics(record: JsonlRecord): Diagnostic[] {
   if (raw === undefined) {
     return [];
   }
-  const bytes = Buffer.byteLength(JSON.stringify(raw) ?? "", "utf8");
+  const bytes = Buffer.byteLength(JSON.stringify(raw), "utf8");
   if (bytes > SOURCE_RAW_HARD_CAP_BYTES) {
     return [
       createDiagnostic({
@@ -115,7 +115,7 @@ export function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
   if (match === null) {
     return [];
   }
-  const password = match[1] ?? "";
+  const password = match[1] as string;
   const severity = URL_ENCODED_OCTET_PATTERN.test(password) ? "error" : "warning";
   return [
     createDiagnostic({

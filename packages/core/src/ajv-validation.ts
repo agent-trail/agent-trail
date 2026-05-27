@@ -65,11 +65,13 @@ export function validateWriterStrictRecord(record: JsonlRecord): Diagnostic[] {
   if (validate(record.value)) {
     return [];
   }
-  return (validate.errors ?? []).map((error) => diagnosticFromSchemaError(error, record.line));
+  return (validate.errors as ErrorObject[]).map((error) =>
+    diagnosticFromSchemaError(error, record.line),
+  );
 }
 
 function pickRecordValidator(record: JsonlRecord): ValidateFunction<unknown> {
-  const recordType = record.value?.type;
+  const recordType = record.value.type;
   if (recordType === "trail") {
     return validateTrailEnvelope;
   }

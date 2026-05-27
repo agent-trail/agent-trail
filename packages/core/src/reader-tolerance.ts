@@ -82,16 +82,18 @@ function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {
     return [];
   }
 
-  return (validateEvent.errors ?? []).filter(isPayloadAdditionalPropertyError).map((error) => {
-    const field = error.params.additionalProperty;
-    return createDiagnostic({
-      line: record.line,
-      path: appendJsonPointerSegment(error.instancePath, field),
-      severity: "warning",
-      code: "reader_tolerant_unknown_payload_field",
-      message: `Unknown payload field "${field}" preserved for reader-tolerant parsing`,
+  return (validateEvent.errors as ErrorObject[])
+    .filter(isPayloadAdditionalPropertyError)
+    .map((error) => {
+      const field = error.params.additionalProperty;
+      return createDiagnostic({
+        line: record.line,
+        path: appendJsonPointerSegment(error.instancePath, field),
+        severity: "warning",
+        code: "reader_tolerant_unknown_payload_field",
+        message: `Unknown payload field "${field}" preserved for reader-tolerant parsing`,
+      });
     });
-  });
 }
 
 function readerTolerantUnknownRecordWarning(record: JsonlRecord): Diagnostic | undefined {
@@ -133,7 +135,7 @@ function hasOnlyReaderTolerantPayloadFieldAdditions(
     return false;
   }
 
-  return (validateEvent.errors ?? []).every(isPayloadAdditionalPropertyError);
+  return (validateEvent.errors as ErrorObject[]).every(isPayloadAdditionalPropertyError);
 }
 
 function isPayloadAdditionalPropertyError(
