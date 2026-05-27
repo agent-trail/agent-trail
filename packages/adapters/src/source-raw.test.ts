@@ -155,3 +155,29 @@ test("enforceSourceRawSize honors AGENT_TRAIL_SOURCE_RAW_HARD_CAP numeric overri
   expect(elided).toBe(false);
   expect(leavesTrimmed).toBe(1);
 });
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is NaN", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, { hardCapBytes: Number.NaN });
+  // NaN must not be honored as a cap; default cap kicks in and trims the leaf.
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
+});
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is negative", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, { hardCapBytes: -1 });
+  // Negative cap is invalid; default cap applies instead of "trim everything".
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
+});
+
+test("enforceSourceRawSize falls back to the default cap when hardCapBytes is Infinity", () => {
+  const value = { envelope: { body: "x".repeat(50_000) } };
+  const { elided, leavesTrimmed } = enforceSourceRawSize(value, {
+    hardCapBytes: Number.POSITIVE_INFINITY,
+  });
+  // Infinity is not a finite cap; default cap applies and trims the leaf.
+  expect(leavesTrimmed).toBe(1);
+  expect(elided).toBe(false);
+});

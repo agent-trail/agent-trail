@@ -40,11 +40,12 @@ function buildRaw<Env extends object, Block extends object>(
   envelopeRef: string | undefined,
 ): Record<string, unknown> {
   if (envelopeRef !== undefined) {
-    return {
+    const raw = {
       envelope_ref: envelopeRef,
       ...(block !== undefined ? { block: redactValue(block) as Block } : {}),
       ...(blockIndex !== undefined ? { block_index: blockIndex } : {}),
     };
+    return enforceSourceRawSize(raw).value as Record<string, unknown>;
   }
   if (block === undefined) {
     return enforceSourceRawSize(redactValue(envelope) as Record<string, unknown>).value as Record<

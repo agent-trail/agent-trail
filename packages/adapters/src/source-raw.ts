@@ -85,7 +85,9 @@ export function enforceSourceRawSize(
 
 function resolveHardCap(provided: number | null | undefined): number | null {
   if (provided !== undefined) {
-    return provided;
+    if (provided === null) return null;
+    if (Number.isFinite(provided) && provided > 0) return provided;
+    return SOURCE_RAW_HARD_CAP_BYTES;
   }
   const env = process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
   if (env === "disabled" || env === "off" || env === "none") {
@@ -172,12 +174,21 @@ export function redactValue(
   return value;
 }
 
+// Patterns are compiled once per distinct source `RegExp` and cached on a
+// WeakMap so redactValue (which calls applyPatterns once per string leaf)
+// does not re-construct identical regexes on every invocation.
+const globalRegexCache = new WeakMap<RegExp, RegExp>();
+
 function applyPatterns(text: string, patterns: readonly RedactionPattern[]): string {
   let current = text;
   for (const pattern of patterns) {
-    const regex = pattern.regex.flags.includes("g")
-      ? new RegExp(pattern.regex.source, pattern.regex.flags)
-      : new RegExp(pattern.regex.source, `${pattern.regex.flags}g`);
+    let regex = globalRegexCache.get(pattern.regex);
+    if (regex === undefined) {
+      regex = pattern.regex.flags.includes("g")
+        ? pattern.regex
+        : new RegExp(pattern.regex.source, `${pattern.regex.flags}g`);
+      globalRegexCache.set(pattern.regex, regex);
+    }
     current = current.replace(regex, pattern.placeholder);
   }
   return current;
