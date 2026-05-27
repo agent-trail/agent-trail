@@ -84,13 +84,7 @@ export type Header = {
     format_version?: string;
   };
   /**
-   * Vendor extensions with reverse-domain keys (e.g., com.example.field)
-   */
-  metadata?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
+   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace (spec §8.0.3).
    */
   meta?: {
     [k: string]: unknown;
@@ -231,7 +225,7 @@ export interface EntryBase {
   };
   semantic?: SemanticMetadata;
   source?: SourceMetadata;
-  metadata?: {
+  meta?: {
     [k: string]: unknown;
   };
 }

@@ -356,13 +356,9 @@
           },
           "additionalProperties": false
         },
-        "metadata": {
-          "type": "object",
-          "description": "Vendor extensions with reverse-domain keys (e.g., com.example.field)"
-        },
         "meta": {
           "type": "object",
-          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace."
+          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace (spec §8.0.3)."
         }
       },
       "additionalProperties": false,
@@ -409,7 +405,7 @@
         "payload": { "type": "object" },
         "semantic": { "$ref": "#/$defs/semanticMetadata" },
         "source": { "$ref": "#/$defs/sourceMetadata" },
-        "metadata": { "type": "object" }
+        "meta": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -982,15 +978,7 @@
                 "branch_summary",
                 "model_change",
                 "session_terminated",
-                "session_end",
-                "session_metadata_update",
-                "attachment_uploaded",
-                "error",
-                "system_message",
-                "permission_request",
-                "permission_response",
-                "cost_report",
-                "signature"
+                "session_end"
               ]
             }
           },
