@@ -57,6 +57,15 @@ export type ReconcileResult = {
   groups: ReconcileGroup[];
   /** Warnings that do not belong to a particular group (e.g., input shape). */
   warnings: ReconcileWarning[];
+  /**
+   * Trail envelopes carried by multi-session inputs (spec §8.6). Reconciler
+   * operates at session grain, so envelopes are split off rather than merged.
+   * Callers reconstructing a multi-session output file may re-envelope using
+   * one of these records (the first non-null when present), but must
+   * recompute the envelope-level `content_hash` since the merged file's bytes
+   * differ. Empty when every input was a single-session, envelope-less trail.
+   */
+  envelopes: JsonlRecord[];
 };
 
 type Header = {
@@ -92,8 +101,9 @@ export function reconcileSegments(inputs: SegmentInput[]): ReconcileResult {
   // session file feeds N virtual SegmentInputs sharing the parent source
   // label but partitioned by `(header, events)` group. This lets the existing
   // group-by-session_uid algorithm operate uniformly across single-session
-  // peers and multi-session files.
-  const splitInputs = explodeMultiSessionInputs(inputs);
+  // peers and multi-session files. Envelopes are captured separately on the
+  // result so callers can re-envelope downstream.
+  const { inputs: splitInputs, envelopes } = explodeMultiSessionInputs(inputs);
 
   for (const input of splitInputs) {
     const header = findHeader(input.records);
@@ -140,11 +150,15 @@ export function reconcileSegments(inputs: SegmentInput[]): ReconcileResult {
     outGroups.push(mergeGroup(sessionUid, members));
   }
 
-  return { groups: outGroups, warnings };
+  return { groups: outGroups, warnings, envelopes };
 }
 
-function explodeMultiSessionInputs(inputs: SegmentInput[]): SegmentInput[] {
+function explodeMultiSessionInputs(inputs: SegmentInput[]): {
+  inputs: SegmentInput[];
+  envelopes: JsonlRecord[];
+} {
   const out: SegmentInput[] = [];
+  const envelopes: JsonlRecord[] = [];
   for (const input of inputs) {
     const split = splitSessionGroups(input.records);
     if (split.groups.length <= 1) {
@@ -154,7 +168,10 @@ function explodeMultiSessionInputs(inputs: SegmentInput[]): SegmentInput[] {
       continue;
     }
     // Multi-session file (spec §8.6): each group becomes its own virtual
-    // segment input. Envelope is dropped — segments live at session grain.
+    // segment input. Envelope is split off and surfaced on the result so
+    // callers reconstructing a multi-session output can re-envelope; the
+    // reconciler itself operates strictly at session grain.
+    if (split.envelope !== null) envelopes.push(split.envelope);
     for (let i = 0; i < split.groups.length; i += 1) {
       const group = split.groups[i] as { header: JsonlRecord; entries: JsonlRecord[] };
       out.push({
@@ -163,7 +180,7 @@ function explodeMultiSessionInputs(inputs: SegmentInput[]): SegmentInput[] {
       });
     }
   }
-  return out;
+  return { inputs: out, envelopes };
 }
 
 function passThrough(input: SegmentInput, sessionUid: string | null): ReconcileGroup {

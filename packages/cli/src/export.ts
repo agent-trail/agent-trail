@@ -130,7 +130,7 @@ export async function runExport(
   // requested group's canonical bytes (envelope dropped, sibling groups
   // dropped) so the export is independently verifiable. Single-session files
   // pass through unchanged.
-  let extractionWarning = "";
+  let extractionStderr = "";
   try {
     const records = await parseJsonlString(bytes);
     const split = splitSessionGroups(records);
@@ -144,8 +144,9 @@ export async function runExport(
           const slice = [group.header, ...group.entries];
           const sliceBytes = canonicalizeRecords(slice);
           const recomputed = computeContentHash(slice);
+          extractionStderr = `export: extracted session group ${matchIndex + 1} of ${split.groups.length} from multi-session file\n`;
           if (recomputed !== contentHash) {
-            extractionWarning = `export: extracted session content_hash ${recomputed} does not match stored value ${contentHash}\n`;
+            extractionStderr += `export: warning: extracted session content_hash ${recomputed} does not match stored value ${contentHash}\n`;
           }
           bytes = sliceBytes;
         }
@@ -177,10 +178,10 @@ export async function runExport(
       }
       throw error;
     }
-    return { exitCode: 0, stdout: "", stderr: extractionWarning };
+    return { exitCode: 0, stdout: "", stderr: extractionStderr };
   }
 
-  return { exitCode: 0, stdout: bytes, stderr: extractionWarning };
+  return { exitCode: 0, stdout: bytes, stderr: extractionStderr };
 }
 
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;

@@ -101,6 +101,10 @@ export function computeContentHash(
  * Multi-session files (spec §8.6): each group's session-level hash is computed
  * over only its own slice, so an extracted single-session file recomputes the
  * same digest as the in-file value.
+ *
+ * Slicing uses `group.startLine` / `group.endLineExclusive` rather than object
+ * reference identity so callers that pass a copied or re-serialized record
+ * list still hash the correct slice.
  */
 function sliceSessionGroup(records: JsonlRecord[], groupIndex: number): JsonlRecord[] {
   const split = splitSessionGroups(records);
@@ -108,16 +112,7 @@ function sliceSessionGroup(records: JsonlRecord[], groupIndex: number): JsonlRec
   if (group === undefined) {
     return records;
   }
-  const headerPos = records.indexOf(group.header);
-  if (headerPos === -1) {
-    return records;
-  }
-  const next = split.groups[groupIndex + 1];
-  if (next === undefined) {
-    return records.slice(headerPos);
-  }
-  const nextPos = records.indexOf(next.header);
-  return records.slice(headerPos, nextPos === -1 ? undefined : nextPos);
+  return records.filter((r) => r.line >= group.startLine && r.line < group.endLineExclusive);
 }
 
 /**

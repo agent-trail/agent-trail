@@ -102,6 +102,26 @@ describe("splitSessionGroups", () => {
     expect(split.groups[2]?.endLineExclusive).toBe(7);
   });
 
+  test("session record with non-0.1.0 schema_version is tracked in malformedHeaderLines but still opens a group", async () => {
+    const records = await parseJsonlString(
+      [
+        '{"type":"session","schema_version":"0.1.0","id":"01H000000000000000000000S1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+        '{"type":"user_message","id":"01H000000000000000000000E1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"a"}}',
+        '{"type":"session","schema_version":"0.2.0","id":"01H000000000000000000000S2","ts":"2026-05-17T14:05:00.000Z","agent":{"name":"claude-code"}}',
+        '{"type":"user_message","id":"01H000000000000000000000E2","ts":"2026-05-17T14:05:05.000Z","payload":{"text":"b"}}',
+      ].join("\n"),
+    );
+
+    const split = splitSessionGroups(records);
+
+    expect(split.malformedHeaderLines).toEqual([3]);
+    // Boundary recovery (spec §8.6.2): the malformed header still opens a new
+    // group so subsequent events are not orphaned.
+    expect(split.groups).toHaveLength(2);
+    expect(split.groups[1]?.header.line).toBe(3);
+    expect(split.groups[1]?.entries).toHaveLength(1);
+  });
+
   test("orphan prelude → events before first session header captured", async () => {
     const records = await parseJsonlString(
       [

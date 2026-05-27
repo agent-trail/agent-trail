@@ -679,6 +679,47 @@ test("invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl warns envelo
   });
 });
 
+test("valid/multi-session-two-no-envelope.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multi-session-two-no-envelope.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/multi-session-with-envelope.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multi-session-with-envelope.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/multi-session-fork-from-chain.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/multi-session-fork-from-chain.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-graph/multi-session-orphan-prelude.trail.jsonl reports events_before_first_session_header", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/multi-session-orphan-prelude.trail.jsonl"),
+  );
+  expect(
+    diagnostics.some(
+      (d) => d.severity === "error" && d.code === "events_before_first_session_header",
+    ),
+  ).toBe(true);
+});
+
+test("invalid-graph/multi-session-cross-group-parent.trail.jsonl reports unknown_parent_id", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/multi-session-cross-group-parent.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.severity === "error" && d.code === "unknown_parent_id")).toBe(
+    true,
+  );
+});
+
 test("valid/multi-segment-seg1.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/multi-segment-seg1.trail.jsonl"),

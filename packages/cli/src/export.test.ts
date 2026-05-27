@@ -340,7 +340,7 @@ test("export <session-hash> on a multi-session file emits just that group's byte
   const sess2Hash = stamped.sessionHashes[1] as string;
   const result = await runExport([sess2Hash], { storeRoot });
   expect(result.exitCode).toBe(0);
-  expect(result.stderr).toBe("");
+  expect(result.stderr).toBe("export: extracted session group 2 of 2 from multi-session file\n");
 
   const exported = await parseJsonlString(result.stdout);
   expect(exported).toHaveLength(2); // header + 1 event

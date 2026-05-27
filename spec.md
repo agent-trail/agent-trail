@@ -451,7 +451,7 @@ group      := <one JSONL record with type:"session"> events*
 events     := zero or more event records (§9)
 ```
 
-The trail envelope (§8.0) remains optional even when N ≥ 2. When absent, file-level identity defaults from §8.0.5 apply (no file-level `content_hash` is meaningful; only per-session hashes).
+The trail envelope (§8.0) remains optional even when N ≥ 2. When present with N ≥ 2 groups, the file-level `content_hash` on the envelope covers all N groups' already-stamped session hashes, applying the §7.4 two-pass procedure unchanged (every session hash stamped first; envelope hash stamped over the finalized record set). When absent, file-level identity defaults from §8.0.5 apply (no file-level `content_hash` is meaningful; only per-session hashes).
 
 #### 8.6.2 Group boundaries and reader-tolerant recovery
 

@@ -461,6 +461,11 @@ export function envelopeSessionsManifestWarnings(
     );
   }
 
+  // Per-entry id/agent checks run on the prefix common to both arrays. Extra
+  // manifest entries (or extra file groups) past the shared prefix are
+  // silently truncated here — the length-mismatch warning above already
+  // surfaces the problem at the file level, so renderers can still display
+  // the file without a wall of per-entry drift warnings.
   const pairCount = Math.min(sessions.length, groups.length);
   for (let i = 0; i < pairCount; i += 1) {
     const declared = sessions[i];

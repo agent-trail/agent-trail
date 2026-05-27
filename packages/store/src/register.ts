@@ -77,17 +77,19 @@ export async function registerTrail(
 
   const split = splitSessionGroups(records);
   const sessionResults = verifyAllSessionContentHashes(records);
-  const allFinalized = sessionResults.every((r) => r.status === "match");
-  if (sessionResults.length === 0 || !allFinalized) {
-    return {
-      status: "skipped_pending",
-      contentHash: null,
-      objectPath: null,
-      diagnostics: [],
-    };
-  }
   const envelopeResult = split.envelope !== null ? verifyTrailEnvelopeContentHash(records) : null;
-  if (envelopeResult !== null && envelopeResult.status !== "match") {
+
+  // Per-group finalize policy (spec §8.6): a multi-session file may carry a
+  // mix of finalized and pending groups. Register every finalized group; skip
+  // pending ones without blocking siblings. Register the envelope row only
+  // when the envelope itself is finalized. Returns `skipped_pending` only
+  // when nothing was registerable.
+  const finalizedSessionIndexes: number[] = [];
+  for (let i = 0; i < sessionResults.length; i += 1) {
+    if (sessionResults[i]?.status === "match") finalizedSessionIndexes.push(i);
+  }
+  const envelopeFinalized = envelopeResult?.status === "match";
+  if (finalizedSessionIndexes.length === 0 && !envelopeFinalized) {
     return {
       status: "skipped_pending",
       contentHash: null,
@@ -97,18 +99,25 @@ export async function registerTrail(
   }
 
   // Multi-session files (spec §8.6) write one blob keyed by the envelope hash
-  // when present, and one blob per session keyed by its session-level hash.
-  // Object storage dedups identical bytes; the index just gains N+1 rows
-  // pointing at the same source_path with distinct `kind` discriminators.
+  // when present, and one blob per finalized session keyed by its session-
+  // level hash. Object storage dedups identical bytes. The index gains N+1
+  // rows pointing at the same source_path with distinct `kind` discriminators
+  // — `trail list` therefore renders N session rows plus one trail row per
+  // multi-session file rather than a single row per file.
   const canonical = canonicalizeRecords(records);
   const sourcePath = opts.sourcePath === undefined ? resolvePath(filePath) : opts.sourcePath;
   const registeredAt = new Date().toISOString();
 
-  // The "primary" content hash returned in RegisterResult: envelope hash when
-  // present (file-level identity), otherwise the first session hash. Mirrors
-  // finalize-redacted's identity choice (spec §8.0.5 file-identity default).
-  const primaryHash = envelopeResult?.expected ?? (sessionResults[0]?.expected as string | null);
-  if (primaryHash === null || primaryHash === undefined) {
+  // The "primary" content hash returned in RegisterResult is the file-level
+  // identity. Envelope hash when present (spec §7.4 file-level hash); else
+  // the first finalized session hash as the surrogate file identity (spec
+  // §8.0.5 envelope-absent default). `finalize-redacted.ts` makes the same
+  // choice so register + share/transport agree on identity.
+  const primaryHash =
+    envelopeResult?.status === "match"
+      ? (envelopeResult.expected as string)
+      : (sessionResults[finalizedSessionIndexes[0] ?? 0]?.expected as string | undefined);
+  if (primaryHash === undefined) {
     return {
       status: "skipped_pending",
       contentHash: null,
@@ -127,13 +136,11 @@ export async function registerTrail(
     status = "finalized";
   }
 
-  // Per-session index rows. Each row carries the same source_path; the file's
-  // canonical bytes already sit at `primaryTarget` so the per-session blobs
-  // would be duplicates. Store the same canonical bytes under each session
-  // hash too so `trail export <session-hash>` can resolve directly without
-  // re-loading the multi-session parent.
+  // Per-session index rows for every finalized group. Pending groups are
+  // skipped silently; a subsequent register call on the (now-finalized) file
+  // picks them up.
   const sessionUidByGroup = split.groups.map(extractSessionUidFromHeader);
-  for (let i = 0; i < sessionResults.length; i += 1) {
+  for (const i of finalizedSessionIndexes) {
     const hash = sessionResults[i]?.expected;
     if (typeof hash !== "string") continue;
     const target = computeObjectPath(storeRoot, hash);
@@ -153,8 +160,8 @@ export async function registerTrail(
     await upsertIndexEntry(storeRoot, hash, entry);
   }
 
-  // Envelope (file-level) row when present.
-  if (envelopeResult?.expected && typeof envelopeResult.expected === "string") {
+  // Envelope (file-level) row when present and finalized.
+  if (envelopeFinalized && typeof envelopeResult?.expected === "string") {
     const entry: IndexEntry = {
       registered_at: registeredAt,
       source_path: sourcePath,

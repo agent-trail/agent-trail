@@ -542,6 +542,37 @@ test("open final segment: merged header keeps stream.state open and omits conten
   expect(group.canonical).toBe(canonicalizeRecords(group.records));
 });
 
+test("multi-session input with envelope surfaces envelope on ReconcileResult.envelopes for re-envelope", async () => {
+  const file = `${[
+    JSON.stringify({
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "01HTRAIL00000000000000A001",
+      ts: "2026-05-26T10:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+    }),
+    trailHeader({
+      id: "01HSESS000000000000000FILE1",
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: SESSION_UID,
+    }),
+    userMessage("01HEVT0000000000000000FILE1", "2026-05-26T10:00:05.000Z", "a"),
+    trailHeader({
+      id: "01HSESS000000000000000FILE2",
+      ts: "2026-05-26T10:10:00.000Z",
+      session_uid: SESSION_UID_B,
+    }),
+    userMessage("01HEVT0000000000000000FILE2", "2026-05-26T10:10:05.000Z", "b"),
+  ].join("\n")}\n`;
+  const parsed = await records(file);
+  const result = reconcileSegments([{ source: "envelope-file", records: parsed }]);
+
+  expect(result.envelopes).toHaveLength(1);
+  expect(result.envelopes[0]?.value.type).toBe("trail");
+  expect(result.envelopes[0]?.value.id).toBe("01HTRAIL00000000000000A001");
+  expect(result.groups).toHaveLength(2);
+});
+
 test("multi-session input splits into per-session sub-inputs and reconciles each independently", async () => {
   // One file contains two session groups; another file contains a segment
   // for one of those sessions. After split-then-group, we expect two
