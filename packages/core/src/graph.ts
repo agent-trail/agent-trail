@@ -67,13 +67,18 @@ export function validateTrailGraph(
     }
   }
 
-  const readerTolerantHeaderPatch =
-    profile === "reader-tolerant" && isReaderCompatiblePatchHeader(headerRecord);
-  const headerValid =
-    headerRecord !== undefined &&
-    headerRecord.value.type === "session" &&
-    (headerRecord.value.schema_version === "0.1.0" || readerTolerantHeaderPatch);
-  if (!headerValid) {
+  // Per-group header validity (spec §8.6.3). Each session header is validated
+  // independently — a malformed header in any group does not silence checks on
+  // siblings. The file-level "missing first header" diagnostic still fires
+  // when the file has no recognizable session header at all.
+  const headerValidByGroup = split.groups.map(
+    (g) =>
+      g.header.value.type === "session" &&
+      (g.header.value.schema_version === "0.1.0" ||
+        (profile === "reader-tolerant" && isReaderCompatiblePatchHeader(g.header))),
+  );
+  const firstGroupValid = headerValidByGroup[0] ?? false;
+  if (!firstGroupValid) {
     if (envelopeRecord !== undefined) {
       diagnostics.push(
         createDiagnostic({
@@ -97,16 +102,24 @@ export function validateTrailGraph(
         }),
       );
     }
-  } else if (headerRecord.value.parent_id !== undefined && headerRecord.value.parent_id !== null) {
-    diagnostics.push(
-      createDiagnostic({
-        line: headerRecord.line,
-        path: "/parent_id",
-        severity: "error",
-        code: "header_has_parent_id",
-        message: "Session header must not have a parent_id",
-      }),
-    );
+  }
+
+  // Every group's header (not just the first) MUST NOT carry a parent_id —
+  // session headers are not part of the event graph. Per-record ajv catches
+  // some shapes, but `parent_id: null` slips past schema and lands here.
+  for (const group of split.groups) {
+    const parentId = group.header.value.parent_id;
+    if (parentId !== undefined && parentId !== null) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/parent_id",
+          severity: "error",
+          code: "header_has_parent_id",
+          message: "Session header must not have a parent_id",
+        }),
+      );
+    }
   }
 
   // Orphan prelude (spec §8.6): records between the envelope (if any) and the
@@ -141,16 +154,23 @@ export function validateTrailGraph(
     }
     diagnostics.push(...envelopeSessionsManifestWarnings(envelopeRecord, split.groups));
   }
-  if (readerTolerantHeaderPatch && headerRecord !== undefined) {
-    diagnostics.push(
-      createDiagnostic({
-        line: headerRecord.line,
-        path: "/schema_version",
-        severity: "warning",
-        code: "reader_tolerant_schema_version",
-        message: `schema_version "${headerRecord.value.schema_version}" accepted by reader-tolerant patch compatibility`,
-      }),
-    );
+  // Per-group reader-tolerant patch-version warning (spec §6). Each group's
+  // header is independently versioned; a 0.1.x patch acceptance applies per
+  // header, not just the first.
+  if (profile === "reader-tolerant") {
+    for (const group of split.groups) {
+      if (isReaderCompatiblePatchHeader(group.header)) {
+        diagnostics.push(
+          createDiagnostic({
+            line: group.header.line,
+            path: "/schema_version",
+            severity: "warning",
+            code: "reader_tolerant_schema_version",
+            message: `schema_version "${group.header.value.schema_version}" accepted by reader-tolerant patch compatibility`,
+          }),
+        );
+      }
+    }
   }
 
   // Header-and-event IDs are globally unique within a file (spec §7.5), so
@@ -174,26 +194,32 @@ export function validateTrailGraph(
     runParentChecks(group.entries, groupIds, diagnostics);
   }
 
-  if (headerValid) {
-    for (const group of split.groups) {
-      diagnostics.push(...streamConsistencyWarnings(group.header, group.entries));
-      diagnostics.push(...unmatchedToolCallWarnings(group.entries));
-      const groupIdLines = collectGroupIds(group);
-      const groupHeaderId =
-        typeof group.header.value.id === "string" ? group.header.value.id : undefined;
-      diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));
-      diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
-      diagnostics.push(...agentMessageUsageWarnings(group.entries));
-    }
-    if (split.groups.length > 1) {
-      diagnostics.push(...outOfOrderSessionHeadersWarnings(split.groups));
-      diagnostics.push(...vcsRevisionDivergenceWarnings(split.groups));
-      diagnostics.push(...crossGroupForkFromWarnings(split.groups));
-    }
+  // Per-group downstream checks. A group with an invalid header is skipped
+  // individually — sibling groups with valid headers still get their checks.
+  for (let i = 0; i < split.groups.length; i += 1) {
+    if (!headerValidByGroup[i]) continue;
+    const group = split.groups[i] as SessionGroup;
+    diagnostics.push(...streamConsistencyWarnings(group.header, group.entries));
+    diagnostics.push(...unmatchedToolCallWarnings(group.entries));
+    const groupIdLines = collectGroupIds(group);
+    const groupHeaderId =
+      typeof group.header.value.id === "string" ? group.header.value.id : undefined;
+    diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));
+    diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
+    diagnostics.push(...agentMessageUsageWarnings(group.entries));
+  }
+  // File-scoped cross-group warnings only fire when there are ≥2 groups AND
+  // every group has a valid header (otherwise the cross-group comparison
+  // would compare against malformed inputs).
+  if (split.groups.length > 1 && headerValidByGroup.every(Boolean)) {
+    diagnostics.push(...outOfOrderSessionHeadersWarnings(split.groups));
+    diagnostics.push(...vcsRevisionDivergenceWarnings(split.groups));
+    diagnostics.push(...crossGroupForkFromWarnings(split.groups));
   }
 
-  if (canonicalBytesComplete && headerValid) {
+  if (canonicalBytesComplete) {
     for (let i = 0; i < split.groups.length; i += 1) {
+      if (!headerValidByGroup[i]) continue;
       const group = split.groups[i] as SessionGroup;
       const hashResult = verifyContentHash(records, { groupIndex: i });
       if (hashResult.status === "invalid") {

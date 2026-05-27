@@ -20,6 +20,37 @@ function header(line = 1, overrides: Record<string, unknown> = {}): JsonlRecord 
   });
 }
 
+test("emits header_has_parent_id for a non-first session group's header (spec §8.6.3 per-group validation)", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      record(1, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000001",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      }),
+      record(2, {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+        parent_id: "01HSESS0000000000000000001",
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/parent_id",
+    severity: "error",
+    code: "header_has_parent_id",
+    message: "Session header must not have a parent_id",
+  });
+});
+
 test("accepts a multi-session trail with two well-formed session groups (spec §8.6)", () => {
   const diagnostics = validateTrailGraph(
     [

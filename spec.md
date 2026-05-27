@@ -444,7 +444,7 @@ A trail file MAY contain one OR more `(session header, events*)` groups concaten
 
 #### 8.6.1 File grammar
 
-```
+```text
 trail-file := envelope? group+
 envelope   := <one JSONL record with type:"trail"> on line 1
 group      := <one JSONL record with type:"session"> events*
