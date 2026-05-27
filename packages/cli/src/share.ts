@@ -142,7 +142,7 @@ export async function runShare(
       jsonl = await readFile(reg.objectPath);
       payloadHash = reg.contentHash;
     } else {
-      const { canonical, contentHash } = finalizeRedactedTrail(redactedRecords ?? []);
+      const { canonical, contentHash } = finalizeRedactedTrail(redactedRecords as JsonlRecord[]);
       payloadHash = contentHash;
       jsonl = Buffer.from(canonical, "utf8");
     }
