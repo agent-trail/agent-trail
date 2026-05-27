@@ -107,7 +107,6 @@ test("two segments same session_uid, valid chain → merged, header ts from seg-
   expect(group.session_uid).toBe(SESSION_UID);
   expect(group.segments).toEqual(["seg1", "seg2"]);
   expect(group.events_deduped).toBe(0);
-  expect(group.intermediate_terminators_dropped).toBe(0);
 
   // ts comes from seg-1 (real start), cwd from seg-2 (latest state).
   const header = group.records[0]?.value as Record<string, unknown>;
@@ -236,8 +235,8 @@ test("intermediate session_terminated{process_terminated} is dropped, terminal o
     { source: "seg2", records: await records(seg2Text) },
   ]);
   const group = result.groups[0];
-  expect(group?.intermediate_terminators_dropped).toBe(1);
   // header + user_message + agent_message + terminal session_terminated
+  // (intermediate process_terminated marker from seg1 is dropped)
   expect(group?.records).toHaveLength(4);
   const types = group?.records.map((r) => (r.value as { type: string }).type);
   expect(types?.[types.length - 1]).toBe("session_terminated");
@@ -245,6 +244,14 @@ test("intermediate session_terminated{process_terminated} is dropped, terminal o
     (group?.records[group.records.length - 1]?.value as { payload: { reason: string } }).payload
       .reason,
   ).toBe("complete");
+  // Explicit assertion that no intermediate process_terminated markers
+  // survived the merge — record count alone is an indirect proxy.
+  const intermediateTerminators = group?.records.filter(
+    (r) =>
+      (r.value as { type: string }).type === "session_terminated" &&
+      (r.value as { payload?: { reason?: string } }).payload?.reason === "process_terminated",
+  );
+  expect(intermediateTerminators).toHaveLength(0);
 });
 
 test("two different session_uids → two merged groups returned", async () => {
@@ -438,7 +445,6 @@ test("round-trip: 4-segment capture with kills at 3 points reconciles to bytes-e
   expect(group.warnings).toEqual([]);
   expect(group.segments).toEqual(["seg1", "seg2", "seg3", "seg4"]);
   expect(group.events_deduped).toBe(3);
-  expect(group.intermediate_terminators_dropped).toBe(3);
 
   // The round-trip property: merged canonical bytes equal the reference.
   expect(group.canonical).toBe(referenceCanonical);
