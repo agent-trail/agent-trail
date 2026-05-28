@@ -142,12 +142,7 @@ export function parsePiJsonl(text: string): TrailFile {
     }
   }
 
-  const synthesizedTerminated = buildSynthesizedSessionTerminated(
-    ctx,
-    header.session_uid,
-    built,
-    header,
-  );
+  const synthesizedTerminated = buildSynthesizedSessionTerminated(ctx, built, header);
   if (synthesizedTerminated !== undefined) {
     built.push({ entry: synthesizedTerminated, parentSourceId: null });
   }
@@ -174,7 +169,6 @@ export function parsePiJsonl(text: string): TrailFile {
 // not duplicate sequential pairing to avoid silent drift with the validator.
 function buildSynthesizedSessionTerminated(
   ctx: PiEntryIdCtx,
-  sessionUid: string,
   built: BuiltEntry[],
   header: Header,
 ): Entry | undefined {
@@ -215,12 +209,11 @@ function buildSynthesizedSessionTerminated(
   // entry within the session timeline and is spec-compliant per §9.3.
   const lastTs = built[built.length - 1]?.entry.ts ?? header.ts;
   // Synthesized session_terminated needs a globally-unique id that satisfies
-  // the v0.1 ULID/UUID id regex. Deterministic v5 derived from session_uid +
-  // open call ids keeps re-parses idempotent per spec §8.5. session_uid is
-  // explicit in the seed even though the open call ids are themselves derived
-  // from it — keeps the invariant obvious at the call site and matches the
-  // shape used by synthesizeInterrupt / the entry-id ctx.
-  const synthId = ctx.deriveSynthesizedId([sessionUid, "session_terminated_eof", ...openCallIds]);
+  // the v0.1 ULID/UUID id regex. ctx.deriveSynthesizedId already prepends
+  // session_uid to the seed, so re-parses are idempotent per spec §8.5 and
+  // cross-session collisions are impossible without us spelling session_uid
+  // here.
+  const synthId = ctx.deriveSynthesizedId(["session_terminated_eof", ...openCallIds]);
   const schemaVersion = header.agent.version;
   return {
     type: "session_terminated",

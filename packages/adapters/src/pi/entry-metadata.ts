@@ -42,7 +42,14 @@ export function makePiEntryIdCtx(sessionUid: string): PiEntryIdCtx {
     }),
     deriveBlockId: (sourceId, blockIndex) =>
       deriveSynthesizedEntryId(PI_ENTRY_ID_NAMESPACE, [sessionUid, sourceId, String(blockIndex)]),
-    deriveSynthesizedId: (parts) => deriveSynthesizedEntryId(PI_ENTRY_ID_NAMESPACE, parts),
+    // sessionUid is prepended here (not at call sites) so every synthesized
+    // id is session-scoped by construction. Callers pass only the
+    // disambiguator parts (e.g. ["aborted", source_id] or
+    // ["session_terminated_eof", ...openCallIds]); avoiding the prefix at the
+    // call site means a forgotten prepend can't silently alias ids across
+    // sessions.
+    deriveSynthesizedId: (parts) =>
+      deriveSynthesizedEntryId(PI_ENTRY_ID_NAMESPACE, [sessionUid, ...parts]),
   };
 }
 
