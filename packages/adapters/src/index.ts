@@ -11,6 +11,14 @@ export type SessionRef = {
   path?: string;
   cwd?: string;
   modifiedAt?: string;
+  /**
+   * Provenance of `id`. `"header"` means the adapter read the canonical id out
+   * of the session header. `"filename-fallback"` means the header was
+   * unreadable and the id was reconstructed from the filename — downstream
+   * consumers should treat the session as suspect (truncated / corrupted).
+   * Optional; adapters that can't distinguish leave it unset.
+   */
+  headerStatus?: "header" | "filename-fallback";
 };
 
 export type DetectOptions = {
@@ -30,6 +38,7 @@ export interface TrailAdapter {
 export type ValidateAdapterTrailOptions = { profile?: ValidationProfile };
 
 export { claudeCodeAdapter } from "./claude-code/index.ts";
+export { codexAdapter } from "./codex/index.ts";
 export type { BuildTrailEnvelopeOptions } from "./envelope.ts";
 export { buildTrailEnvelope } from "./envelope.ts";
 export { piAdapter } from "./pi/index.ts";

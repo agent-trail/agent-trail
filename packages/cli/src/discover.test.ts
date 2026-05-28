@@ -19,7 +19,7 @@ function manglePi(cwd: string): string {
 }
 
 type Seed = {
-  agent: "claude-code" | "pi";
+  agent: "claude-code" | "pi" | "codex";
   id: string;
   cwd: string;
   modifiedAt: string;
@@ -28,16 +28,44 @@ type Seed = {
 
 function seedSession(seed: Seed): string {
   let dir: string;
+  let filename: string;
+  let header: Record<string, unknown>;
   if (seed.agent === "claude-code") {
     const configDir = process.env.CLAUDE_CONFIG_DIR as string;
     dir = join(configDir, "projects", mangleClaude(seed.cwd));
-  } else {
+    filename = `${seed.id}.jsonl`;
+    header = seed.header ?? { type: "session", sessionId: seed.id, cwd: seed.cwd };
+  } else if (seed.agent === "pi") {
     const sessionsDir = process.env.PI_CODING_AGENT_SESSION_DIR as string;
     dir = join(sessionsDir, manglePi(seed.cwd));
+    filename = `${seed.id}.jsonl`;
+    header = seed.header ?? { type: "session", sessionId: seed.id, cwd: seed.cwd };
+  } else {
+    // Codex CLI stores at <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl.
+    // The header is a desktop-wrapped `session_meta` envelope; cwd lives at
+    // `payload.cwd`. There is no per-cwd subdir — the adapter filters by
+    // reading each file's header cwd.
+    const codexHome = process.env.CODEX_HOME as string;
+    const d = new Date(seed.modifiedAt);
+    const y = String(d.getUTCFullYear());
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    dir = join(codexHome, "sessions", y, m, dd);
+    filename = `rollout-${seed.modifiedAt.replace(/[:.]/g, "-")}-${seed.id}.jsonl`;
+    header = seed.header ?? {
+      timestamp: seed.modifiedAt,
+      type: "session_meta",
+      payload: {
+        id: seed.id,
+        timestamp: seed.modifiedAt,
+        cwd: seed.cwd,
+        originator: "codex_sdk_ts",
+        cli_version: "0.98.0",
+      },
+    };
   }
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${seed.id}.jsonl`);
-  const header = seed.header ?? { type: "session", sessionId: seed.id, cwd: seed.cwd };
+  const file = join(dir, filename);
   writeFileSync(file, `${JSON.stringify(header)}\n`);
   const ts = new Date(seed.modifiedAt);
   utimesSync(file, ts, ts);
@@ -49,9 +77,11 @@ let prevUserProfile: string | undefined;
 let prevClaudeConfigDir: string | undefined;
 let prevPiAgentDir: string | undefined;
 let prevPiSessionDir: string | undefined;
+let prevCodexHome: string | undefined;
 let prevCwd: string;
 let claudeConfigDir: string;
 let piSessionsDir: string;
+let codexHome: string;
 let tmpCwd: string;
 
 beforeEach(() => {
@@ -60,14 +90,17 @@ beforeEach(() => {
   prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
   prevPiAgentDir = process.env.PI_CODING_AGENT_DIR;
   prevPiSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
+  prevCodexHome = process.env.CODEX_HOME;
   prevCwd = process.cwd();
   claudeConfigDir = mkdtempSync(join(tmpdir(), "discover-claude-"));
   piSessionsDir = mkdtempSync(join(tmpdir(), "discover-pi-"));
+  codexHome = mkdtempSync(join(tmpdir(), "discover-codex-"));
   tmpCwd = mkdtempSync(join(tmpdir(), "discover-cwd-"));
   process.env.HOME = mkdtempSync(join(tmpdir(), "discover-home-"));
   delete process.env.USERPROFILE;
   process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
   process.env.PI_CODING_AGENT_SESSION_DIR = piSessionsDir;
+  process.env.CODEX_HOME = codexHome;
   delete process.env.PI_CODING_AGENT_DIR;
   process.chdir(tmpCwd);
   // On macOS /tmp resolves through /private — re-read so seed mangling matches
@@ -87,8 +120,11 @@ afterEach(() => {
   else process.env.PI_CODING_AGENT_DIR = prevPiAgentDir;
   if (prevPiSessionDir === undefined) delete process.env.PI_CODING_AGENT_SESSION_DIR;
   else process.env.PI_CODING_AGENT_SESSION_DIR = prevPiSessionDir;
+  if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = prevCodexHome;
   rmSync(claudeConfigDir, { recursive: true, force: true });
   rmSync(piSessionsDir, { recursive: true, force: true });
+  rmSync(codexHome, { recursive: true, force: true });
   rmSync(tmpCwd, { recursive: true, force: true });
 });
 
@@ -131,6 +167,12 @@ test("--all walks every project dir across adapters", async () => {
     cwd: "/tmp/proj/b",
     modifiedAt: "2026-05-18T14:00:00.000Z",
   });
+  seedSession({
+    agent: "codex",
+    id: "019d9000-3333-7000-a000-000000000003",
+    cwd: "/tmp/proj/c",
+    modifiedAt: "2026-05-19T14:00:00.000Z",
+  });
   const result = await runDiscover(["--json", "--all"]);
   expect(result.exitCode).toBe(0);
   const parsed = JSON.parse(result.stdout) as Array<{
@@ -142,9 +184,31 @@ test("--all walks every project dir across adapters", async () => {
     .map((r) => ({ id: r.id, adapter: r.adapter, cwd: r.cwd }))
     .sort((a, b) => a.id.localeCompare(b.id));
   expect(summary).toEqual([
+    { id: "019d9000-3333-7000-a000-000000000003", adapter: "codex", cwd: "/tmp/proj/c" },
     { id: "sess-cc-a", adapter: "claude-code", cwd: "/tmp/proj/a" },
     { id: "sess-pi-b", adapter: "pi", cwd: "/tmp/proj/b" },
   ]);
+});
+
+test("--agent codex finds codex sessions by header cwd", async () => {
+  seedSession({
+    agent: "codex",
+    id: "019d9000-3333-7000-a000-cccccccccccc",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+  seedSession({
+    agent: "codex",
+    id: "019d9001-3333-7000-a000-dddddddddddd",
+    cwd: "/somewhere/else",
+    modifiedAt: "2026-05-18T14:00:00.000Z",
+  });
+  const result = await runDiscover(["--json", "--agent", "codex"]);
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string; adapter: string; cwd: string }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]?.adapter).toBe("codex");
+  expect(parsed[0]?.id).toBe("019d9000-3333-7000-a000-cccccccccccc");
+  expect(parsed[0]?.cwd).toBe(tmpCwd);
 });
 
 test("--agent filters to a single adapter", async () => {
