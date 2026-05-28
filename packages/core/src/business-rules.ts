@@ -148,8 +148,7 @@ function walkStringLeaves(
 ): void {
   const stack: Array<{ value: unknown; path: string }> = [{ value: root, path: rootPath }];
   while (stack.length > 0) {
-    const frame = stack.pop() as { value: unknown; path: string };
-    const { value, path } = frame;
+    const { value, path } = stack.pop()!;
     if (typeof value === "string") {
       visit(value, path);
       continue;
