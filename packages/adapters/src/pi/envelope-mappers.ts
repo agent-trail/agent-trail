@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
 import type { Entry } from "@agent-trail/types";
 import { pickBlockId } from "../entries.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
-import { baseEntry, entryId, stampRawType } from "./entry-metadata.ts";
+import { baseEntry, type PiEntryIdCtx, stampRawType } from "./entry-metadata.ts";
 import {
   asBlocks,
   idValue,
@@ -15,10 +14,10 @@ import {
 } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
-function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+function mapUserEnvelope(ctx: PiEntryIdCtx, envelope: PiEnvelope, schemaVersion?: string): Entry[] {
   const content = envelope.message?.content;
   const text = typeof content === "string" ? content : textFromContent(content);
-  const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "message", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -30,17 +29,21 @@ function mapUserEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] 
   ];
 }
 
-function synthesizeInterrupt(envelope: PiEnvelope, schemaVersion?: string): Entry | undefined {
-  const base = baseEntry(
-    envelope,
-    // Synthesized id must be a valid ULID/UUID per v0.1 (spec §9). The
-    // previous `entryId(envelope, "aborted")` produced a compound string.
-    randomUUID(),
-    "assistant",
-    undefined,
-    undefined,
-    { synthesized: true, schemaVersion },
-  );
+function synthesizeInterrupt(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry | undefined {
+  // Deterministic synthesized id seeded with (session_uid, source_id,
+  // "aborted") so re-parses are idempotent per spec §8.5.
+  const synthId =
+    typeof envelope.id === "string"
+      ? ctx.deriveSynthesizedId([envelope.id, "aborted"])
+      : ctx.deriveSynthesizedId(["aborted-unknown-source"]);
+  const base = baseEntry(envelope, synthId, "assistant", undefined, undefined, {
+    synthesized: true,
+    schemaVersion,
+  });
   if (base === undefined) return undefined;
   return stampRawType(
     {
@@ -53,6 +56,7 @@ function synthesizeInterrupt(envelope: PiEnvelope, schemaVersion?: string): Entr
 }
 
 function mapAssistantEnvelope(
+  ctx: PiEntryIdCtx,
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
@@ -62,7 +66,7 @@ function mapAssistantEnvelope(
   const content = envelope.message?.content;
   const envelopeUsage = mapAgentMessageUsage(envelope.message?.usage);
   if (typeof content === "string") {
-    const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+    const base = baseEntry(envelope, ctx.entryId(envelope), "message", undefined, undefined, {
       schemaVersion,
     });
     if (base === undefined) return [];
@@ -84,7 +88,7 @@ function mapAssistantEnvelope(
       ),
     ];
     if (aborted) {
-      const interrupt = synthesizeInterrupt(envelope, schemaVersion);
+      const interrupt = synthesizeInterrupt(ctx, envelope, schemaVersion);
       if (interrupt !== undefined) out.push(interrupt);
     }
     return out;
@@ -98,8 +102,16 @@ function mapAssistantEnvelope(
       emittable.push({ block, originalIndex });
     }
   });
-  const stableId = entryId(envelope);
-  const emittable_ids = emittable.map(() => pickBlockId(stableId, emittable.length));
+  const stableId = ctx.entryId(envelope);
+  const sourceId = typeof envelope.id === "string" ? envelope.id : stableId;
+  const emittable_ids = emittable.map((_, emittedIndex) =>
+    pickBlockId(
+      stableId,
+      emittable.length,
+      (idx) => ctx.deriveBlockId(sourceId, idx),
+      emittedIndex,
+    ),
+  );
   const firstEntryId = emittable_ids[0];
   let usageEmitted = false;
   const emittedBlocks: Entry[] = emittable.flatMap(({ block, originalIndex }, emittedIndex) => {
@@ -175,19 +187,20 @@ function mapAssistantEnvelope(
     return [];
   });
   if (aborted) {
-    const interrupt = synthesizeInterrupt(envelope, schemaVersion);
+    const interrupt = synthesizeInterrupt(ctx, envelope, schemaVersion);
     if (interrupt !== undefined) emittedBlocks.push(interrupt);
   }
   return emittedBlocks;
 }
 
 function mapToolResultEnvelope(
+  ctx: PiEntryIdCtx,
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
   schemaVersion?: string,
 ): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "message", undefined, undefined, {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "message", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -222,11 +235,12 @@ function mapToolResultEnvelope(
 }
 
 function mapModelChangeEnvelope(
+  ctx: PiEntryIdCtx,
   envelope: PiEnvelope,
   prevModel: string | undefined,
   schemaVersion?: string,
 ): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "model_change", undefined, undefined, {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "model_change", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -249,8 +263,12 @@ function mapModelChangeEnvelope(
   ];
 }
 
-function mapCompactionEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "compaction", undefined, undefined, {
+function mapCompactionEnvelope(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry[] {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "compaction", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -287,10 +305,14 @@ function mapCompactionEnvelope(envelope: PiEnvelope, schemaVersion?: string): En
 // Pi `thinking_level_change` carries a single field (`thinkingLevel`: low|medium|high).
 // No reserved kind matches — `model_change` covers model id only, not thinking level.
 // Surface as a vendor-namespaced system_event so consumers see the boundary.
-function mapThinkingLevelChangeEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+function mapThinkingLevelChangeEnvelope(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry[] {
   const base = baseEntry(
     envelope,
-    entryId(envelope),
+    ctx.entryId(envelope),
     "thinking_level_change",
     undefined,
     undefined,
@@ -317,8 +339,12 @@ function mapThinkingLevelChangeEnvelope(envelope: PiEnvelope, schemaVersion?: st
 // Pi `session_info` carries an auto-generated session name (pi-mono session-namer hook).
 // No portable equivalent yet — surface as `x-pi/session_info` so the rename is preserved
 // without claiming cross-agent semantics.
-function mapSessionInfoEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "session_info", undefined, undefined, {
+function mapSessionInfoEnvelope(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry[] {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "session_info", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -343,11 +369,15 @@ function mapSessionInfoEnvelope(envelope: PiEnvelope, schemaVersion?: string): E
 // enumerate every `customType` — plugins author their own. Collapse both into one
 // vendor kind per envelope-type and preserve the source `customType` under `data` so
 // consumers can disambiguate without us pretending to support every plugin shape.
-function mapCustomEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
+function mapCustomEnvelope(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry[] {
   const isMessage = envelope.type === "custom_message";
   const base = baseEntry(
     envelope,
-    entryId(envelope),
+    ctx.entryId(envelope),
     isMessage ? "custom_message" : "custom",
     undefined,
     undefined,
@@ -387,8 +417,12 @@ function mapCustomEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[
   ];
 }
 
-function mapBranchSummaryEnvelope(envelope: PiEnvelope, schemaVersion?: string): Entry[] {
-  const base = baseEntry(envelope, entryId(envelope), "branch_summary", undefined, undefined, {
+function mapBranchSummaryEnvelope(
+  ctx: PiEntryIdCtx,
+  envelope: PiEnvelope,
+  schemaVersion?: string,
+): Entry[] {
+  const base = baseEntry(envelope, ctx.entryId(envelope), "branch_summary", undefined, undefined, {
     schemaVersion,
   });
   if (base === undefined) return [];
@@ -413,6 +447,7 @@ function mapBranchSummaryEnvelope(envelope: PiEnvelope, schemaVersion?: string):
 }
 
 export function buildEntries(
+  ctx: PiEntryIdCtx,
   envelope: PiEnvelope,
   toolCallIdToEventId: Map<string, string>,
   toolCallIdToToolKind: Map<string, string>,
@@ -421,31 +456,38 @@ export function buildEntries(
 ): Entry[] {
   if (envelope.id === undefined || envelope.timestamp === undefined) return [];
   if (envelope.type === "branch_summary") {
-    return mapBranchSummaryEnvelope(envelope, schemaVersion);
+    return mapBranchSummaryEnvelope(ctx, envelope, schemaVersion);
   }
   if (envelope.type === "compaction") {
-    return mapCompactionEnvelope(envelope, schemaVersion);
+    return mapCompactionEnvelope(ctx, envelope, schemaVersion);
   }
   if (envelope.type === "model_change") {
-    return mapModelChangeEnvelope(envelope, prevModel, schemaVersion);
+    return mapModelChangeEnvelope(ctx, envelope, prevModel, schemaVersion);
   }
   if (envelope.type === "thinking_level_change") {
-    return mapThinkingLevelChangeEnvelope(envelope, schemaVersion);
+    return mapThinkingLevelChangeEnvelope(ctx, envelope, schemaVersion);
   }
   if (envelope.type === "session_info") {
-    return mapSessionInfoEnvelope(envelope, schemaVersion);
+    return mapSessionInfoEnvelope(ctx, envelope, schemaVersion);
   }
   if (envelope.type === "custom" || envelope.type === "custom_message") {
-    return mapCustomEnvelope(envelope, schemaVersion);
+    return mapCustomEnvelope(ctx, envelope, schemaVersion);
   }
   if (envelope.type !== "message") return [];
   const role = envelope.message?.role;
-  if (role === "user") return mapUserEnvelope(envelope, schemaVersion);
+  if (role === "user") return mapUserEnvelope(ctx, envelope, schemaVersion);
   if (role === "assistant") {
-    return mapAssistantEnvelope(envelope, toolCallIdToEventId, toolCallIdToToolKind, schemaVersion);
+    return mapAssistantEnvelope(
+      ctx,
+      envelope,
+      toolCallIdToEventId,
+      toolCallIdToToolKind,
+      schemaVersion,
+    );
   }
   if (role === "toolResult") {
     return mapToolResultEnvelope(
+      ctx,
       envelope,
       toolCallIdToEventId,
       toolCallIdToToolKind,

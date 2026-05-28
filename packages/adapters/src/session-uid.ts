@@ -39,6 +39,15 @@ export const CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE = "d6c2f7e3-9e45-4fac-bf
 export const CODEX_ENTRY_ID_NAMESPACE = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";
 
 /**
+ * Namespace for Pi adapter entry ids. Real Pi envelopes carry 8-char hex
+ * source ids that do not match the v0.1 `#/$defs/id` ULID/UUID pattern, so
+ * every emitted entry id is derived from (session_uid, source_id [, suffix])
+ * to satisfy the schema while staying idempotent across re-parses. Stable
+ * forever — do not change.
+ */
+export const PI_ENTRY_ID_NAMESPACE = "f9a5cab6-b078-4cde-e267-849a0b1c2d34";
+
+/**
  * Derive a deterministic v5 UUID from `(namespace, upstreamId)` per RFC 4122
  * §4.3. Output is the hyphenated 36-char form accepted by the `session_uid`
  * schema (ULID/UUID union).

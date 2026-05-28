@@ -65,6 +65,13 @@ function buildRaw<Env extends object, Block extends object>(
 export type CreateEntryIdConfig<Env> = {
   sourceId: (envelope: Env) => string | undefined;
   missingMessage: string;
+  // Optional derivation strategy. When set, the returned id is
+  // `deriveId(sourceId, suffix)` instead of the legacy `sourceId` /
+  // `sourceId-suffix` composition. Adapters whose envelope ids do not match
+  // the v0.1 `#/$defs/id` ULID/UUID pattern (e.g. Pi's 8-char hex shorts) use
+  // this to mint deterministic v5 UUIDs while keeping the source id on
+  // `source.raw` for traceability.
+  deriveId?: (sourceId: string, suffix?: string) => string;
 };
 
 export function createEntryId<Env>(
@@ -75,16 +82,24 @@ export function createEntryId<Env>(
     if (id === undefined) {
       throw new Error(config.missingMessage);
     }
+    if (config.deriveId !== undefined) return config.deriveId(id, suffix);
     return suffix === undefined ? id : `${id}-${suffix}`;
   };
 }
 
-// Single-block envelopes preserve the source envelope ID as the trail event id
-// (1:1). Multi-block envelopes mint a fresh UUID per block so each event id
-// stays a valid ULID/UUID per the v0.1 id regex. The source envelope ID and
-// per-block index live on `source.raw` for traceability. Adapters differ in
-// envelope-ID field name (claude-code uses `uuid`, pi uses `id`); this
-// function is adapter-neutral.
-export function pickBlockId(stableEntryId: string, totalBlocks: number): string {
-  return totalBlocks === 1 ? stableEntryId : randomUUID();
+// Single-block envelopes preserve the (already-conformant) stable entry id as
+// the trail event id. Multi-block envelopes mint a fresh id per block — by
+// default a non-deterministic UUID, but callers can pass a `deriveBlockId`
+// closure to produce deterministic ids (e.g. v5 from session_uid + source_id
+// + block_index) so re-parses are idempotent. The source envelope id and
+// per-block index live on `source.raw` for traceability.
+export function pickBlockId(
+  stableEntryId: string,
+  totalBlocks: number,
+  deriveBlockId?: (index: number) => string,
+  index?: number,
+): string {
+  if (totalBlocks === 1) return stableEntryId;
+  if (deriveBlockId !== undefined && index !== undefined) return deriveBlockId(index);
+  return randomUUID();
 }
