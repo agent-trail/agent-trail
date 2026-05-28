@@ -684,6 +684,54 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 | `truncated` | no | boolean | true if `output` was truncated |
 | `overflow_ref` | no | string | reference to full output |
 | `error` | no | string | error message if `ok` is false |
+| `meta` | no | object | structured per-toolkind outputs; see below |
+
+##### `tool_result.payload.meta` — structured outputs
+
+`output` is a display string. When the source tool returned structured data, writers MAY also
+populate `meta`, an object keyed by the originating `tool_call.tool` (the canonical tool kind, §10).
+Consumers that understand a kind read `meta.<toolKind>`; everyone else falls back to `output`. `meta`
+is optional and additive — existing writers that emit only `output` stay valid.
+
+Registered keys are writer-strict (unknown fields inside a registered shape are rejected). Vendors
+extend a registered tool kind by adding sibling keys to its object that match the `x-<vendor>/`
+pattern (e.g. `meta.mcp_call.x-acme/cache_hit`). Unregistered and future tool kinds are accepted as
+opaque objects, so new kinds can be standardized in a later minor version without a schema migration.
+
+The v0.1 registry covers three tool kinds:
+
+`meta.mcp_call` — preserves MCP content-block structure that `output` flattens.
+
+| Sub-field | Required | Type | Notes |
+|---|---|---|---|
+| `content_blocks` | no | array | MCP content blocks; each block has `type` (`text`/`image`/`resource`) plus `text`/`data`/`mime_type`/`uri` as applicable |
+| `is_error` | no | boolean | MCP-protocol error flag. Distinct from envelope `payload.ok`: `is_error` is the tool's own success signal, `ok` is the trail-level call outcome |
+
+`meta.file_read` — read range and truncation metadata.
+
+| Sub-field | Required | Type | Notes |
+|---|---|---|---|
+| `range` | no | array | `[start_line, end_line]` requested |
+| `total_lines` | no | integer ≥0 | total lines in the file |
+| `encoding` | no | string | detected/used encoding |
+| `truncated_at_line` | no | integer ≥0 \| null | line where output was cut, or null if untruncated |
+
+`meta.shell_command` — separated streams and exit status.
+
+| Sub-field | Required | Type | Notes |
+|---|---|---|---|
+| `stdout` | no | string | standard output stream |
+| `stderr` | no | string | standard error stream |
+| `exit_code` | no | integer \| null | process exit code; null when terminated by signal |
+| `signal` | no | string \| null | terminating signal (e.g. `SIGKILL`), or null |
+| `duration_ms` | no | integer ≥0 | wall-clock duration |
+
+`meta.shell_command.exit_code` is the canonical home for shell exit status; there is no generic
+top-level `exit_code` on `tool_result`, because the concept does not apply to kinds like `mcp_call`
+or `web_fetch`.
+
+Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
+redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
 
 #### `session_summary`
 
@@ -1159,7 +1207,9 @@ The raw file format does not mandate redaction. Sharing tools produce a separate
 
 Adapters and share tools should:
 
-- Redact known secret patterns before writing tool outputs.
+- Redact known secret patterns before writing tool outputs, including the structured
+  `tool_result.payload.meta` tree (§9.2): redactors recurse every string leaf — shell `stdout`/`stderr`,
+  MCP `content_blocks` text and image `data` — not just the `output` display string.
 - Normalize working directory paths when sharing.
 - Strip or warn about embedded images.
 - Cap inline output sizes per §14.

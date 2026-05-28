@@ -306,6 +306,56 @@ export interface ToolResult {
     truncated?: boolean;
     overflow_ref?: string | null;
     error?: string | null;
+    /**
+     * Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/ pattern keys.
+     */
+    meta?: {
+      mcp_call?: {
+        content_blocks?: {
+          type: "text" | "image" | "resource";
+          text?: string;
+          data?: string;
+          mime_type?: string;
+          uri?: string;
+        }[];
+        is_error?: boolean;
+        /**
+         * This interface was referenced by `undefined`'s JSON-Schema definition
+         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
+         */
+        [k: string]: unknown;
+      };
+      file_read?: {
+        /**
+         * @minItems 2
+         * @maxItems 2
+         */
+        range?: [number, number];
+        total_lines?: number;
+        encoding?: string;
+        truncated_at_line?: number | null;
+        /**
+         * This interface was referenced by `undefined`'s JSON-Schema definition
+         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
+         */
+        [k: string]: unknown;
+      };
+      shell_command?: {
+        stdout?: string;
+        stderr?: string;
+        exit_code?: number | null;
+        signal?: string | null;
+        duration_ms?: number;
+        /**
+         * This interface was referenced by `undefined`'s JSON-Schema definition
+         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
+         */
+        [k: string]: unknown;
+      };
+      [k: string]: {
+        [k: string]: unknown;
+      };
+    };
   };
   [k: string]: unknown;
 }

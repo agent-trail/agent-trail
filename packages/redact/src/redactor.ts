@@ -175,6 +175,13 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (typeof payload.error === "string") {
         yield keyVisit(payload, "error", `records[${index}].payload.error`);
       }
+      const resultMeta = payload.meta;
+      if (resultMeta !== null && typeof resultMeta === "object") {
+        yield* walkContainer(
+          resultMeta as Record<string, unknown> | unknown[],
+          `records[${index}].payload.meta`,
+        );
+      }
     }
 
     // Forward-compat fallback: schema permits future event types whose

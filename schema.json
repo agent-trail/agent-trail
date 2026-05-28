@@ -744,6 +744,76 @@
               },
               "error": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]
+              },
+              "meta": {
+                "type": "object",
+                "description": "Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/ pattern keys.",
+                "properties": {
+                  "mcp_call": {
+                    "type": "object",
+                    "properties": {
+                      "content_blocks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": ["type"],
+                          "properties": {
+                            "type": { "type": "string", "enum": ["text", "image", "resource"] },
+                            "text": { "type": "string" },
+                            "data": { "type": "string" },
+                            "mime_type": { "type": "string" },
+                            "uri": { "type": "string" }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "is_error": { "type": "boolean" }
+                    },
+                    "patternProperties": {
+                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "file_read": {
+                    "type": "object",
+                    "properties": {
+                      "range": {
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "total_lines": { "type": "integer", "minimum": 0 },
+                      "encoding": { "type": "string" },
+                      "truncated_at_line": {
+                        "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }]
+                      }
+                    },
+                    "patternProperties": {
+                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "shell_command": {
+                    "type": "object",
+                    "properties": {
+                      "stdout": { "type": "string" },
+                      "stderr": { "type": "string" },
+                      "exit_code": {
+                        "oneOf": [{ "type": "integer" }, { "type": "null" }]
+                      },
+                      "signal": {
+                        "oneOf": [{ "type": "string" }, { "type": "null" }]
+                      },
+                      "duration_ms": { "type": "integer", "minimum": 0 }
+                    },
+                    "patternProperties": {
+                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": { "type": "object" }
               }
             },
             "additionalProperties": false
