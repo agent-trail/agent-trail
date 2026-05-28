@@ -216,6 +216,17 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   adapter ignores it since the canonical content lives on the top-level record.
   `payload.trigger` is hard-coded to `"auto"` (Codex auto-compaction has no manual signal).
   `tokens_before` / `tokens_after` are emitted only when the source happens to carry them.
+- `event_msg.token_count` → rolls up onto the preceding `agent_message.payload.usage`
+  (spec §9.2 `agentMessageUsage`). Codex carries `payload.info.last_token_usage` (delta) and
+  `payload.info.total_token_usage` (cumulative); the adapter translates Codex field names to
+  spec slots: `cached_input_tokens` → `cache_read_tokens` (delta only — spec has no cumulative
+  slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
+  `{input,output}_tokens` → `{input,output}_tokens`, `total_token_usage` `{input,output}_tokens`
+  → `{input,output}_tokens_cumulative`. Codex's `total_tokens` field is dropped (recoverable
+  from input+output). `payload.info: null` rate-limit-only snapshots emit no usage; multiple
+  `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals
+  are monotonic). The `payload.rate_limits` slot is intentionally not rolled up — see deferred
+  shapes below.
 - In-session model switch: synthesized `model_change` is emitted when consecutive
   `turn_context.payload.model` values differ. `payload.from_model` is the last observed model;
   `payload.to_model` is the new value. `source.synthesized: true` and
@@ -276,9 +287,12 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
   Codex Desktop session). Acceptance criterion's matrix-absence path applies; no fixture
   committed. The mapping lands when a real signal surfaces, with the fixture derived from the
   real record shape (synthetic ids only).
-- `event_msg.token_count` → `agent_message.payload.usage` (`agentMessageUsage` rollup) —
-  needs a cross-record correlation pass so token counts attach to the agent_message they
-  belong to, rather than orphaning as a standalone event. Tracked separately.
+- `event_msg.token_count.payload.rate_limits` — Codex carries API rate-limit snapshots
+  (window utilization, reset window) on the same record as token usage. The Agent Trail spec
+  has no `agentMessageUsage` slot for rate-limit state, so this field is dropped during the
+  usage rollup. A future pass may emit these as standalone `system_event` records under an
+  `x-codex/rate_limit_snapshot` kind; deferred until the emission frequency and dedupe policy
+  (rate_limits fire on every token_count, often unchanged) can be designed in its own review.
 - Cross-channel dedupe between `event_msg.user_message` / `event_msg.agent_message` and the
   `response_item.message` channel (the adapter currently picks event_msg only). Folding
   response_item.message back in when no event_msg surface fires would cover legacy / partial
