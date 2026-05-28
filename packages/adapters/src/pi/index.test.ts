@@ -3,9 +3,23 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { piAdapter, validateAdapterTrail } from "../index.ts";
+import {
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+  PI_ENTRY_ID_NAMESPACE,
+  PI_SESSION_UID_NAMESPACE,
+} from "../session-uid.ts";
 // keep types/import minimal — adapter envelope tests use the shape returned by parseSession
 import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
+
+function eid(sessionId: string, sourceId: string, suffix?: string): string {
+  const sessionUid = deriveSessionUid(PI_SESSION_UID_NAMESPACE, sessionId);
+  return deriveSynthesizedEntryId(
+    PI_ENTRY_ID_NAMESPACE,
+    suffix === undefined ? [sessionUid, sourceId] : [sessionUid, sourceId, suffix],
+  );
+}
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
@@ -171,7 +185,10 @@ test("parseSession() builds a header from session record id, ts, version (int->s
 // TDD step 3: user_message mapping
 test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee11");
+  const userMessage = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee11"),
+  );
   expect(userMessage).toBeDefined();
   expect(userMessage?.type).toBe("user_message");
   expect(userMessage?.ts).toBe("2026-05-21T14:00:01.000Z");
@@ -183,10 +200,15 @@ test("parseSession() emits a user_message for user role records with no parent_i
 // TDD step 4: agent_message text mapping
 test("parseSession() emits an agent_message for assistant text blocks with model and stop_reason", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee14");
+  const agentMsg = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee14"),
+  );
   expect(agentMsg).toBeDefined();
   expect(agentMsg?.type).toBe("agent_message");
-  expect(agentMsg?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee13");
+  expect(agentMsg?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee13"),
+  );
   expect(agentMsg?.payload).toEqual({
     text: "Spec loaded.",
     model: "claude-sonnet-4-5",
@@ -196,7 +218,10 @@ test("parseSession() emits an agent_message for assistant text blocks with model
 
 test("parseSession() populates agent_message.payload.usage from message.usage on Pi assistant envelopes", async () => {
   const trail = await parseUsageFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee12");
+  const agentMsg = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000099", "00000000-0000-0000-0000-eeeeeeeeee12"),
+  );
   expect(agentMsg?.type).toBe("agent_message");
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
@@ -211,17 +236,25 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
 
 test("parseSession() omits payload.usage on agent_message when Pi envelope has no usage", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee14");
+  const agentMsg = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee14"),
+  );
   expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 // TDD step 5: tool_call mapping (read -> file_read)
 test("parseSession() emits a tool_call for assistant toolCall blocks with semantic.call_id preserving toolCall.id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee12");
+  const toolCall = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee12"),
+  );
   expect(toolCall).toBeDefined();
   expect(toolCall?.type).toBe("tool_call");
-  expect(toolCall?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee11");
+  expect(toolCall?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee11"),
+  );
   expect(toolCall?.payload).toEqual({
     tool: "file_read",
     args: { path: "spec.md" },
@@ -235,12 +268,17 @@ test("parseSession() emits a tool_call for assistant toolCall blocks with semant
 // TDD step 6: tool_result pairing via toolCallId
 test("parseSession() emits a tool_result for toolResult envelopes linked via toolCallId to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-eeeeeeeeee13");
+  const toolResult = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee13"),
+  );
   expect(toolResult).toBeDefined();
   expect(toolResult?.type).toBe("tool_result");
-  expect(toolResult?.parent_id).toBe("00000000-0000-0000-0000-eeeeeeeeee12");
+  expect(toolResult?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee12"),
+  );
   expect(toolResult?.payload).toEqual({
-    for_id: "00000000-0000-0000-0000-eeeeeeeeee12",
+    for_id: eid("00000000-0000-0000-0000-eeeee0000001", "00000000-0000-0000-0000-eeeeeeeeee12"),
     ok: true,
     output: "# Agent Trail Specification\n",
   });
@@ -295,7 +333,9 @@ test("parseSession() chains multi-block assistant entries via localParentId with
   // Multi-block envelopes mint fresh UUIDs per block (see pickBlockId in entries.ts);
   // assert by type + parent chain. synthId for session_terminated is a full UUID now.
   const [user, text0, callBlock, terminated] = trail.entries;
-  expect(user?.id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  expect(user?.id).toBe(
+    eid("00000000-0000-0000-0000-098243fc19a8", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
   expect(user?.type).toBe("user_message");
   expect(text0?.type).toBe("agent_message");
   expect(text0?.parent_id).toBe(user?.id);
@@ -746,17 +786,32 @@ test("branch-flow produces a fork at pi-a1: both pi-u2 and pi-u3 reference it as
   const trail = await parseBranchFixture();
   const childIds = new Set(
     trail.entries
-      .filter((e) => e.parent_id === "00000000-0000-0000-0000-bbbbbbbb0001")
+      .filter(
+        (e) =>
+          e.parent_id ===
+          eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbb0001"),
+      )
       .map((e) => e.id),
   );
-  expect(childIds.has("00000000-0000-0000-0000-aaaaaaaa0002")).toBe(true);
-  expect(childIds.has("00000000-0000-0000-0000-aaaaaaaa0003")).toBe(true);
+  expect(
+    childIds.has(
+      eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-aaaaaaaa0002"),
+    ),
+  ).toBe(true);
+  expect(
+    childIds.has(
+      eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-aaaaaaaa0003"),
+    ),
+  ).toBe(true);
 });
 
 // TDD step 3: branch_summary envelope produces a branch_summary entry with payload.summary
 test("branch-flow emits a branch_summary entry carrying payload.summary from the Pi envelope", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbbeeee"),
+  );
   expect(branchSummary).toBeDefined();
   expect(branchSummary?.type).toBe("branch_summary");
   expect((branchSummary?.payload as { summary?: string }).summary).toBe(
@@ -767,8 +822,13 @@ test("branch-flow emits a branch_summary entry carrying payload.summary from the
 // TDD step 4: branch_summary entry's parent_id is resolved via the same parentId chain as messages
 test("branch-flow branch_summary entry has parent_id resolved from envelope parentId (pi-a1)", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
-  expect(branchSummary?.parent_id).toBe("00000000-0000-0000-0000-bbbbbbbb0001");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbbeeee"),
+  );
+  expect(branchSummary?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbb0001"),
+  );
 });
 
 // TDD step 5: abandoned_branch_id walks fromId up to the divergence point with the active branch.
@@ -777,15 +837,23 @@ test("branch-flow branch_summary entry has parent_id resolved from envelope pare
 // Per spec §9.3 "root of abandoned branch" = topmost entry on abandoned side = child of divergence = pi-u2.
 test("branch-flow branch_summary.abandoned_branch_id resolves to root of abandoned branch (pi-u2)", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbbeeee"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
-  expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-aaaaaaaa0002");
+  expect(payload.abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-aaaaaaaa0002"),
+  );
 });
 
 // TDD step 6: source.raw preserves the original Pi envelope (fromId, summary, details)
 test("branch-flow branch_summary entry preserves the original envelope under source.raw", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbbeeee"),
+  );
   const raw = branchSummary?.source?.raw as Record<string, unknown>;
   expect(raw?.type).toBe("branch_summary");
   expect(raw?.fromId).toBe("00000000-0000-0000-0000-bbbbbbbb0002");
@@ -796,7 +864,10 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
 // TDD step 7: Pi branch_summary.details surface in entry.meta under reverse-domain key (spec §8.0.3 / §11)
 test("branch-flow branch_summary entry mirrors Pi details into meta['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-bbbbbbbbeeee");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-eeeee0000002", "00000000-0000-0000-0000-bbbbbbbbeeee"),
+  );
   const meta = branchSummary?.meta as Record<string, unknown> | undefined;
   expect(meta).toBeDefined();
   expect(meta?.["dev.pi.branch_details"]).toEqual({
@@ -841,9 +912,14 @@ test("branch_summary with fromId on the active branch falls back to fromId's res
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-3b50e9e06eff", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
-  expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  expect(payload.abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-3b50e9e06eff", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
 });
 
 // Real-session smoke regression: pi-mono can set fromId to an envelope type the adapter doesn't
@@ -883,12 +959,17 @@ test("branch_summary with fromId on an unmapped envelope climbs to the nearest m
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-047ca91a13c9", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
   const allEntryIds = new Set(trail.entries.map((e) => e.id));
   expect(payload.abandoned_branch_id).toBeDefined();
   expect(allEntryIds.has(payload.abandoned_branch_id as string)).toBe(true);
-  expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  expect(payload.abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-047ca91a13c9", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
 });
 
 // TDD step 9: degenerate case — fromId references no envelope id in the file.
@@ -920,7 +1001,10 @@ test("branch_summary with unknown fromId falls back to the verbatim fromId strin
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-1842ec79d6a3", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
   expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-5efbb10b4328");
 });
@@ -1035,12 +1119,22 @@ test("branch_summary: each summary uses its own local active leaf (multi-branch 
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const bs1 = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
-  const bs2 = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-029e7d77b90f");
-  expect((bs1?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-A1");
+  const bs1 = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-670830ca6396", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
+  const bs2 = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-670830ca6396", "00000000-0000-0000-0000-029e7d77b90f"),
+  );
+  expect((bs1?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-670830ca6396", "a-A1"),
+  );
   // bs-2 was written when the user just jumped back to A. Local active leaf = a-A3.
   // Abandoned branch = B subtree.  Root of abandoned branch = a-B1 (child of u-root on B side).
-  expect((bs2?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe("a-B1");
+  expect((bs2?.payload as { abandoned_branch_id?: string }).abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-670830ca6396", "a-B1"),
+  );
 });
 
 // Codex P2 regression: when the divergence node on the abandoned side is a Pi envelope that fans
@@ -1104,7 +1198,10 @@ test("branch_summary: abandoned root resolves to the FIRST emitted entry of a mu
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-098243fc19a8", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
   // abandoned_branch_id points to the FIRST emitted entry of the multi-block
   // a-fork envelope (a fresh UUID at runtime). Resolve it dynamically.
@@ -1196,11 +1293,16 @@ test("branch_summary: trailing unmapped envelope does not become the active leaf
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const branchSummary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c29a86aadb1a");
+  const branchSummary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-d0b33823cee0", "00000000-0000-0000-0000-c29a86aadb1a"),
+  );
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
   // Active path = a-2 → u-active → a-1 → u-root.  Abandoned path from a-abandon = a-abandon →
   // u-abandon → u-root.  Shared ancestor = u-root.  Root of abandoned branch = u-abandon.
-  expect(payload.abandoned_branch_id).toBe("00000000-0000-0000-0000-3b6706387e4c");
+  expect(payload.abandoned_branch_id).toBe(
+    eid("00000000-0000-0000-0000-d0b33823cee0", "00000000-0000-0000-0000-3b6706387e4c"),
+  );
 });
 
 // Issue #20: Pi optional events + cross-cutting hardenings
@@ -1248,7 +1350,9 @@ test("assistant `thinking` block emits agent_thinking with payload.text, preserv
     "agent_message",
   ]);
   const thinking = trail.entries.find((e) => e.type === "agent_thinking");
-  expect(thinking?.parent_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  expect(thinking?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-27c3ab8a9960", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
   expect(thinking?.payload).toEqual({
     text: "deliberation step 1",
     model: "claude-sonnet-4-5",
@@ -1367,7 +1471,9 @@ test("aborted assistant envelope with no emittable blocks still synthesizes a us
   const trail = parsePiJsonl(text);
   const interrupt = trail.entries.find((e) => e.type === "user_interrupt");
   expect(interrupt).toBeDefined();
-  expect(interrupt?.parent_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  expect(interrupt?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-c69d5e2c2419", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
 });
 
 // Slice 4: context_compact from Pi `compaction` envelope (pi-mono session-manager `CompactionEntry`)
@@ -1408,10 +1514,15 @@ test("Pi `compaction` envelope emits context_compact with summary/tokens_before/
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const compact = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-46d05f15c8c5");
+  const compact = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-c5a5a68fbf68", "00000000-0000-0000-0000-46d05f15c8c5"),
+  );
   expect(compact).toBeDefined();
   expect(compact?.type).toBe("context_compact");
-  expect(compact?.parent_id).toBe("00000000-0000-0000-0000-2f8fe63a6224");
+  expect(compact?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-c5a5a68fbf68", "00000000-0000-0000-0000-2f8fe63a6224"),
+  );
   expect(compact?.payload).toEqual({
     summary: "Earlier turns established X and Y.",
     tokens_before: 12000,
@@ -1455,7 +1566,10 @@ test("Pi `compaction` envelope with tokensBefore as numeric string coerces to to
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const compact = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-9daa16958918");
+  const compact = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-b0b8a418dacd", "00000000-0000-0000-0000-9daa16958918"),
+  );
   expect((compact?.payload as { tokens_before?: number }).tokens_before).toBe(12000);
 });
 
@@ -1496,13 +1610,21 @@ test("Pi `compaction` envelope without a string summary emits no context_compact
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-d4dffe5c454e"),
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-fa0e494a741e", "00000000-0000-0000-0000-d4dffe5c454e"),
+    ),
   ).toBeUndefined();
   // Parent chain still resolves: u-2's source parentId points at the dropped envelope, so
   // resolveEntryParents() climbs to the nearest mapped ancestor (u-1).
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-1fe2696cbaaf")?.parent_id,
-  ).toBe("00000000-0000-0000-0000-a24a7f55f278");
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-fa0e494a741e", "00000000-0000-0000-0000-1fe2696cbaaf"),
+    )?.parent_id,
+  ).toBe(eid("00000000-0000-0000-0000-fa0e494a741e", "00000000-0000-0000-0000-a24a7f55f278"));
 });
 
 // Slice 5: model_change from Pi `model_change` envelope (pi-mono session-manager `ModelChangeEntry`).
@@ -1546,10 +1668,15 @@ test("Pi `model_change` envelope emits model_change with to_model and from_model
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const mc = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-258eb6928da7");
+  const mc = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-1a6ace4d3d6e", "00000000-0000-0000-0000-258eb6928da7"),
+  );
   expect(mc).toBeDefined();
   expect(mc?.type).toBe("model_change");
-  expect(mc?.parent_id).toBe("00000000-0000-0000-0000-2f8fe63a6224");
+  expect(mc?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-1a6ace4d3d6e", "00000000-0000-0000-0000-2f8fe63a6224"),
+  );
   expect(mc?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
     to_model: "claude-opus-4-7",
@@ -1587,7 +1714,10 @@ test("Pi `model_change` envelope with no prior model omits from_model", async ()
     }),
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
-  const mc = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-258eb6928da7");
+  const mc = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-764b82eee648", "00000000-0000-0000-0000-258eb6928da7"),
+  );
   expect(mc?.payload).toEqual({ to_model: "claude-opus-4-7" });
 });
 
@@ -1648,11 +1778,18 @@ test("prevModel does not advance when the assistant envelope emits no entries (m
   const trail = parsePiJsonl(text);
   // The dropped envelope contributed no entry...
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-113789e6083a"),
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-68bf66f51a8f", "00000000-0000-0000-0000-113789e6083a"),
+    ),
   ).toBeUndefined();
   // ...so from_model on the model_change must still be the *last emitted* assistant model,
   // not the model on the dropped envelope.
-  const mc = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-258eb6928da7");
+  const mc = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-68bf66f51a8f", "00000000-0000-0000-0000-258eb6928da7"),
+  );
   expect(mc?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
     to_model: "claude-haiku-4-5",
@@ -1701,9 +1838,16 @@ test("prevModel does not advance when a model_change envelope is dropped (missin
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-75ff265b32cd"),
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-4c42a144dd40", "00000000-0000-0000-0000-75ff265b32cd"),
+    ),
   ).toBeUndefined();
-  const mc2 = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-c05b8a41a3b6");
+  const mc2 = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-4c42a144dd40", "00000000-0000-0000-0000-c05b8a41a3b6"),
+  );
   expect(mc2?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
     to_model: "claude-haiku-4-5",
@@ -1737,7 +1881,10 @@ test("polymorphic timestamp: envelope with Unix ms `timestamp` parses to canonic
   ].join("\n")}\n`;
   const trail = parsePiJsonl(text);
   expect(trail.header.ts).toBe("2026-05-21T16:59:50.000Z");
-  const u = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-a24a7f55f278");
+  const u = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-7d8cfbdb9c38", "00000000-0000-0000-0000-a24a7f55f278"),
+  );
   expect(u?.ts).toBe("2026-05-21T17:00:00.000Z");
 });
 
@@ -1772,9 +1919,19 @@ test("polymorphic timestamp: out-of-range numeric timestamp returns undefined (d
   ].join("\n")}\n`;
   // Must not throw — the bad envelope is skipped, valid entries still emit.
   const trail = parsePiJsonl(text);
-  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-a24a7f55f278")).toBeDefined();
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-f1d7fe71681b"),
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-fd190bfbc4cc", "00000000-0000-0000-0000-a24a7f55f278"),
+    ),
+  ).toBeDefined();
+  expect(
+    trail.entries.find(
+      (e) =>
+        e.id ===
+        eid("00000000-0000-0000-0000-fd190bfbc4cc", "00000000-0000-0000-0000-f1d7fe71681b"),
+    ),
   ).toBeUndefined();
 });
 
@@ -2121,7 +2278,9 @@ test("parsePiJsonl synthesizes session_terminated for tool_calls left open at EO
   expect(terminated).toBeDefined();
   expect(terminated?.payload).toMatchObject({
     reason: "eof_with_open_tool_calls",
-    open_call_ids: ["00000000-0000-0000-0000-2f8fe63a6224"],
+    open_call_ids: [
+      eid("00000000-0000-0000-0000-4203dbd691ff", "00000000-0000-0000-0000-2f8fe63a6224"),
+    ],
   });
   expect(terminated?.source?.synthesized).toBe(true);
 });
@@ -2201,8 +2360,8 @@ test("parsePiJsonl lists sequential-paired calls in open_call_ids (validator sup
   // Adapter applies rules A+B only — both calls remain "unmatched" from its
   // perspective and end up in open_call_ids in file order.
   expect(terminated?.payload?.open_call_ids).toEqual([
-    "00000000-0000-0000-0000-2f8fe63a6224",
-    "00000000-0000-0000-0000-d72e654c3645",
+    eid("00000000-0000-0000-0000-df5edb9bfba4", "00000000-0000-0000-0000-2f8fe63a6224"),
+    eid("00000000-0000-0000-0000-df5edb9bfba4", "00000000-0000-0000-0000-d72e654c3645"),
   ]);
 
   // Validator runs rules A+B+C; with explicit open_call_ids covering both

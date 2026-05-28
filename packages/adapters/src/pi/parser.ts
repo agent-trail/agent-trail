@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
 import { deriveSessionUid, PI_SESSION_UID_NAMESPACE } from "../session-uid.ts";
 import { findAbandonedBranchRootId } from "./divergence.ts";
-import type { BuiltEntry } from "./entry-metadata.ts";
+import { type BuiltEntry, makePiEntryIdCtx, type PiEntryIdCtx } from "./entry-metadata.ts";
 import { buildEntries } from "./envelope-mappers.ts";
 import {
   type PiEnvelope,
@@ -71,10 +70,18 @@ export function parsePiJsonl(text: string): TrailFile {
   const sourceIdToFirstEntryId = new Map<string, string>();
   const branchSummaryEnvelopeByEntryId = new Map<string, PiEnvelope>();
   let prevModel: string | undefined;
+  // `buildHeader` always sets `session_uid` (deterministic v5 of the session
+  // id), so the optional-on-schema field is non-null here. Narrow to satisfy
+  // tsc.
+  if (header.session_uid === undefined) {
+    throw new Error("Pi header missing session_uid (buildHeader invariant)");
+  }
+  const ctx = makePiEntryIdCtx(header.session_uid);
 
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
     const entries = buildEntries(
+      ctx,
       envelope,
       toolCallIdToEventId,
       toolCallIdToToolKind,
@@ -135,7 +142,7 @@ export function parsePiJsonl(text: string): TrailFile {
     }
   }
 
-  const synthesizedTerminated = buildSynthesizedSessionTerminated(built, header);
+  const synthesizedTerminated = buildSynthesizedSessionTerminated(ctx, built, header);
   if (synthesizedTerminated !== undefined) {
     built.push({ entry: synthesizedTerminated, parentSourceId: null });
   }
@@ -160,7 +167,11 @@ export function parsePiJsonl(text: string): TrailFile {
 // harmless: the validator's suppression is per-id, so listing a call already
 // paired in pass C just makes the explicit ack a no-op. We deliberately do
 // not duplicate sequential pairing to avoid silent drift with the validator.
-function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header): Entry | undefined {
+function buildSynthesizedSessionTerminated(
+  ctx: PiEntryIdCtx,
+  built: BuiltEntry[],
+  header: Header,
+): Entry | undefined {
   const callIdToEntryId = new Map<string, string>();
   const toolCallEntryIds = new Set<string>();
   for (const b of built) {
@@ -198,9 +209,11 @@ function buildSynthesizedSessionTerminated(built: BuiltEntry[], header: Header):
   // entry within the session timeline and is spec-compliant per §9.3.
   const lastTs = built[built.length - 1]?.entry.ts ?? header.ts;
   // Synthesized session_terminated needs a globally-unique id that satisfies
-  // the v0.1 ULID/UUID id regex. randomUUID() returns a 36-char hyphenated UUID
-  // which matches the schema's UUID arm.
-  const synthId = randomUUID();
+  // the v0.1 ULID/UUID id regex. ctx.deriveSynthesizedId already prepends
+  // session_uid to the seed, so re-parses are idempotent per spec §8.5 and
+  // cross-session collisions are impossible without us spelling session_uid
+  // here.
+  const synthId = ctx.deriveSynthesizedId(["session_terminated_eof", ...openCallIds]);
   const schemaVersion = header.agent.version;
   return {
     type: "session_terminated",
