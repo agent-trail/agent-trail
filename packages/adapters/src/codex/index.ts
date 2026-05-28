@@ -244,7 +244,15 @@ export const codexAdapter: TrailAdapter = {
         }
       }),
     );
-    withMtime.sort((a, b) => b.mtime - a.mtime);
+    // Primary: newest mtime wins. Tiebreaker: lexicographically greatest
+    // path (date-partitioned `YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl`
+    // sorts chronologically). The tiebreaker matters because fast loops
+    // that seed sessions back-to-back on Linux can land identical mtimes,
+    // and a stable mtime-only sort would then pick the older file.
+    withMtime.sort((a, b) => {
+      if (b.mtime !== a.mtime) return b.mtime - a.mtime;
+      return a.path < b.path ? 1 : a.path > b.path ? -1 : 0;
+    });
     const newest = withMtime[0];
     if (newest === undefined) return null;
     return (await readSessionVersionFromHead(newest.path)) ?? null;
