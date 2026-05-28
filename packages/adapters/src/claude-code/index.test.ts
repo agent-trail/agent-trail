@@ -3,7 +3,21 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
+import {
+  CLAUDE_CODE_ENTRY_ID_NAMESPACE,
+  CLAUDE_CODE_SESSION_UID_NAMESPACE,
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+} from "../session-uid.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
+
+function eid(sessionId: string, sourceUuid: string, suffix?: string): string {
+  const sessionUid = deriveSessionUid(CLAUDE_CODE_SESSION_UID_NAMESPACE, sessionId);
+  return deriveSynthesizedEntryId(
+    CLAUDE_CODE_ENTRY_ID_NAMESPACE,
+    suffix === undefined ? [sessionUid, sourceUuid] : [sessionUid, sourceUuid, suffix],
+  );
+}
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
@@ -175,7 +189,10 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
 
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc11");
+  const userMessage = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-ccccc0000001", "00000000-0000-0000-0000-cccccccccc11"),
+  );
   expect(userMessage).toBeDefined();
   expect(userMessage?.type).toBe("user_message");
   expect(userMessage?.ts).toBe("2026-05-17T14:00:05.000Z");
@@ -186,10 +203,18 @@ test("parseSession() emits a user_message for user text records, with no parent_
 
 test("parseSession() emits a tool_call for assistant tool_use blocks, with semantic.call_id preserving tool_use_id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc12");
+  const userMessageId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc11",
+  );
+  const toolCallId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc12",
+  );
+  const toolCall = trail.entries.find((e) => e.id === toolCallId);
   expect(toolCall).toBeDefined();
   expect(toolCall?.type).toBe("tool_call");
-  expect(toolCall?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc11");
+  expect(toolCall?.parent_id).toBe(userMessageId);
   expect(toolCall?.payload).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
@@ -199,12 +224,20 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc13");
+  const toolCallId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc12",
+  );
+  const toolResultId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc13",
+  );
+  const toolResult = trail.entries.find((e) => e.id === toolResultId);
   expect(toolResult).toBeDefined();
   expect(toolResult?.type).toBe("tool_result");
-  expect(toolResult?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc12");
+  expect(toolResult?.parent_id).toBe(toolCallId);
   expect(toolResult?.payload).toEqual({
-    for_id: "00000000-0000-0000-0000-cccccccccc12",
+    for_id: toolCallId,
     ok: true,
     output: "file-a\nfile-b",
   });
@@ -213,10 +246,17 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
 
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc14");
+  const toolResultId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc13",
+  );
+  const agentMsg = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-ccccc0000001", "00000000-0000-0000-0000-cccccccccc14"),
+  );
   expect(agentMsg).toBeDefined();
   expect(agentMsg?.type).toBe("agent_message");
-  expect(agentMsg?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc13");
+  expect(agentMsg?.parent_id).toBe(toolResultId);
   expect(agentMsg?.payload).toEqual({
     text: "two files: file-a, file-b",
     model: "claude-opus-4-7",
@@ -265,7 +305,9 @@ test("parseSession() maps cache_read_input_tokens and cache_creation_input_token
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-d223468611b6");
+  const agentMsg = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-d223468611b6"),
+  );
   expect(agentMsg?.type).toBe("agent_message");
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
@@ -342,16 +384,25 @@ test("parseSession() omits payload.usage when source provides no usage data", as
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const agentMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-8e45abbc959e");
+  const agentMsg = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-8e45abbc959e"),
+  );
   expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 test("parseSession() emits a session_summary for summary records", async () => {
   const trail = await parseFixture();
-  const summary = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-cccccccccc15");
+  const agentMsgId = eid(
+    "00000000-0000-0000-0000-ccccc0000001",
+    "00000000-0000-0000-0000-cccccccccc14",
+  );
+  const summary = trail.entries.find(
+    (e) =>
+      e.id === eid("00000000-0000-0000-0000-ccccc0000001", "00000000-0000-0000-0000-cccccccccc15"),
+  );
   expect(summary).toBeDefined();
   expect(summary?.type).toBe("session_summary");
-  expect(summary?.parent_id).toBe("00000000-0000-0000-0000-cccccccccc14");
+  expect(summary?.parent_id).toBe(agentMsgId);
   expect(summary?.payload).toEqual({
     scope: "session",
     text: "listed files in working directory",
@@ -399,8 +450,8 @@ test("parent_id walks through filtered ancestors to the nearest surviving event"
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const u2 = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-1fe2696cbaaf");
-  expect(u2?.parent_id).toBe("00000000-0000-0000-0000-a24a7f55f278");
+  const u2 = trail.entries.find((e) => e.id === eid("s", "00000000-0000-0000-0000-1fe2696cbaaf"));
+  expect(u2?.parent_id).toBe(eid("s", "00000000-0000-0000-0000-a24a7f55f278"));
 });
 
 test("parseSession() emits user_interrupt for string content '[Request interrupted by user]' with reason 'user'", async () => {
@@ -416,7 +467,9 @@ test("parseSession() emits user_interrupt for string content '[Request interrupt
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-db6ac7323733");
+  const entry = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-db6ac7323733"),
+  );
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user" });
 });
@@ -434,7 +487,9 @@ test("parseSession() extracts reason 'user for tool use' from '[Request interrup
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-8d0b403631a1");
+  const entry = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-8d0b403631a1"),
+  );
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user for tool use" });
 });
@@ -455,7 +510,9 @@ test("parseSession() emits user_interrupt for text block '[Request interrupted b
     version: "v",
   })}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const entry = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-1e67a787d253");
+  const entry = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-1e67a787d253"),
+  );
   expect(entry?.type).toBe("user_interrupt");
   expect(entry?.payload).toEqual({ reason: "user for tool use" });
 });
@@ -513,7 +570,7 @@ test("parseSession() emits model_change when assistant model shifts from claude-
     from_model: "claude-opus-4-7",
     to_model: "claude-sonnet-4-5",
   });
-  expect(modelChange?.parent_id).toBe("00000000-0000-0000-0000-58d78559af06");
+  expect(modelChange?.parent_id).toBe(eid("s", "00000000-0000-0000-0000-58d78559af06"));
 });
 
 test("parseSession() does not emit model_change when consecutive assistant envelopes share the same model", async () => {
@@ -973,7 +1030,9 @@ test("parseSession() emits agent_thinking for a thinking block with empty text b
     }),
   ].join("\n")}\n`;
   const trail = parseClaudeCodeJsonl(text);
-  const thinking = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-d73659702ebf");
+  const thinking = trail.entries.find(
+    (e) => e.id === eid("s", "00000000-0000-0000-0000-d73659702ebf"),
+  );
   expect(thinking?.type).toBe("agent_thinking");
   expect(thinking?.payload).toEqual({ text: "", model: "claude-opus-4-7" });
 });
@@ -1006,7 +1065,9 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
 
   const text = trail.entries[1];
   expect(text?.type).toBe("agent_message");
-  expect(text?.parent_id).toBe("00000000-0000-0000-0000-aaaaaaaaaa11");
+  expect(text?.parent_id).toBe(
+    eid("00000000-0000-0000-0000-ccccc0000002", "00000000-0000-0000-0000-aaaaaaaaaa11"),
+  );
 
   const thinking = trail.entries[2];
   expect(thinking?.type).toBe("agent_thinking");
@@ -1066,34 +1127,35 @@ test("parseSession() emits multiple tool_results with error state and semantic p
 
 test("parseSession() maps system, progress, queue, resume preamble, summary, and compact records", async () => {
   const trail = await parseFidelityFixture();
+  const fid = "00000000-0000-0000-0000-ccccc0000002";
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa14")?.payload,
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa14"))?.payload,
   ).toEqual({
     kind: "x-claudecode/local_command",
     text: "<command-name>/model</command-name>",
   });
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa15")?.payload,
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa15"))?.payload,
   ).toEqual({
     kind: "pre_tool_use",
     text: "Hook progress: PreToolUse (PreToolUse:Bash)",
     data: { type: "hook_progress", hookEvent: "PreToolUse", hookName: "PreToolUse:Bash" },
   });
   expect(
-    trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa16")?.payload,
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa16"))?.payload,
   ).toEqual({
     kind: "queue_operation",
     text: "Queued input: queued follow-up while tool is running",
   });
-  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa17")?.type).toBe(
-    "system_event",
-  );
-  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa18")?.type).toBe(
-    "session_summary",
-  );
-  expect(trail.entries.find((e) => e.id === "00000000-0000-0000-0000-aaaaaaaaaa19")?.type).toBe(
-    "context_compact",
-  );
+  expect(
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa17"))?.type,
+  ).toBe("system_event");
+  expect(
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa18"))?.type,
+  ).toBe("session_summary");
+  expect(
+    trail.entries.find((e) => e.id === eid(fid, "00000000-0000-0000-0000-aaaaaaaaaa19"))?.type,
+  ).toBe("context_compact");
 });
 
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
@@ -1111,10 +1173,13 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
     "agent_message",
   ]);
 
-  const interrupt = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-111111111113");
+  const iid = "00000000-0000-0000-0000-ccccc0000003";
+  const interrupt = trail.entries.find(
+    (e) => e.id === eid(iid, "00000000-0000-0000-0000-111111111113"),
+  );
   expect(interrupt?.type).toBe("user_interrupt");
   expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
-  expect(interrupt?.parent_id).toBe("00000000-0000-0000-0000-111111111112");
+  expect(interrupt?.parent_id).toBe(eid(iid, "00000000-0000-0000-0000-111111111112"));
 
   const modelChange = trail.entries.find((e) => e.type === "model_change");
   expect(modelChange?.type).toBe("model_change");
@@ -1123,9 +1188,11 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
     to_model: "claude-sonnet-4-5",
   });
   expect(modelChange?.source?.synthesized).toBe(true);
-  expect(modelChange?.parent_id).toBe("00000000-0000-0000-0000-111111111114");
+  expect(modelChange?.parent_id).toBe(eid(iid, "00000000-0000-0000-0000-111111111114"));
 
-  const sonnetMsg = trail.entries.find((e) => e.id === "00000000-0000-0000-0000-111111111115");
+  const sonnetMsg = trail.entries.find(
+    (e) => e.id === eid(iid, "00000000-0000-0000-0000-111111111115"),
+  );
   expect(sonnetMsg?.type).toBe("agent_message");
 
   expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
