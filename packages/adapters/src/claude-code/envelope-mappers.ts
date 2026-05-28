@@ -279,8 +279,16 @@ function mapUserEnvelope(
   const emittedBlocks = blocks.filter(
     (block) => block.type === "text" || block.type === "tool_result",
   );
+  // `buildEntries` already short-circuits when `envelope.uuid` is missing for
+  // `user` envelopes (only queue-operation/pr-link bypass that gate), so this
+  // is unreachable. Throw rather than fall back — falling back to `stableId`
+  // would seed `deriveBlockId` with an emitted entry id instead of a source
+  // uuid, silently corrupting block ids.
+  if (typeof envelope.uuid !== "string") {
+    throw new Error("Claude Code user envelope reached mapper without source uuid");
+  }
+  const sourceUuid = envelope.uuid;
   const stableId = ctx.entryId(envelope);
-  const sourceUuid = typeof envelope.uuid === "string" ? envelope.uuid : stableId;
   const userBlockIds = emittedBlocks.map((_, emittedIndex) =>
     pickBlockId(
       stableId,
@@ -362,8 +370,14 @@ function mapAssistantEnvelope(
       block.type === "redacted_thinking" ||
       block.type === "tool_use",
   );
+  // See parallel guard in mapUserEnvelope — unreachable, but fail loud if
+  // the buildEntries gate ever drifts (silent fallback would corrupt block
+  // seeds).
+  if (typeof envelope.uuid !== "string") {
+    throw new Error("Claude Code assistant envelope reached mapper without source uuid");
+  }
+  const sourceUuid = envelope.uuid;
   const stableId = ctx.entryId(envelope);
-  const sourceUuid = typeof envelope.uuid === "string" ? envelope.uuid : stableId;
   const asstBlockIds = emittedBlocks.map((_, emittedIndex) =>
     pickBlockId(
       stableId,
