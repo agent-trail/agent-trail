@@ -850,6 +850,64 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
+#### `command_invoke`
+
+A named capability invoked with optional arguments: a user-typed slash command, a built-in CLI affordance, a skill activation, a user-defined prompt template, or a plugin command. These three surfaces share the "named capability invoked" semantic but are distinct axes — `kind` records *what* was invoked, `via` records *how* it reached the agent. Without this event they leak as `user_message.text="/foo"`, `tool_call.tool=other` with `args.name="Skill"`, or get dropped.
+
+```jsonc
+{
+  "type": "command_invoke",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "name": "/code-review",
+    "kind": "custom_prompt",
+    "via": "user_typed",
+    "args": { "target": "HEAD" },
+    "expansion_text": "Review the diff against main.",
+    "result_action": "expand"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `name` | yes | string | User-visible identifier. Leading slash for slash/builtin/custom_prompt (`/clear`); bare name for skills (`webapp-testing`). |
+| `kind` | yes | string enum | `slash` \| `builtin` \| `skill` \| `custom_prompt` \| `plugin`. What kind of capability was invoked. |
+| `via` | yes | string enum | `user_typed` \| `auto_trigger` \| `agent_invoked`. How the invocation reached the agent. |
+| `args` | no | object | Free-form invocation arguments. |
+| `expansion_text` | no | string | Post-expansion prompt text the agent saw (for prompt-template commands). |
+| `result_action` | no | string \| null | What the runtime did with it. Reserved value, `x-<adapter>/<name>` extension, or null. |
+
+`kind` discriminates the capability: `Skill` tool → `skill`, `/clear` → `builtin`, user-defined `~/.claude/commands/foo.md` → `custom_prompt`, generic TUI slash → `slash`, extension/plugin command → `plugin`.
+
+`via=auto_trigger` covers description-matched skill activation with no user action. Adapters MAY synthesize it when they observe a skill load without a corresponding `Skill` tool call; set `source.synthesized: true` in that case.
+
+`result_action` helps analyzers correlate to subsequent `context_compact` or session resets without inferring from content. Reserved values:
+
+| `result_action` | When to use |
+| --- | --- |
+| `compact` | Invocation triggered a context compaction (`/compact`). |
+| `clear` | Invocation reset the session (`/clear`). |
+| `expand` | Prompt-template command expanded into agent input. |
+| `load_skill` | A skill was loaded into context. |
+| `noop` | Runtime accepted the command with no observable state change. |
+
+Beyond these, `result_action` accepts an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name), or `null`. Bare unknown strings are rejected by writer-strict validation; readers are tolerant of unknown `x-*` values.
+
+##### Cross-agent mapping
+
+| Source | `name` | `kind` | `via` |
+| --- | --- | --- | --- |
+| Claude Code `/clear` typed | `/clear` | builtin | user_typed |
+| Claude Code `/code-review` typed (user-defined) | `/code-review` | custom_prompt | user_typed |
+| Claude Code `Skill` tool with `args.skill="X"` | `X` | skill | agent_invoked |
+| Claude Code auto-loaded skill | `<skill-name>` | skill | auto_trigger |
+| Codex slash command | `/<cmd>` | slash | user_typed |
+| Pi extension command | `<name>` | plugin | agent_invoked or user_typed |
+
+Out of scope: skill *contents* (static config, not session history); MCP server tools (covered by `tool_call.tool=mcp_call`); permission gates (covered by `system_event.kind=permission_request/decision`).
+
 #### `agent_thinking`
 
 Chain-of-thought or reasoning block.
