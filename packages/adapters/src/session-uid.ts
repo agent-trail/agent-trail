@@ -48,6 +48,18 @@ export const CODEX_ENTRY_ID_NAMESPACE = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";
 export const PI_ENTRY_ID_NAMESPACE = "f9a5cab6-b078-4cde-e267-849a0b1c2d34";
 
 /**
+ * Namespace for Claude Code adapter entry ids (source-uuid-bearing
+ * envelopes: user, assistant, summary). Mirrors `PI_ENTRY_ID_NAMESPACE` —
+ * real cc sessions ship UUID-shaped source uuids today so the deterministic
+ * derivation is invisible in practice, but the path is identical to Pi's
+ * (issue #137) and the v0.1 id contract holds for any shape source uuid.
+ * Source-uuid-less envelopes (queue-operation, pr-link, permission-mode)
+ * keep using `CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE`. Stable forever —
+ * do not change.
+ */
+export const CLAUDE_CODE_ENTRY_ID_NAMESPACE = "0a16dbc7-c189-4def-f378-95ab1c2d3e45";
+
+/**
  * Derive a deterministic v5 UUID from `(namespace, upstreamId)` per RFC 4122
  * §4.3. Output is the hyphenated 36-char form accepted by the `session_uid`
  * schema (ULID/UUID union).

@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import type { WorktreeInfo } from "../vcs.ts";
-import { type BuiltEntry, baseEntry } from "./entry-metadata.ts";
+import { type BuiltEntry, baseEntry, makeCcEntryIdCtx } from "./entry-metadata.ts";
 import { buildEntries, mapPermissionModeEnvelope } from "./envelope-mappers.ts";
 import { type CcEnvelope, isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
@@ -111,6 +110,12 @@ export function parseClaudeCodeJsonl(text: string): TrailFile {
 
 export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
   const header = buildHeader(envelopes);
+  // `buildHeader` always sets `session_uid` (deterministic v5 of sessionId);
+  // narrow to satisfy tsc and to enforce the invariant.
+  if (header.session_uid === undefined) {
+    throw new Error("Claude Code header missing session_uid (buildHeader invariant)");
+  }
+  const ctx = makeCcEntryIdCtx(header.session_uid);
   const parentByUuid = buildParentIndex(envelopes);
   const toolUseIdToEventId = new Map<string, string>();
   const toolUseIdToToolKind = new Map<string, string>();
@@ -144,6 +149,7 @@ export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
         stringValue(envelope.permissionMode) ?? "",
       ];
       const pmEntries = mapPermissionModeEnvelope(
+        ctx,
         envelope,
         inheritedTimestamp,
         prevPermissionMode,
@@ -163,7 +169,7 @@ export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
       typeof envelope.type === "string" ? envelope.type : "unknown",
       String(envelopeIndex),
     ];
-    const entries = buildEntries(envelope, toolUseIdToEventId, toolUseIdToToolKind, synthSeed);
+    const entries = buildEntries(ctx, envelope, toolUseIdToEventId, toolUseIdToToolKind, synthSeed);
     if (
       envelope.type === "assistant" &&
       currentModel !== undefined &&
@@ -177,10 +183,11 @@ export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
       // Claude Code itself never emits a model_change source record.
       const mcBase = baseEntry(
         envelope,
-        // Synthesized id must be a valid ULID/UUID. The envelope.uuid +
-        // suffix shape used previously produced a compound string that
-        // fails the v0.1 id regex.
-        randomUUID(),
+        // Synthesized id must be a valid ULID/UUID. Deterministic v5 derived
+        // from (session_uid, file position, "model_change", model id) keeps
+        // re-parses idempotent per spec §8.5 (fix from #137; previously
+        // randomUUID() leaked nondeterminism into the trail).
+        ctx.deriveSynthesizedId(["model_change", String(envelopeIndex), prevModel, currentModel]),
         "assistant",
         undefined,
         undefined,

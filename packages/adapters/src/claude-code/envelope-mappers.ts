@@ -5,7 +5,7 @@ import {
   deriveSynthesizedEntryId,
 } from "../session-uid.ts";
 import { mapAgentMessageUsage } from "../usage.ts";
-import { baseEntry, entryId } from "./entry-metadata.ts";
+import { baseEntry, type CcEntryIdCtx } from "./entry-metadata.ts";
 import {
   asBlocks,
   type CcEnvelope,
@@ -133,15 +133,21 @@ function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefi
   return undefined;
 }
 
-function mapSystemEventEnvelope(envelope: CcEnvelope, synthSeed: readonly string[]): Entry[] {
+function mapSystemEventEnvelope(
+  ctx: CcEntryIdCtx,
+  envelope: CcEnvelope,
+  synthSeed: readonly string[],
+): Entry[] {
   // Some Claude Code envelopes (queue-operation, pr-link) lack a `uuid` field
   // but carry a usable timestamp. Synthesize a deterministic v5 UUID from
   // session+position so re-parsing the same JSONL yields the same id, and
-  // stamp `source.synthesized` for traceability.
+  // stamp `source.synthesized` for traceability. Synthesized envelopes keep
+  // using `CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE` (not the ctx) so
+  // historical re-parses produce identical ids — see #137 plan.
   const synthesized = typeof envelope.uuid !== "string";
   const id = synthesized
     ? deriveSynthesizedEntryId(CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE, synthSeed)
-    : entryId(envelope);
+    : ctx.entryId(envelope);
   const base = baseEntry(
     envelope,
     id,
@@ -172,6 +178,7 @@ function mapSystemEventEnvelope(envelope: CcEnvelope, synthSeed: readonly string
 // and the most recent prior envelope's timestamp for ordering. The new mode
 // goes under `data.to`; the prior mode (when tracked) under `data.from`.
 export function mapPermissionModeEnvelope(
+  _ctx: CcEntryIdCtx,
   envelope: CcEnvelope,
   inheritedTimestamp: string | undefined,
   prevPermissionMode: string | undefined,
@@ -208,12 +215,12 @@ export function mapPermissionModeEnvelope(
   ];
 }
 
-function mapSummaryEnvelope(envelope: CcEnvelope): Entry[] {
+function mapSummaryEnvelope(ctx: CcEntryIdCtx, envelope: CcEnvelope): Entry[] {
   const text =
     stringValue(envelope.summary) ??
     stringValue(envelope.message?.content) ??
     jsonString(envelope.message?.content);
-  const base = baseEntry(envelope, entryId(envelope), "summary");
+  const base = baseEntry(envelope, ctx.entryId(envelope), "summary");
   if (base === undefined) return [];
   if (envelope.isCompactSummary === true) {
     return [
@@ -237,13 +244,14 @@ function mapSummaryEnvelope(envelope: CcEnvelope): Entry[] {
 }
 
 function mapUserEnvelope(
+  ctx: CcEntryIdCtx,
   envelope: CcEnvelope,
   toolUseIdToEventId: Map<string, string>,
   toolUseIdToToolKind: Map<string, string>,
 ): Entry[] {
   const content = envelope.message?.content;
   if (typeof content === "string") {
-    const base = baseEntry(envelope, entryId(envelope), "user");
+    const base = baseEntry(envelope, ctx.entryId(envelope), "user");
     if (base === undefined) return [];
     const interrupt = isInterruptMarker(content);
     if (interrupt !== undefined) {
@@ -271,8 +279,24 @@ function mapUserEnvelope(
   const emittedBlocks = blocks.filter(
     (block) => block.type === "text" || block.type === "tool_result",
   );
-  const stableId = entryId(envelope);
-  const userBlockIds = emittedBlocks.map(() => pickBlockId(stableId, emittedBlocks.length));
+  // `buildEntries` already short-circuits when `envelope.uuid` is missing for
+  // `user` envelopes (only queue-operation/pr-link bypass that gate), so this
+  // is unreachable. Throw rather than fall back — falling back to `stableId`
+  // would seed `deriveBlockId` with an emitted entry id instead of a source
+  // uuid, silently corrupting block ids.
+  if (typeof envelope.uuid !== "string") {
+    throw new Error("Claude Code user envelope reached mapper without source uuid");
+  }
+  const sourceUuid = envelope.uuid;
+  const stableId = ctx.entryId(envelope);
+  const userBlockIds = emittedBlocks.map((_, emittedIndex) =>
+    pickBlockId(
+      stableId,
+      emittedBlocks.length,
+      (idx) => ctx.deriveBlockId(sourceUuid, idx),
+      emittedIndex,
+    ),
+  );
   const userFirstId = userBlockIds[0];
   return emittedBlocks.flatMap((block, emittedIndex) => {
     const id = userBlockIds[emittedIndex] ?? "";
@@ -333,6 +357,7 @@ function mapUserEnvelope(
 }
 
 function mapAssistantEnvelope(
+  ctx: CcEntryIdCtx,
   envelope: CcEnvelope,
   toolUseIdToEventId: Map<string, string>,
   toolUseIdToToolKind: Map<string, string>,
@@ -345,8 +370,22 @@ function mapAssistantEnvelope(
       block.type === "redacted_thinking" ||
       block.type === "tool_use",
   );
-  const stableId = entryId(envelope);
-  const asstBlockIds = emittedBlocks.map(() => pickBlockId(stableId, emittedBlocks.length));
+  // See parallel guard in mapUserEnvelope — unreachable, but fail loud if
+  // the buildEntries gate ever drifts (silent fallback would corrupt block
+  // seeds).
+  if (typeof envelope.uuid !== "string") {
+    throw new Error("Claude Code assistant envelope reached mapper without source uuid");
+  }
+  const sourceUuid = envelope.uuid;
+  const stableId = ctx.entryId(envelope);
+  const asstBlockIds = emittedBlocks.map((_, emittedIndex) =>
+    pickBlockId(
+      stableId,
+      emittedBlocks.length,
+      (idx) => ctx.deriveBlockId(sourceUuid, idx),
+      emittedIndex,
+    ),
+  );
   const asstFirstId = asstBlockIds[0];
   const envelopeUsage = mapAgentMessageUsage(envelope.message?.usage);
   let usageEmitted = false;
@@ -415,6 +454,7 @@ function mapAssistantEnvelope(
 }
 
 export function buildEntries(
+  ctx: CcEntryIdCtx,
   envelope: CcEnvelope,
   toolUseIdToEventId: Map<string, string>,
   toolUseIdToToolKind: Map<string, string>,
@@ -437,14 +477,14 @@ export function buildEntries(
     envelope.type === "queue-operation" ||
     envelope.type === "pr-link"
   ) {
-    return mapSystemEventEnvelope(envelope, synthSeed);
+    return mapSystemEventEnvelope(ctx, envelope, synthSeed);
   }
-  if (envelope.type === "summary") return mapSummaryEnvelope(envelope);
+  if (envelope.type === "summary") return mapSummaryEnvelope(ctx, envelope);
   if (envelope.type === "user") {
-    return mapUserEnvelope(envelope, toolUseIdToEventId, toolUseIdToToolKind);
+    return mapUserEnvelope(ctx, envelope, toolUseIdToEventId, toolUseIdToToolKind);
   }
   if (envelope.type === "assistant") {
-    return mapAssistantEnvelope(envelope, toolUseIdToEventId, toolUseIdToToolKind);
+    return mapAssistantEnvelope(ctx, envelope, toolUseIdToEventId, toolUseIdToToolKind);
   }
   return [];
 }
