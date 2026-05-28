@@ -20,6 +20,7 @@ import {
   deriveSessionUid,
   deriveSynthesizedEntryId,
 } from "../session-uid.ts";
+import { type AgentMessageUsage, mapAgentMessageUsage } from "../usage.ts";
 import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
 const AGENT_NAME = "codex-cli";
@@ -556,6 +557,38 @@ function buildModelChangeEntry(
   };
 }
 
+// `event_msg.token_count` carries token usage under
+// `payload.info.{last_token_usage, total_token_usage}`. Translate Codex's
+// field names to the spec's `agentMessageUsage` slots before running the
+// shared validator: `cached_input_tokens` → `cache_read_tokens` (delta),
+// `reasoning_output_tokens` → `reasoning_tokens` (delta). The Codex
+// `total_*` counterparts map to `*_cumulative`. Codex's `total_tokens`,
+// `cached_input_tokens` cumulative, and `reasoning_output_tokens` cumulative
+// have no spec slot and are dropped (input+output remain recoverable).
+//
+// Returns `undefined` when `payload.info` is null/missing or every translated
+// field would be empty — never fabricates zeros (`usage.ts` decision #4).
+function codexUsageFromTokenCount(payload: Record<string, unknown>): AgentMessageUsage | undefined {
+  const info = payload.info;
+  if (!isObject(info)) return undefined;
+  const last = isObject(info.last_token_usage) ? info.last_token_usage : {};
+  const total = isObject(info.total_token_usage) ? info.total_token_usage : {};
+  const merged: Record<string, unknown> = {};
+  const inputDelta = numericValue(last.input_tokens);
+  if (inputDelta !== undefined) merged.input_tokens = inputDelta;
+  const outputDelta = numericValue(last.output_tokens);
+  if (outputDelta !== undefined) merged.output_tokens = outputDelta;
+  const cacheReadDelta = numericValue(last.cached_input_tokens);
+  if (cacheReadDelta !== undefined) merged.cache_read_tokens = cacheReadDelta;
+  const reasoningDelta = numericValue(last.reasoning_output_tokens);
+  if (reasoningDelta !== undefined) merged.reasoning_tokens = reasoningDelta;
+  const inputCumulative = numericValue(total.input_tokens);
+  if (inputCumulative !== undefined) merged.input_tokens_cumulative = inputCumulative;
+  const outputCumulative = numericValue(total.output_tokens);
+  if (outputCumulative !== undefined) merged.output_tokens_cumulative = outputCumulative;
+  return mapAgentMessageUsage(merged);
+}
+
 function buildEntries(records: Record<string, unknown>[], sessionUid: string): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
@@ -565,6 +598,12 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
   let currentTurnId = "turn-implicit";
   let turnReasoningSeen = new Set<string>();
   let lastModel: string | undefined;
+  // Tracks the most recently emitted `agent_message` entry so a subsequent
+  // `event_msg.token_count` can mutate its `payload.usage` in place. Real
+  // sessions emit `token_count` within milliseconds of the matching
+  // `agent_message` (1:1, no streaming subdivisions). `user_message` reset
+  // is intentional — token_count should never bind across a user turn.
+  let lastAgentMessageEntry: Entry | undefined;
   const resetTurn = (id: string) => {
     currentTurnId = id;
     turnReasoningSeen = new Set<string>();
@@ -726,6 +765,21 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
         const id = entryId(sessionUid, i, c.payloadType);
         const entry = buildUserOrAgentMessageEntry(c, ts, id);
         if (entry !== undefined) entries.push(entry);
+        lastAgentMessageEntry = entry?.type === "agent_message" ? entry : undefined;
+        continue;
+      }
+      if (c.payloadType === "token_count") {
+        // Rollup pattern: usage on the agent_message it belongs to (spec
+        // §9.2). Deliberate post-emit mutation — `entries[]` is local to
+        // `buildEntries`, so the mutation can't leak before parseCodexJsonl
+        // returns. `rate_limits` snapshots stay outside the rollup (no
+        // `agentMessageUsage` slot for them); see matrix prose.
+        if (lastAgentMessageEntry !== undefined) {
+          const usage = codexUsageFromTokenCount(c.payload);
+          if (usage !== undefined) {
+            (lastAgentMessageEntry.payload as Record<string, unknown>).usage = usage;
+          }
+        }
         continue;
       }
       if (c.payloadType === "agent_reasoning" || c.payloadType === "agent_reasoning_raw_content") {

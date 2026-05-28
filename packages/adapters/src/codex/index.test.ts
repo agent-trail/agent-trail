@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
+import type { AgentMessageUsage } from "../usage.ts";
 import { parseCodexJsonl } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
@@ -1029,6 +1030,195 @@ test('buildSessionRef sets headerStatus="filename-fallback" when header is unrea
   expect(refs).toHaveLength(1);
   expect(refs[0]?.headerStatus).toBe("filename-fallback");
   expect(refs[0]?.id).toBe(id);
+});
+
+function tokenCountSession(
+  records: Array<{ type: string; payload: Record<string, unknown> }>,
+  meta: { id: string; cwd: string; ts: string } = {
+    id: "019d9a00-cccc-7000-a000-00000000000c",
+    cwd: "/proj/codex-tokens",
+    ts: "2026-05-28T13:00:00.000Z",
+  },
+): string {
+  const lines: Array<Record<string, unknown>> = [
+    {
+      timestamp: meta.ts,
+      type: "session_meta",
+      payload: {
+        id: meta.id,
+        timestamp: meta.ts,
+        cwd: meta.cwd,
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+  ];
+  let i = 1;
+  for (const rec of records) {
+    const ts = new Date(new Date(meta.ts).getTime() + i * 1000).toISOString();
+    lines.push({ timestamp: ts, type: rec.type, payload: rec.payload });
+    i += 1;
+  }
+  return `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+}
+
+test("token_count with info:null leaves agent_message.payload.usage absent", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "agent_message", message: "reply" } },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: null,
+        rate_limits: { limit_id: "codex", primary: { used_percent: 12, window_minutes: 300 } },
+      },
+    },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  expect(agent).toBeDefined();
+  expect((agent?.payload as { usage?: unknown }).usage).toBeUndefined();
+});
+
+test("multiple token_counts target the same agent_message — last wins", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "agent_message", message: "reply" } },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
+          total_token_usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
+        },
+      },
+    },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 250, output_tokens: 40, total_tokens: 290 },
+          total_token_usage: { input_tokens: 350, output_tokens: 50, total_tokens: 400 },
+        },
+      },
+    },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  const usage = (agent?.payload as { usage?: AgentMessageUsage }).usage;
+  expect(usage?.input_tokens).toBe(250);
+  expect(usage?.output_tokens).toBe(40);
+  expect(usage?.input_tokens_cumulative).toBe(350);
+  expect(usage?.output_tokens_cumulative).toBe(50);
+});
+
+test("token_count without a preceding agent_message is a silent no-op", () => {
+  const text = tokenCountSession([
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 5, output_tokens: 1, total_tokens: 6 },
+          total_token_usage: { input_tokens: 5, output_tokens: 1, total_tokens: 6 },
+        },
+      },
+    },
+    { type: "event_msg", payload: { type: "user_message", message: "hi" } },
+  ]);
+  const trail = parseCodexJsonl(text);
+  expect(trail.entries.find((e) => e.type === "agent_message")).toBeUndefined();
+  // user_message must not pick up the orphan rollup.
+  const user = trail.entries.find((e) => e.type === "user_message");
+  expect((user?.payload as { usage?: unknown }).usage).toBeUndefined();
+});
+
+test("agent_message without a following token_count emits without payload.usage", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "agent_message", message: "no rollup" } },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  expect(agent).toBeDefined();
+  expect((agent?.payload as { usage?: unknown }).usage).toBeUndefined();
+});
+
+test("token_count after a user_message is dropped (does not bind across the user turn)", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "agent_message", message: "first reply" } },
+    { type: "event_msg", payload: { type: "user_message", message: "follow-up" } },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 999, output_tokens: 999, total_tokens: 1998 },
+          total_token_usage: { input_tokens: 999, output_tokens: 999, total_tokens: 1998 },
+        },
+      },
+    },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  expect(agent).toBeDefined();
+  // The first agent_message must not pick up the post-user-message
+  // token_count — that count belongs to a different (yet-to-arrive)
+  // agent_message.
+  expect((agent?.payload as { usage?: unknown }).usage).toBeUndefined();
+});
+
+test("agent_message followed by token_count rolls up usage with deltas + cumulatives", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "user_message", message: "go" } },
+    { type: "event_msg", payload: { type: "agent_message", message: "first reply" } },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: {
+            input_tokens: 18644,
+            cached_input_tokens: 5504,
+            output_tokens: 481,
+            reasoning_output_tokens: 32,
+            total_tokens: 19125,
+          },
+          total_token_usage: {
+            input_tokens: 18644,
+            cached_input_tokens: 5504,
+            output_tokens: 481,
+            reasoning_output_tokens: 32,
+            total_tokens: 19125,
+          },
+          model_context_window: 258400,
+        },
+        rate_limits: null,
+      },
+    },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  expect(agent).toBeDefined();
+  const usage = (
+    agent?.payload as {
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_tokens?: number;
+        reasoning_tokens?: number;
+        input_tokens_cumulative?: number;
+        output_tokens_cumulative?: number;
+      };
+    }
+  ).usage;
+  expect(usage).toBeDefined();
+  expect(usage?.input_tokens).toBe(18644);
+  expect(usage?.output_tokens).toBe(481);
+  expect(usage?.cache_read_tokens).toBe(5504);
+  expect(usage?.reasoning_tokens).toBe(32);
+  expect(usage?.input_tokens_cumulative).toBe(18644);
+  expect(usage?.output_tokens_cumulative).toBe(481);
 });
 
 test("detectSessions() filters out sessions whose header cwd differs from caller cwd", async () => {
