@@ -20,6 +20,9 @@ export const CLAUDE_CODE_SESSION_UID_NAMESPACE = "b4a0f5e1-7c23-4d8a-9e12-3f4b5c
 /** Namespace for Pi adapter session_uids. Stable forever — do not change. */
 export const PI_SESSION_UID_NAMESPACE = "c5b1f6e2-8d34-4e9b-af23-405c6d7e8f90";
 
+/** Namespace for Codex CLI adapter session_uids. Stable forever — do not change. */
+export const CODEX_SESSION_UID_NAMESPACE = "d7e3a8f4-9f56-4abd-c045-627e8f9a0b12";
+
 /**
  * Namespace for Claude Code synthesized entry ids (queue-operation, pr-link,
  * permission-mode envelopes that lack a source uuid). Stable forever — do not

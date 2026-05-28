@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
-| Codex CLI | open | — | re-implement | — | — | — | — | — | pending verification |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); dual-format (legacy CLI flat / desktop-wrapped) | re-implement | https://github.com/openai/codex | 2026-05-28 | 0.98.0-synthetic | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change | codex/desktop-tracer.jsonl; codex/legacy-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -123,6 +123,80 @@ Remaining deferred shapes: `bashExecution`, `label`, `parentSession` forked sess
 Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
 Real sessions stay out of git per the fixture policy below.
+
+Codex CLI fixture coverage (issue #32 PR1 tracer slice) targets the four mandated event kinds
+(`agent_thinking`, `user_interrupt`, `context_compact`, `model_change`) plus the baseline
+message + tool pair. The storage layout deviates from the issue body's "mangled-cwd" assumption:
+real Codex sessions live under a date-partitioned tree (`sessions/YYYY/MM/DD/rollout-*.jsonl`)
+with no per-cwd subdir, so `detectSessions` walks the full tree and filters by the cwd recorded in
+each file's header. The adapter `name` is `"codex"` (discovery handle); the trail header's
+`agent.name` is `"codex-cli"` (the reserved schema agent name).
+
+Dual format dispatch (issue #32 §"Dual format dispatch"): the parser inspects the first non-empty
+JSONL line and routes — `type === "session_meta"` → desktop-wrapped (`session_meta` + nested
+`response_item` / `event_msg` / `turn_context` envelopes), `id` + `timestamp` and no `type`
+field → legacy-cli flat JSONL. Real sessions on the verifying contributor's machine were all
+desktop-wrapped (Codex CLI 0.98.0, originator `codex_sdk_ts`); the legacy-cli branch is exercised
+by the committed `codex/legacy-tracer.jsonl` fixture per the issue body's described shape but has
+not been ground-truthed against a real legacy session.
+
+PR1 entry-type mapping:
+
+- `response_item.payload.type == "message"` → `user_message` (`role == "user"`) or `agent_message`
+  (`role == "assistant"`). Text is concatenated from `content[].text` blocks (`input_text`,
+  `output_text`, `text`).
+- `response_item.payload.type == "function_call"` → `tool_call`. Tool-kind canonical map (PR1):
+  - `shell` / `container.exec` with `arguments` JSON `{cmd}` or `{command:"<string>"}` →
+    `shell_command` with `args.command`. Argv-form (`{command:[…]}`) is deferred to PR2.
+  - `read` with `{path}` → `file_read`.
+  - Everything else, including `apply_patch` (patch-path inference is PR2 hardening) and
+    `custom_tool_call` (vendor canonicalization is PR2), is routed to `other` with `args = {name,
+    args}` to keep the payload schema-valid without claiming canonical kinds we don't yet parse
+    end-to-end.
+- `response_item.payload.type == "function_call_output"` → `tool_result` paired via `call_id` →
+  emitted `tool_call.id` (also surfaced under `semantic.call_id` on both records).
+- `event_msg.payload.type == "agent_reasoning"` and `event_msg.payload.type ==
+  "agent_reasoning_raw_content"` both → `agent_thinking`. Within a turn (`turn_context.payload
+  .turn_id`), normalised-text duplicates collapse to a single entry; origin is recorded under
+  `metadata["dev.codex.raw_type"]` (schema's `sourceMetadata` is `additionalProperties: false`,
+  so the audit tag lives under reverse-DNS entry metadata per spec §11 — same precedent as Pi).
+- `event_msg.payload.type == "context_compact"` → `context_compact` with `payload.summary`,
+  `tokens_before` / `tokens_after` (when present), `trigger: "auto"` (Codex auto-compaction has
+  no manual signal in the legacy/desktop streams).
+- In-session model switch: synthesized `model_change` is emitted when consecutive
+  `turn_context.payload.model` values differ. `payload.from_model` is the last observed model
+  (initialised from the first `turn_context.model`); `payload.to_model` is the new value.
+  `source.synthesized: true` and `metadata["dev.codex.raw_type"] = "turn_context.model_change"`
+  flag the synthetic origin.
+
+`dev.codex.raw_type` audit-tag values stamped by PR1:
+
+- `response_item.message` — user or agent message via the response-item channel.
+- `response_item.function_call` — tool call request.
+- `response_item.function_call_output` — tool call output.
+- `event_msg.agent_reasoning` — synthesized reasoning surface.
+- `event_msg.agent_reasoning_raw_content` — raw reasoning surface.
+- `event_msg.context_compact` — auto-compaction.
+- `turn_context.model_change` — synthesized model-change marker.
+
+Deferred shapes (PR2 hardening, follow-up issue):
+
+- `user_interrupt` — real Codex interrupt signal not observed in any session on the verifying
+  contributor's machine (Codex CLI 0.98.0). Acceptance criterion's matrix-absence path applies; no
+  fixture committed in PR1. Distinct from `event_msg.turn_aborted` which is also PR2.
+- `request_user_input` Q&A reconstruction; `web_search_call` → `tool_call{tool_kind:"web_search"
+  | "web_fetch"}`; `custom_tool_call` vendor-name canonicalisation (`tools.` prefix strip);
+  defensive shell argv-form parsing (`{command:[…]}`); apply_patch path inference from
+  `*** Update/Add/Delete File:` markers; spinner-glyph output hygiene; 12s
+  `event_msg` ↔ `response_fallback` dedupe; `task_started` / `task_complete` / `turn_aborted` /
+  `plan_completed` `system_event` emissions; subagent header `fork_from` lineage via `agent_role`
+  / `source.subagent.parent_thread_id`; `~/.codex/config.toml` profile reading for model identity;
+  encrypted reasoning (`response_item.reasoning` with `encrypted_content`) — currently skipped
+  since there is no plaintext.
+
+Opt-in real-session test hook: `packages/adapters/src/codex/real-session.test.ts` reads
+`AGENT_TRAIL_REAL_CODEX_SESSION` (absolute path to a real Codex JSONL session) and skips when
+unset. Real sessions stay out of git per the fixture policy below.
 
 Claude Code fixture coverage currently includes mixed assistant content blocks, multiple tool calls,
 multiple tool results, tool-result error state, user text blocks, thinking/redacted-thinking blocks,

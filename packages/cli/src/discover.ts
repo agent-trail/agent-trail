@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import {
   claudeCodeAdapter,
+  codexAdapter,
   type DetectOptions,
   piAdapter,
   type SessionRef,
@@ -34,7 +35,7 @@ const MISSING_TEXT = "-";
 
 // Order matters: --agent filters by name, but the output sort tiebreak and
 // JSON array order follow this list when modifiedAt is equal.
-const DEFAULT_ADAPTERS: TrailAdapter[] = [claudeCodeAdapter, piAdapter];
+const DEFAULT_ADAPTERS: TrailAdapter[] = [claudeCodeAdapter, codexAdapter, piAdapter];
 
 export async function runDiscover(
   argv: string[],

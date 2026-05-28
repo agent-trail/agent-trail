@@ -30,6 +30,7 @@ export interface TrailAdapter {
 export type ValidateAdapterTrailOptions = { profile?: ValidationProfile };
 
 export { claudeCodeAdapter } from "./claude-code/index.ts";
+export { codexAdapter } from "./codex/index.ts";
 export type { BuildTrailEnvelopeOptions } from "./envelope.ts";
 export { buildTrailEnvelope } from "./envelope.ts";
 export { piAdapter } from "./pi/index.ts";
