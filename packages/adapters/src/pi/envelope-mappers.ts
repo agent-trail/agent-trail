@@ -35,11 +35,15 @@ function synthesizeInterrupt(
   schemaVersion?: string,
 ): Entry | undefined {
   // Deterministic synthesized id seeded with (session_uid, source_id,
-  // "aborted") so re-parses are idempotent per spec §8.5.
-  const synthId =
-    typeof envelope.id === "string"
-      ? ctx.deriveSynthesizedId([envelope.id, "aborted"])
-      : ctx.deriveSynthesizedId(["aborted-unknown-source"]);
+  // "aborted") so re-parses are idempotent per spec §8.5. `buildEntries`
+  // already short-circuits when `envelope.id` is undefined, so the missing-id
+  // case is unreachable here — guard explicitly to fail loud if that
+  // invariant ever breaks (a silent fallback would alias multiple aborted
+  // envelopes onto the same synthesized id).
+  if (typeof envelope.id !== "string") {
+    throw new Error("Pi aborted envelope reached synthesizeInterrupt without source id");
+  }
+  const synthId = ctx.deriveSynthesizedId([envelope.id, "aborted"]);
   const base = baseEntry(envelope, synthId, "assistant", undefined, undefined, {
     synthesized: true,
     schemaVersion,
