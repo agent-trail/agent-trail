@@ -62,49 +62,57 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
   return { lines, truncated };
 }
 
+// Read id + cwd from the same head scan in a single open/read pass. Both
+// fields live on (or near) the first record so combining halves the per-file
+// I/O during `detectSessions`.
+//
 // Cwd surfaces in two places across observed Codex originators:
 //   - `session_meta.payload.cwd` — codex-tui 0.128.x, Codex Desktop
 //     0.133.x-alpha, codex_sdk_ts 0.98.x (canonical wrapped shape).
 //   - top-level `cwd` field on the first record — older / hypothetical flat
 //     shapes; kept as a tolerant fallback even though PR1's verifying
 //     contributor never observed it in real sessions.
+// Id is only extracted from the first parseable line (session_meta carries
+// the canonical session id at `payload.id`).
 // See `docs/parser-source-matrix.md` Codex row for verification notes.
-async function readCwdFromHead(path: string): Promise<string | undefined> {
-  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
-  for (const line of lines) {
-    try {
-      const record = JSON.parse(line) as Record<string, unknown>;
-      const payload = record.payload;
-      if (payload !== null && typeof payload === "object") {
-        const cwd = (payload as Record<string, unknown>).cwd;
-        if (typeof cwd === "string" && cwd.length > 0) return cwd;
-      }
-      const topCwd = record.cwd;
-      if (typeof topCwd === "string" && topCwd.length > 0) return topCwd;
-    } catch {
-      // Skip non-JSON lines; continue scanning.
-    }
-  }
-  return undefined;
-}
+type HeadMetadata = { id?: string; cwd?: string };
 
-async function readSessionIdFromHead(path: string): Promise<string | undefined> {
+async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
   const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
-  const first = lines[0];
-  if (first === undefined) return undefined;
-  try {
-    const record = JSON.parse(first) as Record<string, unknown>;
-    const payload = record.payload;
-    if (payload !== null && typeof payload === "object") {
-      const id = (payload as Record<string, unknown>).id;
-      if (typeof id === "string" && id.length > 0) return id;
+  let id: string | undefined;
+  let cwd: string | undefined;
+  let sawFirst = false;
+  for (const line of lines) {
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      // Skip non-JSON lines; continue scanning for cwd on later records.
+      continue;
     }
-    const topId = record.id;
-    if (typeof topId === "string" && topId.length > 0) return topId;
-  } catch {
-    // ignore
+    const payload = record.payload;
+    if (!sawFirst) {
+      sawFirst = true;
+      if (payload !== null && typeof payload === "object") {
+        const payloadId = (payload as Record<string, unknown>).id;
+        if (typeof payloadId === "string" && payloadId.length > 0) id = payloadId;
+      }
+      if (id === undefined) {
+        const topId = record.id;
+        if (typeof topId === "string" && topId.length > 0) id = topId;
+      }
+    }
+    if (cwd === undefined && payload !== null && typeof payload === "object") {
+      const payloadCwd = (payload as Record<string, unknown>).cwd;
+      if (typeof payloadCwd === "string" && payloadCwd.length > 0) cwd = payloadCwd;
+    }
+    if (cwd === undefined) {
+      const topCwd = record.cwd;
+      if (typeof topCwd === "string" && topCwd.length > 0) cwd = topCwd;
+    }
+    if (id !== undefined && cwd !== undefined) break;
   }
-  return undefined;
+  return { id, cwd };
 }
 
 async function readSessionVersionFromHead(path: string): Promise<string | undefined> {
@@ -162,13 +170,13 @@ async function walkRolloutFiles(root: string): Promise<string[]> {
 }
 
 async function buildSessionRef(filePath: string): Promise<SessionRef> {
-  const headerId = await readSessionIdFromHead(filePath);
-  const id = headerId ?? deriveIdFromFilename(filePath) ?? filePath;
+  const meta = await readMetadataFromHead(filePath).catch(() => ({}) as HeadMetadata);
+  const id = meta.id ?? deriveIdFromFilename(filePath) ?? filePath;
   const ref: SessionRef = {
     id,
     adapter: "codex",
     path: filePath,
-    headerStatus: headerId !== undefined ? "header" : "filename-fallback",
+    headerStatus: meta.id !== undefined ? "header" : "filename-fallback",
   };
   try {
     const s = await stat(filePath);
@@ -176,12 +184,7 @@ async function buildSessionRef(filePath: string): Promise<SessionRef> {
   } catch {
     // leave modifiedAt undefined
   }
-  try {
-    const cwd = await readCwdFromHead(filePath);
-    if (cwd !== undefined) ref.cwd = cwd;
-  } catch {
-    // leave cwd undefined
-  }
+  if (meta.cwd !== undefined) ref.cwd = meta.cwd;
   return ref;
 }
 

@@ -2,22 +2,20 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
 import { parseCodexJsonl } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
-const DESKTOP_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/codex/desktop-tracer.jsonl",
-  import.meta.url,
-).pathname;
-const REASONING_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/codex/reasoning-dedupe.jsonl",
-  import.meta.url,
-).pathname;
-const COMPACT_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/codex/compact-and-model-change.jsonl",
-  import.meta.url,
-).pathname;
+const DESKTOP_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/desktop-tracer.jsonl", import.meta.url),
+);
+const REASONING_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/reasoning-dedupe.jsonl", import.meta.url),
+);
+const COMPACT_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/compact-and-model-change.jsonl", import.meta.url),
+);
 
 async function parseDesktopFixture() {
   return codexAdapter.parseSession({
@@ -108,6 +106,7 @@ function seedSession(opts: {
   id: string;
   cwd: string;
   ts?: string;
+  cliVersion?: string;
 }): string {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
@@ -123,7 +122,7 @@ function seedSession(opts: {
       timestamp: ts,
       cwd: opts.cwd,
       originator: "codex-tui",
-      cli_version: "0.128.0",
+      cli_version: opts.cliVersion ?? "0.128.0",
       source: "interactive",
       model_provider: "openai",
     },
@@ -485,16 +484,21 @@ test("reasoning entry preserves original whitespace (normalization only for dedu
 });
 
 test("sourceVersion() returns cli_version of the newest seeded session", async () => {
+  // Older session carries an older cli_version; newer session carries the
+  // current one. Distinct versions assert the mtime-based newest-wins
+  // selection directly (a regression that picked the older file would
+  // surface as `"0.127.0"`).
   seedSession({
     date: { y: "2026", m: "05", d: "27" },
     id: "019d7a82-b5ce-71e1-b4cf-465a3c310c3f",
     cwd: process.cwd(),
+    cliVersion: "0.127.0",
   });
-  // Newer (later date) session — should win in mtime sort.
   seedSession({
     date: { y: "2026", m: "05", d: "28" },
     id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
     cwd: process.cwd(),
+    cliVersion: "0.128.0",
   });
   const version = await codexAdapter.sourceVersion();
   expect(version).toBe("0.128.0");
