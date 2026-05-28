@@ -347,6 +347,14 @@ export interface SystemEvent {
       | "hook_progress"
       | "queue_operation"
       | "heartbeat"
+      | "agent_error"
+      | "agent_warning"
+      | "api_error"
+      | "stream_error"
+      | "deprecation_notice"
+      | "guardian_alert"
+      | "model_rerouted"
+      | "hook_failed"
       | `x-${string}/${string}`;
     text?: string;
     data?: {

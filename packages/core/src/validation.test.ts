@@ -793,6 +793,14 @@ test.each([
   "hook_progress",
   "queue_operation",
   "heartbeat",
+  "agent_error",
+  "agent_warning",
+  "api_error",
+  "stream_error",
+  "deprecation_notice",
+  "guardian_alert",
+  "model_rerouted",
+  "hook_failed",
 ])("writer-strict accepts the reserved system_event kind %s", (kind) => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
@@ -806,6 +814,21 @@ test.each([
   });
 
   expect(diagnostics).toEqual([]);
+});
+
+test("writer-strict rejects a bare unknown diagnostic-looking system_event kind", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"system_event","id":"01HEVTSE000000000000000099","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"panic_error"}}',
+    value: {
+      type: "system_event",
+      id: "01HEVTSE000000000000000099",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { kind: "panic_error" },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/kind")).toBe(true);
 });
 
 test("reader-tolerant profile passes a system_event with an unknown x-* kind without diagnostics", async () => {
