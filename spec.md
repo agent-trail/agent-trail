@@ -772,7 +772,7 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 | `kind` | When to use | Suggested `data` shape |
 | --- | --- | --- |
 | `agent_error` | Agent-side error not tied to a specific tool call (Codex `Error`). | `{ severity?, code?, category?, blocking?, recovered?, source?, details? }` |
-| `agent_warning` | Non-fatal agent-side warning (Codex `Warning`). | Same as `agent_error`. |
+| `agent_warning` | Non-fatal agent-side warning (Codex `Warning`). | `{ severity?, code?, category?, blocking?, recovered?, source?, details? }` |
 | `api_error` | Upstream LLM/API failure surfaced to the user (Claude Code `system.subtype=api_error`). | `{ severity?, code?, category?, source?, details? }` |
 | `stream_error` | Streaming response interrupted or failed (Codex `StreamError`). | `{ severity?, code?, recovered?, details? }` |
 | `deprecation_notice` | Source announced a feature or capability deprecation (Codex `DeprecationNotice`). | `{ feature?, replacement?, details? }` |
