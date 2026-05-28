@@ -124,9 +124,10 @@ Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` r
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
 Real sessions stay out of git per the fixture policy below.
 
-Codex CLI fixture coverage (issue #32 PR1 tracer slice) targets the four mandated event kinds
-(`agent_thinking`, `user_interrupt`, `context_compact`, `model_change`) plus the baseline
-message + tool pair. The storage layout deviates from the issue body's "mangled-cwd" assumption:
+Codex CLI fixture coverage (issue #32 PR1 tracer slice) targets three of the four mandated event
+kinds (`agent_thinking`, `context_compact`, `model_change`) plus the baseline message + tool pair.
+`user_interrupt` is deferred to PR2 — see the deferred-shapes section below for why no real Codex
+session on the verifying contributor's machine emitted an interrupt envelope. The storage layout deviates from the issue body's "mangled-cwd" assumption:
 real Codex sessions live under a date-partitioned tree (`sessions/YYYY/MM/DD/rollout-*.jsonl`)
 with no per-cwd subdir, so `detectSessions` walks the full tree and filters by the cwd recorded in
 each file's header. The adapter `name` is `"codex"` (discovery handle); the trail header's

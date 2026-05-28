@@ -31,6 +31,14 @@ export const CODEX_SESSION_UID_NAMESPACE = "d7e3a8f4-9f56-4abd-c045-627e8f9a0b12
 export const CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE = "d6c2f7e3-9e45-4fac-bf34-516d7e8f9a01";
 
 /**
+ * Namespace for Codex CLI entry ids. Codex rollouts give us no per-record
+ * uuid, so every entry id is derived from (session_uid, record_index,
+ * entry_type) to keep re-parses idempotent per spec §8.5. Stable forever — do
+ * not change.
+ */
+export const CODEX_ENTRY_ID_NAMESPACE = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";
+
+/**
  * Derive a deterministic v5 UUID from `(namespace, upstreamId)` per RFC 4122
  * §4.3. Output is the hyphenated 36-char form accepted by the `session_uid`
  * schema (ULID/UUID union).

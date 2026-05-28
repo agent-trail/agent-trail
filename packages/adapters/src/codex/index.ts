@@ -18,36 +18,60 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
+// 16 KiB comfortably covers the `session_meta` first record across every
+// observed Codex originator (codex-tui 0.128.x ~600 B; Codex Desktop
+// 0.133.x-alpha ~900 B; codex_sdk_ts 0.98.x ~700 B). If a future shape
+// pushes the header past 16 KiB, `readJsonLinesHead` will return a
+// truncated tail and the wrappers below will skip the partial last line.
 const HEAD_SCAN_BYTES = 16_384;
 
-// Codex desktop-wrapped sessions place cwd at `session_meta.payload.cwd` (line 1).
-// Legacy CLI sessions (when present) place cwd at the top-level `cwd` field of
-// the first header record. Scan tolerantly and return the first cwd we find.
-async function readCwdFromHead(path: string): Promise<string | undefined> {
+type JsonLineHead = {
+  lines: string[];
+  truncated: boolean;
+};
+
+// Read the first `maxBytes` of `path` and return the safely-parseable
+// newline-delimited lines. Decode UTF-8 *first* (with `fatal: false`) then
+// trim at the last newline in the decoded string — using byte offsets on a
+// partial UTF-8 buffer can split a multi-byte codepoint and corrupt the tail.
+// When the read hits `maxBytes`, the last line is treated as potentially
+// truncated and dropped.
+async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLineHead> {
   const handle = await open(path, "r");
   let bytesRead: number;
   let buffer: Buffer;
   try {
-    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
-    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
+    buffer = Buffer.allocUnsafe(maxBytes);
+    const result = await handle.read(buffer, 0, maxBytes, 0);
     bytesRead = result.bytesRead;
   } finally {
     await handle.close().catch(() => {});
   }
-  if (bytesRead === 0) return undefined;
-  const truncated = bytesRead === HEAD_SCAN_BYTES;
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
-  } catch {
-    const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
-    if (lastNewline < 0) return undefined;
-    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, lastNewline));
+  if (bytesRead === 0) return { lines: [], truncated: false };
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, bytesRead));
+  const truncated = bytesRead === maxBytes;
+  // When truncated, drop the trailing partial line by trimming to the last
+  // newline; when not truncated, accept the final line as a complete record.
+  let safeText = text;
+  if (truncated) {
+    const lastNewline = text.lastIndexOf("\n");
+    if (lastNewline < 0) return { lines: [], truncated: true };
+    safeText = text.slice(0, lastNewline);
   }
-  const lines = text.split("\n");
-  const safeLines = truncated ? lines.slice(0, -1) : lines;
-  for (const line of safeLines) {
-    if (line.length === 0) continue;
+  const lines = safeText.split("\n").filter((line) => line.length > 0);
+  return { lines, truncated };
+}
+
+// Cwd surfaces in two places across observed Codex originators:
+//   - `session_meta.payload.cwd` — codex-tui 0.128.x, Codex Desktop
+//     0.133.x-alpha, codex_sdk_ts 0.98.x (canonical wrapped shape).
+//   - top-level `cwd` field on the first record — older / hypothetical flat
+//     shapes; kept as a tolerant fallback even though PR1's verifying
+//     contributor never observed it in real sessions.
+// See `docs/parser-source-matrix.md` Codex row for verification notes.
+async function readCwdFromHead(path: string): Promise<string | undefined> {
+  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
+  for (const line of lines) {
     try {
       const record = JSON.parse(line) as Record<string, unknown>;
       const payload = record.payload;
@@ -65,21 +89,9 @@ async function readCwdFromHead(path: string): Promise<string | undefined> {
 }
 
 async function readSessionIdFromHead(path: string): Promise<string | undefined> {
-  const handle = await open(path, "r");
-  let bytesRead: number;
-  let buffer: Buffer;
-  try {
-    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
-    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
-    bytesRead = result.bytesRead;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-  if (bytesRead === 0) return undefined;
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, bytesRead));
-  const firstNewline = text.indexOf("\n");
-  const first = firstNewline === -1 ? text : text.slice(0, firstNewline);
-  if (first.length === 0) return undefined;
+  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
+  const first = lines[0];
+  if (first === undefined) return undefined;
   try {
     const record = JSON.parse(first) as Record<string, unknown>;
     const payload = record.payload;
@@ -89,6 +101,25 @@ async function readSessionIdFromHead(path: string): Promise<string | undefined> 
     }
     const topId = record.id;
     if (typeof topId === "string" && topId.length > 0) return topId;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+async function readSessionVersionFromHead(path: string): Promise<string | undefined> {
+  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
+  const first = lines[0];
+  if (first === undefined) return undefined;
+  try {
+    const record = JSON.parse(first) as Record<string, unknown>;
+    const payload = record.payload;
+    if (payload !== null && typeof payload === "object") {
+      const cliVersion = (payload as Record<string, unknown>).cli_version;
+      if (typeof cliVersion === "string" && cliVersion.length > 0) return cliVersion;
+      const originator = (payload as Record<string, unknown>).originator;
+      if (typeof originator === "string" && originator.length > 0) return originator;
+    }
   } catch {
     // ignore
   }
@@ -123,12 +154,22 @@ async function walkRolloutFiles(root: string): Promise<string[]> {
       }
     }
   }
+  // Date-partitioned paths (`YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl`)
+  // sort lexicographically into chronological order, giving deterministic
+  // results across runs and platforms.
+  out.sort();
   return out;
 }
 
 async function buildSessionRef(filePath: string): Promise<SessionRef> {
-  const id = (await readSessionIdFromHead(filePath)) ?? deriveIdFromFilename(filePath) ?? filePath;
-  const ref: SessionRef = { id, adapter: "codex", path: filePath };
+  const headerId = await readSessionIdFromHead(filePath);
+  const id = headerId ?? deriveIdFromFilename(filePath) ?? filePath;
+  const ref: SessionRef = {
+    id,
+    adapter: "codex",
+    path: filePath,
+    headerStatus: headerId !== undefined ? "header" : "filename-fallback",
+  };
   try {
     const s = await stat(filePath);
     ref.modifiedAt = new Date(s.mtimeMs).toISOString();
@@ -181,7 +222,28 @@ export const codexAdapter: TrailAdapter = {
     if (dir === undefined) return false;
     return dirExists(dir);
   },
+  // Report the newest session's `cli_version` (or originator string when
+  // version is absent). Mirrors the Pi adapter precedent — pick the file
+  // most recently touched in the current cwd's session tree.
   async sourceVersion(): Promise<string | null> {
-    return null;
+    const dir = codexSessionsDir();
+    if (dir === undefined) return null;
+    if (!(await dirExists(dir))) return null;
+    const files = await walkRolloutFiles(dir);
+    if (files.length === 0) return null;
+    const withMtime = await Promise.all(
+      files.map(async (path) => {
+        try {
+          const s = await stat(path);
+          return { path, mtime: s.mtimeMs };
+        } catch {
+          return { path, mtime: 0 };
+        }
+      }),
+    );
+    withMtime.sort((a, b) => b.mtime - a.mtime);
+    const newest = withMtime[0];
+    if (newest === undefined) return null;
+    return (await readSessionVersionFromHead(newest.path)) ?? null;
   },
 };

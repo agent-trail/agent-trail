@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
+import { parseCodexJsonl } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
 const DESKTOP_FIXTURE_PATH = new URL(
@@ -277,6 +278,255 @@ test("parseSession throws when the first record is not session_meta", async () =
   await expect(
     codexAdapter.parseSession({ id: "malformed", adapter: "codex", path }),
   ).rejects.toThrow(/session_meta/);
+});
+
+test("CODEX_HOME whitespace-only override falls back to default", () => {
+  process.env.CODEX_HOME = "   ";
+  expect(codexHomeDir()).toBe(join(tmpHome, ".codex"));
+});
+
+test("parseSession produces deterministic entry ids across re-parses (spec §8.5)", async () => {
+  const a = await parseDesktopFixture();
+  const b = await parseDesktopFixture();
+  expect(a.header.session_uid).toBe(b.header.session_uid);
+  const idsA = a.entries.map((e) => e.id);
+  const idsB = b.entries.map((e) => e.id);
+  expect(idsA).toEqual(idsB);
+  // for_id linkage should also be stable.
+  const aResult = a.entries.find((e) => e.type === "tool_result");
+  const bResult = b.entries.find((e) => e.type === "tool_result");
+  expect((aResult?.payload as { for_id?: string }).for_id).toBe(
+    (bResult?.payload as { for_id?: string }).for_id,
+  );
+});
+
+test("parser preserves unparseable function_call arguments under source.raw", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T04:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8200-3333-7000-d000-000000000003",
+        timestamp: "2026-05-28T04:00:00.000Z",
+        cwd: "/proj/codex-bad-args",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T04:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        arguments: "{not valid json",
+        call_id: "call-bad",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const call = trail.entries.find((e) => e.type === "tool_call");
+  expect(call).toBeDefined();
+  // Unparseable args fall through to `other` via `mapTool` (shell needs a
+  // parsed `cmd` to land on shell_command). The raw string is preserved
+  // under `source.raw.arguments` so it isn't lost.
+  expect((call?.payload as { tool: string }).tool).toBe("other");
+  const source = call?.source as Record<string, unknown>;
+  const raw = source.raw as Record<string, unknown> | undefined;
+  expect(raw?.arguments).toBe("{not valid json");
+});
+
+test("parser handles sessions with no turn_context (implicit turn id)", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T05:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8300-4444-7000-e000-000000000004",
+        timestamp: "2026-05-28T05:00:00.000Z",
+        cwd: "/proj/codex-implicit-turn",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T05:00:01.000Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "hi" },
+    },
+    {
+      timestamp: "2026-05-28T05:00:02.000Z",
+      type: "event_msg",
+      payload: { type: "agent_reasoning", text: "thinking once" },
+    },
+    {
+      timestamp: "2026-05-28T05:00:03.000Z",
+      type: "event_msg",
+      payload: { type: "agent_reasoning", text: "thinking once" },
+    },
+    {
+      timestamp: "2026-05-28T05:00:04.000Z",
+      type: "event_msg",
+      payload: { type: "agent_message", message: "ok" },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const thinking = trail.entries.filter((e) => e.type === "agent_thinking");
+  // Implicit-turn dedup still active — duplicate text collapses to one entry.
+  expect(thinking).toHaveLength(1);
+  expect(trail.entries.find((e) => e.type === "user_message")).toBeDefined();
+  expect(trail.entries.find((e) => e.type === "agent_message")).toBeDefined();
+});
+
+test("argv-form shell command falls through to tool=other (PR2 deferral)", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T06:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8400-5555-7000-f000-000000000005",
+        timestamp: "2026-05-28T06:00:00.000Z",
+        cwd: "/proj/codex-argv",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T06:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        arguments: JSON.stringify({ command: ["ls", "-la"] }),
+        call_id: "call-argv",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const call = trail.entries.find((e) => e.type === "tool_call");
+  expect(call).toBeDefined();
+  expect((call?.payload as { tool: string }).tool).toBe("other");
+  expect(call?.semantic?.tool_kind).toBe("other");
+});
+
+test("reasoning dedup resets across turn boundary (same text in two turns yields two entries)", () => {
+  const text = `Same reasoning text repeated in different turns.`;
+  const lines = [
+    {
+      timestamp: "2026-05-28T07:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8500-6666-7000-a000-000000000006",
+        timestamp: "2026-05-28T07:00:00.000Z",
+        cwd: "/proj/codex-dedup-boundary",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T07:00:01.000Z",
+      type: "turn_context",
+      payload: { turn_id: "turn-1", model: "gpt-5-codex" },
+    },
+    {
+      timestamp: "2026-05-28T07:00:02.000Z",
+      type: "event_msg",
+      payload: { type: "agent_reasoning", text },
+    },
+    {
+      timestamp: "2026-05-28T07:00:03.000Z",
+      type: "turn_context",
+      payload: { turn_id: "turn-2", model: "gpt-5-codex" },
+    },
+    {
+      timestamp: "2026-05-28T07:00:04.000Z",
+      type: "event_msg",
+      payload: { type: "agent_reasoning", text },
+    },
+  ];
+  const jsonl = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(jsonl);
+  const thinking = trail.entries.filter((e) => e.type === "agent_thinking");
+  expect(thinking).toHaveLength(2);
+});
+
+test("reasoning entry preserves original whitespace (normalization only for dedup key)", () => {
+  const original = "Step 1: read the file.\n  Step 2:  identify  duplication.";
+  const lines = [
+    {
+      timestamp: "2026-05-28T08:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8600-7777-7000-b000-000000000007",
+        timestamp: "2026-05-28T08:00:00.000Z",
+        cwd: "/proj/codex-reason-fidelity",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T08:00:01.000Z",
+      type: "turn_context",
+      payload: { turn_id: "turn-1", model: "gpt-5-codex" },
+    },
+    {
+      timestamp: "2026-05-28T08:00:02.000Z",
+      type: "event_msg",
+      payload: { type: "agent_reasoning", text: original },
+    },
+  ];
+  const jsonl = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(jsonl);
+  const thinking = trail.entries.find((e) => e.type === "agent_thinking");
+  expect((thinking?.payload as { text: string }).text).toBe(original);
+});
+
+test("sourceVersion() returns cli_version of the newest seeded session", async () => {
+  seedSession({
+    date: { y: "2026", m: "05", d: "27" },
+    id: "019d7a82-b5ce-71e1-b4cf-465a3c310c3f",
+    cwd: process.cwd(),
+  });
+  // Newer (later date) session — should win in mtime sort.
+  seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
+    cwd: process.cwd(),
+  });
+  const version = await codexAdapter.sourceVersion();
+  expect(version).toBe("0.128.0");
+});
+
+test("sourceVersion() is null when no sessions exist", async () => {
+  expect(await codexAdapter.sourceVersion()).toBeNull();
+});
+
+test('buildSessionRef sets headerStatus="header" for healthy sessions', async () => {
+  seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
+    cwd: process.cwd(),
+  });
+  const refs = await codexAdapter.detectSessions();
+  expect(refs[0]?.headerStatus).toBe("header");
+});
+
+test('buildSessionRef sets headerStatus="filename-fallback" when header is unreadable', async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = join(dayDir, `rollout-2026-05-28T01-46-00-000Z-${id}.jsonl`);
+  // Empty file — header read returns undefined, fallback derives id from name.
+  writeFileSync(path, "");
+  const refs = await codexAdapter.detectSessions({ allCwds: true });
+  expect(refs).toHaveLength(1);
+  expect(refs[0]?.headerStatus).toBe("filename-fallback");
+  expect(refs[0]?.id).toBe(id);
 });
 
 test("detectSessions() filters out sessions whose header cwd differs from caller cwd", async () => {

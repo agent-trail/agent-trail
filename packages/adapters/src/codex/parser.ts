@@ -1,7 +1,25 @@
-import { randomUUID } from "node:crypto";
+// Codex CLI rollout-JSONL parser (issue #32 PR1 tracer slice).
+//
+// Scope: minimal mapping for `user_message`, `agent_message`, `tool_call`,
+// `tool_result`, `agent_thinking`, `context_compact`, `model_change`. See
+// `docs/parser-source-matrix.md` for the full PR1 mapping table and the list
+// of deferred shapes. `user_interrupt` synthesis is intentionally deferred:
+// no real Codex session observed on the verifying contributor's machine
+// (codex-tui 0.128.x / Codex Desktop 0.133.x-alpha / codex_sdk_ts 0.98.x)
+// emits a native interrupt envelope — see deferred-shapes section of the
+// matrix doc. PR2 hardening tracks recovery if a signal surfaces.
+//
+// Idempotence: entry ids derive deterministically from
+// (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
+// same JSONL produces stable ids and the reconciler can group segments.
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
-import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import {
+  CODEX_ENTRY_ID_NAMESPACE,
+  CODEX_SESSION_UID_NAMESPACE,
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+} from "../session-uid.ts";
 import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
 const AGENT_NAME = "codex-cli";
@@ -38,6 +56,10 @@ function buildHeader(first: Record<string, unknown>): Header {
   return header;
 }
 
+function entryId(sessionUid: string, index: number, kind: string): string {
+  return deriveSynthesizedEntryId(CODEX_ENTRY_ID_NAMESPACE, [sessionUid, String(index), kind]);
+}
+
 type Classified = {
   topType: string;
   payloadType: string | undefined;
@@ -61,13 +83,13 @@ function classify(record: Record<string, unknown>): Classified | undefined {
 // but also includes synthetic `role:"developer"` AGENTS.md preambles that
 // shouldn't appear as user input — PR1 deliberately picks event_msg and
 // leaves cross-channel dedupe to PR2.
-function buildUserOrAgentMessageEntry(rec: Classified, ts: string): Entry | undefined {
+function buildUserOrAgentMessageEntry(rec: Classified, ts: string, id: string): Entry | undefined {
   const text = stringValue(rec.payload.message) ?? stringValue(rec.payload.text);
   if (text === undefined || text.length === 0) return undefined;
   if (rec.payloadType === "user_message") {
     return {
       type: "user_message",
-      id: randomUUID(),
+      id,
       ts,
       payload: { text },
       source: { agent: AGENT_NAME, original_type: "event_msg.user_message" },
@@ -77,7 +99,7 @@ function buildUserOrAgentMessageEntry(rec: Classified, ts: string): Entry | unde
   if (rec.payloadType === "agent_message") {
     return {
       type: "agent_message",
-      id: randomUUID(),
+      id,
       ts,
       payload: { text },
       source: { agent: AGENT_NAME, original_type: "event_msg.agent_message" },
@@ -114,37 +136,51 @@ function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
   return { tool: "other", args: { name: rawName ?? "unknown", args } };
 }
 
-function parseFunctionArguments(raw: unknown): Record<string, unknown> {
+type ParsedArgs = {
+  args: Record<string, unknown>;
+  rawUnparseable?: string;
+};
+
+function parseFunctionArguments(raw: unknown): ParsedArgs {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
-      return isObject(parsed) ? parsed : {};
+      return { args: isObject(parsed) ? parsed : {} };
     } catch {
-      return {};
+      // Preserve the unparseable string so debuggers can still see what
+      // Codex emitted; `source.raw` carries it on the tool_call entry.
+      return { args: {}, rawUnparseable: raw };
     }
   }
-  if (isObject(raw)) return raw;
-  return {};
+  if (isObject(raw)) return { args: raw };
+  return { args: {} };
 }
 
 function buildToolCallEntry(
   rec: Classified,
   ts: string,
+  id: string,
 ): {
   entry: Entry;
   callId: string | undefined;
 } {
   const name = stringValue(rec.payload.name);
   const callId = stringValue(rec.payload.call_id);
-  const args = parseFunctionArguments(rec.payload.arguments);
-  const mapping = mapTool(name, args);
-  const id = randomUUID();
+  const parsed = parseFunctionArguments(rec.payload.arguments);
+  const mapping = mapTool(name, parsed.args);
+  const source: Record<string, unknown> = {
+    agent: AGENT_NAME,
+    original_type: "response_item.function_call",
+  };
+  if (parsed.rawUnparseable !== undefined) {
+    source.raw = { arguments: parsed.rawUnparseable };
+  }
   const entry: Entry = {
     type: "tool_call",
     id,
     ts,
     payload: { tool: mapping.tool, args: mapping.args },
-    source: { agent: AGENT_NAME, original_type: "response_item.function_call" },
+    source: source as Entry["source"],
     meta: { "dev.codex.raw_type": "response_item.function_call" },
   };
   if (callId !== undefined) {
@@ -158,6 +194,7 @@ function buildToolCallEntry(
 function buildToolResultEntry(
   rec: Classified,
   ts: string,
+  id: string,
   callIdToEntryId: Map<string, string>,
 ): Entry {
   const callId = stringValue(rec.payload.call_id);
@@ -176,7 +213,7 @@ function buildToolResultEntry(
   }
   const entry: Entry = {
     type: "tool_result",
-    id: randomUUID(),
+    id,
     ts,
     payload,
     source: { agent: AGENT_NAME, original_type: "response_item.function_call_output" },
@@ -186,11 +223,13 @@ function buildToolResultEntry(
   return entry;
 }
 
-function normaliseReasoningText(text: string): string {
+// Dedup key only — destroys structure. The entry body keeps the original
+// `text` verbatim so consumers see Codex's actual reasoning formatting.
+function reasoningDedupKey(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function buildReasoningEntry(rec: Classified, ts: string): Entry | undefined {
+function buildReasoningEntry(rec: Classified, ts: string, id: string): Entry | undefined {
   const text = stringValue(rec.payload.text) ?? stringValue(rec.payload.message);
   if (text === undefined || text.length === 0) return undefined;
   const rawType =
@@ -199,7 +238,7 @@ function buildReasoningEntry(rec: Classified, ts: string): Entry | undefined {
       : "event_msg.agent_reasoning";
   return {
     type: "agent_thinking",
-    id: randomUUID(),
+    id,
     ts,
     payload: { text },
     source: { agent: AGENT_NAME, original_type: rawType },
@@ -214,7 +253,7 @@ function buildReasoningEntry(rec: Classified, ts: string): Entry | undefined {
 // marker — PR1 ignores it since the canonical content lives on the top-level
 // record. Token counts (tokens_before / tokens_after) are not in the source
 // stream; defer to PR2 if they surface in a later session shape.
-function buildCompactEntry(rec: Classified, ts: string): Entry | undefined {
+function buildCompactEntry(rec: Classified, ts: string, id: string): Entry | undefined {
   const summary = stringValue(rec.payload.message) ?? stringValue(rec.payload.summary);
   if (summary === undefined || summary.length === 0) return undefined;
   const payload: Record<string, unknown> = { summary, trigger: "auto" };
@@ -224,7 +263,7 @@ function buildCompactEntry(rec: Classified, ts: string): Entry | undefined {
   if (tokensAfter !== undefined) payload.tokens_after = Math.trunc(tokensAfter);
   return {
     type: "context_compact",
-    id: randomUUID(),
+    id,
     ts,
     payload,
     source: { agent: AGENT_NAME, original_type: "compacted" },
@@ -232,12 +271,17 @@ function buildCompactEntry(rec: Classified, ts: string): Entry | undefined {
   };
 }
 
-function buildModelChangeEntry(ts: string, fromModel: string | undefined, toModel: string): Entry {
+function buildModelChangeEntry(
+  ts: string,
+  id: string,
+  fromModel: string | undefined,
+  toModel: string,
+): Entry {
   const payload: Record<string, unknown> = { to_model: toModel };
   if (fromModel !== undefined) payload.from_model = fromModel;
   return {
     type: "model_change",
-    id: randomUUID(),
+    id,
     ts,
     payload,
     source: {
@@ -249,7 +293,7 @@ function buildModelChangeEntry(ts: string, fromModel: string | undefined, toMode
   };
 }
 
-function buildEntries(records: Record<string, unknown>[]): Entry[] {
+function buildEntries(records: Record<string, unknown>[], sessionUid: string): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
   // Reasoning dedupe scope: a turn, identified by the most recent
@@ -275,41 +319,47 @@ function buildEntries(records: Record<string, unknown>[]): Entry[] {
       const model = stringValue(c.payload.model);
       if (model !== undefined) {
         if (lastModel !== undefined && lastModel !== model) {
-          entries.push(buildModelChangeEntry(ts, lastModel, model));
+          const id = entryId(sessionUid, i, "model_change");
+          entries.push(buildModelChangeEntry(ts, id, lastModel, model));
         }
         lastModel = model;
       }
       continue;
     }
     if (c.topType === "compacted") {
-      const entry = buildCompactEntry(c, ts);
+      const id = entryId(sessionUid, i, "context_compact");
+      const entry = buildCompactEntry(c, ts, id);
       if (entry !== undefined) entries.push(entry);
       continue;
     }
     if (c.topType === "response_item") {
       if (c.payloadType === "function_call") {
-        const { entry, callId } = buildToolCallEntry(c, ts);
+        const id = entryId(sessionUid, i, "tool_call");
+        const { entry, callId } = buildToolCallEntry(c, ts, id);
         entries.push(entry);
         if (callId !== undefined) callIdToEntryId.set(callId, entry.id);
         continue;
       }
       if (c.payloadType === "function_call_output") {
-        entries.push(buildToolResultEntry(c, ts, callIdToEntryId));
+        const id = entryId(sessionUid, i, "tool_result");
+        entries.push(buildToolResultEntry(c, ts, id, callIdToEntryId));
         continue;
       }
       continue;
     }
     if (c.topType === "event_msg") {
       if (c.payloadType === "user_message" || c.payloadType === "agent_message") {
-        const entry = buildUserOrAgentMessageEntry(c, ts);
+        const id = entryId(sessionUid, i, c.payloadType);
+        const entry = buildUserOrAgentMessageEntry(c, ts, id);
         if (entry !== undefined) entries.push(entry);
         continue;
       }
       if (c.payloadType === "agent_reasoning" || c.payloadType === "agent_reasoning_raw_content") {
-        const entry = buildReasoningEntry(c, ts);
+        const id = entryId(sessionUid, i, "agent_thinking");
+        const entry = buildReasoningEntry(c, ts, id);
         if (entry === undefined) continue;
         const text = stringValue((entry.payload as { text: string }).text) ?? "";
-        const key = normaliseReasoningText(text);
+        const key = reasoningDedupKey(text);
         if (key.length === 0 || turnReasoningSeen.has(key)) continue;
         turnReasoningSeen.add(key);
         entries.push(entry);
@@ -325,12 +375,14 @@ function buildEntries(records: Record<string, unknown>[]): Entry[] {
 
 export function parseCodexJsonl(text: string): TrailFile {
   const records = parseLines(text);
-  if (records.length === 0) {
-    throw new Error("Codex session is empty");
-  }
-  const first = records[0];
-  if (first === undefined) throw new Error("Codex session is empty");
-  const header = buildHeader(first);
-  const entries = buildEntries(records);
+  // `buildHeader` is the single source of truth for the empty / wrong-first
+  // -record error; relying on it removes a redundant explicit check that
+  // duplicated the throw path.
+  const first = records[0] ?? {};
+  const header = buildHeader(first as Record<string, unknown>);
+  // `buildHeader` always emits `session_uid` for Codex (derived from
+  // `payload.id`); narrow the optional schema field for the parser side.
+  const sessionUid = header.session_uid ?? header.id;
+  const entries = buildEntries(records, sessionUid);
   return { header, entries };
 }
