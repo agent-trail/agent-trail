@@ -1,0 +1,5 @@
+{"timestamp":"2026-05-28T09:00:00.000Z","type":"session_meta","payload":{"id":"019d8700-8888-7000-c000-000000000008","timestamp":"2026-05-28T09:00:00.000Z","cwd":"/proj/codex-search","originator":"codex-tui","cli_version":"0.128.0","source":"interactive","model_provider":"openai"}}
+{"timestamp":"2026-05-28T09:00:01.000Z","type":"turn_context","payload":{"cwd":"/proj/codex-search","model":"gpt-5-codex","effort":"medium","turn_id":"turn-1"}}
+{"timestamp":"2026-05-28T09:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"check the docs"}}
+{"timestamp":"2026-05-28T09:00:03.000Z","type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"search","queries":["site:example.com api docs"]}}}
+{"timestamp":"2026-05-28T09:00:04.000Z","type":"event_msg","payload":{"type":"web_search_end","call_id":"ws_abc123","query":"site:example.com api docs","action":{"type":"search","queries":["site:example.com api docs"]}}}

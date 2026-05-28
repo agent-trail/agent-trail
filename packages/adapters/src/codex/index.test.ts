@@ -16,6 +16,15 @@ const REASONING_FIXTURE_PATH = fileURLToPath(
 const COMPACT_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/codex/compact-and-model-change.jsonl", import.meta.url),
 );
+const APPLY_PATCH_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/apply-patch.jsonl", import.meta.url),
+);
+const WEB_SEARCH_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/web-search.jsonl", import.meta.url),
+);
+const LIFECYCLE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/codex/lifecycle.jsonl", import.meta.url),
+);
 
 async function parseDesktopFixture() {
   return codexAdapter.parseSession({
@@ -38,6 +47,30 @@ async function parseCompactFixture() {
     id: "019d8100-2222-7000-c000-000000000002",
     adapter: "codex",
     path: COMPACT_FIXTURE_PATH,
+  });
+}
+
+async function parseApplyPatchFixture() {
+  return codexAdapter.parseSession({
+    id: "019d8600-7777-7000-b000-000000000007",
+    adapter: "codex",
+    path: APPLY_PATCH_FIXTURE_PATH,
+  });
+}
+
+async function parseWebSearchFixture() {
+  return codexAdapter.parseSession({
+    id: "019d8700-8888-7000-c000-000000000008",
+    adapter: "codex",
+    path: WEB_SEARCH_FIXTURE_PATH,
+  });
+}
+
+async function parseLifecycleFixture() {
+  return codexAdapter.parseSession({
+    id: "019d8900-aaaa-7000-e000-00000000000a",
+    adapter: "codex",
+    path: LIFECYCLE_FIXTURE_PATH,
   });
 }
 
@@ -205,8 +238,9 @@ test("desktop fixture emits user_message + agent_message entries from event_msg 
 
 test("desktop fixture emits tool_call + tool_result with for_id linkage", async () => {
   const trail = await parseDesktopFixture();
-  const call = trail.entries.find((e) => e.type === "tool_call");
+  const calls = trail.entries.filter((e) => e.type === "tool_call");
   const result = trail.entries.find((e) => e.type === "tool_result");
+  const call = calls.find((c) => c.semantic?.call_id === "call-abc");
   expect(call).toBeDefined();
   expect(result).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("shell_command");
@@ -216,6 +250,18 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect((result?.payload as { output: string }).output).toBe("hi\n");
   expect((result?.payload as { for_id?: string }).for_id).toBe(call?.id);
   expect(result?.semantic?.call_id).toBe("call-abc");
+});
+
+test("exec_command function_call maps to shell_command with workdir as cwd", async () => {
+  const trail = await parseDesktopFixture();
+  const exec = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-exec-1",
+  );
+  expect(exec).toBeDefined();
+  expect((exec?.payload as { tool: string }).tool).toBe("shell_command");
+  const args = (exec?.payload as { args: { command: string; cwd?: string } }).args;
+  expect(args.command).toBe("ls -la");
+  expect(args.cwd).toBe("/proj/codex-fixture");
 });
 
 test("compact fixture emits context_compact from top-level compacted record", async () => {
@@ -250,7 +296,10 @@ test("compact fixture emits synthesized model_change at the in-session model swi
 test("reasoning fixture emits one agent_thinking per turn with dev.codex.raw_type audit tag", async () => {
   const trail = await parseReasoningFixture();
   const thinking = trail.entries.filter((e) => e.type === "agent_thinking");
-  expect(thinking).toHaveLength(2);
+  // Three entries: turn-1 event_msg.agent_reasoning, turn-2
+  // event_msg.agent_reasoning_raw_content, turn-2
+  // response_item.reasoning.summary (the dedupe key differs).
+  expect(thinking).toHaveLength(3);
   expect((thinking[0]?.payload as { text: string }).text).toBe(
     "Step 1: read the file. Step 2: identify duplication.",
   );
@@ -259,6 +308,10 @@ test("reasoning fixture emits one agent_thinking per turn with dev.codex.raw_typ
     "Different turn, different thought.",
   );
   expect(thinking[1]?.meta?.["dev.codex.raw_type"]).toBe("event_msg.agent_reasoning_raw_content");
+  expect((thinking[2]?.payload as { text: string }).text).toBe(
+    "Summary thought from response_item channel.",
+  );
+  expect(thinking[2]?.meta?.["dev.codex.raw_type"]).toBe("response_item.reasoning.summary");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
@@ -336,6 +389,344 @@ test("parser preserves unparseable function_call arguments under source.raw", ()
   expect(raw?.arguments).toBe("{not valid json");
 });
 
+test("event_msg.task_started emits system_event with reserved kind task_started", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind: string }).kind === "task_started",
+  );
+  expect(evt).toBeDefined();
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.turn_id).toBe("turn-life");
+  expect(data?.model_context_window).toBe(256000);
+  expect(data?.collaboration_mode_kind).toBe("default");
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.task_started");
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+test("event_msg.task_complete emits system_event with canonical task_completed kind", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind: string }).kind === "task_completed",
+  );
+  expect(evt).toBeDefined();
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.turn_id).toBe("turn-life");
+  expect(data?.duration_ms).toBe(11000);
+  expect(data?.last_agent_message).toBe("done");
+  // Raw source payload uses singular `task_complete`; preserve the original
+  // wording on the audit tag while the canonical schema kind is `task_completed`.
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.task_complete");
+});
+
+test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_id", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/exec_command_end",
+  );
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-life");
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.exit_code).toBe(0);
+  expect(data?.duration_ms).toBe(42);
+  expect(data?.command).toBe("ls");
+  expect(data?.stdout_excerpt).toBe("file.txt\n");
+  expect(data?.stderr_excerpt).toBe("");
+});
+
+test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/patch_apply_end",
+  );
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-patch-life");
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.success).toBe(true);
+  expect(data?.changes).toEqual({ "src/x.ts": { type: "modify" } });
+});
+
+test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call_id", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/mcp_tool_call_end",
+  );
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-mcp-life");
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.plugin_id).toBe("computer-use@openai-bundled");
+  expect(data?.duration_ms).toBe(150);
+  expect(data?.result_ok).toBe(true);
+});
+
+test("event_msg.thread_goal_updated emits x-codex/thread_goal_updated system_event", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/thread_goal_updated",
+  );
+  expect(evt).toBeDefined();
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data?.thread_id).toBe("thread-1");
+  expect(data?.turn_id).toBe("turn-life");
+  expect(data?.goal).toEqual({ summary: "finish the task" });
+});
+
+test("tool_search_call + tool_search_output round-trip as other tool_call/result", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T10:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8800-9999-7000-d000-000000000009",
+        timestamp: "2026-05-28T10:00:00.000Z",
+        cwd: "/proj/codex-toolsearch",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T10:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "tool_search_call",
+        call_id: "call-toolsearch-1",
+        status: "completed",
+        execution: "client",
+        arguments: JSON.stringify({ query: "diff tools", limit: 5 }),
+      },
+    },
+    {
+      timestamp: "2026-05-28T10:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "tool_search_output",
+        call_id: "call-toolsearch-1",
+        status: "completed",
+        execution: "client",
+        tools: [{ name: "diff" }, { name: "git_diff" }],
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const call = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-toolsearch-1",
+  );
+  const result = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-toolsearch-1",
+  );
+  expect(call).toBeDefined();
+  expect((call?.payload as { tool: string }).tool).toBe("other");
+  const args = (call?.payload as { args: { name: string; args: Record<string, unknown> } }).args;
+  expect(args.name).toBe("tool_search");
+  expect(args.args.query).toBe("diff tools");
+  expect(args.args.limit).toBe(5);
+  expect(call?.meta?.["dev.codex.raw_type"]).toBe("response_item.tool_search_call");
+  expect(result).toBeDefined();
+  expect((result?.payload as { for_id?: string }).for_id).toBe(call?.id);
+  expect((result?.payload as { output: string }).output).toContain("diff");
+  expect(result?.meta?.["dev.codex.raw_type"]).toBe("response_item.tool_search_output");
+});
+
+test("web_search_end emits x-codex/web_search_end system_event linked by source call_id", async () => {
+  const trail = await parseWebSearchFixture();
+  const evt = trail.entries.find((e) => e.type === "system_event");
+  expect(evt).toBeDefined();
+  expect((evt?.payload as { kind: string }).kind).toBe("x-codex/web_search_end");
+  expect(evt?.semantic?.call_id).toBe("ws_abc123");
+  expect((evt?.payload as { data?: { query?: string } }).data?.query).toBe(
+    "site:example.com api docs",
+  );
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.web_search_end");
+});
+
+test("web_search_call with action.type='search' maps to tool_call{tool:'web_search'}", async () => {
+  const trail = await parseWebSearchFixture();
+  const call = trail.entries.find((e) => e.type === "tool_call");
+  expect(call).toBeDefined();
+  expect((call?.payload as { tool: string }).tool).toBe("web_search");
+  expect((call?.payload as { args: { query: string } }).args.query).toBe(
+    "site:example.com api docs",
+  );
+  expect(call?.meta?.["dev.codex.raw_type"]).toBe("response_item.web_search_call");
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+test("custom_tool_call_output emits tool_result paired by call_id", async () => {
+  const trail = await parseApplyPatchFixture();
+  const singleCall = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-single",
+  );
+  const singleResult = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-patch-single",
+  );
+  expect(singleResult).toBeDefined();
+  expect((singleResult?.payload as { for_id?: string }).for_id).toBe(singleCall?.id);
+  expect((singleResult?.payload as { output: string }).output).toContain("M src/foo.ts");
+  expect(singleResult?.meta?.["dev.codex.raw_type"]).toBe("response_item.custom_tool_call_output");
+  const multiResult = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-patch-multi",
+  );
+  expect(multiResult).toBeDefined();
+});
+
+test("custom_tool_call apply_patch with a multi-file patch falls back to other", async () => {
+  const trail = await parseApplyPatchFixture();
+  const multi = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-multi",
+  );
+  expect(multi).toBeDefined();
+  expect((multi?.payload as { tool: string }).tool).toBe("other");
+  const args = (multi?.payload as { args: { name: string; args: { input: string } } }).args;
+  expect(args.name).toBe("apply_patch");
+  expect(args.args.input).toContain("*** Update File: src/a.ts");
+  expect(args.args.input).toContain("*** Update File: src/b.ts");
+});
+
+test("custom_tool_call apply_patch with a single-file patch maps to file_edit", async () => {
+  const trail = await parseApplyPatchFixture();
+  const single = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-single",
+  );
+  expect(single).toBeDefined();
+  expect((single?.payload as { tool: string }).tool).toBe("file_edit");
+  const args = (single?.payload as { args: { path: string; diff: string } }).args;
+  expect(args.path).toBe("src/foo.ts");
+  expect(args.diff).toContain("*** Update File: src/foo.ts");
+  expect(args.diff).toContain("-old line");
+  expect(args.diff).toContain("+new line");
+  expect(single?.meta?.["dev.codex.raw_type"]).toBe("response_item.custom_tool_call");
+  const diagnostics = await validateAdapterTrail(trail);
+  const errors = diagnostics.filter((d) => d.severity === "error");
+  expect(errors).toEqual([]);
+});
+
+test("argv-form shell args join to a quoted command string", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T06:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8400-5555-7000-f000-000000000005",
+        timestamp: "2026-05-28T06:00:00.000Z",
+        cwd: "/proj/codex-argv",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T06:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        arguments: JSON.stringify({ command: ["bash", "-lc", "echo hi && ls /tmp"] }),
+        call_id: "call-argv-1",
+      },
+    },
+    {
+      timestamp: "2026-05-28T06:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ command: "plain string form" }),
+        call_id: "call-argv-2",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const argv = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-argv-1",
+  );
+  const plain = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-argv-2",
+  );
+  expect(argv).toBeDefined();
+  expect((argv?.payload as { tool: string }).tool).toBe("shell_command");
+  expect((argv?.payload as { args: { command: string } }).args.command).toBe(
+    "bash -lc 'echo hi && ls /tmp'",
+  );
+  expect(plain).toBeDefined();
+  expect((plain?.payload as { tool: string }).tool).toBe("shell_command");
+  expect((plain?.payload as { args: { command: string } }).args.command).toBe("plain string form");
+});
+
+test("tool_result output strips trailing spinner glyphs but preserves real content", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T12:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8a00-bbbb-7000-f000-00000000000b",
+        timestamp: "2026-05-28T12:00:00.000Z",
+        cwd: "/proj/codex-spinner",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: "echo hi" }),
+        call_id: "call-spin-1",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-spin-1",
+        // Trailing spinner glyph noise — common in real Codex stdout.
+        output: "Exit code: 0\nOutput: foo\n· ",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:03.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: "echo done" }),
+        call_id: "call-spin-2",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:04.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-spin-2",
+        // Looks spinner-like but is real output — boundary check.
+        output: "Done!",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const results = trail.entries.filter((e) => e.type === "tool_result");
+  const stripped = results.find((r) => r.semantic?.call_id === "call-spin-1");
+  const preserved = results.find((r) => r.semantic?.call_id === "call-spin-2");
+  expect((stripped?.payload as { output: string }).output).toBe("Exit code: 0\nOutput: foo");
+  expect((preserved?.payload as { output: string }).output).toBe("Done!");
+});
+
 test("parser handles sessions with no turn_context (implicit turn id)", () => {
   const lines = [
     {
@@ -377,38 +768,6 @@ test("parser handles sessions with no turn_context (implicit turn id)", () => {
   expect(thinking).toHaveLength(1);
   expect(trail.entries.find((e) => e.type === "user_message")).toBeDefined();
   expect(trail.entries.find((e) => e.type === "agent_message")).toBeDefined();
-});
-
-test("argv-form shell command falls through to tool=other (PR2 deferral)", () => {
-  const lines = [
-    {
-      timestamp: "2026-05-28T06:00:00.000Z",
-      type: "session_meta",
-      payload: {
-        id: "019d8400-5555-7000-f000-000000000005",
-        timestamp: "2026-05-28T06:00:00.000Z",
-        cwd: "/proj/codex-argv",
-        originator: "codex-tui",
-        cli_version: "0.128.0",
-      },
-    },
-    {
-      timestamp: "2026-05-28T06:00:01.000Z",
-      type: "response_item",
-      payload: {
-        type: "function_call",
-        name: "shell",
-        arguments: JSON.stringify({ command: ["ls", "-la"] }),
-        call_id: "call-argv",
-      },
-    },
-  ];
-  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
-  const trail = parseCodexJsonl(text);
-  const call = trail.entries.find((e) => e.type === "tool_call");
-  expect(call).toBeDefined();
-  expect((call?.payload as { tool: string }).tool).toBe("other");
-  expect(call?.semantic?.tool_kind).toBe("other");
 });
 
 test("reasoning dedup resets across turn boundary (same text in two turns yields two entries)", () => {

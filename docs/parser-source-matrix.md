@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -144,79 +144,148 @@ PR1 rather than carrying dead code paired with a fictional fixture. If a real fl
 surfaces later, the dispatch can be reintroduced under a PR2 hardening pass.
 
 Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, `turn_context`,
-`compacted`. PR1 entry-type mapping:
+`compacted`. Entry-type mapping:
 
 - `event_msg.payload.type == "user_message"` → `user_message`. Text comes from `payload.message`.
-  PR1 prefers this over `response_item.payload.type == "message"` (role:"user") because the
+  Preferred over `response_item.payload.type == "message"` (role:"user") because the
   response-item channel also carries synthetic `role:"developer"` AGENTS.md preambles which
   should not surface as user input — a real `codex-tui` session under this repo emitted exactly
   one `event_msg.user_message` for the live prompt and two `response_item.message` records
-  (preamble + duplicate of the prompt). Cross-channel dedupe is PR2.
+  (preamble + duplicate of the prompt). Cross-channel dedupe (folding `response_item.message`
+  back in when no event_msg surface fires) remains a deferred hardening.
 - `event_msg.payload.type == "agent_message"` → `agent_message`. Text from `payload.message`.
   Same channel choice; the `response_item.message` (role:"assistant") channel echoes the same
   content one record later.
-- `response_item.payload.type == "function_call"` → `tool_call`. Tool-kind canonical map (PR1):
-  - `shell` / `container.exec` with `arguments` JSON `{cmd}` or `{command:"<string>"}` →
-    `shell_command` with `args.command`. Argv-form (`{command:[…]}`) is deferred to PR2.
+- `response_item.payload.type == "function_call"` → `tool_call`. Canonical tool-kind dispatch:
+  - `exec_command` (the canonical interactive-shell tool in real Codex rollouts) with
+    `arguments` JSON carrying `cmd` plus optional `workdir`, and the forward-compat permission /
+    timing fields (`yield_time_ms`, `max_output_tokens`, `justification`,
+    `sandbox_permissions`, `prefix_rule`, `login`, `tty`) → `shell_command` with
+    `args.command` and `args.cwd` populated from `workdir`. Extras are ignored.
+  - `shell` / `container.exec` (defensive fallbacks for older session shapes) → same
+    `shell_command` mapping.
+  - Shell arguments accept three shapes: `{cmd: "..."}`, `{command: "..."}`, and
+    `{command: ["bash", "-lc", "..."]}` argv-form. Argv-form joins with POSIX-safe quoting
+    (same helper Pi uses) so the canonical `args.command` is always a single string.
   - `read` with `{path}` → `file_read`.
-  - Everything else, including `apply_patch` (patch-path inference is PR2 hardening) and
-    `custom_tool_call` / `custom_tool_call_output` (vendor canonicalisation is PR2), is routed
-    to `other` with `args = {name, args}` to stay schema-valid without claiming canonical kinds
-    we don't yet parse end-to-end.
+  - Anything else → `other` with `args = {name, args:{...}}`. Vendor tool names are passed
+    through unchanged; `tools.<name>` prefix is stripped per spec convention (defensive — no
+    real session observed with the prefix on this machine).
 - `response_item.payload.type == "function_call_output"` → `tool_result` paired via `call_id` →
-  emitted `tool_call.id` (also surfaced under `semantic.call_id` on both records).
+  emitted `tool_call.id` (also surfaced under `semantic.call_id` on both records). `output` is
+  spinner-strip cleaned: trailing TUI decorations like `\n· ` are removed when the trim region
+  contains an unambiguous spinner glyph (`·`, `•`); natural trailing whitespace such as a
+  shell command's `\n` is preserved.
+- `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
+  string `input` (not a JSON `arguments` string). Dispatch:
+  - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /
+    `*** Add File:` / `*** Delete File:` marker) → `file_edit{path, diff}`; `diff` is the full
+    patch text.
+  - name `apply_patch` with a multi-file patch → `other{name:"apply_patch", args:{input}}`
+    (spec §10.1 makes `file_edit` single-file unified-diff only).
+  - Any other custom tool name → `other{name:<canonical>, args:{input}}` (canonical strips a
+    `tools.` prefix if present).
+- `response_item.payload.type == "custom_tool_call_output"` → `tool_result` paired via
+  `call_id`, same spinner-strip applied.
+- `response_item.payload.type == "web_search_call"` → `tool_call`. `action.type == "search"`
+  with a `queries[0]` or `query` string → `tool_call{tool:"web_search", args:{query}}`.
+  Anything else (no URL recoverable for `web_fetch`) falls through to `other`.
+- `response_item.payload.type == "tool_search_call"` / `tool_search_output` →
+  `tool_call{tool:"other", args:{name:"tool_search", args:{query, limit}}}` + paired
+  `tool_result`. Output is the JSON-stringified `tools` array.
+- `response_item.payload.type == "reasoning"` — Codex stores reasoning twice: an opaque
+  `encrypted_content` blob (PR2 still ignores it; no plaintext recoverable) and an optional
+  plaintext `summary[]` array. When summary items carry `text`, they emit a deduped
+  `agent_thinking` with `metadata["dev.codex.raw_type"] = "response_item.reasoning.summary"`.
 - `event_msg.payload.type == "agent_reasoning"` and `event_msg.payload.type ==
-  "agent_reasoning_raw_content"` both → `agent_thinking`. Within a turn (`turn_context.payload
-  .turn_id`), normalised-text duplicates collapse to a single entry; origin is recorded under
-  `metadata["dev.codex.raw_type"]` (schema's `sourceMetadata` is `additionalProperties: false`,
-  so the audit tag lives under reverse-DNS entry metadata per spec §11 — same precedent as Pi).
-  `response_item.payload.type == "reasoning"` in real sessions carries an `encrypted_content`
-  blob with no plaintext, so PR1 ignores it; PR2 hardening tracks decryption / surface choice.
+  "agent_reasoning_raw_content"` both → `agent_thinking`. Within a turn
+  (`turn_context.payload.turn_id`), normalised-text duplicates collapse to a single entry;
+  origin is recorded under `metadata["dev.codex.raw_type"]` (schema's `sourceMetadata` is
+  `additionalProperties: false`, so the audit tag lives under reverse-DNS entry metadata per
+  spec §11 — same precedent as Pi). The dedupe pool now covers the response-item summary path
+  too.
 - Top-level `compacted` record → `context_compact`. The summary text lives at `payload.message`
   (real shape — not `payload.summary`), with `payload.replacement_history` carrying the folded
   message list (preserved verbatim under `source.raw` via the source slot). `event_msg.payload
-  .type == "context_compacted"` is an empty notification marker that fires alongside; PR1
-  ignores it since the canonical content lives on the top-level record. `payload.trigger` is
-  hard-coded to `"auto"` (Codex auto-compaction has no manual signal). `tokens_before` /
-  `tokens_after` are not present in the source stream; PR1 emits them only when the source
-  record happens to carry them, otherwise they stay absent.
+  .type == "context_compacted"` is an empty notification marker that fires alongside; the
+  adapter ignores it since the canonical content lives on the top-level record.
+  `payload.trigger` is hard-coded to `"auto"` (Codex auto-compaction has no manual signal).
+  `tokens_before` / `tokens_after` are emitted only when the source happens to carry them.
 - In-session model switch: synthesized `model_change` is emitted when consecutive
-  `turn_context.payload.model` values differ. `payload.from_model` is the last observed model
-  (initialised from the first `turn_context.model`); `payload.to_model` is the new value.
-  `source.synthesized: true` and `metadata["dev.codex.raw_type"] = "turn_context.model_change"`
-  flag the synthetic origin.
+  `turn_context.payload.model` values differ. `payload.from_model` is the last observed model;
+  `payload.to_model` is the new value. `source.synthesized: true` and
+  `metadata["dev.codex.raw_type"] = "turn_context.model_change"` flag the synthetic origin.
 
-`dev.codex.raw_type` audit-tag values stamped by PR1:
+Lifecycle-vocabulary `system_event` emissions:
+
+- `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §9.3). `data`
+  carries `turn_id`, `started_at`, `model_context_window`, `collaboration_mode_kind` when
+  present.
+- `event_msg.task_complete` (singular in the source — `task_completed` is the canonical
+  schema kind) → `system_event{kind:"task_completed"}`. `data` carries `turn_id`,
+  `completed_at`, `duration_ms`, `time_to_first_token_ms`, `last_agent_message`. The source
+  wording is preserved under `metadata["dev.codex.raw_type"] = "event_msg.task_complete"`.
+- `event_msg.exec_command_end` → `system_event{kind:"x-codex/exec_command_end"}` with
+  `semantic.call_id` linking to the originating `exec_command` tool_call. `data` carries
+  `turn_id`, `command`, `cwd`, `exit_code`, `duration_ms`, truncated `stdout_excerpt` /
+  `stderr_excerpt` (capped to ~2KB per side), `status`, and the parsed-command structure.
+- `event_msg.patch_apply_end` → `system_event{kind:"x-codex/patch_apply_end"}` with
+  `semantic.call_id` linking to the originating `apply_patch` tool_call. `data` carries
+  `success`, `changes`, `stdout_excerpt`, `stderr_excerpt`, `status`.
+- `event_msg.mcp_tool_call_end` → `system_event{kind:"x-codex/mcp_tool_call_end"}` with
+  `semantic.call_id`. `data` carries `plugin_id`, `invocation`, `duration_ms`, and a
+  flattened `result_ok` boolean derived from the Rust-style `{Ok|Err: …}` enum.
+- `event_msg.web_search_end` → `system_event{kind:"x-codex/web_search_end"}` with
+  `semantic.call_id = <ws_*>` preserving the source vendor id (consumers can also join by
+  matching `data.query` against the `web_search` tool_call's `args.query`).
+- `event_msg.thread_goal_updated` → `system_event{kind:"x-codex/thread_goal_updated"}`.
+  `data` carries `thread_id`, `turn_id`, `goal`.
+
+`dev.codex.raw_type` audit-tag values stamped by the adapter:
 
 - `event_msg.user_message` — live user input.
 - `event_msg.agent_message` — agent reply text.
-- `response_item.function_call` — tool call request.
-- `response_item.function_call_output` — tool call output.
+- `response_item.function_call` — tool call request via the canonical channel.
+- `response_item.function_call_output` — tool call output via the canonical channel.
+- `response_item.custom_tool_call` — `apply_patch` and other custom-channel tool calls.
+- `response_item.custom_tool_call_output` — paired output.
+- `response_item.web_search_call` — web search request.
+- `response_item.tool_search_call` / `tool_search_output` — tool discovery round-trip.
 - `event_msg.agent_reasoning` — synthesized reasoning surface.
 - `event_msg.agent_reasoning_raw_content` — raw reasoning surface.
+- `response_item.reasoning.summary` — plaintext reasoning from the response-item channel.
 - `compacted` — auto-compaction (top-level record).
 - `turn_context.model_change` — synthesized model-change marker.
+- `event_msg.task_started` / `event_msg.task_complete` — lifecycle bookends.
+- `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
+  `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
+- `event_msg.thread_goal_updated` — goal change marker.
 
-Deferred shapes (PR2 hardening, follow-up issue):
+Deferred shapes (hardening follow-ups beyond the current verified slice):
 
-- `user_interrupt` — real Codex interrupt signal not observed in any session on the verifying
-  contributor's machine across `codex-tui` 0.128.x, `Codex Desktop` 0.133.x-alpha, and
-  `codex_sdk_ts` 0.98.x. Acceptance criterion's matrix-absence path applies; no fixture
-  committed in PR1. Distinct from `event_msg.turn_aborted` which is also PR2.
-- Cross-channel dedupe of `event_msg.user_message` / `event_msg.agent_message` against
-  `response_item.message` (PR1 picks event_msg only).
-- `request_user_input` Q&A reconstruction; `web_search_call` / `web_search_end` →
-  `tool_call{tool_kind:"web_search"|"web_fetch"}`; `custom_tool_call` /
-  `custom_tool_call_output` vendor-name canonicalisation (`tools.` prefix strip);
-  `tool_search_call` / `tool_search_output`; `mcp_tool_call_end`; `patch_apply_end`;
-  defensive shell argv-form parsing (`{command:[…]}`); apply_patch path inference from
-  `*** Update/Add/Delete File:` markers; spinner-glyph output hygiene; 12s
-  `event_msg` ↔ `response_fallback` dedupe; `event_msg.task_started` / `event_msg.task_complete`
-  / `event_msg.turn_aborted` / `event_msg.thread_goal_updated` `system_event` emissions;
-  subagent header `fork_from` lineage via `agent_role` / `source.subagent.parent_thread_id`;
-  `~/.codex/config.toml` profile reading for model identity; encrypted reasoning
-  (`response_item.reasoning` with `encrypted_content`) — currently skipped since there is no
-  plaintext.
+- `user_interrupt` / `event_msg.turn_aborted` — no real interrupt signal observed in any
+  session on the verifying contributor's machine across `codex-tui` 0.128.x, `Codex Desktop`
+  0.133.x-alpha, and `codex_sdk_ts` 0.98.x (the full corpus was scanned, including a 2320-line
+  Codex Desktop session). Acceptance criterion's matrix-absence path applies; no fixture
+  committed. The mapping lands when a real signal surfaces, with the fixture derived from the
+  real record shape (synthetic ids only).
+- `event_msg.token_count` → `agent_message.payload.usage` (`agentMessageUsage` rollup) —
+  needs a cross-record correlation pass so token counts attach to the agent_message they
+  belong to, rather than orphaning as a standalone event. Tracked separately.
+- Cross-channel dedupe between `event_msg.user_message` / `event_msg.agent_message` and the
+  `response_item.message` channel (the adapter currently picks event_msg only). Folding
+  response_item.message back in when no event_msg surface fires would cover legacy / partial
+  sessions.
+- Encrypted reasoning recovery — `response_item.reasoning` with `encrypted_content` carries
+  no plaintext and stays skipped until a key surfaces.
+- Subagent header `fork_from` lineage via `agent_role` / `source.subagent.parent_thread_id`
+  — no such field observed in any real session yet; defer until evidence.
+- `~/.codex/config.toml` profile reading for model identity — `turn_context.payload.model`
+  is already canonical; profile file is redundant noise unless future sessions diverge.
+- 12s `event_msg` ↔ `response_fallback` dedupe — no `response_fallback` records observed in
+  the corpus; defer until evidence.
+- `request_user_input` Q&A reconstruction — no `request_user_input` records observed in the
+  corpus; defer until evidence.
 
 Opt-in real-session test hook: `packages/adapters/src/codex/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_CODEX_SESSION` (absolute path to a real Codex JSONL session) and skips when
