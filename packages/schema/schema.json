@@ -803,7 +803,15 @@
                       "tool_decision",
                       "hook_progress",
                       "queue_operation",
-                      "heartbeat"
+                      "heartbeat",
+                      "agent_error",
+                      "agent_warning",
+                      "api_error",
+                      "stream_error",
+                      "deprecation_notice",
+                      "guardian_alert",
+                      "model_rerouted",
+                      "hook_failed"
                     ]
                   },
                   {

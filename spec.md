@@ -765,6 +765,25 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
 
+##### Reserved diagnostic vocabulary
+
+Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal errors, warnings, deprecations, routing decisions, and hook failures in the timeline. Out of scope: per-tool errors (those stay on `tool_result.error` + `tool_result.ok=false`).
+
+| `kind` | When to use | Suggested `data` shape |
+| --- | --- | --- |
+| `agent_error` | Agent-side error not tied to a specific tool call (Codex `Error`). | `{ severity?, code?, category?, blocking?, recovered?, source?, details? }` |
+| `agent_warning` | Non-fatal agent-side warning (Codex `Warning`). | Same as `agent_error`. |
+| `api_error` | Upstream LLM/API failure surfaced to the user (Claude Code `system.subtype=api_error`). | `{ severity?, code?, category?, source?, details? }` |
+| `stream_error` | Streaming response interrupted or failed (Codex `StreamError`). | `{ severity?, code?, recovered?, details? }` |
+| `deprecation_notice` | Source announced a feature or capability deprecation (Codex `DeprecationNotice`). | `{ feature?, replacement?, details? }` |
+| `guardian_alert` | Safety rail, guardian system, or content moderation triggered (Codex `GuardianWarning`). | `{ severity?, policy?, action?, details? }` |
+| `model_rerouted` | Model fallback or capability re-routing decision (Codex `ModelReroute`, `ModelVerification`). | `{ from?, to?, reason?, details? }` |
+| `hook_failed` | Runtime hook execution failed, blocking or non-blocking (Claude Code `hook_blocking_error`, `hook_non_blocking_error`). | `{ severity?, blocking?, hook_name?, code?, details? }` |
+
+**Severity vocabulary (informative).** When adapters include `data.severity`, recommended values are `info`, `warning`, `error`, `critical`. Not schema-enforced; readers SHOULD treat unknown severities as opaque.
+
+**Source vocabulary (informative).** When `data.source` is present, common values include `anthropic`, `openai`, `hook`, `guardian`, `runtime`. Free-form at the schema layer.
+
 ##### Recommended `payload.data` shapes (permission kinds)
 
 `data` stays freeform at the schema layer. Adapters SHOULD use the shapes below so cross-agent consumers can render permission flow without per-adapter switches. Promote to schema-enforced once 2+ adapters converge.
