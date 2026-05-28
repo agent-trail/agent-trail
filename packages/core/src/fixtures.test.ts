@@ -189,6 +189,112 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-result-meta-mcp-call.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-mcp-call.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-meta-shell-command.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-shell-command.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-meta-file-read.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-file-read.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-meta-unregistered-kind.trail.jsonl validates clean (opaque toolkind)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-unregistered-kind.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-meta-vendor-extension.trail.jsonl validates clean (x- key inside registered shape)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-vendor-extension.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-result-meta-shell-command-extra-field.trail.jsonl reports additionalProperties at /payload/meta/shell_command/exitcode", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-meta-shell-command-extra-field.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/meta/shell_command/exitcode",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+});
+
+test("valid/tool-result-meta-toplevel-vendor-kind.trail.jsonl validates clean (opaque vendor toolkind)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-meta-toplevel-vendor-kind.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-result-meta-file-read-range-wrong-length.trail.jsonl reports maxItems at /payload/meta/file_read/range", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-meta-file-read-range-wrong-length.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/meta/file_read/range",
+    severity: "error",
+    code: "maxItems",
+    message: "must NOT have more than 2 items",
+  });
+});
+
+test("invalid-schema/tool-result-meta-mcp-call-block-missing-type.trail.jsonl reports required type at /payload/meta/mcp_call/content_blocks/0/type", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-meta-mcp-call-block-missing-type.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/meta/mcp_call/content_blocks/0/type",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'type'",
+  });
+});
+
+test("reader-tolerant/tool-result-meta-registered-extra-field: strict errors, tolerant warns at nested meta path", async () => {
+  const text = await loadFixture(
+    "reader-tolerant/tool-result-meta-registered-extra-field.trail.jsonl",
+  );
+
+  const strict = await validateTrailString(text);
+  expect(strict).toContainEqual({
+    line: 3,
+    path: "/payload/meta/shell_command/exitcode",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+
+  const tolerant = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerant).toContainEqual({
+    line: 3,
+    path: "/payload/meta/shell_command/exitcode",
+    severity: "warning",
+    code: "reader_tolerant_unknown_payload_field",
+    message: 'Unknown payload field "exitcode" preserved for reader-tolerant parsing',
+  });
+  expect(tolerant.some((d) => d.severity === "error")).toBe(false);
+});
+
 test("valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl"),

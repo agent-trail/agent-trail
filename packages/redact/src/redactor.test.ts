@@ -362,6 +362,49 @@ test("redactTrail redacts secrets across tool_call.args, tool_result.output, and
   expect(summary.counts.openai_api_key).toBeGreaterThanOrEqual(4);
 });
 
+test("redactTrail redacts secrets in tool_result.payload.meta structured outputs", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "call1",
+        ok: true,
+        output: "[serialized]",
+        meta: {
+          shell_command: { stdout: `printed ${key}`, stderr: "", exit_code: 0 },
+          mcp_call: {
+            content_blocks: [
+              { type: "text", text: `block ${key}` },
+              { type: "image", data: `imgdata ${key}` },
+            ],
+          },
+        },
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+
+  const result = out[1]?.value as {
+    payload: {
+      meta: {
+        shell_command: { stdout: string };
+        mcp_call: { content_blocks: Array<{ text?: string; data?: string }> };
+      };
+    };
+  };
+  expect(result.payload.meta.shell_command.stdout).toContain("[OPENAI_KEY]");
+  expect(result.payload.meta.shell_command.stdout).not.toContain(key);
+  expect(result.payload.meta.mcp_call.content_blocks[0]?.text).toContain("[OPENAI_KEY]");
+  expect(result.payload.meta.mcp_call.content_blocks[0]?.text).not.toContain(key);
+  expect(result.payload.meta.mcp_call.content_blocks[1]?.data).toContain("[OPENAI_KEY]");
+  expect(result.payload.meta.mcp_call.content_blocks[1]?.data).not.toContain(key);
+});
+
 test("redactTrail bounds sample list to options.maxSamples while counts stay accurate", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const messages = Array.from({ length: 25 }, (_, i) =>
