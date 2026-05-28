@@ -178,9 +178,9 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
     real session observed with the prefix on this machine).
 - `response_item.payload.type == "function_call_output"` → `tool_result` paired via `call_id` →
   emitted `tool_call.id` (also surfaced under `semantic.call_id` on both records). `output` is
-  spinner-strip cleaned: trailing TUI decorations like `\n· ` are removed when the trim region
-  contains an unambiguous spinner glyph (`·`, `•`); natural trailing whitespace such as a
-  shell command's `\n` is preserved.
+  spinner-strip cleaned: trailing TUI decorations (a `\n` followed by `·` and a space) are
+  removed when the trim region contains an unambiguous spinner glyph (`·`, `•`); natural
+  trailing whitespace such as a shell command's `\n` is preserved.
 - `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
   string `input` (not a JSON `arguments` string). Dispatch:
   - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /

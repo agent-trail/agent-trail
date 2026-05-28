@@ -180,8 +180,10 @@ const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 function patchSingleFilePath(input: string): string | undefined {
   const paths = new Set<string>();
   for (const m of input.matchAll(PATCH_FILE_MARKER)) {
-    const path = m[2]?.trim();
-    if (path !== undefined && path.length > 0) paths.add(path);
+    // `m[2]` is the second capture group of PATCH_FILE_MARKER and is
+    // guaranteed to exist whenever the regex matches.
+    const path = (m[2] as string).trim();
+    if (path.length > 0) paths.add(path);
     if (paths.size > 1) return undefined;
   }
   if (paths.size === 1) {
@@ -604,7 +606,7 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
         if (Array.isArray(summary)) {
           const text = summary
             .filter(isObject)
-            .map((item) => stringValue((item as Record<string, unknown>).text))
+            .map((item) => stringValue(item.text))
             .filter((t): t is string => t !== undefined && t.length > 0)
             .join("\n");
           if (text.length > 0) {
