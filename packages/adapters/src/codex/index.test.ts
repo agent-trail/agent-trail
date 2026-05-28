@@ -1221,6 +1221,46 @@ test("agent_message followed by token_count rolls up usage with deltas + cumulat
   expect(usage?.output_tokens_cumulative).toBe(481);
 });
 
+test("token_count binds to agent_message across intervening tool_call / tool_result", () => {
+  const text = tokenCountSession([
+    { type: "event_msg", payload: { type: "user_message", message: "run it" } },
+    { type: "event_msg", payload: { type: "agent_message", message: "running shell" } },
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        arguments: JSON.stringify({ command: ["echo", "hi"] }),
+        call_id: "call-1",
+      },
+    },
+    {
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-1",
+        output: JSON.stringify({ output: "hi\n", metadata: { exit_code: 0 } }),
+      },
+    },
+    {
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 200, output_tokens: 20, total_tokens: 220 },
+          total_token_usage: { input_tokens: 200, output_tokens: 20, total_tokens: 220 },
+        },
+      },
+    },
+  ]);
+  const trail = parseCodexJsonl(text);
+  const agent = trail.entries.find((e) => e.type === "agent_message");
+  expect(agent).toBeDefined();
+  const usage = (agent?.payload as { usage?: AgentMessageUsage }).usage;
+  expect(usage?.input_tokens).toBe(200);
+  expect(usage?.output_tokens).toBe(20);
+});
+
 test("detectSessions() filters out sessions whose header cwd differs from caller cwd", async () => {
   seedSession({
     date: { y: "2026", m: "05", d: "28" },

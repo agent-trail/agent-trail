@@ -287,10 +287,12 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
   Codex Desktop session). Acceptance criterion's matrix-absence path applies; no fixture
   committed. The mapping lands when a real signal surfaces, with the fixture derived from the
   real record shape (synthetic ids only).
-- `payload.rate_limits` on `event_msg.token_count` records — operational telemetry without a
-  canonical `agentMessageUsage` slot. May surface as an `x-codex/rate_limit_snapshot`
-  `system_event` in a future pass; deferred so the rate-limit emission frequency / dedupe
-  policy can be designed in its own review.
+- `event_msg.token_count.payload.rate_limits` — Codex carries API rate-limit snapshots
+  (window utilization, reset window) on the same record as token usage. The Agent Trail spec
+  has no `agentMessageUsage` slot for rate-limit state, so this field is dropped during the
+  usage rollup. A future pass may emit these as standalone `system_event` records under an
+  `x-codex/rate_limit_snapshot` kind; deferred until the emission frequency and dedupe policy
+  (rate_limits fire on every token_count, often unchanged) can be designed in its own review.
 - Cross-channel dedupe between `event_msg.user_message` / `event_msg.agent_message` and the
   `response_item.message` channel (the adapter currently picks event_msg only). Folding
   response_item.message back in when no event_msg surface fires would cover legacy / partial

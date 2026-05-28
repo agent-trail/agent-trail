@@ -603,6 +603,10 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
   // sessions emit `token_count` within milliseconds of the matching
   // `agent_message` (1:1, no streaming subdivisions). `user_message` reset
   // is intentional — token_count should never bind across a user turn.
+  // `tool_call` / `tool_result` records intentionally do not reset the
+  // binding: a Codex turn can interleave tool invocations between the
+  // agent_message and the trailing token_count, and the count belongs to
+  // the turn-initiating agent_message.
   let lastAgentMessageEntry: Entry | undefined;
   const resetTurn = (id: string) => {
     currentTurnId = id;
