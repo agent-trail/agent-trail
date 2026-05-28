@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import schema from "@agent-trail/schema" with { type: "json" };
+import { sourceRawSecretDiagnostics } from "./business-rules.ts";
 import { computeContentHash } from "./hash.ts";
 import {
   parseJsonlString,
@@ -1183,6 +1184,42 @@ test("emits source_raw_unredacted_secret warning when source.raw contains a Bear
     expect.objectContaining({
       line: 2,
       path: "/source/raw/envelope/headers/authorization",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+});
+
+test("walks deeply-nested source.raw without stack overflow (regression for #105)", () => {
+  // walkStringLeaves used to recurse; deep nesting could blow the call stack.
+  // Build the JS object directly so the walker — not JSON.parse/stringify —
+  // is what's being exercised, then call sourceRawSecretDiagnostics straight.
+  const depth = 100_000;
+  type Nested = { next: Nested } | { token: string };
+  let raw: Nested = { token: "Bearer abcdefABCDEF0123456789xyzXYZ" };
+  for (let i = 0; i < depth; i += 1) {
+    raw = { next: raw };
+  }
+
+  const record: JsonlRecord = {
+    line: 2,
+    raw: "",
+    value: {
+      type: "agent_message",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:01.000Z",
+      payload: { text: "hi" },
+      source: { raw },
+    },
+  };
+
+  const diagnostics = sourceRawSecretDiagnostics(record);
+
+  expect(diagnostics).toHaveLength(1);
+  expect(diagnostics[0]).toEqual(
+    expect.objectContaining({
+      line: 2,
+      path: `/source/raw${"/next".repeat(depth)}/token`,
       severity: "warning",
       code: "source_raw_unredacted_secret",
     }),

@@ -138,28 +138,35 @@ function matchesPattern(text: string, pattern: RedactionPattern): boolean {
   return regex.test(text);
 }
 
+// Iterative DFS so deeply-nested source.raw payloads cannot blow the call
+// stack; the heap-allocated frame list takes the depth instead. Children are
+// pushed in reverse so the first child pops next, preserving pre-order.
 function walkStringLeaves(
-  value: unknown,
-  path: string,
+  root: unknown,
+  rootPath: string,
   visit: (text: string, path: string) => void,
 ): void {
-  if (typeof value === "string") {
-    visit(value, path);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      walkStringLeaves(value[i], `${path}/${i}`, visit);
+  const stack: Array<{ value: unknown; path: string }> = [{ value: root, path: rootPath }];
+  while (stack.length > 0) {
+    const { value, path } = stack.pop()!;
+    if (typeof value === "string") {
+      visit(value, path);
+      continue;
     }
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      walkStringLeaves(
-        (value as Record<string, unknown>)[key],
-        `${path}/${escapeJsonPointerSegment(key)}`,
-        visit,
-      );
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[i], path: `${path}/${i}` });
+      }
+      continue;
+    }
+    if (value !== null && typeof value === "object") {
+      const reversedKeys = Object.keys(value as Record<string, unknown>).reverse();
+      for (const key of reversedKeys) {
+        stack.push({
+          value: (value as Record<string, unknown>)[key],
+          path: `${path}/${escapeJsonPointerSegment(key)}`,
+        });
+      }
     }
   }
 }
