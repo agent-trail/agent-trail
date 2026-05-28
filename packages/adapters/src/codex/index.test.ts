@@ -9,10 +9,6 @@ const DESKTOP_FIXTURE_PATH = new URL(
   "../../tests/fixtures/codex/desktop-tracer.jsonl",
   import.meta.url,
 ).pathname;
-const LEGACY_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/codex/legacy-tracer.jsonl",
-  import.meta.url,
-).pathname;
 const REASONING_FIXTURE_PATH = new URL(
   "../../tests/fixtures/codex/reasoning-dedupe.jsonl",
   import.meta.url,
@@ -27,14 +23,6 @@ async function parseDesktopFixture() {
     id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
     adapter: "codex",
     path: DESKTOP_FIXTURE_PATH,
-  });
-}
-
-async function parseLegacyFixture() {
-  return codexAdapter.parseSession({
-    id: "019cabcd-1234-5678-9abc-def012345678",
-    adapter: "codex",
-    path: LEGACY_FIXTURE_PATH,
   });
 }
 
@@ -114,7 +102,7 @@ test("isAvailable() is true after sessions dir is created", async () => {
   expect(await codexAdapter.isAvailable()).toBe(true);
 });
 
-function seedDesktopSession(opts: {
+function seedSession(opts: {
   date: { y: string; m: string; d: string };
   id: string;
   cwd: string;
@@ -133,9 +121,9 @@ function seedDesktopSession(opts: {
       id: opts.id,
       timestamp: ts,
       cwd: opts.cwd,
-      originator: "codex_sdk_ts",
-      cli_version: "0.98.0",
-      source: "exec",
+      originator: "codex-tui",
+      cli_version: "0.128.0",
+      source: "interactive",
       model_provider: "openai",
     },
   };
@@ -145,7 +133,7 @@ function seedDesktopSession(opts: {
 
 test("detectSessions() returns SessionRef for a seeded session matching cwd", async () => {
   const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
-  const path = seedDesktopSession({
+  const path = seedSession({
     date: { y: "2026", m: "05", d: "28" },
     id,
     cwd: process.cwd(),
@@ -161,17 +149,17 @@ test("detectSessions() returns SessionRef for a seeded session matching cwd", as
 });
 
 test("detectSessions({ allCwds: true }) returns sessions across the entire date tree", async () => {
-  seedDesktopSession({
+  seedSession({
     date: { y: "2026", m: "05", d: "28" },
     id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
     cwd: "/proj/a",
   });
-  seedDesktopSession({
+  seedSession({
     date: { y: "2026", m: "05", d: "27" },
     id: "019d7a82-b5ce-71e1-b4cf-465a3c310c3f",
     cwd: "/proj/b",
   });
-  seedDesktopSession({
+  seedSession({
     date: { y: "2026", m: "04", d: "11" },
     id: "019d754e-afa4-7e00-82ae-c65d3a27c9a1",
     cwd: "/proj/c",
@@ -182,7 +170,7 @@ test("detectSessions({ allCwds: true }) returns sessions across the entire date 
   expect(cwds).toEqual(["/proj/a", "/proj/b", "/proj/c"]);
 });
 
-test("parseSession on desktop-wrapped fixture emits a valid trail with codex-cli header", async () => {
+test("parseSession on the desktop tracer fixture emits a valid trail with codex-cli header", async () => {
   const trail = await parseDesktopFixture();
   expect(trail.envelope).toBeDefined();
   expect(trail.envelope?.type).toBe("trail");
@@ -192,7 +180,7 @@ test("parseSession on desktop-wrapped fixture emits a valid trail with codex-cli
   expect(trail.header.schema_version).toBe("0.1.0");
   expect(trail.header.id).toBe("019d7909-85dd-7881-aa12-95ffc8ca8ba1");
   expect(trail.header.agent.name).toBe("codex-cli");
-  expect(trail.header.agent.version).toBe("0.98.0");
+  expect(trail.header.agent.version).toBe("0.128.0");
   expect(trail.header.cwd).toBe("/proj/codex-fixture");
   expect(typeof trail.header.session_uid).toBe("string");
   const diagnostics = await validateAdapterTrail(trail);
@@ -200,7 +188,7 @@ test("parseSession on desktop-wrapped fixture emits a valid trail with codex-cli
   expect(errors).toEqual([]);
 });
 
-test("desktop fixture emits user_message + agent_message entries with text payloads", async () => {
+test("desktop fixture emits user_message + agent_message entries from event_msg channel", async () => {
   const trail = await parseDesktopFixture();
   const userEntries = trail.entries.filter((e) => e.type === "user_message");
   const agentEntries = trail.entries.filter((e) => e.type === "agent_message");
@@ -208,8 +196,8 @@ test("desktop fixture emits user_message + agent_message entries with text paylo
   expect(agentEntries).toHaveLength(1);
   expect((userEntries[0]?.payload as { text: string }).text).toBe("hello codex");
   expect((agentEntries[0]?.payload as { text: string }).text).toBe("hi there");
-  expect(userEntries[0]?.meta?.["dev.codex.raw_type"]).toBe("response_item.message");
-  expect(agentEntries[0]?.meta?.["dev.codex.raw_type"]).toBe("response_item.message");
+  expect(userEntries[0]?.meta?.["dev.codex.raw_type"]).toBe("event_msg.user_message");
+  expect(agentEntries[0]?.meta?.["dev.codex.raw_type"]).toBe("event_msg.agent_message");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
@@ -230,17 +218,19 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect(result?.semantic?.call_id).toBe("call-abc");
 });
 
-test("compact fixture emits context_compact with summary, tokens_before, tokens_after", async () => {
+test("compact fixture emits context_compact from top-level compacted record", async () => {
   const trail = await parseCompactFixture();
   const compact = trail.entries.find((e) => e.type === "context_compact");
   expect(compact).toBeDefined();
   expect((compact?.payload as { summary: string }).summary).toBe(
     "Refactored auth module. Tests pass.",
   );
-  expect((compact?.payload as { tokens_before?: number }).tokens_before).toBe(120000);
-  expect((compact?.payload as { tokens_after?: number }).tokens_after).toBe(4500);
   expect((compact?.payload as { trigger?: string }).trigger).toBe("auto");
-  expect(compact?.meta?.["dev.codex.raw_type"]).toBe("event_msg.context_compact");
+  // Real Codex `compacted` records do not carry token counts; the schema
+  // optional fields stay absent.
+  expect((compact?.payload as { tokens_before?: number }).tokens_before).toBeUndefined();
+  expect((compact?.payload as { tokens_after?: number }).tokens_after).toBeUndefined();
+  expect(compact?.meta?.["dev.codex.raw_type"]).toBe("compacted");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
@@ -274,24 +264,28 @@ test("reasoning fixture emits one agent_thinking per turn with dev.codex.raw_typ
   expect(errors).toEqual([]);
 });
 
-test("parseSession on legacy-cli fixture emits a valid trail with codex-cli header", async () => {
-  const trail = await parseLegacyFixture();
-  expect(trail.header.id).toBe("019cabcd-1234-5678-9abc-def012345678");
-  expect(trail.header.agent.name).toBe("codex-cli");
-  expect(trail.header.agent.version).toBe("0.42.0");
-  expect(trail.header.cwd).toBe("/proj/codex-legacy");
-  const diagnostics = await validateAdapterTrail(trail);
-  const errors = diagnostics.filter((d) => d.severity === "error");
-  expect(errors).toEqual([]);
+test("parseSession throws when the first record is not session_meta", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-malformed.jsonl");
+  writeFileSync(
+    path,
+    `${JSON.stringify({ type: "event_msg", payload: { type: "task_started" } })}\n`,
+  );
+  await expect(
+    codexAdapter.parseSession({ id: "malformed", adapter: "codex", path }),
+  ).rejects.toThrow(/session_meta/);
 });
 
 test("detectSessions() filters out sessions whose header cwd differs from caller cwd", async () => {
-  seedDesktopSession({
+  seedSession({
     date: { y: "2026", m: "05", d: "28" },
     id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
     cwd: process.cwd(),
   });
-  seedDesktopSession({
+  seedSession({
     date: { y: "2026", m: "05", d: "27" },
     id: "019d7a82-b5ce-71e1-b4cf-465a3c310c3f",
     cwd: "/somewhere/else",

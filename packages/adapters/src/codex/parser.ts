@@ -2,24 +2,21 @@ import { randomUUID } from "node:crypto";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
-import {
-  type CodexFormat,
-  detectFormat,
-  isObject,
-  numericValue,
-  parseLines,
-  stringValue,
-  timestampToIso,
-} from "./source.ts";
+import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
 const AGENT_NAME = "codex-cli";
 
-function buildDesktopHeader(first: Record<string, unknown>): Header {
+function buildHeader(first: Record<string, unknown>): Header {
+  if (first.type !== "session_meta") {
+    throw new Error(
+      `Codex session must start with type:"session_meta"; got ${JSON.stringify(first.type)}`,
+    );
+  }
   const payload = isObject(first.payload) ? first.payload : {};
   const id = stringValue(payload.id);
   const ts = timestampToIso(payload.timestamp) ?? timestampToIso(first.timestamp);
-  if (id === undefined) throw new Error("Codex desktop session_meta missing payload.id");
-  if (ts === undefined) throw new Error("Codex desktop session_meta missing timestamp");
+  if (id === undefined) throw new Error("Codex session_meta missing payload.id");
+  if (ts === undefined) throw new Error("Codex session_meta missing timestamp");
   const cliVersion = stringValue(payload.cli_version);
   const cwd = stringValue(payload.cwd);
   const header: Header = {
@@ -41,56 +38,14 @@ function buildDesktopHeader(first: Record<string, unknown>): Header {
   return header;
 }
 
-function buildLegacyHeader(first: Record<string, unknown>): Header {
-  const id = stringValue(first.id);
-  const ts = timestampToIso(first.timestamp);
-  if (id === undefined) throw new Error("Codex legacy session header missing id");
-  if (ts === undefined) throw new Error("Codex legacy session header missing timestamp");
-  const cliVersion = stringValue(first.cli_version);
-  const cwd = stringValue(first.cwd);
-  const header: Header = {
-    type: "session",
-    schema_version: "0.1.0",
-    id,
-    session_uid: deriveSessionUid(CODEX_SESSION_UID_NAMESPACE, id),
-    ts,
-    agent: {
-      name: AGENT_NAME,
-      ...(cliVersion !== undefined ? { version: cliVersion } : {}),
-    },
-  };
-  if (cwd !== undefined) header.cwd = cwd;
-  header.source = {
-    agent: AGENT_NAME,
-    ...(cliVersion !== undefined ? { format_version: cliVersion } : {}),
-  };
-  return header;
-}
-
-// Codex content blocks are objects like
-//   {type:"input_text"|"output_text"|"text", text:"..."}
-// Concatenate all text-bearing blocks in order, mirroring how Codex's own UI
-// renders the assembled message.
-function textFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (!isObject(block)) continue;
-    const text = stringValue(block.text);
-    if (text !== undefined) parts.push(text);
-  }
-  return parts.join("\n");
-}
-
-type DesktopRecord = {
+type Classified = {
   topType: string;
   payloadType: string | undefined;
   payload: Record<string, unknown>;
   ts: string | undefined;
 };
 
-function classifyDesktop(record: Record<string, unknown>): DesktopRecord | undefined {
+function classify(record: Record<string, unknown>): Classified | undefined {
   const topType = stringValue(record.type);
   if (topType === undefined) return undefined;
   const payload = isObject(record.payload) ? record.payload : {};
@@ -99,28 +54,34 @@ function classifyDesktop(record: Record<string, unknown>): DesktopRecord | undef
   return { topType, payloadType, payload, ts };
 }
 
-function buildMessageEntry(rec: DesktopRecord, ts: string): Entry | undefined {
-  const role = stringValue(rec.payload.role);
-  const text = textFromContent(rec.payload.content);
-  if (text.length === 0) return undefined;
-  if (role === "user") {
+// `event_msg.user_message` / `event_msg.agent_message` are the canonical user
+// and agent surfaces in real sessions (verified against codex-tui 0.128 and
+// Codex Desktop 0.133-alpha). Text lives in `payload.message`. The parallel
+// `response_item.message` channel carries the same content one record later
+// but also includes synthetic `role:"developer"` AGENTS.md preambles that
+// shouldn't appear as user input — PR1 deliberately picks event_msg and
+// leaves cross-channel dedupe to PR2.
+function buildUserOrAgentMessageEntry(rec: Classified, ts: string): Entry | undefined {
+  const text = stringValue(rec.payload.message) ?? stringValue(rec.payload.text);
+  if (text === undefined || text.length === 0) return undefined;
+  if (rec.payloadType === "user_message") {
     return {
       type: "user_message",
       id: randomUUID(),
       ts,
       payload: { text },
-      source: { agent: AGENT_NAME, original_type: "response_item.message" },
-      meta: { "dev.codex.raw_type": "response_item.message" },
+      source: { agent: AGENT_NAME, original_type: "event_msg.user_message" },
+      meta: { "dev.codex.raw_type": "event_msg.user_message" },
     };
   }
-  if (role === "assistant") {
+  if (rec.payloadType === "agent_message") {
     return {
       type: "agent_message",
       id: randomUUID(),
       ts,
       payload: { text },
-      source: { agent: AGENT_NAME, original_type: "response_item.message" },
-      meta: { "dev.codex.raw_type": "response_item.message" },
+      source: { agent: AGENT_NAME, original_type: "event_msg.agent_message" },
+      meta: { "dev.codex.raw_type": "event_msg.agent_message" },
     };
   }
   return undefined;
@@ -131,10 +92,11 @@ type ToolMapping = {
   args: Record<string, unknown>;
 };
 
-// Canonical tool-kind dispatch. PR1 covers the three kinds the issue body's
-// PR1 acceptance enumerates: `shell` → `shell_command`, `read` → `file_read`,
-// `apply_patch` → `file_edit` (deferred — patch path inference is PR2, so we
-// downgrade to `other` to stay schema-valid). Anything else → `other`.
+// Canonical tool-kind dispatch for PR1. `shell` and `container.exec` map to
+// `shell_command`; `read` maps to `file_read`. Everything else, including
+// `apply_patch` (patch-path inference is PR2 hardening) and `custom_tool_call`
+// (vendor canonicalisation is PR2), is routed to `other` to stay schema-valid
+// without claiming canonical kinds we don't yet parse end-to-end.
 function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
   const args = isObject(rawArgs) ? rawArgs : {};
   if (rawName === "shell" || rawName === "container.exec") {
@@ -142,7 +104,7 @@ function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
     if (cmdString !== undefined) {
       return { tool: "shell_command", args: { command: cmdString } };
     }
-    // Unknown arg shape; defer to PR2 hardening for argv-form parsing.
+    // Argv-form parsing deferred to PR2 hardening.
     return { tool: "other", args: { name: rawName, args } };
   }
   if (rawName === "read") {
@@ -166,7 +128,7 @@ function parseFunctionArguments(raw: unknown): Record<string, unknown> {
 }
 
 function buildToolCallEntry(
-  rec: DesktopRecord,
+  rec: Classified,
   ts: string,
 ): {
   entry: Entry;
@@ -194,7 +156,7 @@ function buildToolCallEntry(
 }
 
 function buildToolResultEntry(
-  rec: DesktopRecord,
+  rec: Classified,
   ts: string,
   callIdToEntryId: Map<string, string>,
 ): Entry {
@@ -224,11 +186,11 @@ function buildToolResultEntry(
   return entry;
 }
 
-function normalizeReasoningText(text: string): string {
+function normaliseReasoningText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function buildReasoningEntry(rec: DesktopRecord, ts: string): Entry | undefined {
+function buildReasoningEntry(rec: Classified, ts: string): Entry | undefined {
   const text = stringValue(rec.payload.text) ?? stringValue(rec.payload.message);
   if (text === undefined || text.length === 0) return undefined;
   const rawType =
@@ -245,8 +207,15 @@ function buildReasoningEntry(rec: DesktopRecord, ts: string): Entry | undefined 
   };
 }
 
-function buildCompactEntry(rec: DesktopRecord, ts: string): Entry | undefined {
-  const summary = stringValue(rec.payload.summary);
+// Real Codex sessions emit context compaction as a top-level `compacted`
+// record (not nested in `event_msg`). The payload carries `message` (the
+// summary text) and `replacement_history` (the messages folded into the
+// summary). `event_msg.context_compacted` also fires as an empty notification
+// marker — PR1 ignores it since the canonical content lives on the top-level
+// record. Token counts (tokens_before / tokens_after) are not in the source
+// stream; defer to PR2 if they surface in a later session shape.
+function buildCompactEntry(rec: Classified, ts: string): Entry | undefined {
+  const summary = stringValue(rec.payload.message) ?? stringValue(rec.payload.summary);
   if (summary === undefined || summary.length === 0) return undefined;
   const payload: Record<string, unknown> = { summary, trigger: "auto" };
   const tokensBefore = numericValue(rec.payload.tokens_before);
@@ -258,8 +227,8 @@ function buildCompactEntry(rec: DesktopRecord, ts: string): Entry | undefined {
     id: randomUUID(),
     ts,
     payload,
-    source: { agent: AGENT_NAME, original_type: "event_msg.context_compact" },
-    meta: { "dev.codex.raw_type": "event_msg.context_compact" },
+    source: { agent: AGENT_NAME, original_type: "compacted" },
+    meta: { "dev.codex.raw_type": "compacted" },
   };
 }
 
@@ -280,12 +249,12 @@ function buildModelChangeEntry(ts: string, fromModel: string | undefined, toMode
   };
 }
 
-function buildDesktopEntries(records: Record<string, unknown>[]): Entry[] {
+function buildEntries(records: Record<string, unknown>[]): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
   // Reasoning dedupe scope: a turn, identified by the most recent
-  // `turn_context.payload.turn_id`. Within a turn, drop reasoning records whose
-  // normalised text duplicates one we have already emitted.
+  // `turn_context.payload.turn_id`. Within a turn, drop reasoning records
+  // whose normalised text duplicates one we have already emitted.
   let currentTurnId = "turn-implicit";
   let turnReasoningSeen = new Set<string>();
   let lastModel: string | undefined;
@@ -296,14 +265,14 @@ function buildDesktopEntries(records: Record<string, unknown>[]): Entry[] {
   for (let i = 1; i < records.length; i += 1) {
     const raw = records[i];
     if (raw === undefined) continue;
-    const classified = classifyDesktop(raw);
-    if (classified === undefined) continue;
-    const ts = classified.ts;
+    const c = classify(raw);
+    if (c === undefined) continue;
+    const ts = c.ts;
     if (ts === undefined) continue;
-    if (classified.topType === "turn_context") {
-      const turnId = stringValue(classified.payload.turn_id);
+    if (c.topType === "turn_context") {
+      const turnId = stringValue(c.payload.turn_id);
       if (turnId !== undefined && turnId !== currentTurnId) resetTurn(turnId);
-      const model = stringValue(classified.payload.model);
+      const model = stringValue(c.payload.model);
       if (model !== undefined) {
         if (lastModel !== undefined && lastModel !== model) {
           entries.push(buildModelChangeEntry(ts, lastModel, model));
@@ -312,62 +281,56 @@ function buildDesktopEntries(records: Record<string, unknown>[]): Entry[] {
       }
       continue;
     }
-    if (classified.topType === "response_item") {
-      if (classified.payloadType === "message") {
-        const entry = buildMessageEntry(classified, ts);
-        if (entry !== undefined) entries.push(entry);
-        continue;
-      }
-      if (classified.payloadType === "function_call") {
-        const { entry, callId } = buildToolCallEntry(classified, ts);
+    if (c.topType === "compacted") {
+      const entry = buildCompactEntry(c, ts);
+      if (entry !== undefined) entries.push(entry);
+      continue;
+    }
+    if (c.topType === "response_item") {
+      if (c.payloadType === "function_call") {
+        const { entry, callId } = buildToolCallEntry(c, ts);
         entries.push(entry);
         if (callId !== undefined) callIdToEntryId.set(callId, entry.id);
         continue;
       }
-      if (classified.payloadType === "function_call_output") {
-        entries.push(buildToolResultEntry(classified, ts, callIdToEntryId));
+      if (c.payloadType === "function_call_output") {
+        entries.push(buildToolResultEntry(c, ts, callIdToEntryId));
         continue;
       }
+      continue;
     }
-    if (classified.topType === "event_msg") {
-      if (
-        classified.payloadType === "agent_reasoning" ||
-        classified.payloadType === "agent_reasoning_raw_content"
-      ) {
-        const entry = buildReasoningEntry(classified, ts);
+    if (c.topType === "event_msg") {
+      if (c.payloadType === "user_message" || c.payloadType === "agent_message") {
+        const entry = buildUserOrAgentMessageEntry(c, ts);
+        if (entry !== undefined) entries.push(entry);
+        continue;
+      }
+      if (c.payloadType === "agent_reasoning" || c.payloadType === "agent_reasoning_raw_content") {
+        const entry = buildReasoningEntry(c, ts);
         if (entry === undefined) continue;
         const text = stringValue((entry.payload as { text: string }).text) ?? "";
-        const key = normalizeReasoningText(text);
+        const key = normaliseReasoningText(text);
         if (key.length === 0 || turnReasoningSeen.has(key)) continue;
         turnReasoningSeen.add(key);
         entries.push(entry);
-        continue;
       }
-      if (classified.payloadType === "context_compact") {
-        const entry = buildCompactEntry(classified, ts);
-        if (entry !== undefined) entries.push(entry);
-      }
+      // `event_msg.context_compacted` is a notification marker only — the
+      // canonical compaction record is the top-level `compacted` envelope.
+      // All other event_msg payload types (task_started, token_count,
+      // exec_command_end, thread_goal_updated, etc.) are PR2 hardening.
     }
   }
   return entries;
 }
 
-export type CodexParseResult = TrailFile & { format: CodexFormat };
-
-export function parseCodexJsonl(text: string): CodexParseResult {
+export function parseCodexJsonl(text: string): TrailFile {
   const records = parseLines(text);
   if (records.length === 0) {
     throw new Error("Codex session is empty");
   }
   const first = records[0];
   if (first === undefined) throw new Error("Codex session is empty");
-  const format = detectFormat(first);
-  if (format === "desktop-wrapped") {
-    const header = buildDesktopHeader(first);
-    const entries = buildDesktopEntries(records);
-    return { header, entries, format };
-  }
-  const header = buildLegacyHeader(first);
-  const entries: Entry[] = [];
-  return { header, entries, format };
+  const header = buildHeader(first);
+  const entries = buildEntries(records);
+  return { header, entries };
 }

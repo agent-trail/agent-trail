@@ -1,6 +1,6 @@
-{"timestamp":"2026-05-28T01:46:00.000Z","type":"session_meta","payload":{"id":"019d7909-85dd-7881-aa12-95ffc8ca8ba1","timestamp":"2026-05-28T01:46:00.000Z","cwd":"/proj/codex-fixture","originator":"codex_sdk_ts","cli_version":"0.98.0","source":"exec","model_provider":"openai"}}
+{"timestamp":"2026-05-28T01:46:00.000Z","type":"session_meta","payload":{"id":"019d7909-85dd-7881-aa12-95ffc8ca8ba1","timestamp":"2026-05-28T01:46:00.000Z","cwd":"/proj/codex-fixture","originator":"codex-tui","cli_version":"0.128.0","source":"interactive","model_provider":"openai"}}
 {"timestamp":"2026-05-28T01:46:01.000Z","type":"turn_context","payload":{"cwd":"/proj/codex-fixture","model":"gpt-5-codex","effort":"medium","approval_policy":"auto","sandbox_policy":"workspace-write","turn_id":"turn-1"}}
-{"timestamp":"2026-05-28T01:46:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello codex"}]}}
+{"timestamp":"2026-05-28T01:46:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"hello codex"}}
 {"timestamp":"2026-05-28T01:46:03.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"cmd\":\"echo hi\"}","call_id":"call-abc"}}
 {"timestamp":"2026-05-28T01:46:04.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-abc","output":"hi\n"}}
-{"timestamp":"2026-05-28T01:46:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi there"}]}}
+{"timestamp":"2026-05-28T01:46:05.000Z","type":"event_msg","payload":{"type":"agent_message","message":"hi there"}}
