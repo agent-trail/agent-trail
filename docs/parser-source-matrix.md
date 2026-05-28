@@ -124,10 +124,15 @@ Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` r
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
 Real sessions stay out of git per the fixture policy below.
 
-Codex CLI fixture coverage (issue #32 PR1 tracer slice) targets three of the four mandated event
-kinds (`agent_thinking`, `context_compact`, `model_change`) plus the baseline message + tool pair.
-`user_interrupt` is deferred to PR2 — see the deferred-shapes section below for why no real Codex
-session on the verifying contributor's machine emitted an interrupt envelope. The storage layout deviates from the issue body's "mangled-cwd" assumption:
+Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`agent_thinking`,
+`context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
+and enrichment `system_event` records (`task_started`, `task_completed`, `x-codex/exec_command_end`,
+`x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/thread_goal_updated`,
+`x-codex/web_search_end`), custom-channel tool calls (`apply_patch` single/multi-file dispatch,
+`tool_search` round-trip), `web_search_call` mapping, argv-form shell argument quoting, and
+spinner-glyph stripping. `user_interrupt` synthesis remains deferred — see the deferred-shapes
+section below for why no real Codex session on the verifying contributor's machine emitted an
+interrupt envelope. The storage layout deviates from the issue body's "mangled-cwd" assumption:
 real Codex sessions live under a date-partitioned tree (`sessions/YYYY/MM/DD/rollout-*.jsonl`)
 with no per-cwd subdir, so `detectSessions` walks the full tree and filters by the cwd recorded in
 each file's header. The adapter `name` is `"codex"` (discovery handle); the trail header's
@@ -140,8 +145,8 @@ machine, across three originator strings — `codex-tui` (interactive CLI, 0.128
 the first record always `{timestamp, type:"session_meta", payload:{id, timestamp, cwd, ...}}` and
 subsequent records of the form `{timestamp, type, payload}`. The parser asserts a `session_meta`
 first record and throws otherwise; the speculative flat-JSONL "legacy" branch was removed from
-PR1 rather than carrying dead code paired with a fictional fixture. If a real flat-format session
-surfaces later, the dispatch can be reintroduced under a PR2 hardening pass.
+the verified slice rather than carrying dead code paired with a fictional fixture. If a real
+flat-format session surfaces later, the dispatch can be reintroduced under a later hardening pass.
 
 Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, `turn_context`,
 `compacted`. Entry-type mapping:
@@ -194,7 +199,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `tool_call{tool:"other", args:{name:"tool_search", args:{query, limit}}}` + paired
   `tool_result`. Output is the JSON-stringified `tools` array.
 - `response_item.payload.type == "reasoning"` — Codex stores reasoning twice: an opaque
-  `encrypted_content` blob (PR2 still ignores it; no plaintext recoverable) and an optional
+  `encrypted_content` blob (still ignored; no plaintext recoverable) and an optional
   plaintext `summary[]` array. When summary items carry `text`, they emit a deduped
   `agent_thinking` with `metadata["dev.codex.raw_type"] = "response_item.reasoning.summary"`.
 - `event_msg.payload.type == "agent_reasoning"` and `event_msg.payload.type ==
@@ -235,9 +240,11 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.mcp_tool_call_end` → `system_event{kind:"x-codex/mcp_tool_call_end"}` with
   `semantic.call_id`. `data` carries `plugin_id`, `invocation`, `duration_ms`, and a
   flattened `result_ok` boolean derived from the Rust-style `{Ok|Err: …}` enum.
-- `event_msg.web_search_end` → `system_event{kind:"x-codex/web_search_end"}` with
-  `semantic.call_id = <ws_*>` preserving the source vendor id (consumers can also join by
-  matching `data.query` against the `web_search` tool_call's `args.query`).
+- `event_msg.web_search_end` → `system_event{kind:"x-codex/web_search_end"}`. Pairing is
+  query-based: consumers join by matching `data.query` against the `web_search` tool_call's
+  `args.query`. The source `ws_*` vendor id is preserved verbatim under `data.call_id` for
+  audit fidelity, but is not surfaced as `semantic.call_id` because no `tool_call` was
+  registered against it (`web_search_call` carries no `call_id` in the response_item channel).
 - `event_msg.thread_goal_updated` → `system_event{kind:"x-codex/thread_goal_updated"}`.
   `data` carries `thread_id`, `turn_id`, `goal`.
 

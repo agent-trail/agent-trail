@@ -239,6 +239,9 @@ test("desktop fixture emits user_message + agent_message entries from event_msg 
 test("desktop fixture emits tool_call + tool_result with for_id linkage", async () => {
   const trail = await parseDesktopFixture();
   const calls = trail.entries.filter((e) => e.type === "tool_call");
+  // Desktop fixture emits two tool_calls (`call-abc` shell + `call-exec-1`
+  // exec_command); guard against a regression that drops one of them.
+  expect(calls.length).toBeGreaterThanOrEqual(2);
   const result = trail.entries.find((e) => e.type === "tool_result");
   const call = calls.find((c) => c.semantic?.call_id === "call-abc");
   expect(call).toBeDefined();
@@ -298,20 +301,24 @@ test("reasoning fixture emits one agent_thinking per turn with dev.codex.raw_typ
   const thinking = trail.entries.filter((e) => e.type === "agent_thinking");
   // Three entries: turn-1 event_msg.agent_reasoning, turn-2
   // event_msg.agent_reasoning_raw_content, turn-2
-  // response_item.reasoning.summary (the dedupe key differs).
+  // response_item.reasoning.summary (the dedupe key differs). Look up by
+  // audit tag instead of positional index so fixture-order changes don't
+  // surface as cryptic index assertion failures.
   expect(thinking).toHaveLength(3);
-  expect((thinking[0]?.payload as { text: string }).text).toBe(
+  const byRawType = (raw: string) => thinking.find((e) => e.meta?.["dev.codex.raw_type"] === raw);
+  const reasoning = byRawType("event_msg.agent_reasoning");
+  const rawContent = byRawType("event_msg.agent_reasoning_raw_content");
+  const summary = byRawType("response_item.reasoning.summary");
+  expect(reasoning).toBeDefined();
+  expect(rawContent).toBeDefined();
+  expect(summary).toBeDefined();
+  expect((reasoning?.payload as { text: string }).text).toBe(
     "Step 1: read the file. Step 2: identify duplication.",
   );
-  expect(thinking[0]?.meta?.["dev.codex.raw_type"]).toBe("event_msg.agent_reasoning");
-  expect((thinking[1]?.payload as { text: string }).text).toBe(
-    "Different turn, different thought.",
-  );
-  expect(thinking[1]?.meta?.["dev.codex.raw_type"]).toBe("event_msg.agent_reasoning_raw_content");
-  expect((thinking[2]?.payload as { text: string }).text).toBe(
+  expect((rawContent?.payload as { text: string }).text).toBe("Different turn, different thought.");
+  expect((summary?.payload as { text: string }).text).toBe(
     "Summary thought from response_item channel.",
   );
-  expect(thinking[2]?.meta?.["dev.codex.raw_type"]).toBe("response_item.reasoning.summary");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
@@ -537,13 +544,21 @@ test("tool_search_call + tool_search_output round-trip as other tool_call/result
   expect(result?.meta?.["dev.codex.raw_type"]).toBe("response_item.tool_search_output");
 });
 
-test("web_search_end emits x-codex/web_search_end system_event linked by source call_id", async () => {
+test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {
   const trail = await parseWebSearchFixture();
   const evt = trail.entries.find((e) => e.type === "system_event");
   expect(evt).toBeDefined();
   expect((evt?.payload as { kind: string }).kind).toBe("x-codex/web_search_end");
-  expect(evt?.semantic?.call_id).toBe("ws_abc123");
-  expect((evt?.payload as { data?: { query?: string } }).data?.query).toBe(
+  // Pairing is query-based: tool_call.args.query matches data.query. The
+  // source `ws_*` id is preserved under data.call_id for audit fidelity
+  // but not surfaced as `semantic.call_id` (no tool_call registered against
+  // that id).
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  const data = (evt?.payload as { data?: { query?: string; call_id?: string } }).data;
+  expect(data?.query).toBe("site:example.com api docs");
+  expect(data?.call_id).toBe("ws_abc123");
+  const call = trail.entries.find((e) => e.type === "tool_call");
+  expect((call?.payload as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
   expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.web_search_end");
@@ -662,6 +677,130 @@ test("argv-form shell args join to a quoted command string", () => {
   expect(plain).toBeDefined();
   expect((plain?.payload as { tool: string }).tool).toBe("shell_command");
   expect((plain?.payload as { args: { command: string } }).args.command).toBe("plain string form");
+});
+
+test("argv-form shell args POSIX-quote single quotes, $VAR, and metacharacters", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T13:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8b00-cccc-7000-a100-00000000000c",
+        timestamp: "2026-05-28T13:00:00.000Z",
+        cwd: "/proj/codex-quote",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T13:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        // Arg with embedded single quote, $VAR expansion intent, and `;` separator.
+        arguments: JSON.stringify({ command: ["bash", "-c", "echo 'hi'; echo $USER"] }),
+        call_id: "call-quote-1",
+      },
+    },
+    {
+      timestamp: "2026-05-28T13:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        // Mixed: one safe identifier, one needing quoting.
+        arguments: JSON.stringify({ command: ["grep", "needle*", "/tmp/file with spaces"] }),
+        call_id: "call-quote-2",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const q1 = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-quote-1",
+  );
+  const q2 = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-quote-2",
+  );
+  expect((q1?.payload as { args: { command: string } }).args.command).toBe(
+    `bash -c 'echo '\\''hi'\\''; echo $USER'`,
+  );
+  expect((q2?.payload as { args: { command: string } }).args.command).toBe(
+    `grep 'needle*' '/tmp/file with spaces'`,
+  );
+});
+
+test("non-string argv element falls back to other rather than silently dropping the arg", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T13:30:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8b80-cccc-7000-a200-00000000000d",
+        timestamp: "2026-05-28T13:30:00.000Z",
+        cwd: "/proj/codex-bad-argv",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T13:30:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell",
+        arguments: JSON.stringify({ command: ["echo", 123, "hi"] }),
+        call_id: "call-bad-argv",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const call = trail.entries.find(
+    (e) => e.type === "tool_call" && e.semantic?.call_id === "call-bad-argv",
+  );
+  // Source fidelity: a non-string argv element refuses canonical
+  // `shell_command` reconstruction; the partial argv survives under
+  // `other.args.args.command` for downstream inspection.
+  expect((call?.payload as { tool: string }).tool).toBe("other");
+  const args = (call?.payload as { args: { args: Record<string, unknown> } }).args.args;
+  expect(args.command).toEqual(["echo", 123, "hi"]);
+});
+
+test("tool_result without matching tool_call omits for_id (orphan path)", () => {
+  const lines = [
+    {
+      timestamp: "2026-05-28T14:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8c00-dddd-7000-b300-00000000000e",
+        timestamp: "2026-05-28T14:00:00.000Z",
+        cwd: "/proj/codex-orphan",
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T14:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-orphan-id",
+        output: "stdout from a call we never saw\n",
+      },
+    },
+  ];
+  const text = `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`;
+  const trail = parseCodexJsonl(text);
+  const result = trail.entries.find((e) => e.type === "tool_result");
+  expect(result).toBeDefined();
+  // semantic.call_id still preserves the source-side id so consumers can
+  // see the orphan, but the canonical for_id pointer is omitted because no
+  // tool_call entry was emitted to point at.
+  expect(result?.semantic?.call_id).toBe("call-orphan-id");
+  expect((result?.payload as { for_id?: string }).for_id).toBeUndefined();
+  expect((result?.payload as { output: string }).output).toBe("stdout from a call we never saw\n");
 });
 
 test("tool_result output strips trailing spinner glyphs but preserves real content", () => {

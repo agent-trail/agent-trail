@@ -24,7 +24,7 @@ export function parseLines(text: string): Record<string, unknown>[] {
     try {
       out.push(JSON.parse(raw) as Record<string, unknown>);
     } catch {
-      // Skip malformed lines defensively; PR2 hardening tracks recovery.
+      // Skip malformed lines defensively; recovery tracked as a follow-up.
     }
   }
   return out;

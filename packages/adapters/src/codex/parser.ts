@@ -1,13 +1,13 @@
-// Codex CLI rollout-JSONL parser (issue #32 PR1 tracer slice).
+// Codex CLI rollout-JSONL parser (issue #32).
 //
-// Scope: minimal mapping for `user_message`, `agent_message`, `tool_call`,
-// `tool_result`, `agent_thinking`, `context_compact`, `model_change`. See
-// `docs/parser-source-matrix.md` for the full PR1 mapping table and the list
-// of deferred shapes. `user_interrupt` synthesis is intentionally deferred:
-// no real Codex session observed on the verifying contributor's machine
-// (codex-tui 0.128.x / Codex Desktop 0.133.x-alpha / codex_sdk_ts 0.98.x)
-// emits a native interrupt envelope — see deferred-shapes section of the
-// matrix doc. PR2 hardening tracks recovery if a signal surfaces.
+// Scope: mapping for `user_message`, `agent_message`, `tool_call`,
+// `tool_result`, `agent_thinking`, `context_compact`, `model_change`, and
+// lifecycle / enrichment `system_event` records. See
+// `docs/parser-source-matrix.md` for the full mapping table and the list
+// of deferred shapes. `user_interrupt` synthesis stays deferred until a
+// real interrupt signal surfaces — no real Codex session observed on the
+// verifying contributor's machine (codex-tui 0.128.x / Codex Desktop
+// 0.133.x-alpha / codex_sdk_ts 0.98.x) emits a native interrupt envelope.
 //
 // Idempotence: entry ids derive deterministically from
 // (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
@@ -81,8 +81,8 @@ function classify(record: Record<string, unknown>): Classified | undefined {
 // Codex Desktop 0.133-alpha). Text lives in `payload.message`. The parallel
 // `response_item.message` channel carries the same content one record later
 // but also includes synthetic `role:"developer"` AGENTS.md preambles that
-// shouldn't appear as user input — PR1 deliberately picks event_msg and
-// leaves cross-channel dedupe to PR2.
+// shouldn't appear as user input — the adapter currently picks event_msg
+// only; cross-channel dedupe is deferred to a later hardening pass.
 function buildUserOrAgentMessageEntry(rec: Classified, ts: string, id: string): Entry | undefined {
   const text = stringValue(rec.payload.message) ?? stringValue(rec.payload.text);
   if (text === undefined || text.length === 0) return undefined;
@@ -114,11 +114,12 @@ type ToolMapping = {
   args: Record<string, unknown>;
 };
 
-// Canonical tool-kind dispatch for PR1. `shell` and `container.exec` map to
-// `shell_command`; `read` maps to `file_read`. Everything else, including
-// `apply_patch` (patch-path inference is PR2 hardening) and `custom_tool_call`
-// (vendor canonicalisation is PR2), is routed to `other` to stay schema-valid
-// without claiming canonical kinds we don't yet parse end-to-end.
+// Canonical tool-kind dispatch for `response_item.function_call`. `exec_command`
+// (and the older `shell` / `container.exec` aliases) map to `shell_command`;
+// `read` maps to `file_read`. Vendor tools we don't recognise fall through to
+// `other` to stay schema-valid without claiming canonical kinds we don't yet
+// parse end-to-end. `apply_patch` and other custom-channel tools arrive via
+// `response_item.custom_tool_call` and are dispatched by `buildCustomToolCallEntry`.
 // POSIX-safe shell quoting. Identical to Pi's helper
 // (`packages/adapters/src/pi/tools.ts:7`) — kept inline to avoid pulling Pi
 // internals into the codex adapter.
@@ -133,7 +134,10 @@ function shellCommandFromArgs(args: Record<string, unknown>): string | undefined
   if (typeof command === "string") return command;
   if (Array.isArray(command)) {
     const parts = command.filter((p): p is string => typeof p === "string");
-    if (parts.length === 0) return undefined;
+    // Source-fidelity: if any argv element is not a string, refuse to
+    // reconstruct a partial command rather than silently emit something the
+    // source never expressed. Falls through to `other` via the mapTool caller.
+    if (parts.length === 0 || parts.length !== command.length) return undefined;
     return parts.map(quoteShellArg).join(" ");
   }
   return undefined;
@@ -251,17 +255,13 @@ function buildToolCallEntry(
 
 // `web_search_call` carries no `call_id` in the response_item channel; the
 // matching `event_msg.web_search_end` carries a `ws_*`-prefixed id that
-// cannot be derived from the request. Pair via the action.queries[0] / .query
-// string in PR2; consumers join by matching the entry's args.query against
-// `event_msg.web_search_end.payload.query` (system_event emitted with that
-// query under semantic.call_id is the bridge). action.type==="search"
-// becomes web_search; everything else falls through to `other` since we have
-// no URL to populate web_fetch's required `args.url`.
-function buildWebSearchCallEntry(
-  rec: Classified,
-  ts: string,
-  id: string,
-): { entry: Entry; query: string | undefined } {
+// cannot be derived from the request. Pairing is query-based: the emitted
+// tool_call carries `args.query`, and `web_search_end` (a system_event) keeps
+// the same `query` under `payload.data.query`. Consumers join by matching
+// those strings. `action.type === "search"` becomes web_search; everything
+// else falls through to `other` since we have no URL to populate
+// web_fetch's required `args.url`.
+function buildWebSearchCallEntry(rec: Classified, ts: string, id: string): { entry: Entry } {
   const action = isObject(rec.payload.action) ? rec.payload.action : {};
   const actionType = stringValue(action.type);
   const queries = Array.isArray(action.queries) ? action.queries : [];
@@ -285,12 +285,12 @@ function buildWebSearchCallEntry(
     meta: { "dev.codex.raw_type": "response_item.web_search_call" },
     semantic: { tool_kind: tool },
   };
-  return { entry, query };
+  return { entry };
 }
 
 // `custom_tool_call` is a sibling channel to `function_call` — the request
 // carries raw string `input` (e.g. an apply_patch text body) instead of a JSON
-// `arguments` string. Schema dispatch:
+// `arguments` string. Tool-kind dispatch:
 //   - name == "apply_patch", single-file patch → file_edit{path, diff}
 //   - everything else → other{name, args:{input}}
 function buildCustomToolCallEntry(
@@ -392,9 +392,10 @@ function buildReasoningEntry(rec: Classified, ts: string, id: string): Entry | u
 // record (not nested in `event_msg`). The payload carries `message` (the
 // summary text) and `replacement_history` (the messages folded into the
 // summary). `event_msg.context_compacted` also fires as an empty notification
-// marker — PR1 ignores it since the canonical content lives on the top-level
-// record. Token counts (tokens_before / tokens_after) are not in the source
-// stream; defer to PR2 if they surface in a later session shape.
+// marker — the adapter ignores it since the canonical content lives on the
+// top-level record. Token counts (tokens_before / tokens_after) are not in
+// the source stream; the optional payload fields stay absent unless a later
+// session shape starts to carry them.
 function buildCompactEntry(rec: Classified, ts: string, id: string): Entry | undefined {
   const summary = stringValue(rec.payload.message) ?? stringValue(rec.payload.summary);
   if (summary === undefined || summary.length === 0) return undefined;
@@ -418,7 +419,10 @@ function buildCompactEntry(rec: Classified, ts: string, id: string): Entry | und
 // transcript). We only strip when the trim region contains at least one of
 // the unambiguous spinner decorations (`·`, `•`) — natural trailing
 // whitespace like a shell command's `\n` stays untouched. Cap to 8 chars per
-// side so real content is never eaten.
+// side so real content is never eaten: this means spinner glyphs sitting
+// beyond the 8-char window from either boundary are intentionally preserved
+// (a conservative trade-off favouring data fidelity over aggressive
+// scrubbing — observed Codex noise always sits within the cap).
 const SPINNER_GLYPH = /[·•]/;
 const SPINNER_OR_WHITESPACE = /[\s·•]/;
 const SPINNER_MAX_TRIM = 8;
@@ -553,8 +557,6 @@ function buildModelChangeEntry(
 function buildEntries(records: Record<string, unknown>[], sessionUid: string): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
-  // web_search_call → web_search_end pairing is by query string, not call_id.
-  const queryToEntryId = new Map<string, string>();
   // Reasoning dedupe scope: a turn, identified by the most recent
   // `turn_context.payload.turn_id`. Within a turn, drop reasoning records
   // whose normalised text duplicates one we have already emitted.
@@ -654,9 +656,8 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
       }
       if (c.payloadType === "web_search_call") {
         const id = entryId(sessionUid, i, "tool_call");
-        const { entry, query } = buildWebSearchCallEntry(c, ts, id);
+        const { entry } = buildWebSearchCallEntry(c, ts, id);
         entries.push(entry);
-        if (query !== undefined) queryToEntryId.set(query, entry.id);
         continue;
       }
       if (c.payloadType === "tool_search_call") {
@@ -871,9 +872,15 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
         const id = entryId(sessionUid, i, "system_event:web_search_end");
         const query = stringValue(c.payload.query);
         const action = isObject(c.payload.action) ? c.payload.action : undefined;
+        const sourceCallId = stringValue(c.payload.call_id);
         const data: Record<string, unknown> = {};
         if (query !== undefined) data.query = query;
         if (action !== undefined) data.action = action;
+        // Web-search pairing is query-based (see buildWebSearchCallEntry).
+        // The source `ws_*` id is preserved under `data.call_id` for
+        // audit-trail fidelity but not surfaced as `semantic.call_id`,
+        // since no `tool_call` was registered against it.
+        if (sourceCallId !== undefined) data.call_id = sourceCallId;
         entries.push(
           buildSystemEventEntry({
             id,
@@ -881,7 +888,6 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
             kind: "x-codex/web_search_end",
             rawType: "event_msg.web_search_end",
             data,
-            linkedCallId: stringValue(c.payload.call_id),
           }),
         );
       }
