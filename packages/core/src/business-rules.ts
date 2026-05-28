@@ -160,9 +160,8 @@ function walkStringLeaves(
       continue;
     }
     if (value !== null && typeof value === "object") {
-      const keys = Object.keys(value as Record<string, unknown>);
-      for (let i = keys.length - 1; i >= 0; i -= 1) {
-        const key = keys[i] as string;
+      const reversedKeys = Object.keys(value as Record<string, unknown>).reverse();
+      for (const key of reversedKeys) {
         stack.push({
           value: (value as Record<string, unknown>)[key],
           path: `${path}/${escapeJsonPointerSegment(key)}`,
