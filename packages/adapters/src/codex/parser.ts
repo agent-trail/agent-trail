@@ -778,10 +778,10 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
         // `buildEntries`, so the mutation can't leak before parseCodexJsonl
         // returns. `rate_limits` snapshots stay outside the rollup (no
         // `agentMessageUsage` slot for them); see matrix prose.
-        if (lastAgentMessageEntry !== undefined) {
+        if (lastAgentMessageEntry?.type === "agent_message" && lastAgentMessageEntry.payload) {
           const usage = codexUsageFromTokenCount(c.payload);
           if (usage !== undefined) {
-            (lastAgentMessageEntry.payload as Record<string, unknown>).usage = usage;
+            lastAgentMessageEntry.payload.usage = usage;
           }
         }
         continue;
