@@ -70,8 +70,8 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
 //   - `session_meta.payload.cwd` — codex-tui 0.128.x, Codex Desktop
 //     0.133.x-alpha, codex_sdk_ts 0.98.x (canonical wrapped shape).
 //   - top-level `cwd` field on the first record — older / hypothetical flat
-//     shapes; kept as a tolerant fallback even though PR1's verifying
-//     contributor never observed it in real sessions.
+//     shapes; kept as a tolerant fallback even though no real session
+//     observed by the verifying contributor uses it.
 // Id is only extracted from the first parseable line (session_meta carries
 // the canonical session id at `payload.id`).
 // See `docs/parser-source-matrix.md` Codex row for verification notes.

@@ -6,3 +6,5 @@
 {"timestamp":"2026-05-28T02:00:04.000Z","type":"event_msg","payload":{"type":"agent_message","message":"ok"}}
 {"timestamp":"2026-05-28T02:00:05.000Z","type":"turn_context","payload":{"cwd":"/proj/codex-reason","model":"gpt-5-codex","effort":"medium","turn_id":"turn-2"}}
 {"timestamp":"2026-05-28T02:00:06.000Z","type":"event_msg","payload":{"type":"agent_reasoning_raw_content","text":"Different turn, different thought."}}
+{"timestamp":"2026-05-28T02:00:07.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Summary thought from response_item channel."}],"content":null,"encrypted_content":"opaque-blob"}}
+{"timestamp":"2026-05-28T02:00:08.000Z","type":"response_item","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"opaque-blob-empty"}}

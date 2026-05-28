@@ -1,0 +1,7 @@
+{"timestamp":"2026-05-28T08:00:00.000Z","type":"session_meta","payload":{"id":"019d8600-7777-7000-b000-000000000007","timestamp":"2026-05-28T08:00:00.000Z","cwd":"/proj/codex-patch","originator":"codex-tui","cli_version":"0.128.0","source":"interactive","model_provider":"openai"}}
+{"timestamp":"2026-05-28T08:00:01.000Z","type":"turn_context","payload":{"cwd":"/proj/codex-patch","model":"gpt-5-codex","effort":"medium","turn_id":"turn-1"}}
+{"timestamp":"2026-05-28T08:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"fix the bug"}}
+{"timestamp":"2026-05-28T08:00:03.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","status":"completed","call_id":"call-patch-single","input":"*** Begin Patch\n*** Update File: src/foo.ts\n@@ -1,2 +1,2 @@\n-old line\n+new line\n*** End Patch\n"}}
+{"timestamp":"2026-05-28T08:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-patch-single","output":"Success. Updated the following files:\nM src/foo.ts\n"}}
+{"timestamp":"2026-05-28T08:00:05.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","status":"completed","call_id":"call-patch-multi","input":"*** Begin Patch\n*** Update File: src/a.ts\n@@ -1 +1 @@\n-a\n+A\n*** Update File: src/b.ts\n@@ -1 +1 @@\n-b\n+B\n*** End Patch\n"}}
+{"timestamp":"2026-05-28T08:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-patch-multi","output":"Success. Updated the following files:\nM src/a.ts\nM src/b.ts\n"}}
