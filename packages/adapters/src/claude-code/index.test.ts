@@ -1160,8 +1160,9 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
 
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
   const trail = await parseInterruptModelFixture();
-  // Synthesized model_change id is a fresh UUID at runtime; assert the
-  // sequence by type so the random id doesn't break the test.
+  // Synthesized model_change id is deterministic (v5 from session_uid,
+  // envelope index, prev/current model). This test asserts sequence + type;
+  // determinism is covered explicitly by short-id.test.ts.
   const types = trail.entries.map((e) => e.type);
   expect(types).toEqual([
     "user_message",

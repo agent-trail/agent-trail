@@ -29,6 +29,7 @@ function assistantTextMsg(
   uuid: string,
   parentUuid: string | null,
   text: string,
+  model = "claude-sonnet-4-5",
 ): Record<string, unknown> {
   return {
     type: "assistant",
@@ -40,7 +41,7 @@ function assistantTextMsg(
     version: "1.0.0",
     message: {
       role: "assistant",
-      model: "claude-sonnet-4-5",
+      model,
       content: [{ type: "text", text }],
       stop_reason: "end_turn",
     },
@@ -176,6 +177,23 @@ test("cc adapter synthesizes deterministic uuid for permission-mode system_event
       (e.payload as { kind?: string } | undefined)?.kind === "permission_mode_change",
   );
   expect(sysEventB?.id).toBe(sysEvent?.id);
+});
+
+test("cc adapter synthesizes deterministic uuid for model_change on model transition", () => {
+  const text = jsonl(
+    assistantTextMsg("bfc8efd4", null, "opus reply", "claude-opus-4-7"),
+    assistantTextMsg("3e956835", "bfc8efd4", "sonnet reply", "claude-sonnet-4-5"),
+  );
+  const trail = parseClaudeCodeJsonl(text);
+  const modelChange = trail.entries.find((e) => e.type === "model_change");
+  expect(modelChange).toBeDefined();
+  expect(modelChange?.id).toMatch(ID_PATTERN);
+  expect(modelChange?.payload).toEqual({
+    from_model: "claude-opus-4-7",
+    to_model: "claude-sonnet-4-5",
+  });
+  const trailB = parseClaudeCodeJsonl(text);
+  expect(trailB.entries.find((e) => e.type === "model_change")?.id).toBe(modelChange?.id);
 });
 
 test("cc adapter preserves original short source uuid under source.raw", () => {
