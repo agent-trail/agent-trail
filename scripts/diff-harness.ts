@@ -17,7 +17,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  for (const { agent, fixture, report } of summary.reports) {
+  for (const { agent, fixture, report, error } of summary.reports) {
+    if (error !== undefined || report === undefined) {
+      console.log(`[${agent}] ${fixture}: ERROR ${error ?? "unknown failure"}`);
+      continue;
+    }
     const status = report.blocking ? "REGRESSION" : "ok";
     console.log(
       `[${agent}] ${fixture}: ${status} ` +
@@ -32,7 +36,9 @@ async function main(): Promise<void> {
   }
 
   console.log("---");
-  const blockingCount = summary.reports.filter((r) => r.report.blocking).length;
+  const blockingCount = summary.reports.filter(
+    (r) => r.error !== undefined || r.report?.blocking === true,
+  ).length;
   console.log(
     `Summary: ${summary.targets} adapter(s), ${summary.reports.length} fixture(s), ` +
       `blocking=${blockingCount}`,
@@ -43,4 +49,7 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+main().catch((error) => {
+  console.error(`Adapter diff harness failed: ${error instanceof Error ? error.message : error}`);
+  process.exit(1);
+});
