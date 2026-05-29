@@ -11,8 +11,8 @@ import type { MatchPattern } from "./types.ts";
  * dead code for valid input.
  */
 export function matchesPattern(record: Record<string, unknown>, pattern: MatchPattern): boolean {
-  for (const key of Object.keys(pattern)) {
-    const expected = pattern[key];
+  for (const [key, expected] of Object.entries(pattern)) {
+    if (!Object.hasOwn(record, key)) return false;
     const actual = record[key];
     if (isObject(expected)) {
       if (!isObject(actual)) return false;

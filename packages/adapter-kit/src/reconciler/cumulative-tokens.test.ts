@@ -52,6 +52,36 @@ describe("cumulativeTokens reconciler rule", () => {
     expect(usageOf(out[0])).toEqual({ input_tokens: 10, input_tokens_cumulative: 999 });
   });
 
+  test("advances running totals through entries that already carry cumulative counts", () => {
+    const out = reconcile(
+      [
+        agentMsg("a", {
+          input_tokens: 100,
+          output_tokens: 50,
+          input_tokens_cumulative: 100,
+          output_tokens_cumulative: 50,
+        }),
+        agentMsg("b", { input_tokens: 10, output_tokens: 5 }),
+      ],
+      { cumulativeTokens: true },
+      ctx,
+    );
+
+    // first entry untouched; second continues from the prior cumulative.
+    expect(usageOf(out[0])).toEqual({
+      input_tokens: 100,
+      output_tokens: 50,
+      input_tokens_cumulative: 100,
+      output_tokens_cumulative: 50,
+    });
+    expect(usageOf(out[1])).toEqual({
+      input_tokens: 10,
+      output_tokens: 5,
+      input_tokens_cumulative: 110,
+      output_tokens_cumulative: 55,
+    });
+  });
+
   test("no-op when cumulativeTokens disabled", () => {
     const out = reconcile([agentMsg("a", { input_tokens: 10 })], {}, ctx);
     expect(usageOf(out[0])).toEqual({ input_tokens: 10 });

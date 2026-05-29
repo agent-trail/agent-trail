@@ -28,14 +28,17 @@ export interface TrailEntryDraft {
 }
 
 /**
- * Deep-partial structural matcher. Keys present in the pattern must deep-equal
- * the record; nested objects recurse. e.g. `{ type: "response_item", payload: {
- * type: "message" } }`.
+ * Deep-partial structural matcher bound to the source record type `T`. Keys
+ * present in the pattern must deep-equal the record; nested objects recurse.
+ * e.g. `{ type: "response_item", payload: { type: "message" } }`. For the
+ * default `RawRecord` this collapses to an open `{ [k: string]?: unknown }`.
  */
-export type MatchPattern = { [key: string]: unknown };
+export type MatchPattern<T extends Record<string, unknown> = Record<string, unknown>> = {
+  [K in keyof T]?: T[K] extends Record<string, unknown> ? MatchPattern<T[K]> : T[K];
+};
 
 export interface MappingDef<T extends RawRecord = RawRecord> {
-  match: MatchPattern;
+  match: MatchPattern<T>;
   emit: (record: T) => TrailEntryDraft[];
 }
 
@@ -48,7 +51,7 @@ export interface OverrideCtx<S> {
 }
 
 export interface OverrideDef<T extends RawRecord = RawRecord, S = unknown> {
-  match: MatchPattern;
+  match: MatchPattern<T>;
   emit: (record: T, ctx: OverrideCtx<S>) => TrailEntryDraft[];
 }
 
