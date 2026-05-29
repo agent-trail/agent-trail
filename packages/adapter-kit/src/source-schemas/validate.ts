@@ -32,7 +32,7 @@ export function validateSourceRecord(
   if (validate(record)) {
     return [];
   }
-  return (validate.errors ?? []).map(diagnosticFromSchemaError);
+  return (validate.errors as ErrorObject[]).map(diagnosticFromSchemaError);
 }
 
 const SEMANTIC_CODES: Record<string, string> = {

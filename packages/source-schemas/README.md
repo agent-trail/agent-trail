@@ -10,7 +10,7 @@ etc.) — not the trail format. The trail format contract lives in the root
 
 ## Layout
 
-```
+```text
 codex/
   meta.json       — agent metadata + version → schema mapping
   v0.128.json     — JSON Schema (draft 2020-12) for v0.128.x records

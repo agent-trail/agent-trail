@@ -67,6 +67,7 @@ import {
 const schemaVersion = selectSchemaVersion("codex", session.cli_version);
 if (schemaVersion === undefined) {
   // quarantine the whole session — no schema to validate against
+  return;
 }
 
 const reader = new JsonlReader();
