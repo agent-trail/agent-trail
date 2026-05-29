@@ -1,6 +1,6 @@
+import { mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry } from "@agent-trail/types";
 import { pickBlockId } from "../entries.ts";
-import { mapAgentMessageUsage } from "../usage.ts";
 import { baseEntry, type PiEntryIdCtx, stampRawType } from "./entry-metadata.ts";
 import {
   asBlocks,

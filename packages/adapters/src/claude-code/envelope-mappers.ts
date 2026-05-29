@@ -1,10 +1,10 @@
+import { mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry } from "@agent-trail/types";
 import { pickBlockId } from "../entries.ts";
 import {
   CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE,
   deriveSynthesizedEntryId,
 } from "../session-uid.ts";
-import { mapAgentMessageUsage } from "../usage.ts";
 import { baseEntry, type CcEntryIdCtx } from "./entry-metadata.ts";
 import {
   asBlocks,

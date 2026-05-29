@@ -1,3 +1,9 @@
+import { isObject, jsonObjectValue, stringValue } from "@agent-trail/adapter-kit";
+
+// Re-export shared primitives under the adapter's helper barrel. Pi keeps its
+// own lenient numericValue/timestampToIso (numeric-string tolerant) below.
+export { isObject, jsonObjectValue, stringValue };
+
 export type PiBlock = Record<string, unknown> & { type?: string };
 
 export type PiMessage = {
@@ -27,10 +33,6 @@ export type PiEnvelope = {
   [key: string]: unknown;
 };
 
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 export function parseLines(text: string): PiEnvelope[] {
   const out: PiEnvelope[] = [];
   for (const raw of text.split("\n")) {
@@ -42,10 +44,6 @@ export function parseLines(text: string): PiEnvelope[] {
 
 export function asBlocks(content: unknown): PiBlock[] {
   return Array.isArray(content) ? content.filter(isObject) : [];
-}
-
-export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
 
 // Numeric field coercion. Accept a number, or a numeric string (e.g., `"12000"`) — Pi top-level
@@ -67,10 +65,6 @@ export function idValue(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
-}
-
-export function jsonObjectValue(value: unknown): Record<string, unknown> | undefined {
-  return isObject(value) ? value : undefined;
 }
 
 export function jsonString(value: unknown): string {

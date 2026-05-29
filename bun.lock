@@ -17,10 +17,15 @@
       "name": "@agent-trail/website",
       "version": "0.0.0",
     },
+    "packages/adapter-kit": {
+      "name": "@agent-trail/adapter-kit",
+      "version": "0.0.0",
+    },
     "packages/adapters": {
       "name": "@agent-trail/adapters",
       "version": "0.0.0",
       "dependencies": {
+        "@agent-trail/adapter-kit": "workspace:*",
         "@agent-trail/core": "workspace:*",
         "@agent-trail/types": "workspace:*",
       },
@@ -81,6 +86,8 @@
     "canonicalize": "^3.0.0",
   },
   "packages": {
+    "@agent-trail/adapter-kit": ["@agent-trail/adapter-kit@workspace:packages/adapter-kit"],
+
     "@agent-trail/adapters": ["@agent-trail/adapters@workspace:packages/adapters"],
 
     "@agent-trail/cli": ["@agent-trail/cli@workspace:packages/cli"],

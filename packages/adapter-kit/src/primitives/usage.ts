@@ -12,7 +12,10 @@ function nonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
-function pick(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
+// Returns the first non-negative-integer value across the candidate key list.
+// Token-counting fields are always non-negative integers, so non-integers and
+// negatives are treated as "absent" rather than coerced.
+export function pick(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
   for (const key of keys) {
     const value = nonNegativeInteger(record[key]);
     if (value !== undefined) return value;

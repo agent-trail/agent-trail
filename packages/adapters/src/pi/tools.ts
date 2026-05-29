@@ -1,12 +1,5 @@
+import { coerceInt as maybeNumber, quoteShellArg } from "@agent-trail/adapter-kit";
 import { isObject, jsonObjectValue, stringValue } from "./source.ts";
-
-function maybeNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function quoteShellArg(value: string): string {
-  return /^[A-Za-z0-9_\-./@:+=]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
-}
 
 // `oldText` / `newText` may span multiple lines. A unified diff requires every
 // removed line to be prefixed with `-` and every added line with `+`, so we

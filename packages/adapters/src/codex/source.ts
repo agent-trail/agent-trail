@@ -13,9 +13,9 @@ export type CodexRecord = {
   [k: string]: unknown;
 };
 
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+// Strict numeric coercion is identical to the kit's coerceInt; re-export under
+// the adapter-local name. isObject/stringValue are shared verbatim.
+export { coerceInt as numericValue, isObject, stringValue } from "@agent-trail/adapter-kit";
 
 export function parseLines(text: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
@@ -28,15 +28,6 @@ export function parseLines(text: string): Record<string, unknown>[] {
     }
   }
   return out;
-}
-
-export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-export function numericValue(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return undefined;
 }
 
 export function timestampToIso(value: unknown): string | undefined {

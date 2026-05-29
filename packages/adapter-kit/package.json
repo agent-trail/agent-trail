@@ -1,7 +1,7 @@
 {
-  "name": "@agent-trail/adapters",
+  "name": "@agent-trail/adapter-kit",
   "version": "0.0.0",
-  "description": "Agent Trail source-agent adapter interfaces and parsers.",
+  "description": "Agent Trail shared adapter extraction primitives and source readers.",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -16,19 +16,14 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agent-trail/agent-trail.git",
-    "directory": "packages/adapters"
+    "directory": "packages/adapter-kit"
   },
   "bugs": {
     "url": "https://github.com/agent-trail/agent-trail/issues"
   },
   "homepage": "https://github.com/agent-trail/agent-trail#readme",
   "engines": {
-    "bun": ">=1.3.11"
-  },
-  "dependencies": {
-    "@agent-trail/adapter-kit": "workspace:*",
-    "@agent-trail/core": "workspace:*",
-    "@agent-trail/types": "workspace:*"
+    "node": ">=20"
   },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",

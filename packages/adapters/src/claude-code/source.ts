@@ -1,3 +1,9 @@
+import { coerceInt, isObject, jsonObjectValue, stringValue } from "@agent-trail/adapter-kit";
+
+// Re-export shared primitives under the adapter's helper barrel. maybeNumber is
+// the strict coerceInt; isObject/stringValue/jsonObjectValue are shared verbatim.
+export { coerceInt as maybeNumber, isObject, jsonObjectValue, stringValue };
+
 export type CcEnvelope = {
   type?: string;
   uuid?: string;
@@ -30,10 +36,6 @@ export type CcEnvelope = {
 
 export type CcBlock = Record<string, unknown> & { type?: string };
 
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 export function isTracerEnvelope(envelope: CcEnvelope): boolean {
   if (envelope.type === "attachment") return false;
   if (envelope.type === "file-history-snapshot") return false;
@@ -62,14 +64,6 @@ export function parseLines(text: string): CcEnvelope[] {
 
 export function asBlocks(content: unknown): CcBlock[] {
   return Array.isArray(content) ? content.filter(isObject) : [];
-}
-
-export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-export function jsonObjectValue(value: unknown): Record<string, unknown> | undefined {
-  return isObject(value) ? value : undefined;
 }
 
 export function jsonString(value: unknown): string {
@@ -108,8 +102,4 @@ export function isContinuationPreamble(text: string): boolean {
     trimmed.startsWith("Here is the conversation so far") ||
     trimmed.startsWith("Here's the conversation so far")
   );
-}
-
-export function maybeNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
