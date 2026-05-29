@@ -14,10 +14,14 @@
         "summary",
         "attachment",
         "progress",
-        "queue-operation"
+        "queue-operation",
+        "agent-name",
+        "ai-title",
+        "file-history-snapshot",
+        "permission-mode",
+        "pr-link",
+        "worktree-state"
       ]
-    },
-    "timestamp": { "type": "string" },
-    "version": { "type": "string" }
+    }
   }
 }

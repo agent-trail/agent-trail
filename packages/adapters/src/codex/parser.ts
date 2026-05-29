@@ -15,7 +15,10 @@
 import {
   type AgentMessageUsage,
   mapAgentMessageUsage,
+  quarantine,
   quoteShellArg,
+  selectSchemaVersion,
+  validateSourceRecord,
 } from "@agent-trail/adapter-kit";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
@@ -28,6 +31,9 @@ import {
 import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
 const AGENT_NAME = "codex-cli";
+// Source-schema package key + vendor kind namespace (short form; the trail
+// AgentName is "codex-cli").
+const SOURCE_AGENT = "codex";
 
 function buildHeader(first: Record<string, unknown>): Header {
   if (first.type !== "session_meta") {
@@ -586,7 +592,12 @@ function codexUsageFromTokenCount(payload: Record<string, unknown>): AgentMessag
   return mapAgentMessageUsage(merged);
 }
 
-function buildEntries(records: Record<string, unknown>[], sessionUid: string): Entry[] {
+function buildEntries(
+  records: Record<string, unknown>[],
+  sessionUid: string,
+  schemaVersion: string | undefined,
+  headerTs: string,
+): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
   // Reasoning dedupe scope: a turn, identified by the most recent
@@ -605,6 +616,11 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
   // agent_message and the trailing token_count, and the count belongs to
   // the turn-initiating agent_message.
   let lastAgentMessageEntry: Entry | undefined;
+  // Last-seen valid record ts, seeded from the session header so it is always
+  // defined. A validation-failing record with no usable ts of its own
+  // quarantines against this so drift is never silently dropped for want of a
+  // timestamp.
+  let inheritedTs: string = headerTs;
   const resetTurn = (id: string) => {
     currentTurnId = id;
     turnReasoningSeen = new Set<string>();
@@ -612,6 +628,23 @@ function buildEntries(records: Record<string, unknown>[], sessionUid: string): E
   for (let i = 1; i < records.length; i += 1) {
     const raw = records[i];
     if (raw === undefined) continue;
+    const rawTs = timestampToIso(raw.timestamp);
+    if (rawTs !== undefined) inheritedTs = rawTs;
+    if (
+      schemaVersion !== undefined &&
+      validateSourceRecord(SOURCE_AGENT, schemaVersion, raw).length > 0
+    ) {
+      entries.push(
+        quarantine({
+          agent: AGENT_NAME,
+          namespace: SOURCE_AGENT,
+          id: entryId(sessionUid, i, "unknown_record"),
+          ts: inheritedTs,
+          record: raw,
+        }),
+      );
+      continue;
+    }
     const c = classify(raw);
     if (c === undefined) continue;
     const ts = c.ts;
@@ -967,6 +1000,7 @@ export function parseCodexJsonl(text: string): TrailFile {
   // `buildHeader` always emits `session_uid` for Codex (derived from
   // `payload.id`); narrow the optional schema field for the parser side.
   const sessionUid = header.session_uid ?? header.id;
-  const entries = buildEntries(records, sessionUid);
+  const schemaVersion = selectSchemaVersion(SOURCE_AGENT, header.source?.format_version);
+  const entries = buildEntries(records, sessionUid, schemaVersion, header.ts);
   return { header, entries };
 }

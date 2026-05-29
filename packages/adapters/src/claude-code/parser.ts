@@ -1,3 +1,4 @@
+import { quarantine, selectSchemaVersion, validateSourceRecord } from "@agent-trail/adapter-kit";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
@@ -123,24 +124,50 @@ export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
   const sourceUuidToLastEntryId = new Map<string, string>();
   let prevModel: string | undefined;
   let prevPermissionMode: string | undefined;
-  // Tracks the most recent envelope timestamp seen in source order. Envelopes
-  // missing `timestamp` (Claude Code emits `permission-mode` records with no
-  // timestamp) inherit this value so their synthesized entries land in
-  // session-order rather than failing validation.
-  let inheritedTimestamp: string | undefined;
+  // Tracks the most recent envelope timestamp seen in source order, seeded from
+  // the session header so it is always defined. Envelopes missing `timestamp`
+  // (Claude Code emits `permission-mode` records with no timestamp) inherit
+  // this value so their synthesized entries land in session-order rather than
+  // failing validation.
+  let inheritedTimestamp: string = header.ts;
 
   // Synth seed bases entry ids on (sessionId, file position) so re-parsing the
   // same JSONL produces identical ids for envelopes that lack a source uuid
   // (queue-operation, pr-link, permission-mode). File position uniquely
   // disambiguates duplicate envelopes within the same session.
   const sessionIdForSeed = header.id;
+  const schemaVersion = selectSchemaVersion("claude-code", header.source?.format_version);
   for (let envelopeIndex = 0; envelopeIndex < envelopes.length; envelopeIndex++) {
     const envelope = envelopes[envelopeIndex];
     if (envelope === undefined) continue;
-    if (!isTracerEnvelope(envelope)) continue;
+    // Advance the inherited ts before the quarantine gate so a timestamped
+    // envelope that fails validation still moves the cursor — otherwise a later
+    // timestamp-less entry could inherit a stale ts and fall out of source order.
     if (typeof envelope.timestamp === "string") {
       inheritedTimestamp = envelope.timestamp;
     }
+    const rawRecord = envelope as unknown as Record<string, unknown>;
+    if (
+      schemaVersion !== undefined &&
+      validateSourceRecord("claude-code", schemaVersion, rawRecord).length > 0
+    ) {
+      // Additive diagnostic leaf — see the pi parser's quarantine note. Chains
+      // off the envelope's parent but is not registered as a chain ancestor, so
+      // recognised-entry topology is unchanged. `inheritedTimestamp` is seeded
+      // from the header, so it is always defined here.
+      built.push({
+        entry: quarantine({
+          agent: "claude-code",
+          namespace: "claudecode",
+          id: ctx.deriveSynthesizedId(["unknown_record", String(envelopeIndex)]),
+          ts: inheritedTimestamp,
+          record: rawRecord,
+        }),
+        parentSourceId: envelope.parentUuid ?? null,
+      });
+      continue;
+    }
+    if (!isTracerEnvelope(envelope)) continue;
     if (envelope.type === "permission-mode") {
       const synthSeed: readonly string[] = [
         sessionIdForSeed,

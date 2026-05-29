@@ -7,8 +7,17 @@
   "required": ["type"],
   "properties": {
     "type": {
-      "enum": ["session", "message", "branch_summary", "compaction", "model_change"]
-    },
-    "timestamp": { "type": "string" }
+      "enum": [
+        "session",
+        "message",
+        "branch_summary",
+        "compaction",
+        "model_change",
+        "custom",
+        "custom_message",
+        "session_info",
+        "thinking_level_change"
+      ]
+    }
   }
 }

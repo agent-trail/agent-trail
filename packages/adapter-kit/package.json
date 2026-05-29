@@ -32,6 +32,7 @@
   "dependencies": {
     "@agent-trail/core": "workspace:*",
     "@agent-trail/source-schemas": "workspace:*",
+    "@agent-trail/types": "workspace:*",
     "ajv": "catalog:",
     "semver": "catalog:"
   },
