@@ -117,6 +117,7 @@ export type Entry = EntryBase &
     | ModelChange
     | SessionTerminated
     | SessionEnd
+    | CommandInvoke
     | Unknown
   );
 export type ToolKind =
@@ -486,6 +487,39 @@ export interface SessionEnd {
      * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
      */
     final_message_id?: string;
+  };
+  [k: string]: unknown;
+}
+export interface CommandInvoke {
+  type?: "command_invoke";
+  payload?: {
+    /**
+     * User-visible identifier of the invoked capability. Leading slash for slash/builtin/custom_prompt commands (`/clear`); bare name for skills (`webapp-testing`).
+     */
+    name: string;
+    /**
+     * What kind of capability was invoked.
+     */
+    kind: "slash" | "builtin" | "skill" | "custom_prompt" | "plugin";
+    /**
+     * How the invocation reached the agent. `auto_trigger` covers description-matched skill activation with no user action; adapters MAY synthesize it (set source.synthesized=true).
+     */
+    via: "user_typed" | "auto_trigger" | "agent_invoked";
+    args?: {
+      [k: string]: unknown;
+    };
+    expansion_text?: string;
+    /**
+     * What the runtime did with the invocation. Either one of the reserved values, an adapter-namespaced extension of the form `x-<adapter>/<name>`, or null.
+     */
+    result_action?:
+      | "compact"
+      | "clear"
+      | "expand"
+      | "load_skill"
+      | "noop"
+      | `x-${string}/${string}`
+      | null;
   };
   [k: string]: unknown;
 }

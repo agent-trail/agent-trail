@@ -45,6 +45,7 @@ export const implementedEventTypes = [
   // Optional clean-conclusion marker (spec §9.3). Distinct from session_terminated:
   // session_end signals a normal finish, session_terminated an abnormal one.
   "session_end",
+  "command_invoke",
 ] as const;
 
 const eventValidators = new Map<string, ValidateFunction<unknown>>(

@@ -429,6 +429,7 @@
             { "$ref": "#/$defs/events/model_change" },
             { "$ref": "#/$defs/events/session_terminated" },
             { "$ref": "#/$defs/events/session_end" },
+            { "$ref": "#/$defs/events/command_invoke" },
             { "$ref": "#/$defs/events/unknown" }
           ]
         }
@@ -1034,6 +1035,50 @@
         }
       },
 
+      "command_invoke": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "command_invoke" },
+          "payload": {
+            "type": "object",
+            "required": ["name", "kind", "via"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "User-visible identifier of the invoked capability. Leading slash for slash/builtin/custom_prompt commands (`/clear`); bare name for skills (`webapp-testing`)."
+              },
+              "kind": {
+                "type": "string",
+                "description": "What kind of capability was invoked.",
+                "enum": ["slash", "builtin", "skill", "custom_prompt", "plugin"]
+              },
+              "via": {
+                "type": "string",
+                "description": "How the invocation reached the agent. `auto_trigger` covers description-matched skill activation with no user action; adapters MAY synthesize it (set source.synthesized=true).",
+                "enum": ["user_typed", "auto_trigger", "agent_invoked"]
+              },
+              "args": { "type": "object" },
+              "expansion_text": { "type": "string" },
+              "result_action": {
+                "description": "What the runtime did with the invocation. Either one of the reserved values, an adapter-namespaced extension of the form `x-<adapter>/<name>`, or null.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": ["compact", "clear", "expand", "load_skill", "noop"]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
       "unknown": {
         "type": "object",
         "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
@@ -1056,7 +1101,8 @@
                 "branch_summary",
                 "model_change",
                 "session_terminated",
-                "session_end"
+                "session_end",
+                "command_invoke"
               ]
             }
           },

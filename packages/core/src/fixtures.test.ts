@@ -203,6 +203,89 @@ test("valid/tool-result-meta-shell-command.trail.jsonl validates clean", async (
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/command-invoke-minimal.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-minimal.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/command-invoke-full.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-full.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/command-invoke-result-action-ext.trail.jsonl validates clean (x- result_action)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-result-action-ext.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/command-invoke-slash.trail.jsonl validates clean (slash kind, reserved result_action)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-slash.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/command-invoke-plugin.trail.jsonl validates clean (plugin kind, agent_invoked, null result_action)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-plugin.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/command-invoke-missing-kind.trail.jsonl reports required /payload/kind", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/command-invoke-missing-kind.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/kind",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'kind'",
+  });
+});
+
+test("invalid-schema/command-invoke-bad-result-action.trail.jsonl reports result_action mismatch", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/command-invoke-bad-result-action.trail.jsonl"),
+  );
+  expect(
+    diagnostics.some((d) => d.severity === "error" && d.path === "/payload/result_action"),
+  ).toBe(true);
+});
+
+test("invalid-schema/command-invoke-bad-kind.trail.jsonl reports enum at /payload/kind", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/command-invoke-bad-kind.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/kind",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("invalid-schema/command-invoke-missing-name.trail.jsonl reports required /payload/name", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/command-invoke-missing-name.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/name",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'name'",
+  });
+});
+
 test("valid/tool-result-meta-file-read.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/tool-result-meta-file-read.trail.jsonl"),
