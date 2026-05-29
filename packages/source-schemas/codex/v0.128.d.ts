@@ -9,7 +9,6 @@
 export type CodexV0_128Record = {
   [k: string]: unknown;
 } & {
-  timestamp?: string;
   type: "session_meta" | "turn_context" | "event_msg" | "response_item" | "compacted";
   payload?: unknown;
   [k: string]: unknown;

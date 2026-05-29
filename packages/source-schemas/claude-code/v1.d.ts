@@ -7,8 +7,19 @@
  * Claude Code session JSONL envelope. Reverse-engineered from a synthetic corpus. Every record carries a top-level type and a version string. Drift is caught at record-type granularity: an unknown top-level type fails validation and is quarantined. Other fields are lenient to tolerate additive upstream changes.
  */
 export interface ClaudeCodeV1Record {
-  type: "user" | "assistant" | "system" | "summary" | "attachment" | "progress" | "queue-operation";
-  timestamp?: string;
-  version?: string;
+  type:
+    | "user"
+    | "assistant"
+    | "system"
+    | "summary"
+    | "attachment"
+    | "progress"
+    | "queue-operation"
+    | "agent-name"
+    | "ai-title"
+    | "file-history-snapshot"
+    | "permission-mode"
+    | "pr-link"
+    | "worktree-state";
   [k: string]: unknown;
 }

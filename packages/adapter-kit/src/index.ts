@@ -3,6 +3,7 @@ export { coerceInt } from "./primitives/coerce.ts";
 export { isObject, jsonObjectValue, stringValue } from "./primitives/guards.ts";
 export { quoteShellArg } from "./primitives/shell.ts";
 export { type AgentMessageUsage, mapAgentMessageUsage, pick } from "./primitives/usage.ts";
+export { type QuarantineInput, quarantine } from "./quarantine.ts";
 export {
   chainReaders,
   type MergeByTimestampOptions,

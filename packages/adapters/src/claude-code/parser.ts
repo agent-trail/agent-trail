@@ -1,3 +1,4 @@
+import { quarantine, selectSchemaVersion, validateSourceRecord } from "@agent-trail/adapter-kit";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import { resolveEntryParents } from "../parenting.ts";
@@ -134,9 +135,35 @@ export function parseClaudeCodeEnvelopes(envelopes: CcEnvelope[]): TrailFile {
   // (queue-operation, pr-link, permission-mode). File position uniquely
   // disambiguates duplicate envelopes within the same session.
   const sessionIdForSeed = header.id;
+  const schemaVersion = selectSchemaVersion("claude-code", header.source?.format_version);
   for (let envelopeIndex = 0; envelopeIndex < envelopes.length; envelopeIndex++) {
     const envelope = envelopes[envelopeIndex];
     if (envelope === undefined) continue;
+    const rawRecord = envelope as unknown as Record<string, unknown>;
+    if (
+      schemaVersion !== undefined &&
+      validateSourceRecord("claude-code", schemaVersion, rawRecord).length > 0
+    ) {
+      // Additive diagnostic leaf — see the pi parser's quarantine note. Chains
+      // off the envelope's parent but is not registered as a chain ancestor, so
+      // recognised-entry topology is unchanged.
+      const ts =
+        (typeof envelope.timestamp === "string" ? envelope.timestamp : undefined) ??
+        inheritedTimestamp;
+      if (ts !== undefined) {
+        built.push({
+          entry: quarantine({
+            agent: "claude-code",
+            namespace: "claudecode",
+            id: ctx.deriveSynthesizedId(["unknown_record", String(envelopeIndex)]),
+            ts,
+            record: rawRecord,
+          }),
+          parentSourceId: envelope.parentUuid ?? null,
+        });
+      }
+      continue;
+    }
     if (!isTracerEnvelope(envelope)) continue;
     if (typeof envelope.timestamp === "string") {
       inheritedTimestamp = envelope.timestamp;

@@ -7,7 +7,15 @@
  * Pi session JSONL record. First record is type:"session" carrying a numeric format version. Drift is caught at record-type granularity: an unknown top-level type fails validation and is quarantined. Other fields are lenient to tolerate additive upstream changes.
  */
 export interface PiV1Record {
-  type: "session" | "message" | "branch_summary" | "compaction" | "model_change";
-  timestamp?: string;
+  type:
+    | "session"
+    | "message"
+    | "branch_summary"
+    | "compaction"
+    | "model_change"
+    | "custom"
+    | "custom_message"
+    | "session_info"
+    | "thinking_level_change";
   [k: string]: unknown;
 }
