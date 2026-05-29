@@ -899,12 +899,12 @@ Beyond these, `result_action` accepts an adapter-namespaced extension of the for
 
 | Source | `name` | `kind` | `via` |
 | --- | --- | --- | --- |
-| Claude Code `/clear` typed | `/clear` | builtin | user_typed |
-| Claude Code `/code-review` typed (user-defined) | `/code-review` | custom_prompt | user_typed |
-| Claude Code `Skill` tool with `args.skill="X"` | `X` | skill | agent_invoked |
-| Claude Code auto-loaded skill | `<skill-name>` | skill | auto_trigger |
-| Codex slash command | `/<cmd>` | slash | user_typed |
-| Pi extension command | `<name>` | plugin | agent_invoked or user_typed |
+| Claude Code `/clear` typed | `/clear` | `builtin` | `user_typed` |
+| Claude Code `/code-review` typed (user-defined) | `/code-review` | `custom_prompt` | `user_typed` |
+| Claude Code `Skill` tool with `args.skill="X"` | `X` | `skill` | `agent_invoked` |
+| Claude Code auto-loaded skill | `<skill-name>` | `skill` | `auto_trigger` |
+| Codex slash command | `/<cmd>` | `slash` | `user_typed` |
+| Pi extension command | `<name>` | `plugin` | `agent_invoked` / `user_typed` |
 
 Out of scope: skill *contents* (static config, not session history); MCP server tools (covered by `tool_call.tool=mcp_call`); permission gates (covered by `system_event.kind=permission_request/decision`).
 

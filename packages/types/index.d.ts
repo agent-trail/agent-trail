@@ -512,7 +512,14 @@ export interface CommandInvoke {
     /**
      * What the runtime did with the invocation. Either one of the reserved values, an adapter-namespaced extension of the form `x-<adapter>/<name>`, or null.
      */
-    result_action?: ("compact" | "clear" | "expand" | "load_skill" | "noop") | string | null;
+    result_action?:
+      | "compact"
+      | "clear"
+      | "expand"
+      | "load_skill"
+      | "noop"
+      | `x-${string}/${string}`
+      | null;
   };
   [k: string]: unknown;
 }

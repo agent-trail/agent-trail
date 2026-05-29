@@ -64,7 +64,49 @@ const flatUnion = [
   ...kindEnum.map((value) => `      | ${JSON.stringify(value)}`),
   "      | `x-${string}/${string}`",
 ].join("\n");
-const generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
+let generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
+
+// json-schema-to-typescript collapses the `command_invoke.payload.result_action`
+// oneOf pattern branch (`^x-...$`) into a bare `string`, widening the type so it
+// accepts any string. Read the reserved enum from the schema and rewrite the
+// generated line with the reserved literals, the template-literal extension type,
+// and null — mirroring the system_event.kind handling above.
+const resultActionEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        command_invoke?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                result_action?: { oneOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.command_invoke?.properties?.payload?.properties?.result_action?.oneOf?.find(
+  (branch) => Array.isArray(branch.enum),
+)?.enum;
+if (resultActionEnum === undefined || resultActionEnum.length === 0) {
+  throw new Error(
+    "generate-types: could not read reserved command_invoke.payload.result_action enum from schema.",
+  );
+}
+const RESULT_ACTION_RE = /( {4}result_action\?: )\((?:"[^"]+"(?: \| )?)+\) \| string \| null;/;
+if (!RESULT_ACTION_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the CommandInvoke.payload.result_action line to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const resultActionUnion = [
+  ...resultActionEnum.map((value) => `      | ${JSON.stringify(value)}`),
+  "      | `x-${string}/${string}`",
+  "      | null",
+].join("\n");
+generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);
 
 if (checkOnly) {
   const existing = await readFile(outputUrl, "utf8").catch(() => "");
