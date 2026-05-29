@@ -20,8 +20,8 @@ export interface SqliteDriver {
 
 export interface SqliteReaderOptions {
   // Named SQL queries, run in declared order. Each MUST carry an `ORDER BY`
-  // matching the source's temporal semantics — the reader assumes records
-  // arrive in canonical order (epic §14.5); reordering is the query's job.
+  // clause reflecting the source's natural temporal order. The reader does not
+  // sort or reorder — records are yielded exactly as the queries return them.
   queries: Record<string, string>;
   // Projects one result row (plus its originating query name) into a raw
   // record. The query name is the natural discriminator for downstream mapping.
@@ -59,7 +59,7 @@ export class SqliteReader implements SourceReader {
     try {
       const row = db.prepare("PRAGMA user_version").all()[0];
       const version = row?.user_version;
-      return version === undefined || version === null ? undefined : String(version);
+      return version === undefined ? undefined : String(version);
     } finally {
       db.close();
     }

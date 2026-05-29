@@ -29,8 +29,8 @@ const options = {
     attachments: "SELECT name FROM attachments ORDER BY rowid",
   },
   rowToRecord: (queryName: string, row: Record<string, unknown>): RawRecord => ({
-    type: queryName,
     ...row,
+    type: queryName,
   }),
 };
 
@@ -56,6 +56,21 @@ describe("SqliteReader", () => {
       { type: "messages", key: "composer:b", value: JSON.stringify({ text: "second" }) },
       { type: "attachments", name: "diagram.png" },
     ]);
+  });
+
+  test("records() throws on a write query — DB is opened readonly", async () => {
+    const reader = new SqliteReader({
+      ...options,
+      queries: { bad: "INSERT INTO messages (rowid, key, value) VALUES (99, 'x', 'y')" },
+    });
+    const it = reader.records({ path: dbPath })[Symbol.asyncIterator]();
+    await expect(it.next()).rejects.toThrow(/readonly/i);
+  });
+
+  test("records() rejects when the DB file does not exist", async () => {
+    const reader = new SqliteReader(options);
+    const it = reader.records({ path: join(dir, "missing.vscdb") })[Symbol.asyncIterator]();
+    await expect(it.next()).rejects.toThrow();
   });
 
   test("schemaVersion() returns PRAGMA user_version as a string", async () => {

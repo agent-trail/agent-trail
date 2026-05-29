@@ -9,6 +9,9 @@ export {
   mergeByTimestamp,
 } from "./readers/compose.ts";
 export { JsonlReader, type JsonlReaderOptions } from "./readers/jsonl-reader.ts";
+// SqliteReader is driver-agnostic. Under Bun, import the driver from the
+// `@agent-trail/adapter-kit/bun-sqlite` subpath (`bunSqliteDriver`); Node
+// consumers inject a `better-sqlite3` wrapper matching the `SqliteDriver` shape.
 export {
   type SqliteConnection,
   type SqliteDriver,
