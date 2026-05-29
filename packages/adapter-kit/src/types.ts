@@ -34,8 +34,13 @@ export interface TrailEntryDraft {
  * default `RawRecord` this collapses to an open `{ [k: string]?: unknown }`.
  */
 export type MatchPattern<T extends Record<string, unknown> = Record<string, unknown>> = {
-  [K in keyof T]?: T[K] extends Record<string, unknown> ? MatchPattern<T[K]> : T[K];
+  [K in keyof T]?: MatchPatternValue<T[K]>;
 };
+
+// Naked-parameter conditional so a union-typed property (e.g. `object | string`)
+// distributes — each arm gets its own pattern shape rather than collapsing to
+// the whole union. See PR #151 review.
+type MatchPatternValue<V> = V extends Record<string, unknown> ? MatchPattern<V> : V;
 
 export interface MappingDef<T extends RawRecord = RawRecord> {
   match: MatchPattern<T>;
