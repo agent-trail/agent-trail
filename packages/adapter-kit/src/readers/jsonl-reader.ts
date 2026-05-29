@@ -12,7 +12,9 @@ function parseLine(line: string): RawRecord | undefined {
   if (line.length === 0) return undefined;
   try {
     const value = JSON.parse(line);
-    return typeof value === "object" && value !== null ? (value as RawRecord) : undefined;
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as RawRecord)
+      : undefined;
   } catch {
     // Skip malformed lines defensively rather than aborting the whole source.
     return undefined;

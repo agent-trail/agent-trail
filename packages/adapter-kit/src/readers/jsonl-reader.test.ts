@@ -32,6 +32,12 @@ test("records: skips malformed lines defensively", async () => {
   expect(records).toEqual([{ a: 1 }, { c: 3 }]);
 });
 
+test("records: skips non-object JSON lines (arrays, scalars)", async () => {
+  const source = fixture("nonobject.jsonl", '{"a":1}\n[1,2,3]\n42\n"str"\n{"b":2}\n');
+  const records = await collect(new JsonlReader(), source);
+  expect(records).toEqual([{ a: 1 }, { b: 2 }]);
+});
+
 test("identityHash: sha256 hex of file bytes", async () => {
   const text = '{"a":1}\n';
   const source = fixture("hash.jsonl", text);
