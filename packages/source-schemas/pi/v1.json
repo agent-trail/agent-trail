@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/source/pi/v1.json",
+  "title": "PiV1Record",
+  "description": "Pi session JSONL record. First record is type:\"session\" carrying a numeric format version. Drift is caught at record-type granularity: an unknown top-level type fails validation and is quarantined. Other fields are lenient to tolerate additive upstream changes.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "enum": ["session", "message", "branch_summary", "compaction", "model_change"]
+    },
+    "timestamp": { "type": "string" }
+  }
+}

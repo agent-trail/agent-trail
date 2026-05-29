@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/source/codex/v0.128.json",
+  "title": "CodexV0_128Record",
+  "description": "Codex rollout JSONL record (codex-tui / Codex Desktop / codex_sdk_ts). Every line is {timestamp, type, payload}. Drift is caught at record-type granularity: unknown top-level type or unknown event_msg/response_item payload type fails validation and is quarantined. Payload fields are intentionally lenient to avoid false quarantine on additive field drift.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "timestamp": { "type": "string" },
+    "type": {
+      "enum": ["session_meta", "turn_context", "event_msg", "response_item", "compacted"]
+    },
+    "payload": {}
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "event_msg" } }, "required": ["type"] },
+      "then": {
+        "required": ["payload"],
+        "properties": { "payload": { "$ref": "#/$defs/eventMsgPayload" } }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "response_item" } }, "required": ["type"] },
+      "then": {
+        "required": ["payload"],
+        "properties": { "payload": { "$ref": "#/$defs/responseItemPayload" } }
+      }
+    }
+  ],
+  "$defs": {
+    "eventMsgPayload": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": [
+            "agent_message",
+            "agent_reasoning",
+            "agent_reasoning_raw_content",
+            "exec_command_end",
+            "mcp_tool_call_end",
+            "patch_apply_end",
+            "task_complete",
+            "task_started",
+            "thread_goal_updated",
+            "user_message",
+            "web_search_end"
+          ]
+        }
+      }
+    },
+    "responseItemPayload": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": [
+            "custom_tool_call",
+            "custom_tool_call_output",
+            "function_call",
+            "function_call_output",
+            "reasoning",
+            "web_search_call"
+          ]
+        }
+      }
+    }
+  }
+}

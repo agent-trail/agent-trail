@@ -13,14 +13,17 @@
   ],
   "catalog": {
     "ajv": "^8.20.0",
-    "canonicalize": "^3.0.0"
+    "canonicalize": "^3.0.0",
+    "semver": "^7.6.0"
   },
   "scripts": {
-    "check": "bun run check:schema && bun run check:types && bun run typecheck && bun run lint && bun run test && bun pm ls --all >/dev/null && bun run --workspaces --sequential check",
+    "check": "bun run check:schema && bun run check:types && bun run check:source-types && bun run typecheck && bun run lint && bun run test && bun pm ls --all >/dev/null && bun run --workspaces --sequential check",
     "check:schema": "bun run scripts/check-schema-sync.ts --check",
     "check:types": "bun run scripts/generate-types.ts --check",
+    "check:source-types": "bun run scripts/generate-source-types.ts --check",
     "format": "biome format --write",
     "generate:types": "bun run scripts/generate-types.ts",
+    "generate:source-types": "bun run scripts/generate-source-types.ts",
     "sync:schema": "bun run scripts/check-schema-sync.ts",
     "lint": "biome check",
     "lint:fix": "biome check --write",

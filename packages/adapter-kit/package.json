@@ -25,6 +25,15 @@
   "engines": {
     "node": ">=20"
   },
+  "dependencies": {
+    "@agent-trail/core": "workspace:*",
+    "@agent-trail/source-schemas": "workspace:*",
+    "ajv": "catalog:",
+    "semver": "catalog:"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.5.8"
+  },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",
     "test": "bun test"

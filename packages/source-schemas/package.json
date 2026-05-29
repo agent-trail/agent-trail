@@ -1,0 +1,54 @@
+{
+  "name": "@agent-trail/source-schemas",
+  "version": "0.0.0",
+  "description": "JSON Schemas describing upstream coding-agent source formats consumed by Agent Trail adapters.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "files": [
+    "codex/",
+    "pi/",
+    "claude-code/"
+  ],
+  "exports": {
+    "./codex/v0.128": {
+      "types": "./codex/v0.128.d.ts",
+      "default": "./codex/v0.128.json"
+    },
+    "./codex/meta": {
+      "default": "./codex/meta.json"
+    },
+    "./pi/v1": {
+      "types": "./pi/v1.d.ts",
+      "default": "./pi/v1.json"
+    },
+    "./pi/meta": {
+      "default": "./pi/meta.json"
+    },
+    "./claude-code/v1": {
+      "types": "./claude-code/v1.d.ts",
+      "default": "./claude-code/v1.json"
+    },
+    "./claude-code/meta": {
+      "default": "./claude-code/meta.json"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agent-trail/agent-trail.git",
+    "directory": "packages/source-schemas"
+  },
+  "bugs": {
+    "url": "https://github.com/agent-trail/agent-trail/issues"
+  },
+  "homepage": "https://github.com/agent-trail/agent-trail#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "bun test"
+  }
+}
