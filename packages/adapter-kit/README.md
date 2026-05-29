@@ -43,3 +43,43 @@ interface SourceReader {
 
 `SqliteReader` is not shipped in Phase 1; the interface and composition helpers are sized to accept
 it without breaking changes.
+
+## Source schema validation
+
+Validate raw upstream records against bundled JSON Schemas before mapping to trail format. Schemas
+ship in [`@agent-trail/source-schemas`](../source-schemas) and are loaded by the kit's static
+registry — no path-based loading required.
+
+| Export | Purpose |
+|---|---|
+| `selectSchemaVersion(agent, sourceVersion)` | Resolve a schema version key from an upstream version (semver string or number). Returns the registered `fallback` when nothing matches, `undefined` for unknown agent or missing version. |
+| `validateSourceRecord(agent, schemaVersion, record)` | Validate a `RawRecord` against the schema. Returns `Diagnostic[]` (`[]` on success). Unknown `agent/schemaVersion` returns a single `unknown-source-schema` diagnostic instead of throwing. |
+
+Typical adapter loop:
+
+```ts
+import {
+  JsonlReader,
+  selectSchemaVersion,
+  validateSourceRecord,
+} from "@agent-trail/adapter-kit";
+
+const schemaVersion = selectSchemaVersion("codex", session.cli_version);
+if (schemaVersion === undefined) {
+  // quarantine the whole session — no schema to validate against
+}
+
+const reader = new JsonlReader();
+for await (const record of reader.records(source)) {
+  const diags = validateSourceRecord("codex", schemaVersion, record);
+  if (diags.length > 0) {
+    // quarantine the record — see formatDiagnosticsText from @agent-trail/core
+    continue;
+  }
+  // convert record to trail format
+}
+```
+
+Diagnostic codes are semantic (`source-enum-mismatch`, `source-missing-required-field`,
+`source-type-mismatch`, `source-unexpected-field`, ...) so downstream tooling can route by class
+rather than parsing free-form messages.

@@ -1,9 +1,6 @@
 {
   "agent": "codex",
   "upstream": "openai/codex",
-  "commits": {
-    "v0.128": "0000000000000000000000000000000000000000"
-  },
   "version_ranges": [
     { "schemaVersion": "v0.128", "range": ">=0.128.0 <0.129.0" }
   ],

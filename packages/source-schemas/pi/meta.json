@@ -1,9 +1,6 @@
 {
   "agent": "pi",
   "upstream": "pi",
-  "commits": {
-    "v1": "0000000000000000000000000000000000000000"
-  },
   "version_ranges": [
     { "schemaVersion": "v1", "range": ">=3.0.0 <4.0.0" }
   ],

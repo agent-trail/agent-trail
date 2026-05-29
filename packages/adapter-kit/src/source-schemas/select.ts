@@ -27,7 +27,7 @@ export function selectSchemaVersion(
   if (meta === undefined) {
     return undefined;
   }
-  if (sourceVersion === undefined || sourceVersion === null) {
+  if (sourceVersion === undefined) {
     return undefined;
   }
   const raw = String(sourceVersion);

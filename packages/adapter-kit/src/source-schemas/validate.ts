@@ -35,12 +35,21 @@ export function validateSourceRecord(
   return (validate.errors ?? []).map(diagnosticFromSchemaError);
 }
 
+const SEMANTIC_CODES: Record<string, string> = {
+  enum: "source-enum-mismatch",
+  type: "source-type-mismatch",
+  required: "source-missing-required-field",
+  additionalProperties: "source-unexpected-field",
+  const: "source-const-mismatch",
+  pattern: "source-pattern-mismatch",
+};
+
 function diagnosticFromSchemaError(error: ErrorObject): Diagnostic {
   return createDiagnostic({
     line: 0,
     path: error.instancePath,
     severity: "error",
-    code: error.keyword,
+    code: SEMANTIC_CODES[error.keyword] ?? `source-${error.keyword}`,
     message: error.message ?? "Source schema validation failed",
   });
 }
