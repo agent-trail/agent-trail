@@ -36,4 +36,28 @@ describe("quarantine", () => {
     });
     expect(diagnostics).toEqual([]);
   });
+
+  test("omits original_type when record.type is not a string", () => {
+    const entry = quarantine({
+      agent: "pi",
+      namespace: "pi",
+      id: "00000000-0000-0000-0000-000000000003",
+      ts: "2026-05-28T11:00:00.000Z",
+      record: { type: 42, value: "x" },
+    });
+
+    expect(entry.source?.original_type).toBeUndefined();
+  });
+
+  test("throws when namespace is not lowercase kebab-case", () => {
+    expect(() =>
+      quarantine({
+        agent: "codex-cli",
+        namespace: "Codex",
+        id: "00000000-0000-0000-0000-000000000004",
+        ts: "2026-05-28T11:00:00.000Z",
+        record: { type: "mystery" },
+      }),
+    ).toThrow(/kebab-case/);
+  });
 });

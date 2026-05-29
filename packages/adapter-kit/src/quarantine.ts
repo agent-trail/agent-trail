@@ -19,8 +19,19 @@ export interface QuarantineInput {
  * `system_event`. Drift becomes a visible, countable trail entry
  * (`x-<namespace>/unknown_record`) carrying the raw payload under
  * `payload.data.raw`, instead of a silent drop or a mid-session crash.
+ *
+ * `payload.data` is exactly `{ raw: <source record> }` — nothing else. The
+ * writer-strict schema seals `data` with `additionalProperties: false`, so
+ * adding sibling fields here would fail validation. When `record.type` is not
+ * a string, `source.original_type` is intentionally omitted (left `undefined`)
+ * rather than coerced; these sources always carry a string `type` in practice.
  */
 export function quarantine(input: QuarantineInput): Entry {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.namespace)) {
+    throw new Error(
+      `quarantine: namespace must be lowercase kebab-case (got ${JSON.stringify(input.namespace)})`,
+    );
+  }
   const originalType =
     input.originalType ?? (typeof input.record.type === "string" ? input.record.type : undefined);
   return {

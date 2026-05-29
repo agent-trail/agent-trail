@@ -615,6 +615,15 @@ function buildEntries(
   // agent_message and the trailing token_count, and the count belongs to
   // the turn-initiating agent_message.
   let lastAgentMessageEntry: Entry | undefined;
+  // Last-seen valid record ts, seeded from the session_meta record. A
+  // validation-failing record with no usable ts of its own quarantines against
+  // this so drift is never silently dropped for want of a timestamp.
+  const sessionMeta = records[0];
+  let inheritedTs: string | undefined =
+    sessionMeta !== undefined
+      ? (timestampToIso((isObject(sessionMeta.payload) ? sessionMeta.payload : {}).timestamp) ??
+        timestampToIso(sessionMeta.timestamp))
+      : undefined;
   const resetTurn = (id: string) => {
     currentTurnId = id;
     turnReasoningSeen = new Set<string>();
@@ -622,11 +631,13 @@ function buildEntries(
   for (let i = 1; i < records.length; i += 1) {
     const raw = records[i];
     if (raw === undefined) continue;
+    const rawTs = timestampToIso(raw.timestamp);
+    if (rawTs !== undefined) inheritedTs = rawTs;
     if (
       schemaVersion !== undefined &&
       validateSourceRecord(SOURCE_AGENT, schemaVersion, raw).length > 0
     ) {
-      const ts = timestampToIso(raw.timestamp);
+      const ts = rawTs ?? inheritedTs;
       if (ts !== undefined) {
         entries.push(
           quarantine({

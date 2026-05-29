@@ -80,22 +80,32 @@ export function parsePiJsonl(text: string): TrailFile {
   const ctx = makePiEntryIdCtx(header.session_uid);
   const schemaVersion = selectSchemaVersion("pi", sessionVersion);
 
+  // Last-seen valid envelope ts, seeded from the session header. A
+  // validation-failing record with no usable ts of its own quarantines against
+  // this so drift is never silently dropped for want of a timestamp.
+  let inheritedTs: string | undefined = header.ts;
   let recordIndex = 0;
   for (const envelope of envelopes) {
     if (envelope.type === "session") continue;
     recordIndex += 1;
     const rawRecord = envelope as unknown as Record<string, unknown>;
+    const envelopeTs = timestampToIso(envelope.timestamp);
+    if (envelopeTs !== undefined) inheritedTs = envelopeTs;
     if (
       schemaVersion !== undefined &&
       validateSourceRecord("pi", schemaVersion, rawRecord).length > 0
     ) {
-      const ts = timestampToIso(envelope.timestamp);
+      const ts = envelopeTs ?? inheritedTs;
       if (ts !== undefined) {
         // Quarantine entries are additive diagnostic leaves: they chain off the
         // envelope's parent but are intentionally NOT registered in the
         // source-id maps, so they never become a chain/branch ancestor. This
         // keeps the topology of recognised entries identical to pre-quarantine
         // behaviour — drift surfaces as an extra entry, not a reshaped tree.
+        //
+        // `envelope.id` is the stable seed key; the `recordIndex` fallback only
+        // fires for id-less envelopes (re-parse stays idempotent for the common
+        // case where every envelope carries an id).
         const entry = quarantine({
           agent: "pi",
           namespace: "pi",

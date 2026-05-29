@@ -105,4 +105,108 @@ describe("source-schema drift quarantine", () => {
     expect(quarantined).toHaveLength(1);
     expect((quarantined[0]?.payload as { kind: string }).kind).toBe("x-claudecode/unknown_record");
   });
+
+  test("codex: a tsless unknown record still quarantines using the inherited ts", () => {
+    const text = `${[
+      {
+        timestamp: "2026-05-28T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019d8900-aaaa-7000-e000-0000000000ff", cli_version: "0.128.0" },
+      },
+      // No timestamp on the drifting record — must fall back, not vanish.
+      { type: "event_msg", payload: { type: "brand_new_subtype", foo: 1 } },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n")}\n`;
+
+    const { entries } = parseCodexJsonl(text);
+    const quarantined = unknownRecordEntries(entries);
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0]?.ts).toBe("2026-05-28T11:00:00.000Z");
+  });
+
+  test("codex: a fully valid session emits no quarantine entries", () => {
+    const text = `${[
+      {
+        timestamp: "2026-05-28T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019d8900-aaaa-7000-e000-0000000000ff", cli_version: "0.128.0" },
+      },
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: { type: "user_message", message: "hi" },
+      },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n")}\n`;
+
+    const { entries } = parseCodexJsonl(text);
+    expect(unknownRecordEntries(entries)).toHaveLength(0);
+  });
+
+  test("codex: an undefined schema version skips validation, so nothing quarantines", () => {
+    const text = `${[
+      // No cli_version → selectSchemaVersion returns undefined → validation is
+      // skipped entirely, so the unknown subtype is not quarantined.
+      {
+        timestamp: "2026-05-28T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019d8900-aaaa-7000-e000-0000000000ff" },
+      },
+      {
+        timestamp: "2026-05-28T11:00:02.000Z",
+        type: "event_msg",
+        payload: { type: "brand_new_subtype", foo: 1 },
+      },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n")}\n`;
+
+    const { entries } = parseCodexJsonl(text);
+    expect(unknownRecordEntries(entries)).toHaveLength(0);
+  });
+
+  test("codex and pi quarantine namespaces stay distinct", () => {
+    const codexText = `${[
+      {
+        timestamp: "2026-05-28T11:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "019d8900-aaaa-7000-e000-0000000000ff", cli_version: "0.128.0" },
+      },
+      {
+        timestamp: "2026-05-28T11:00:02.000Z",
+        type: "event_msg",
+        payload: { type: "brand_new_subtype", foo: 1 },
+      },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n")}\n`;
+    const piText = `${[
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-0000000000a1",
+        timestamp: "2026-05-21T14:00:00.000Z",
+      },
+      {
+        type: "unknown_future_envelope",
+        id: "00000000-0000-0000-0000-0000000000a3",
+        parentId: null,
+        timestamp: "2026-05-21T14:00:02.000Z",
+      },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n")}\n`;
+
+    const codexKind = (
+      unknownRecordEntries(parseCodexJsonl(codexText).entries)[0]?.payload as { kind: string }
+    ).kind;
+    const piKind = (
+      unknownRecordEntries(parsePiJsonl(piText).entries)[0]?.payload as { kind: string }
+    ).kind;
+    expect(codexKind).toBe("x-codex/unknown_record");
+    expect(piKind).toBe("x-pi/unknown_record");
+    expect(codexKind).not.toBe(piKind);
+  });
 });
