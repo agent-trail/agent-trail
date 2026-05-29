@@ -10,10 +10,9 @@ export function commandFrom(args: Record<string, unknown>): string | undefined {
   if (command !== undefined) return command;
   const cmd = stringValue(args.cmd);
   if (cmd !== undefined) return cmd;
-  const argv = args.command;
-  if (Array.isArray(argv)) {
-    const parts = argv.filter((p): p is string => typeof p === "string");
-    if (parts.length === 0 || parts.length !== argv.length) return undefined;
+  if (Array.isArray(args.command)) {
+    const parts = args.command.filter((p): p is string => typeof p === "string");
+    if (parts.length === 0 || parts.length !== args.command.length) return undefined;
     return parts.map(quoteShellArg).join(" ");
   }
   return undefined;

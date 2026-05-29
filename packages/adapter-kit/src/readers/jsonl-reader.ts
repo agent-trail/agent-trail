@@ -21,6 +21,16 @@ function parseLine(line: string): RawRecord | undefined {
 
 // Reads newline-delimited JSON sources. Yields one parsed object per line,
 // skipping blank and malformed lines.
+//
+// Note on malformed lines: this reader is tolerant (skips), whereas the codex
+// and claude-code adapters' own parseLines throw on malformed JSON. The reader
+// is not yet consumed by any adapter — the mapping pipeline that adopts it
+// lands in a later phase (#146), at which point the tolerant-vs-strict choice
+// is settled per adapter. Until then this divergence is inert.
+//
+// records() and identityHash() each read the source independently (two reads if
+// both are called). Intentional for a stateless reader; revisit with a cache
+// only if a real consumer profiles it as hot.
 export class JsonlReader implements SourceReader {
   constructor(private readonly options: JsonlReaderOptions = {}) {}
 

@@ -82,3 +82,38 @@ test("mergeByTimestamp: custom timestampFrom accessor", async () => {
   );
   expect((await collect(reader)).map((r) => r.id)).toEqual(["early", "late"]);
 });
+
+test("mergeByTimestamp: records without a timestamp sort before timestamped ones, reader order kept", async () => {
+  const reader = mergeByTimestamp([
+    new FakeReader([{ id: "tsd", timestamp: 5 }], "h1"),
+    new FakeReader([{ id: "none-a" }, { id: "none-b" }], "h2"),
+  ]);
+  expect((await collect(reader)).map((r) => r.id)).toEqual(["none-a", "none-b", "tsd"]);
+});
+
+test("mergeByTimestamp: default accessor parses numeric-string timestamps", async () => {
+  const reader = mergeByTimestamp([
+    new FakeReader([{ id: "b", timestamp: "20" }], "h1"),
+    new FakeReader([{ id: "a", timestamp: "3" }], "h2"),
+  ]);
+  expect((await collect(reader)).map((r) => r.id)).toEqual(["a", "b"]);
+});
+
+test("mergeByTimestamp: non-numeric timestamp treated as absent", async () => {
+  const reader = mergeByTimestamp([
+    new FakeReader([{ id: "tsd", timestamp: 1 }], "h1"),
+    new FakeReader([{ id: "bad", timestamp: "not-a-number" }], "h2"),
+  ]);
+  expect((await collect(reader)).map((r) => r.id)).toEqual(["bad", "tsd"]);
+});
+
+test("chainReaders: empty reader list yields nothing and undefined version", async () => {
+  const reader = chainReaders([]);
+  expect(await collect(reader)).toEqual([]);
+  expect(await reader.schemaVersion(SRC)).toBeUndefined();
+});
+
+test("mergeByTimestamp: empty reader list yields nothing", async () => {
+  const reader = mergeByTimestamp([]);
+  expect(await collect(reader)).toEqual([]);
+});
