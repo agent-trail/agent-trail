@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import type { RawRecord, SourcePointer, SourceReader } from "./types.ts";
 
 // Minimal SQLite driver surface the reader needs. Kept tiny and driver-agnostic
@@ -66,7 +66,10 @@ export class SqliteReader implements SourceReader {
   }
 
   async identityHash(source: SourcePointer): Promise<string> {
-    const bytes = await readFile(source.path);
-    return createHash("sha256").update(bytes).digest("hex");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(source.path)) {
+      hash.update(chunk);
+    }
+    return hash.digest("hex");
   }
 }
