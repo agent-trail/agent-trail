@@ -11,6 +11,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./bun-sqlite": {
+      "types": "./src/readers/bun-sqlite-driver.ts",
+      "default": "./src/readers/bun-sqlite-driver.ts"
+    },
     "./package.json": "./package.json"
   },
   "repository": {

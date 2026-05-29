@@ -9,6 +9,13 @@ export {
   mergeByTimestamp,
 } from "./readers/compose.ts";
 export { JsonlReader, type JsonlReaderOptions } from "./readers/jsonl-reader.ts";
+export {
+  type SqliteConnection,
+  type SqliteDriver,
+  type SqlitePreparedStatement,
+  SqliteReader,
+  type SqliteReaderOptions,
+} from "./readers/sqlite-reader.ts";
 export type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 export { selectSchemaVersion } from "./source-schemas/select.ts";
 export { validateSourceRecord } from "./source-schemas/validate.ts";
