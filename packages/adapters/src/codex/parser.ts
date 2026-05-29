@@ -596,6 +596,7 @@ function buildEntries(
   records: Record<string, unknown>[],
   sessionUid: string,
   schemaVersion: string | undefined,
+  headerTs: string,
 ): Entry[] {
   const entries: Entry[] = [];
   const callIdToEntryId = new Map<string, string>();
@@ -615,15 +616,11 @@ function buildEntries(
   // agent_message and the trailing token_count, and the count belongs to
   // the turn-initiating agent_message.
   let lastAgentMessageEntry: Entry | undefined;
-  // Last-seen valid record ts, seeded from the session_meta record. A
-  // validation-failing record with no usable ts of its own quarantines against
-  // this so drift is never silently dropped for want of a timestamp.
-  const sessionMeta = records[0];
-  let inheritedTs: string | undefined =
-    sessionMeta !== undefined
-      ? (timestampToIso((isObject(sessionMeta.payload) ? sessionMeta.payload : {}).timestamp) ??
-        timestampToIso(sessionMeta.timestamp))
-      : undefined;
+  // Last-seen valid record ts, seeded from the session header so it is always
+  // defined. A validation-failing record with no usable ts of its own
+  // quarantines against this so drift is never silently dropped for want of a
+  // timestamp.
+  let inheritedTs: string = headerTs;
   const resetTurn = (id: string) => {
     currentTurnId = id;
     turnReasoningSeen = new Set<string>();
@@ -637,18 +634,15 @@ function buildEntries(
       schemaVersion !== undefined &&
       validateSourceRecord(SOURCE_AGENT, schemaVersion, raw).length > 0
     ) {
-      const ts = rawTs ?? inheritedTs;
-      if (ts !== undefined) {
-        entries.push(
-          quarantine({
-            agent: AGENT_NAME,
-            namespace: SOURCE_AGENT,
-            id: entryId(sessionUid, i, "unknown_record"),
-            ts,
-            record: raw,
-          }),
-        );
-      }
+      entries.push(
+        quarantine({
+          agent: AGENT_NAME,
+          namespace: SOURCE_AGENT,
+          id: entryId(sessionUid, i, "unknown_record"),
+          ts: inheritedTs,
+          record: raw,
+        }),
+      );
       continue;
     }
     const c = classify(raw);
@@ -1007,6 +1001,6 @@ export function parseCodexJsonl(text: string): TrailFile {
   // `payload.id`); narrow the optional schema field for the parser side.
   const sessionUid = header.session_uid ?? header.id;
   const schemaVersion = selectSchemaVersion(SOURCE_AGENT, header.source?.format_version);
-  const entries = buildEntries(records, sessionUid, schemaVersion);
+  const entries = buildEntries(records, sessionUid, schemaVersion, header.ts);
   return { header, entries };
 }

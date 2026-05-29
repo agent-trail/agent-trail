@@ -42,6 +42,8 @@ describe("source-schema drift quarantine", () => {
     expect((quarantined[0]?.payload as { data: { raw: { type: string } } }).data.raw.type).toBe(
       "event_msg",
     );
+    expect(quarantined[0]?.source?.synthesized).toBe(true);
+    expect(quarantined[0]?.source?.original_type).toBe("event_msg");
     // Known user_message still emitted.
     expect(entries.some((e) => e.type === "user_message")).toBe(true);
   });
