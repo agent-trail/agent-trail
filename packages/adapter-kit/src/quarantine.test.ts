@@ -58,6 +58,6 @@ describe("quarantine", () => {
         ts: "2026-05-28T11:00:00.000Z",
         record: { type: "mystery" },
       }),
-    ).toThrow(/kebab-case/);
+    ).toThrow(/namespace must match/);
   });
 });
