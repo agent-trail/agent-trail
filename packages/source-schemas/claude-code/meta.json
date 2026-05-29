@@ -1,0 +1,8 @@
+{
+  "agent": "claude-code",
+  "upstream": "anthropics/claude-code",
+  "version_ranges": [
+    { "schemaVersion": "v1", "range": ">=1.0.0 <2.0.0" }
+  ],
+  "fallback": "v1"
+}

@@ -1,0 +1,8 @@
+{
+  "agent": "codex",
+  "upstream": "openai/codex",
+  "version_ranges": [
+    { "schemaVersion": "v0.128", "range": ">=0.128.0 <0.129.0" }
+  ],
+  "fallback": "v0.128"
+}

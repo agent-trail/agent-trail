@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/source/claude-code/v1.json",
+  "title": "ClaudeCodeV1Record",
+  "description": "Claude Code session JSONL envelope. Reverse-engineered from a synthetic corpus. Every record carries a top-level type and a version string. Drift is caught at record-type granularity: an unknown top-level type fails validation and is quarantined. Other fields are lenient to tolerate additive upstream changes.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "enum": [
+        "user",
+        "assistant",
+        "system",
+        "summary",
+        "attachment",
+        "progress",
+        "queue-operation"
+      ]
+    },
+    "timestamp": { "type": "string" },
+    "version": { "type": "string" }
+  }
+}
