@@ -224,6 +224,33 @@ test("valid/command-invoke-result-action-ext.trail.jsonl validates clean (x- res
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/command-invoke-slash.trail.jsonl validates clean (slash kind, reserved result_action)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-slash.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/command-invoke-plugin.trail.jsonl validates clean (plugin kind, agent_invoked, null result_action)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/command-invoke-plugin.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/command-invoke-missing-kind.trail.jsonl reports required /payload/kind", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/command-invoke-missing-kind.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/kind",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'kind'",
+  });
+});
+
 test("invalid-schema/command-invoke-bad-result-action.trail.jsonl reports result_action mismatch", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/command-invoke-bad-result-action.trail.jsonl"),

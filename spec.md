@@ -852,7 +852,7 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 
 #### `command_invoke`
 
-A named capability invoked with optional arguments: a user-typed slash command, a built-in CLI affordance, a skill activation, a user-defined prompt template, or a plugin command. These three surfaces share the "named capability invoked" semantic but are distinct axes — `kind` records *what* was invoked, `via` records *how* it reached the agent. Without this event they leak as `user_message.text="/foo"`, `tool_call.tool=other` with `args.name="Skill"`, or get dropped.
+A named capability invoked with optional arguments: a user-typed slash command, a built-in CLI affordance, a skill activation, a user-defined prompt template, or a plugin command. These surfaces share the "named capability invoked" semantic but vary along two orthogonal axes — `kind` records *what* was invoked, `via` records *how* it reached the agent. Without this event they leak as `user_message.text="/foo"`, `tool_call.tool=other` with `args.name="Skill"`, or get dropped.
 
 ```jsonc
 {
