@@ -12,6 +12,11 @@
 // Idempotence: entry ids derive deterministically from
 // (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
 // same JSONL produces stable ids and the reconciler can group segments.
+import {
+  type AgentMessageUsage,
+  mapAgentMessageUsage,
+  quoteShellArg,
+} from "@agent-trail/adapter-kit";
 import type { Entry, Header } from "@agent-trail/types";
 import type { TrailFile } from "../index.ts";
 import {
@@ -20,7 +25,6 @@ import {
   deriveSessionUid,
   deriveSynthesizedEntryId,
 } from "../session-uid.ts";
-import { type AgentMessageUsage, mapAgentMessageUsage } from "../usage.ts";
 import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
 const AGENT_NAME = "codex-cli";
@@ -121,13 +125,6 @@ type ToolMapping = {
 // `other` to stay schema-valid without claiming canonical kinds we don't yet
 // parse end-to-end. `apply_patch` and other custom-channel tools arrive via
 // `response_item.custom_tool_call` and are dispatched by `buildCustomToolCallEntry`.
-// POSIX-safe shell quoting. Identical to Pi's helper
-// (`packages/adapters/src/pi/tools.ts:7`) — kept inline to avoid pulling Pi
-// internals into the codex adapter.
-function quoteShellArg(value: string): string {
-  return /^[A-Za-z0-9_\-./@:+=]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 function shellCommandFromArgs(args: Record<string, unknown>): string | undefined {
   const cmd = args.cmd;
   if (typeof cmd === "string") return cmd;

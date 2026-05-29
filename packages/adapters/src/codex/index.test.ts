@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AgentMessageUsage } from "@agent-trail/adapter-kit";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
-import type { AgentMessageUsage } from "../usage.ts";
 import { parseCodexJsonl } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
