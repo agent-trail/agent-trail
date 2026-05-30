@@ -50,6 +50,24 @@ describe("compareEntries", () => {
     expect(report.blocking).toBe(false);
   });
 
+  test("differing source.raw.envelope_ref only → preserved (id rehash tolerance)", () => {
+    const oldEntries = [
+      agentMessage("old-1", "hi", {
+        source: { agent: "pi", raw: { envelope_ref: "old-first", block_index: 1 } },
+      } as Partial<Entry>),
+    ];
+    const newEntries = [
+      agentMessage("new-1", "hi", {
+        source: { agent: "pi", raw: { envelope_ref: "new-first", block_index: 1 } },
+      } as Partial<Entry>),
+    ];
+
+    const report = compareEntries(oldEntries, newEntries);
+
+    expect(report.preserved).toHaveLength(1);
+    expect(report.regressions).toHaveLength(0);
+  });
+
   test("differing id/parent_id/for_id/call_id only → preserved (id rehash tolerance)", () => {
     const oldEntries = [
       agentMessage("old-1", "hi", {

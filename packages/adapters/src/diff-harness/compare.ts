@@ -67,6 +67,16 @@ function stripVolatile(entry: Record<string, unknown>): Record<string, unknown> 
     clone.semantic = nextSemantic;
   }
 
+  // `source.raw.envelope_ref` references an earlier entry's inlined envelope by
+  // id (spec SourceMetadata) — same id-rehash family as for_id/parent_id, so it
+  // must not count as a difference between adapters.
+  const source = clone.source;
+  if (isPlainObject(source) && isPlainObject(source.raw) && "envelope_ref" in source.raw) {
+    const nextRaw = { ...source.raw };
+    delete nextRaw.envelope_ref;
+    clone.source = { ...source, raw: nextRaw };
+  }
+
   return clone;
 }
 
