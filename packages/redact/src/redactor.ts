@@ -88,9 +88,11 @@ function* visitAttachments(payload: Record<string, unknown>, index: number): Gen
   const attachments = payload.attachments;
   if (!Array.isArray(attachments)) return;
   for (let i = 0; i < attachments.length; i += 1) {
-    const a = attachments[i] as Record<string, unknown> | undefined;
-    if (a && typeof a.uri === "string") {
-      yield keyVisit(a, "uri", `records[${index}].payload.attachments[${i}].uri`);
+    const a = attachments[i];
+    if (a === null || typeof a !== "object") continue;
+    const obj = a as Record<string, unknown>;
+    if (typeof obj.uri === "string") {
+      yield keyVisit(obj, "uri", `records[${index}].payload.attachments[${i}].uri`);
     }
   }
 }
