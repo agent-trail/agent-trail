@@ -1,5 +1,4 @@
 import type { OverrideDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
-import type { Entry } from "@agent-trail/types";
 import { AGENT_NAME, reasoningDedupKey } from "../parser.ts";
 import { isObject, stringValue, timestampToIso } from "../source.ts";
 
