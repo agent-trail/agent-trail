@@ -30,12 +30,12 @@ import {
 } from "../session-uid.ts";
 import { isObject, numericValue, parseLines, stringValue, timestampToIso } from "./source.ts";
 
-const AGENT_NAME = "codex-cli";
+export const AGENT_NAME = "codex-cli";
 // Source-schema package key + vendor kind namespace (short form; the trail
 // AgentName is "codex-cli").
-const SOURCE_AGENT = "codex";
+export const SOURCE_AGENT = "codex";
 
-function buildHeader(first: Record<string, unknown>): Header {
+export function buildHeader(first: Record<string, unknown>): Header {
   if (first.type !== "session_meta") {
     throw new Error(
       `Codex session must start with type:"session_meta"; got ${JSON.stringify(first.type)}`,
@@ -71,14 +71,14 @@ function entryId(sessionUid: string, index: number, kind: string): string {
   return deriveSynthesizedEntryId(CODEX_ENTRY_ID_NAMESPACE, [sessionUid, String(index), kind]);
 }
 
-type Classified = {
+export type Classified = {
   topType: string;
   payloadType: string | undefined;
   payload: Record<string, unknown>;
   ts: string | undefined;
 };
 
-function classify(record: Record<string, unknown>): Classified | undefined {
+export function classify(record: Record<string, unknown>): Classified | undefined {
   const topType = stringValue(record.type);
   if (topType === undefined) return undefined;
   const payload = isObject(record.payload) ? record.payload : {};
@@ -120,7 +120,7 @@ function buildUserOrAgentMessageEntry(rec: Classified, ts: string, id: string): 
   return undefined;
 }
 
-type ToolMapping = {
+export type ToolMapping = {
   tool: "shell_command" | "file_read" | "file_edit" | "other";
   args: Record<string, unknown>;
 };
@@ -131,7 +131,7 @@ type ToolMapping = {
 // `other` to stay schema-valid without claiming canonical kinds we don't yet
 // parse end-to-end. `apply_patch` and other custom-channel tools arrive via
 // `response_item.custom_tool_call` and are dispatched by `buildCustomToolCallEntry`.
-function shellCommandFromArgs(args: Record<string, unknown>): string | undefined {
+export function shellCommandFromArgs(args: Record<string, unknown>): string | undefined {
   const cmd = args.cmd;
   if (typeof cmd === "string") return cmd;
   const command = args.command;
@@ -147,7 +147,7 @@ function shellCommandFromArgs(args: Record<string, unknown>): string | undefined
   return undefined;
 }
 
-function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
+export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
   const args = isObject(rawArgs) ? rawArgs : {};
   // `exec_command` is the canonical interactive-shell tool in real Codex
   // rollouts (codex-tui 0.128+, Codex Desktop 0.133+). Args carry `cmd`
@@ -181,7 +181,7 @@ function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
 // Three verbs cover create / modify / delete: Update, Add, Delete.
 const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 
-function patchSingleFilePath(input: string): string | undefined {
+export function patchSingleFilePath(input: string): string | undefined {
   const paths = new Set<string>();
   for (const m of input.matchAll(PATCH_FILE_MARKER)) {
     // `m[2]` is the second capture group of PATCH_FILE_MARKER and is
@@ -199,17 +199,17 @@ function patchSingleFilePath(input: string): string | undefined {
 
 // Strip `tools.` prefix per issue body's `canonical_tool_name` rule (defensive
 // only — no real session observed with the prefix, but the spec mandates it).
-function canonicalCustomToolName(name: string | undefined): string {
+export function canonicalCustomToolName(name: string | undefined): string {
   if (name === undefined) return "unknown";
   return name.startsWith("tools.") ? name.slice("tools.".length) : name;
 }
 
-type ParsedArgs = {
+export type ParsedArgs = {
   args: Record<string, unknown>;
   rawUnparseable?: string;
 };
 
-function parseFunctionArguments(raw: unknown): ParsedArgs {
+export function parseFunctionArguments(raw: unknown): ParsedArgs {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
@@ -373,7 +373,7 @@ function buildToolResultEntry(
 
 // Dedup key only — destroys structure. The entry body keeps the original
 // `text` verbatim so consumers see Codex's actual reasoning formatting.
-function reasoningDedupKey(text: string): string {
+export function reasoningDedupKey(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
@@ -458,7 +458,7 @@ function trimSpinnerStart(text: string): string {
   }
   return text.slice(start);
 }
-function stripSpinner(text: string): string {
+export function stripSpinner(text: string): string {
   return trimSpinnerEnd(trimSpinnerStart(text));
 }
 
@@ -466,7 +466,7 @@ function stripSpinner(text: string): string {
 // stamping them onto a system_event. Caps at ~2KB so trails stay scannable;
 // full payload remains preserved upstream via source.raw policy.
 const EXCERPT_CAP_BYTES = 2048;
-function excerpt(text: string | undefined): string | undefined {
+export function excerpt(text: string | undefined): string | undefined {
   if (text === undefined) return undefined;
   if (text.length <= EXCERPT_CAP_BYTES) return text;
   return `${text.slice(0, EXCERPT_CAP_BYTES)}…`;
@@ -474,7 +474,7 @@ function excerpt(text: string | undefined): string | undefined {
 
 // Codex emits `duration` as either `{secs, nanos}` (Rust serde default) or a
 // plain number of milliseconds. Normalise to integer ms.
-function durationToMs(value: unknown): number | undefined {
+export function durationToMs(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
   if (!isObject(value)) return undefined;
   const secs = numericValue(value.secs) ?? 0;
@@ -483,7 +483,7 @@ function durationToMs(value: unknown): number | undefined {
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-function buildExecCommandEndData(payload: Record<string, unknown>): Record<string, unknown> {
+export function buildExecCommandEndData(payload: Record<string, unknown>): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   const turnId = stringValue(payload.turn_id);
   if (turnId !== undefined) data.turn_id = turnId;
@@ -571,7 +571,9 @@ function buildModelChangeEntry(
 //
 // Returns `undefined` when `payload.info` is null/missing or every translated
 // field would be empty — never fabricates zeros (`usage.ts` decision #4).
-function codexUsageFromTokenCount(payload: Record<string, unknown>): AgentMessageUsage | undefined {
+export function codexUsageFromTokenCount(
+  payload: Record<string, unknown>,
+): AgentMessageUsage | undefined {
   const info = payload.info;
   if (!isObject(info)) return undefined;
   const last = isObject(info.last_token_usage) ? info.last_token_usage : {};

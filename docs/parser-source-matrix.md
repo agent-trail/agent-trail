@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -59,6 +59,20 @@ above with zero blocking regressions. Id-bearing fields that legitimately rehash
 schema-invalid record with an **unparseable** timestamp quarantines with an empty `ts` under v2 (the
 kit reconciler has no last-valid-ts to inherit), vs v1's inherited timestamp — fixtures keep invalid
 records on valid timestamps.
+
+**Codex adapter-kit migration (#146 Phase 4).** A second Codex implementation lives at
+`packages/adapters/src/codex/v2/`. Codex is linear (kit `parentChain`; no `parent_id` in v1) with
+explicit `call_id`s (kit `toolLinking`) and no per-entry `source.schema_version`, so its mappings are
+a static array (18 pure mappings). Its three stateful behaviors are split per the kit's grain:
+**pass-1 overrides** for synthesized `model_change` (turn_context model transitions) and per-turn
+reasoning dedup (shared state, reset on `turn_id`); a **custom reconciler rule** for the
+`token_count` → preceding-`agent_message` usage rollup (a back-reference an override can't express).
+Override-ratio ≈ 0.18 — Codex is the legitimately stateful adapter. The emitted `source.agent` is
+`codex-cli` while the source schema registers under `codex`; the kit gained an optional
+`AdapterDef.schemaAgent` to separate the schema-registry key from the emitted `AgentName`. v1 stays
+production; v2 is gated by the diff harness over every Codex fixture above with zero blocking
+regressions.
+
 `edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
 (b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with a
