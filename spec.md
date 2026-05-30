@@ -603,6 +603,9 @@ A text response from the agent.
 | `model` | no | string | model that produced this message |
 | `stop_reason` | no | string | source-specific stop reason |
 | `usage` | no | object | per-message token usage; see below |
+| `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
+
+`attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, `uri`, `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
 
@@ -684,7 +687,10 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 | `truncated` | no | boolean | true if `output` was truncated |
 | `overflow_ref` | no | string | reference to full output |
 | `error` | no | string | error message if `ok` is false |
+| `attachments` | no | array | non-MCP image / multi-part tool output by reference (e.g. a screenshot or plot tool returning an image that `output` flattens); same object shape as `user_message.payload.attachments` |
 | `meta` | no | object | structured per-toolkind outputs; see below |
+
+`attachments[]` on `tool_result` carries image or binary results from tools whose output `output` (a display string) cannot represent — typically `tool: "other"` kinds such as a screenshot or plotting tool. MCP tools instead preserve their native block structure in `meta.mcp_call.content_blocks` (below); `attachments[]` is the generic escape hatch for everything else.
 
 ##### `tool_result.payload.meta` — structured outputs
 

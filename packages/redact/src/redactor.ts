@@ -80,6 +80,21 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "tool_result",
 ]);
 
+// Attachment references (image/file uris) appear on user_message, agent_message,
+// and tool_result payloads (spec §9.2). They carry potentially sensitive uris
+// (local file: paths leaking home/username, https: with tokens), so scrub them
+// the same way wherever they appear.
+function* visitAttachments(payload: Record<string, unknown>, index: number): Generator<Visit> {
+  const attachments = payload.attachments;
+  if (!Array.isArray(attachments)) return;
+  for (let i = 0; i < attachments.length; i += 1) {
+    const a = attachments[i] as Record<string, unknown> | undefined;
+    if (a && typeof a.uri === "string") {
+      yield keyVisit(a, "uri", `records[${index}].payload.attachments[${i}].uri`);
+    }
+  }
+}
+
 function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Generator<Visit> {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -136,16 +151,8 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       yield keyVisit(payload, "summary", `records[${index}].payload.summary`);
     }
 
-    if (payload && type === "user_message") {
-      const attachments = payload.attachments;
-      if (Array.isArray(attachments)) {
-        for (let i = 0; i < attachments.length; i += 1) {
-          const a = attachments[i] as Record<string, unknown> | undefined;
-          if (a && typeof a.uri === "string") {
-            yield keyVisit(a, "uri", `records[${index}].payload.attachments[${i}].uri`);
-          }
-        }
-      }
+    if (payload && (type === "user_message" || type === "agent_message")) {
+      yield* visitAttachments(payload, index);
     }
 
     if (payload && type === "system_event") {
@@ -175,6 +182,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (typeof payload.error === "string") {
         yield keyVisit(payload, "error", `records[${index}].payload.error`);
       }
+      yield* visitAttachments(payload, index);
       const resultMeta = payload.meta;
       if (resultMeta !== null && typeof resultMeta === "object") {
         yield* walkContainer(

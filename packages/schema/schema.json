@@ -219,6 +219,22 @@
       "additionalProperties": false
     },
 
+    "attachment": {
+      "type": "object",
+      "description": "An image or file carried by a message or tool result, by reference. v0.1.0 uri schemes are references only (https:, local file:, content-addressed sha256:); inline data: payloads are deferred.",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["image", "file", "other"] },
+        "media_type": { "type": "string" },
+        "uri": {
+          "type": "string",
+          "pattern": "^(https:|file:|sha256:)"
+        },
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
     "trailEnvelope": {
       "type": "object",
       "description": "Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.",
@@ -449,20 +465,7 @@
               "text": { "type": "string" },
               "attachments": {
                 "type": "array",
-                "items": {
-                  "type": "object",
-                  "required": ["kind"],
-                  "properties": {
-                    "kind": { "type": "string", "enum": ["image", "file", "other"] },
-                    "media_type": { "type": "string" },
-                    "uri": {
-                      "type": "string",
-                      "pattern": "^(https:|file:|sha256:)"
-                    },
-                    "name": { "type": "string" }
-                  },
-                  "additionalProperties": false
-                }
+                "items": { "$ref": "#/$defs/attachment" }
               }
             },
             "additionalProperties": false
@@ -481,7 +484,11 @@
               "text": { "type": "string" },
               "model": { "type": "string" },
               "stop_reason": { "type": "string" },
-              "usage": { "$ref": "#/$defs/agentMessageUsage" }
+              "usage": { "$ref": "#/$defs/agentMessageUsage" },
+              "attachments": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/attachment" }
+              }
             },
             "additionalProperties": false
           }
@@ -745,6 +752,10 @@
               },
               "error": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]
+              },
+              "attachments": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/attachment" }
               },
               "meta": {
                 "type": "object",
