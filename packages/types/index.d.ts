@@ -257,14 +257,18 @@ export interface UserMessage {
   type?: "user_message";
   payload?: {
     text: string;
-    attachments?: {
-      kind: "image" | "file" | "other";
-      media_type?: string;
-      uri?: string;
-      name?: string;
-    }[];
+    attachments?: Attachment[];
   };
   [k: string]: unknown;
+}
+/**
+ * An image or file carried by a message or tool result, by reference. v0.1.0 uri schemes are references only (https:, local file:, content-addressed sha256:); inline data: payloads are deferred.
+ */
+export interface Attachment {
+  kind: "image" | "file" | "other";
+  media_type?: string;
+  uri?: string;
+  name?: string;
 }
 export interface AgentMessage {
   type?: "agent_message";
@@ -273,6 +277,7 @@ export interface AgentMessage {
     model?: string;
     stop_reason?: string;
     usage?: AgentMessageUsage;
+    attachments?: Attachment[];
   };
   [k: string]: unknown;
 }
@@ -307,6 +312,7 @@ export interface ToolResult {
     truncated?: boolean;
     overflow_ref?: string | null;
     error?: string | null;
+    attachments?: Attachment[];
     /**
      * Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/ pattern keys.
      */

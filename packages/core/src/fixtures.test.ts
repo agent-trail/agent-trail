@@ -46,6 +46,33 @@ test("valid/agent-message-usage.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/agent-message-attachments.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/agent-message-attachments.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/agent-message-attachments-multiple.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/agent-message-attachments-multiple.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl reports pattern at /payload/attachments/0/uri", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/attachments/0/uri",
+    severity: "error",
+    code: "pattern",
+    message: 'must match pattern "^(https:|file:|sha256:)"',
+  });
+});
+
 test("invalid-schema/agent-message-usage-extra-field.trail.jsonl reports additionalProperties at /payload/usage/cost_usd", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/agent-message-usage-extra-field.trail.jsonl"),
@@ -187,6 +214,33 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
     await loadFixture("valid/tool-call-matched-by-for-id.trail.jsonl"),
   );
   expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-attachments.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-attachments.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-attachments-with-mcp-meta.trail.jsonl validates clean (attachments + meta.mcp_call coexist)", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-attachments-with-mcp-meta.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-result-attachment-extra-field.trail.jsonl reports additionalProperties at /payload/attachments/0/width", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-attachment-extra-field.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/attachments/0/width",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
 });
 
 test("valid/tool-result-meta-mcp-call.trail.jsonl validates clean", async () => {

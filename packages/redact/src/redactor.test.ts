@@ -691,6 +691,49 @@ test("redactTrail redacts secrets on context_compact/branch_point/branch_summary
   expect(summary.counts.openai_api_key).toBe(4);
 });
 
+test("redactTrail redacts secrets in agent_message.attachments and tool_result.attachments", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "here is the chart",
+        attachments: [{ kind: "image", uri: `file:///Users/alice/${key}.png`, name: "chart.png" }],
+      },
+    }),
+    record(3, {
+      type: "tool_result",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "evt1",
+        ok: true,
+        output: "captured screenshot",
+        attachments: [{ kind: "image", uri: `file:///Users/alice/${key}.png` }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const agentUri = (out[1]?.value as { payload: { attachments: Array<{ uri: string }> } }).payload
+    .attachments[0]?.uri;
+  expect(agentUri).not.toContain(key);
+  expect(agentUri).toContain("[OPENAI_KEY]");
+  expect(agentUri).toContain("<home>");
+
+  const toolUri = (out[2]?.value as { payload: { attachments: Array<{ uri: string }> } }).payload
+    .attachments[0]?.uri;
+  expect(toolUri).not.toContain(key);
+  expect(toolUri).toContain("[OPENAI_KEY]");
+  expect(toolUri).toContain("<home>");
+
+  expect(summary.counts.openai_api_key).toBe(2);
+});
+
 test("redactTrail walks record.value.meta on both header and entries", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
