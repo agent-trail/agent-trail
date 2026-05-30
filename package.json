@@ -25,6 +25,7 @@
     "generate:types": "bun run scripts/generate-types.ts",
     "generate:source-types": "bun run scripts/generate-source-types.ts",
     "sync:schema": "bun run scripts/check-schema-sync.ts",
+    "diff:adapters": "bun run scripts/diff-harness.ts",
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "prepare": "lefthook install",
