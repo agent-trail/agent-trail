@@ -123,7 +123,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
             ...(usage !== undefined ? { usage } : {}),
           },
           source: src(record, "message"),
-          meta: metaFor(record, "assistant_string_content"),
+          meta: metaFor(record, "assistant_string_content", undefined, { model }),
         });
       } else {
         const blocks = asBlocks(content);
@@ -358,14 +358,14 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     const inner = isObject(record.data) ? record.data : undefined;
     if (inner !== undefined) data.custom_data = inner;
     const content = stringValue(record.content);
-    const hasContent = content !== undefined && content.trim().length > 0;
-    const text = hasContent
-      ? (content as string)
-      : customType !== undefined
-        ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
-        : isMessage
-          ? "Custom message"
-          : "Custom event";
+    const text =
+      content !== undefined && content.trim().length > 0
+        ? content
+        : customType !== undefined
+          ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
+          : isMessage
+            ? "Custom message"
+            : "Custom event";
     return [
       {
         type: "system_event",

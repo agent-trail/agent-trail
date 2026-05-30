@@ -25,6 +25,7 @@ const FIXTURE_FILES = [
   "system-events.jsonl",
   "tool-result-error.jsonl",
   "quarantine.jsonl",
+  "string-assistant-model-change.jsonl",
 ];
 
 describe("pi v2 parity", () => {

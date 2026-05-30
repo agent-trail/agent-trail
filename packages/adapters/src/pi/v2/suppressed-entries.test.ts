@@ -27,6 +27,15 @@ describe("pi v2 suppressed-entry content", () => {
     expect((summary?.meta as Record<string, unknown>)["x-pi/_h"]).toBeUndefined();
   });
 
+  test("model_change.from_model threads from a string-content assistant", async () => {
+    const all = await entries("string-assistant-model-change.jsonl");
+    const change = all.find((e) => e.type === "model_change");
+    expect(change).toBeDefined();
+    // prevModel must advance off the preceding string-content assistant message
+    expect(change?.payload.from_model).toBe("claude-sonnet-4-5");
+    expect(change?.payload.to_model).toBe("claude-opus-4-7");
+  });
+
   test("session_terminated: reason + open_call_ids reference real tool_call entries", async () => {
     const all = await entries("reasoning-and-interrupt.jsonl");
     const terminated = all.find((e) => e.type === "session_terminated");

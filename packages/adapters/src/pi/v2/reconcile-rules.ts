@@ -202,6 +202,6 @@ export const piSessionTerminatedEof: ReconcilerRule = (entries) => {
       ...(schemaVersion !== undefined ? { schema_version: schemaVersion } : {}),
       synthesized: true,
     },
-  } as Entry;
+  };
   return [...entries, synthesized];
 };

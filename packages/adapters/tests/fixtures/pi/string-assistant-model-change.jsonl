@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"00000000-0000-0000-0000-eeeee0000008","timestamp":"2026-05-21T22:00:00.000Z","cwd":"/tmp/synthetic-project"}
+{"type":"message","id":"00000000-0000-0000-0000-c3c3c3c30011","parentId":null,"timestamp":"2026-05-21T22:00:01.000Z","message":{"role":"user","content":"hi"}}
+{"type":"message","id":"00000000-0000-0000-0000-c3c3c3c30021","parentId":"00000000-0000-0000-0000-c3c3c3c30011","timestamp":"2026-05-21T22:00:02.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":"hello there"}}
+{"type":"model_change","id":"00000000-0000-0000-0000-c3c3c3c30031","parentId":"00000000-0000-0000-0000-c3c3c3c30021","timestamp":"2026-05-21T22:00:03.000Z","provider":"anthropic","modelId":"claude-opus-4-7"}
+{"type":"message","id":"00000000-0000-0000-0000-c3c3c3c30022","parentId":"00000000-0000-0000-0000-c3c3c3c30031","timestamp":"2026-05-21T22:00:04.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-7","stopReason":"stop","content":"now on opus"}}
