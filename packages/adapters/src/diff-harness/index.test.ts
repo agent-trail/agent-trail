@@ -117,6 +117,7 @@ describe("runDiffHarness end-to-end", () => {
       }),
     ]);
 
+    expect(seen).toHaveLength(2); // a.jsonl + b.jsonl — guards against vacuous every()
     expect(seen.every((uid) => uid.startsWith("uid:"))).toBe(true);
   });
 });

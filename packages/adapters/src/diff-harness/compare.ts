@@ -82,11 +82,10 @@ function stableStringify(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(normalizeWhitespace(value));
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  const parts = Object.keys(obj)
-    .filter((key) => obj[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`);
+  const parts = Object.entries(value)
+    .filter(([, val]) => val !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, val]) => `${JSON.stringify(key)}:${stableStringify(val)}`);
   return `{${parts.join(",")}}`;
 }
 

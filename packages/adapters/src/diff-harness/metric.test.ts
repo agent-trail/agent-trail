@@ -32,4 +32,21 @@ describe("mappingShapeMetric", () => {
 
     expect(metric.ratio).toBe(0);
   });
+
+  test("overrides field absent → treated as 0 (exercises optional chaining)", () => {
+    const metric = mappingShapeMetric({
+      mappings: [{ match: {}, emit: () => [] }],
+    } as unknown as AdapterDef);
+
+    expect(metric.override).toBe(0);
+    expect(metric.ratio).toBe(0);
+  });
+
+  test("all overrides, no pure mappings → ratio 1", () => {
+    const metric = mappingShapeMetric(def(0, 2));
+
+    expect(metric.pure).toBe(0);
+    expect(metric.override).toBe(2);
+    expect(metric.ratio).toBe(1);
+  });
 });
