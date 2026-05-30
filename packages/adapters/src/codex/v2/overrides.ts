@@ -36,7 +36,7 @@ function modelChangeDraft(fromModel: string | undefined, toModel: string): Trail
       agent: AGENT_NAME,
       original_type: "turn_context.model_change",
       synthesized: true,
-    } as Entry["source"],
+    },
     meta: { "dev.codex.raw_type": "turn_context.model_change" },
   };
 }
@@ -45,7 +45,7 @@ function thinkingDraft(text: string, rawType: string): TrailEntryDraft {
   return {
     type: "agent_thinking",
     payload: { text },
-    source: { agent: AGENT_NAME, original_type: rawType } as Entry["source"],
+    source: { agent: AGENT_NAME, original_type: rawType },
     meta: { "dev.codex.raw_type": rawType },
   };
 }

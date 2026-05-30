@@ -21,8 +21,10 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
     const usage = usageCarrier(entry);
     if (usage !== undefined) {
       if (lastAgentMessageIndex !== undefined) {
-        const target = out[lastAgentMessageIndex] as Entry;
-        out[lastAgentMessageIndex] = { ...target, payload: { ...target.payload, usage } };
+        const target = out[lastAgentMessageIndex];
+        if (target !== undefined) {
+          out[lastAgentMessageIndex] = { ...target, payload: { ...target.payload, usage } };
+        }
       }
       continue; // drop the carrier
     }

@@ -41,7 +41,7 @@ function source(originalType: string, raw?: Raw, synthesized?: boolean): Entry["
     original_type: originalType,
     ...(raw !== undefined ? { raw } : {}),
     ...(synthesized === true ? { synthesized: true } : {}),
-  } as Entry["source"];
+  };
 }
 
 function meta(rawType: string, callId?: string): Record<string, unknown> {
@@ -86,7 +86,7 @@ const functionCall = defineMapping<Raw>({
       {
         type: "tool_call",
         payload: { tool: mapping.tool, args: mapping.args },
-        semantic: { tool_kind: mapping.tool as ToolKind },
+        semantic: { tool_kind: mapping.tool },
         source: source("response_item.function_call", raw),
         meta: meta("response_item.function_call", callId),
       },
