@@ -8,6 +8,8 @@
 // Run: `bun run diff:adapters`.
 
 import { runDiffHarness } from "../packages/adapters/src/diff-harness/index.ts";
+// Side-effect import: populates v2HarnessTargets with every migrated adapter.
+import "../packages/adapters/src/diff-harness/register-targets.ts";
 
 async function main(): Promise<void> {
   const summary = await runDiffHarness();

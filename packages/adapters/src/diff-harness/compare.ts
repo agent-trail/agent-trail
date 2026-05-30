@@ -55,7 +55,12 @@ function stripVolatile(entry: Record<string, unknown>): Record<string, unknown> 
   const payload = clone.payload;
   if (isPlainObject(payload)) {
     const nextPayload = { ...payload };
+    // Id references in payloads that rehash between adapters (spec entry types):
+    // tool_result.for_id, branch_summary.abandoned_branch_id, and the
+    // session_terminated.open_call_ids list. Their non-id content is still compared.
     delete nextPayload.for_id;
+    delete nextPayload.abandoned_branch_id;
+    delete nextPayload.open_call_ids;
     clone.payload = nextPayload;
   }
 
@@ -65,6 +70,16 @@ function stripVolatile(entry: Record<string, unknown>): Record<string, unknown> 
     delete nextSemantic.call_id;
     delete nextSemantic.group_id;
     clone.semantic = nextSemantic;
+  }
+
+  // `source.raw.envelope_ref` references an earlier entry's inlined envelope by
+  // id (spec SourceMetadata) — same id-rehash family as for_id/parent_id, so it
+  // must not count as a difference between adapters.
+  const source = clone.source;
+  if (isPlainObject(source) && isPlainObject(source.raw) && "envelope_ref" in source.raw) {
+    const nextRaw = { ...source.raw };
+    delete nextRaw.envelope_ref;
+    clone.source = { ...source, raw: nextRaw };
   }
 
   return clone;

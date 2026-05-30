@@ -26,13 +26,25 @@ const corpus: { agent: string; version: string }[] = [
   { agent: "claude-code", version: "v1" },
 ];
 
+// Fixtures that deliberately carry a schema-invalid record to exercise the
+// drift → quarantine path. Keyed `${agent}/${file}`. These assert the OPPOSITE:
+// that at least one record fails validation, so the drift coverage stays real.
+const DRIFT_FIXTURES = new Set(["pi/quarantine.jsonl"]);
+
 for (const { agent, version } of corpus) {
   describe(`${agent} ${version} source schema corpus`, () => {
     for (const { file, records } of readFixtureRecords(agent)) {
-      test(`every record in ${file} validates clean`, () => {
+      const isDriftFixture = DRIFT_FIXTURES.has(`${agent}/${file}`);
+      test(`${file} ${isDriftFixture ? "carries the expected drift" : "validates clean"}`, () => {
+        const invalid = records.filter(
+          (record) => validateSourceRecord(agent, version, record).length > 0,
+        );
+        if (isDriftFixture) {
+          expect(invalid.length).toBeGreaterThan(0);
+          return;
+        }
         for (const record of records) {
-          const diagnostics = validateSourceRecord(agent, version, record);
-          expect(formatDiagnosticsText(diagnostics)).toBe("");
+          expect(formatDiagnosticsText(validateSourceRecord(agent, version, record))).toBe("");
         }
       });
     }

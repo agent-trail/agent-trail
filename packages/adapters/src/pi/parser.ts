@@ -14,7 +14,7 @@ import {
   versionString,
 } from "./source.ts";
 
-function buildHeader(envelopes: PiEnvelope[]): Header {
+export function buildHeader(envelopes: PiEnvelope[]): Header {
   const sessionRecord = envelopes.find((env) => env.type === "session");
   if (sessionRecord === undefined) {
     throw new Error("Pi session has no header record");
