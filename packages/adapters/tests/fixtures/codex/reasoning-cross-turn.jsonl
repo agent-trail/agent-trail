@@ -1,0 +1,10 @@
+{"timestamp":"2026-05-28T03:00:00.000Z","type":"session_meta","payload":{"id":"019d7909-85dd-7881-aa12-95ffc8ca9002","timestamp":"2026-05-28T03:00:00.000Z","cwd":"/proj/codex-fixture","originator":"codex-tui","cli_version":"0.128.0"}}
+{"timestamp":"2026-05-28T03:00:01.000Z","type":"turn_context","payload":{"model":"gpt-5-codex","turn_id":"turn-1"}}
+{"timestamp":"2026-05-28T03:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"first ask"}}
+{"timestamp":"2026-05-28T03:00:03.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"weigh the same tradeoff"}}
+{"timestamp":"2026-05-28T03:00:04.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"weigh the same tradeoff"}}
+{"timestamp":"2026-05-28T03:00:05.000Z","type":"event_msg","payload":{"type":"agent_message","message":"done one"}}
+{"timestamp":"2026-05-28T03:00:06.000Z","type":"turn_context","payload":{"model":"gpt-5-codex","turn_id":"turn-2"}}
+{"timestamp":"2026-05-28T03:00:07.000Z","type":"event_msg","payload":{"type":"user_message","message":"second ask"}}
+{"timestamp":"2026-05-28T03:00:08.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"weigh the same tradeoff"}}
+{"timestamp":"2026-05-28T03:00:09.000Z","type":"event_msg","payload":{"type":"agent_message","message":"done two"}}

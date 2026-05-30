@@ -76,6 +76,13 @@ export interface ReconcilerConfig {
 
 export interface AdapterDef<S = unknown> {
   agent: AgentName;
+  /**
+   * Source-schema registry key for `selectSchemaVersion` / `validateSourceRecord`,
+   * when it differs from the emitted `agent`. Defaults to `agent`. Needed when the
+   * upstream schema is registered under a short name (e.g. Codex: emitted agent
+   * `"codex-cli"`, schema key `"codex"`).
+   */
+  schemaAgent?: string;
   /** UUID namespace for synthesized entry ids (spec §8.5). */
   idNamespace: string;
   /** Vendor namespace for quarantine `system_event` kinds (kebab-case). */

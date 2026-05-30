@@ -25,8 +25,9 @@ export interface Adapter {
 export function defineAdapter<S = unknown>(def: AdapterDef<S>): Adapter {
   return {
     async parse(source, options) {
+      const schemaAgent = def.schemaAgent ?? def.agent;
       const sourceVersion = await def.reader.schemaVersion(source);
-      const schemaKey = selectSchemaVersion(def.agent, sourceVersion);
+      const schemaKey = selectSchemaVersion(schemaAgent, sourceVersion);
 
       const records: RawRecord[] = [];
       for await (const record of def.reader.records(source)) {
@@ -43,7 +44,7 @@ export function defineAdapter<S = unknown>(def: AdapterDef<S>): Adapter {
         drift: {
           isDrift: (record) =>
             schemaKey === undefined ||
-            validateSourceRecord(def.agent, schemaKey, record).length > 0,
+            validateSourceRecord(schemaAgent, schemaKey, record).length > 0,
           toDraft: (record) =>
             quarantineDraft({ agent: def.agent, namespace: def.quarantineNamespace, record }),
         },
