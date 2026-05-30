@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"00000000-0000-0000-0000-eeeee0000007","timestamp":"2026-05-21T21:00:00.000Z","cwd":"/tmp/synthetic-project"}
+{"type":"message","id":"00000000-0000-0000-0000-b2b2b2b20011","parentId":null,"timestamp":"2026-05-21T21:00:01.000Z","message":{"role":"user","content":"hello"}}
+{"type":"plugin_blob","id":"00000000-0000-0000-0000-b2b2b2b20021","parentId":"00000000-0000-0000-0000-b2b2b2b20011","timestamp":"2026-05-21T21:00:02.000Z","blob":{"opaque":"data"}}
+{"type":"message","id":"00000000-0000-0000-0000-b2b2b2b20022","parentId":"00000000-0000-0000-0000-b2b2b2b20021","timestamp":"2026-05-21T21:00:03.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":[{"type":"text","text":"hi there"}]}}

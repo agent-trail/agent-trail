@@ -28,7 +28,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
@@ -45,6 +45,20 @@ mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built
 `coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
 `file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
 synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
+
+**Adapter-kit migration (#146 Phase 4).** A second Pi implementation lives at
+`packages/adapters/src/pi/v2/`, built on the adapter-kit mapping DSL + two-pass reconciler
+(`defineAdapter`): 10 pure mappings (one per record type, **override-ratio 0**) plus four
+Pi-specific custom reconciler rules for tree parenting + `branch_summary` divergence, tool-kind
+propagation, `model_change.from_model` threading, and EOF `session_terminated` synthesis (the kit's
+general `branchReconciliation` is deferred). v1 remains the production adapter; v2 is gated by the
+diff harness (`bun run diff:adapters`), which compares v1 vs v2 emitted entries over every Pi fixture
+above with zero blocking regressions. Id-bearing fields that legitimately rehash between adapters
+(`id`, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
+`source.raw.envelope_ref`) are normalized out of that comparison. One known v2/v1 divergence: a
+schema-invalid record with an **unparseable** timestamp quarantines with an empty `ts` under v2 (the
+kit reconciler has no last-valid-ts to inherit), vs v1's inherited timestamp — fixtures keep invalid
+records on valid timestamps.
 `edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
 (b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with a

@@ -28,15 +28,28 @@ export interface ParentHint {
   sid: string;
   pid: string | null;
   fromId?: string;
+  /**
+   * Model of the source assistant envelope, carried on every entry it emits so
+   * piModelChangeFromModel can advance `prevModel` per source envelope (matching
+   * v1) — including tool_call-only / thinking-only messages whose entries carry
+   * no model in their own payload.
+   */
+  model?: string;
 }
 
 type Meta = Record<string, unknown>;
 
-function metaFor(record: PiEnvelope, rawType: string, extra?: Meta, fromId?: string): Meta {
+interface HintExtras {
+  fromId?: string;
+  model?: string;
+}
+
+function metaFor(record: PiEnvelope, rawType: string, extra?: Meta, hintExtras?: HintExtras): Meta {
   const hint: ParentHint = {
     sid: record.id as string,
     pid: record.parentId ?? null,
-    ...(fromId !== undefined ? { fromId } : {}),
+    ...(hintExtras?.fromId !== undefined ? { fromId: hintExtras.fromId } : {}),
+    ...(hintExtras?.model !== undefined ? { model: hintExtras.model } : {}),
   };
   return {
     ...(extra ?? {}),
@@ -139,7 +152,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
                 ...(blockUsage !== undefined ? { usage: blockUsage } : {}),
               },
               source: src(record, "text", block, originalIndex, { envelopeRef }),
-              meta: metaFor(record, "assistant_text_block"),
+              meta: metaFor(record, "assistant_text_block", undefined, { model }),
             });
           } else if (block.type === "thinking") {
             const rawThinking = typeof block.thinking === "string" ? block.thinking : "";
@@ -154,6 +167,8 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
               meta: metaFor(
                 record,
                 redacted ? "assistant_redacted_thinking_block" : "assistant_thinking_block",
+                undefined,
+                { model },
               ),
             });
           } else if (block.type === "toolCall") {
@@ -170,7 +185,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
               source: src(record, "toolCall", block, originalIndex, { envelopeRef }),
               meta: {
                 ...(callId !== undefined ? { linker: { call_id: callId } } : {}),
-                ...metaFor(record, "assistant_toolcall_block"),
+                ...metaFor(record, "assistant_toolcall_block", undefined, { model }),
               },
             });
           }
@@ -182,7 +197,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
           type: "user_interrupt",
           payload: { reason: "stop_reason_aborted" },
           source: src(record, "assistant", undefined, undefined, { synthesized: true }),
-          meta: metaFor(record, "aborted_assistant_synthetic"),
+          meta: metaFor(record, "aborted_assistant_synthetic", undefined, { model }),
         });
       }
       return out;
@@ -235,7 +250,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
             record,
             "branch_summary_envelope",
             details !== undefined ? { "dev.pi.branch_details": details } : undefined,
-            fromId,
+            { fromId },
           ),
         },
       ];

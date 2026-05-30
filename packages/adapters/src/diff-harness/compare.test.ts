@@ -50,6 +50,47 @@ describe("compareEntries", () => {
     expect(report.blocking).toBe(false);
   });
 
+  test("differing branch_summary.abandoned_branch_id only → preserved (id rehash tolerance)", () => {
+    const oldEntries = [
+      {
+        type: "branch_summary",
+        id: "old-1",
+        ts: "2026-05-21T14:00:00.000Z",
+        payload: { summary: "switched", abandoned_branch_id: "old-root" },
+      } as Entry,
+    ];
+    const newEntries = [
+      {
+        type: "branch_summary",
+        id: "new-1",
+        ts: "2026-05-21T14:00:00.000Z",
+        payload: { summary: "switched", abandoned_branch_id: "new-root" },
+      } as Entry,
+    ];
+
+    const report = compareEntries(oldEntries, newEntries);
+
+    expect(report.preserved).toHaveLength(1);
+    expect(report.regressions).toHaveLength(0);
+  });
+
+  test("differing session_terminated.open_call_ids only → preserved; summary change → regression", () => {
+    const make = (ids: string[], reason: string): Entry =>
+      ({
+        type: "session_terminated",
+        id: ids[0],
+        ts: "2026-05-21T14:00:00.000Z",
+        payload: { reason, open_call_ids: ids },
+      }) as Entry;
+
+    const preserved = compareEntries([make(["a"], "eof")], [make(["b"], "eof")]);
+    expect(preserved.regressions).toHaveLength(0);
+
+    // non-id payload (reason) still compared
+    const regressed = compareEntries([make(["a"], "eof")], [make(["b"], "other")]);
+    expect(regressed.regressions).toHaveLength(1);
+  });
+
   test("differing source.raw.envelope_ref only → preserved (id rehash tolerance)", () => {
     const oldEntries = [
       agentMessage("old-1", "hi", {

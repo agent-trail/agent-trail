@@ -1,3 +1,9 @@
+// Pi-specific pass-2 reconciler rules. Pi is tree-native and synthesizes entries
+// that the kit's per-record mappings can't express, and the kit's general
+// `branchReconciliation` is deferred (#135) — so these custom rules stand in for
+// it. Order matters and is fixed in adapter.ts: piModelChangeFromModel runs first
+// (it reads the assistant model off the parenting hint, which piParentResolution
+// later strips), then piToolKindToResult, piParentResolution, piSessionTerminatedEof.
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { type ParentableEntry, resolveEntryParents } from "../../parenting.ts";
@@ -43,7 +49,9 @@ export const piParentResolution: ReconcilerRule = (entries) => {
     const hint = hintOf(entry);
     if (hint === undefined) return { entry, parentSourceId: null };
     // Within one source envelope (multi-block assistant), each block after the
-    // first chains off the previous block's entry.
+    // first chains off the previous block's entry. Safe regardless of other
+    // entries interleaving: the kit emits one record's drafts contiguously and
+    // this map is keyed by source id, so only same-envelope blocks chain here.
     const localParentId = lastEntryIdForSid.get(hint.sid);
     lastEntryIdForSid.set(hint.sid, entry.id);
     return { entry, parentSourceId: hint.pid, localParentId };
@@ -117,8 +125,14 @@ export const piToolKindToResult: ReconcilerRule = (entries) => {
 
 /**
  * Fill `model_change.payload.from_model` from the model in effect before the
- * change. v1 threads `prevModel` across envelopes, advancing it on each emitted
- * assistant message (its model) and each model_change (its to_model).
+ * change. v1 threads `prevModel` across source envelopes, advancing it on each
+ * emitted assistant message (its model) and each model_change (its to_model).
+ *
+ * Reads the source assistant model off the parenting hint (`hint.model`), which
+ * every entry an assistant envelope emits carries — so a tool_call-only or
+ * thinking-only assistant (whose entries hold no model in their own payload)
+ * still advances `prevModel`, matching v1. MUST run before `piParentResolution`,
+ * which strips the hint.
  */
 export const piModelChangeFromModel: ReconcilerRule = (entries) => {
   let prevModel: string | undefined;
@@ -132,10 +146,8 @@ export const piModelChangeFromModel: ReconcilerRule = (entries) => {
       if (typeof payload.to_model === "string") prevModel = payload.to_model;
       return next;
     }
-    if (entry.type === "agent_message") {
-      const model = (entry.payload as { model?: unknown }).model;
-      if (typeof model === "string") prevModel = model;
-    }
+    const model = hintOf(entry)?.model;
+    if (model !== undefined) prevModel = model;
     return entry;
   });
 };
@@ -171,6 +183,11 @@ export const piSessionTerminatedEof: ReconcilerRule = (entries) => {
 
   const openCallIds = Array.from(toolCallEntryIds).filter((id) => !matched.has(id));
   if (openCallIds.length === 0) return entries;
+
+  // The id is seeded from openCallIds, which are themselves sessionUid-derived
+  // engine ids ([sessionUid, recordIndex, type, ordinal]) — so the synthesized
+  // id is already session-scoped and deterministic without threading sessionUid
+  // into the reconciler context.
 
   const lastEntry = entries[entries.length - 1];
   const schemaVersion = entries.find((e) => typeof e.source?.schema_version === "string")?.source

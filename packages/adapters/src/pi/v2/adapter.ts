@@ -30,9 +30,11 @@ export function buildPiV2Adapter(sessionVersion: string | undefined): Adapter {
       parentChain: false, // tree-native: piParentResolution sets parent_id
       cumulativeTokens: false, // v1 passes usage through; does not compute cumulative
       custom: [
-        piParentResolution,
-        piToolKindToResult,
+        // piModelChangeFromModel first: it reads the assistant model off the
+        // parenting hint that piParentResolution strips.
         piModelChangeFromModel,
+        piToolKindToResult,
+        piParentResolution,
         piSessionTerminatedEof,
       ],
     },
