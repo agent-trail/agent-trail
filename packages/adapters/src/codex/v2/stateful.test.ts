@@ -1,25 +1,36 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Entry } from "@agent-trail/types";
+import { codexAdapter } from "../index.ts";
 import { parseCodexV2Entries } from "./index.ts";
 
 const FIXTURES = join(import.meta.dir, "../../../tests/fixtures/codex");
 const entries = (fixture: string): Promise<Entry[]> =>
   parseCodexV2Entries(join(FIXTURES, fixture), "unit-test");
 
+const thinkingTexts = (es: Entry[]): string[] =>
+  es.filter((e) => e.type === "agent_thinking").map((e) => normalize(String(e.payload.text)));
+
 const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
 
 describe("codex v2 stateful behaviors", () => {
   // The harness is a multiset, so un-deduped duplicates would pass as
-  // non-blocking additions — assert the count + uniqueness directly.
-  test("reasoning dedup: per-turn duplicates collapse", async () => {
-    const all = await entries("reasoning-dedupe.jsonl");
-    const thinking = all.filter((e) => e.type === "agent_thinking");
-    const keys = thinking.map((e) => normalize(String((e.payload as { text: string }).text)));
-    // No two emitted thinking entries share a normalized key (dedup held).
+  // non-blocking additions — assert the count + uniqueness directly, tied to v1.
+  test("reasoning dedup: per-turn duplicates collapse (matches v1 count)", async () => {
+    const path = join(FIXTURES, "reasoning-dedupe.jsonl");
+    const v1 = (await codexAdapter.parseSession({ id: "x", adapter: "codex", path })).entries;
+    const keys = thinkingTexts(await entries("reasoning-dedupe.jsonl"));
+    // No two emitted thinking entries share a normalized key (dedup held)...
     expect(new Set(keys).size).toBe(keys.length);
-    // The source carries more reasoning records than emitted entries.
-    expect(thinking.length).toBeLessThan(4);
+    // ...and the emitted count exactly matches v1's deduped output.
+    expect(keys.length).toBe(thinkingTexts(v1).length);
+  });
+
+  test("reasoning dedup resets per turn: same text in two turns emits twice", async () => {
+    const keys = thinkingTexts(await entries("reasoning-cross-turn.jsonl"));
+    // turn-1 collapses its two identical reasonings to one; turn-2 re-emits the
+    // same text after the turn_id reset → two entries, both the same text.
+    expect(keys).toEqual(["weigh the same tradeoff", "weigh the same tradeoff"]);
   });
 
   test("token rollup: usage lands on the preceding agent_message", async () => {

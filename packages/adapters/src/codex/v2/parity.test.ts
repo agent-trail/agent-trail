@@ -24,6 +24,7 @@ const FIXTURE_FILES = [
   "web-search.jsonl",
   "lifecycle.jsonl",
   "token-usage.jsonl",
+  "reasoning-cross-turn.jsonl",
 ];
 
 describe("codex v2 parity", () => {

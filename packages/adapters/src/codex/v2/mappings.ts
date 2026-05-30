@@ -17,7 +17,12 @@ import { isObject, numericValue, stringValue, timestampToIso } from "../source.t
 
 type Raw = Record<string, unknown>;
 
-/** Private meta key carrying a token_count's mapped usage to codexTokenRollup. */
+/**
+ * Private meta key on a transient pass-1 carrier `system_event`: token_count maps
+ * to a carrier holding the mapped usage here, and `codexTokenRollup` folds it into
+ * the preceding agent_message's `payload.usage` then drops the carrier. The final
+ * trail never contains the carrier or this key.
+ */
 export const USAGE_CARRIER = "x-codex/_usage";
 
 const RAW_TYPE = "dev.codex.raw_type";

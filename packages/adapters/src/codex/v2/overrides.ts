@@ -56,6 +56,9 @@ function thinkingDraft(text: string, rawType: string): TrailEntryDraft {
 const turnContext: OverrideDef<Raw, CodexState> = {
   match: { type: "turn_context" },
   emit: (record, ctx) => {
+    // Matches v1: buildEntries skips the whole record (no turn reset, no model
+    // tracking) when the timestamp is unparseable (`if (ts === undefined) continue`
+    // before the turn_context branch), so state must NOT advance here either.
     if (!emittable(record)) return [];
     const p = payloadOf(record);
     const turnId = stringValue(p.turn_id);
