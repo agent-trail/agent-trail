@@ -73,11 +73,17 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
-hand-written parsers (that's expected — no stored trails depend on them). Two accepted behaviors of
-the kit path: a schema-invalid record with an **unparseable** timestamp quarantines with an empty
-`ts` (the reconciler has no last-valid-ts to inherit), and linear adapters emit a sequential
-`parent_id` chain (each entry parents off the entry emitted immediately before it; roots carry a
-null `parent_id`).
+hand-written parsers (that's expected — no stored trails depend on them). Accepted behaviors of the
+kit path:
+
+- A schema-invalid record with an **unparseable** timestamp quarantines with an empty `ts` (the
+  reconciler has no last-valid-ts to inherit).
+- **`parent_id` topology varies by adapter reconciler config.** Pi is tree-native (`piParentResolution`
+  rebuilds the real `parentUuid` tree). Claude Code runs the kit's `parentChain: true`, which emits an
+  explicit **sequential** chain — each entry parents off the entry emitted immediately before it, and
+  roots carry a `null` `parent_id` (the prior hand-written parser emitted no `parent_id` for linear
+  Claude Code sessions). Codex runs `parentChain: false` and emits **no** `parent_id`, matching its
+  prior parser. All three are schema-valid (`parent_id` is optional and nullable).
 
 `edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
