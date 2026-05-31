@@ -46,11 +46,16 @@ class ClaudeCodeJsonlReader implements SourceReader {
   async schemaVersion(source: SourcePointer): Promise<string | undefined> {
     const text = await readFile(source.path, "utf8");
     const records = parseLines(text) as Raw[];
-    // Mirror v1 buildHeader: the source version comes from the first tracer
-    // record that carries one (preferring one with a timestamp, else one with a
-    // sessionId) — NOT the first raw line, which is often a versionless record.
-    const first = records.find((r) => isTracerEnvelope(r) && r.timestamp !== undefined);
-    const firstSession = records.find((r) => isTracerEnvelope(r) && r.sessionId !== undefined);
+    // The source version comes from the first tracer record that carries one
+    // (preferring one with a timestamp, else one with a sessionId) — NOT the
+    // first raw line, which is often a versionless record.
+    const hasVersion = (r: Raw): boolean => stringValue(r.version) !== undefined;
+    const first = records.find(
+      (r) => isTracerEnvelope(r) && r.timestamp !== undefined && hasVersion(r),
+    );
+    const firstSession = records.find(
+      (r) => isTracerEnvelope(r) && r.sessionId !== undefined && hasVersion(r),
+    );
     return stringValue(first?.version) ?? stringValue(firstSession?.version);
   }
 

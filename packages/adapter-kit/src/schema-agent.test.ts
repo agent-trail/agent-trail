@@ -55,7 +55,9 @@ describe("AdapterDef.schemaAgent", () => {
     );
     const entries = await adapter.parse(SOURCE, { sessionUid: "s" });
     expect(entries).toHaveLength(1);
-    expect((entries[0]?.payload as { kind?: string }).kind).toBe("x-codex/unknown_record");
+    const entry = entries[0];
+    expect(entry).toBeDefined();
+    expect(entry?.payload?.kind).toBe("x-codex/unknown_record");
   });
 });
 
@@ -97,7 +99,9 @@ describe("unrecognized source version is mapped leniently (not quarantined)", ()
 
     const entries = await adapter.parse(SOURCE, { sessionUid: "s" });
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.type).toBe("system_event");
-    expect((entries[0]?.payload as { kind?: string }).kind).toBe("mapped_without_schema");
+    const entry = entries[0];
+    expect(entry).toBeDefined();
+    expect(entry?.type).toBe("system_event");
+    expect(entry?.payload?.kind).toBe("mapped_without_schema");
   });
 });
