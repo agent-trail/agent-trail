@@ -4,8 +4,10 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
-import { parseCodexJsonl } from "./parser.ts";
+import { codexKitAdapter } from "./kit.ts";
+import { buildHeader } from "./parser.ts";
 import { codexSessionsDir } from "./paths.ts";
+import { parseLines } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-codex/${pkg.version}`;
 
@@ -212,11 +214,13 @@ export const codexAdapter: TrailAdapter = {
       throw new Error("Codex adapter requires SessionRef.path");
     }
     const text = await Bun.file(ref.path).text();
-    const { header, entries } = parseCodexJsonl(text);
+    const header = buildHeader((parseLines(text)[0] ?? {}) as Record<string, unknown>);
     if (header.vcs === undefined && typeof header.cwd === "string") {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;
     }
+    const sessionUid = header.session_uid ?? header.id;
+    const entries = await codexKitAdapter.parse({ path: ref.path }, { sessionUid });
     const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
     return { envelope, header, entries };
   },

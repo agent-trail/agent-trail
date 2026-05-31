@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Entry } from "@agent-trail/types";
-import { parsePiV2Entries } from "./index.ts";
+import { parsePiEntries } from "./kit.ts";
 
-const FIXTURES = join(import.meta.dir, "../../../tests/fixtures/pi");
+const FIXTURES = join(import.meta.dir, "../../tests/fixtures/pi");
 
 const entries = (fixture: string): Promise<Entry[]> =>
-  parsePiV2Entries(join(FIXTURES, fixture), "unit-test");
+  parsePiEntries(join(FIXTURES, fixture), "unit-test");
 
-// branch_summary and session_terminated carry id-reference payloads the diff
-// harness can't compare structurally, so assert their non-id content directly.
-describe("pi v2 suppressed-entry content", () => {
+// branch_summary and session_terminated carry id-reference payloads that are
+// easier to assert by their non-id content than by exact id, so check directly.
+describe("pi suppressed-entry content", () => {
   test("branch_summary: summary + meta preserved, abandoned_branch_id resolves to a real entry", async () => {
     const all = await entries("branch-flow.jsonl");
     const summary = all.find((e) => e.type === "branch_summary");

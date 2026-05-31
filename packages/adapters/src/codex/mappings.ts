@@ -12,8 +12,8 @@ import {
   parseFunctionArguments,
   patchSingleFilePath,
   stripSpinner,
-} from "../parser.ts";
-import { isObject, numericValue, stringValue, timestampToIso } from "../source.ts";
+} from "./parser.ts";
+import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 

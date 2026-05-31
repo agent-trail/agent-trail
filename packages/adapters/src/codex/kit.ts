@@ -1,9 +1,10 @@
 import { type Adapter, defineAdapter, JsonlReader } from "@agent-trail/adapter-kit";
-import { CODEX_ENTRY_ID_NAMESPACE } from "../../session-uid.ts";
-import { stringValue, timestampToIso } from "../source.ts";
+import type { Entry } from "@agent-trail/types";
+import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { codexMappings } from "./mappings.ts";
 import { type CodexState, codexOverrides, initialCodexState } from "./overrides.ts";
 import { codexTokenRollup } from "./reconcile-rules.ts";
+import { stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 
@@ -21,7 +22,7 @@ function cliVersionOf(first: Raw): string | undefined {
  * `schemaAgent: "codex"` resolves the `codex/v0.128` schema while the emitted
  * source agent stays "codex-cli".
  */
-export const codexV2Adapter: Adapter = defineAdapter<CodexState>({
+export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
   agent: "codex-cli",
   schemaAgent: "codex",
   idNamespace: CODEX_ENTRY_ID_NAMESPACE,
@@ -34,8 +35,13 @@ export const codexV2Adapter: Adapter = defineAdapter<CodexState>({
   initialState: initialCodexState,
   reconciler: {
     toolLinking: true,
-    parentChain: false, // v1 Codex is linear and emits no parent_id
+    parentChain: false, // Codex is linear and emits no parent_id
     cumulativeTokens: false, // usage carries native cumulative via token_count rollup
     custom: [codexTokenRollup],
   },
 });
+
+/** Run the kit-based Codex adapter over a source file, returning emitted entries. */
+export async function parseCodexEntries(path: string, sessionUid: string): Promise<Entry[]> {
+  return codexKitAdapter.parse({ path }, { sessionUid });
+}

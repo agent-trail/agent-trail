@@ -1,8 +1,8 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { sourceFor } from "../entry-metadata.ts";
-import { systemEventData, systemEventKind, systemEventText } from "../envelope-mappers.ts";
+import { sourceFor } from "./entry-metadata.ts";
+import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
 import {
   asBlocks,
   type CcBlock,
@@ -12,8 +12,8 @@ import {
   jsonString,
   stringValue,
   textFromToolResultContent,
-} from "../source.ts";
-import { toolKindAndArgs } from "../tools.ts";
+} from "./source.ts";
+import { toolKindAndArgs } from "./tools.ts";
 
 type Raw = Record<string, unknown>;
 

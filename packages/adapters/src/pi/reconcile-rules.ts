@@ -6,9 +6,9 @@
 // later strips), then piToolKindToResult, piParentResolution, piSessionTerminatedEof.
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { type ParentableEntry, resolveEntryParents } from "../../parenting.ts";
-import { deriveSynthesizedEntryId, PI_ENTRY_ID_NAMESPACE } from "../../session-uid.ts";
-import { findAbandonedBranchRootId } from "../divergence.ts";
+import { type ParentableEntry, resolveEntryParents } from "../parenting.ts";
+import { deriveSynthesizedEntryId, PI_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
+import { findAbandonedBranchRootId } from "./divergence.ts";
 import { PARENT_HINT, type ParentHint } from "./mappings.ts";
 
 function hintOf(entry: Entry): ParentHint | undefined {
@@ -29,7 +29,7 @@ function stripHint(entry: Entry): Entry {
  * Rebuilds the source-id → entry-id maps from the `PARENT_HINT` stashed by the
  * mappings, fills `parent_id` (intra-envelope block chains honored), resolves
  * each `branch_summary.abandoned_branch_id` via the divergence walk, then strips
- * the transient hints. Mirrors v1 `parsePiJsonl` parenting + `divergence.ts`.
+ * the transient hints. Tree parenting + `divergence.ts` for Pi's forked sessions.
  */
 export const piParentResolution: ReconcilerRule = (entries) => {
   const parentBySourceId = new Map<string, string | null>();

@@ -5,7 +5,7 @@
 // backfill + hint stripping. ccEnvelopeRefBackfill runs LAST (it strips hints).
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../../session-uid.ts";
+import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 
 function hintOf(entry: Entry): CcHint | undefined {
