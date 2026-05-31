@@ -53,12 +53,11 @@ describe("claude-code v2 stateful behaviors", () => {
     const all = await entries("fidelity-edge-cases.jsonl");
     // find a multi-block entry carrying an envelope_ref (non-first block)
     const withRef = all.find((e) => {
-      const raw = (e.source as { raw?: Record<string, unknown> })?.raw;
+      const raw = e.source?.raw;
       return raw !== undefined && "envelope_ref" in raw;
     });
     expect(withRef).toBeDefined();
-    const ref = (withRef?.source as { raw?: { envelope_ref?: string } } | undefined)?.raw
-      ?.envelope_ref;
+    const ref = withRef?.source?.raw?.envelope_ref;
     expect(typeof ref).toBe("string");
     expect(ref).not.toBe(""); // backfilled to a real id, not the placeholder
     expect(all.some((e) => e.id === ref)).toBe(true);

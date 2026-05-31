@@ -9,7 +9,7 @@ import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../../
 import { type CcHint, HINT } from "./mappings.ts";
 
 function hintOf(entry: Entry): CcHint | undefined {
-  return (entry.meta as Record<string, unknown> | undefined)?.[HINT] as CcHint | undefined;
+  return entry.meta?.[HINT] as CcHint | undefined;
 }
 
 /**
@@ -31,7 +31,7 @@ export const ccModelChangeSynth: ReconcilerRule = (entries) => {
         // v1 synthesizes from the assistant envelope: source agent/original_type
         // "assistant" + the redacted envelope (carried on the first assistant
         // entry's source.raw.envelope) under source.raw, synthesized.
-        const envelope = (entry.source?.raw as { envelope?: unknown } | undefined)?.envelope;
+        const envelope = entry.source?.raw?.envelope;
         const schemaVersion = entry.source?.schema_version;
         const source = {
           agent: "claude-code",
@@ -91,7 +91,7 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
   let prevMode: string | undefined;
   return entries.map((entry) => {
     if (entry.type !== "system_event") return entry;
-    const payload = entry.payload as { kind?: unknown; data?: { to?: unknown } };
+    const payload = entry.payload as { kind?: unknown; data?: Record<string, unknown> };
     if (payload.kind !== "permission_mode_change") return entry;
     const mode = typeof payload.data?.to === "string" ? payload.data.to : undefined;
     if (mode === undefined) return entry;
@@ -100,9 +100,9 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
       next = {
         ...entry,
         payload: {
-          ...entry.payload,
+          ...payload,
           text: `Permission mode changed: ${prevMode} → ${mode}`,
-          data: { ...(entry.payload.data as object), from: prevMode },
+          data: { ...payload.data, from: prevMode },
         },
       };
     }
@@ -133,7 +133,7 @@ export const ccEnvelopeRefBackfill: ReconcilerRule = (entries) => {
   }
   return entries.map((entry) => {
     const sid = hintOf(entry)?.sid;
-    const raw = (entry.source as { raw?: Record<string, unknown> } | undefined)?.raw;
+    const raw = entry.source?.raw;
     let next = entry;
     if (sid !== undefined && raw !== undefined && "envelope_ref" in raw) {
       const firstId = firstEntryIdForSid.get(sid);
