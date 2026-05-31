@@ -9,6 +9,7 @@ import {
   type CcEnvelope,
   isContinuationPreamble,
   isInterruptMarker,
+  jsonString,
   stringValue,
   textFromToolResultContent,
 } from "../source.ts";
@@ -228,7 +229,10 @@ const summary = defineMapping<Raw>({
   emit: (raw) => {
     const record = raw as CcEnvelope;
     if (!gate(record)) return [];
-    const text = stringValue(record.summary) ?? stringValue(record.message?.content) ?? "";
+    const text =
+      stringValue(record.summary) ??
+      stringValue(record.message?.content) ??
+      jsonString(record.message?.content);
     if (record.isCompactSummary === true) {
       return [
         {

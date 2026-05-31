@@ -82,9 +82,9 @@ system/progress/queue-operation/pr-link→system_event, permission-mode) plus fo
 synthesized `model_change` (assistant model transitions — a custom rule because the assistant record
 is mapped, so an override would suppress it), `permission_mode_change` deltas, tool_kind propagation
 to results, and multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
-A `permission-mode.jsonl` fixture was added (none existed) so parity exercises the delta path. v1
-stays production; v2 is gated by the diff harness over every Claude Code fixture above with zero
-blocking regressions.
+A timestamp-less `permission-mode.jsonl` fixture was added (none existed) so parity exercises the
+delta path and v1-style timestamp inheritance. v1 stays production; v2 is gated by the diff harness
+over every Claude Code fixture above with zero blocking regressions.
 
 `edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;

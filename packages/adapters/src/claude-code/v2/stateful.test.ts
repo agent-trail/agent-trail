@@ -1,11 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import type { Entry } from "@agent-trail/types";
-import { parseClaudeCodeV2Entries } from "./index.ts";
+import { claudeCodeAdapterV2, parseClaudeCodeV2Entries } from "./index.ts";
 
 const FIXTURES = join(import.meta.dir, "../../../tests/fixtures/claude-code");
 const entries = (fixture: string): Promise<Entry[]> =>
   parseClaudeCodeV2Entries(join(FIXTURES, fixture), "unit-test");
+
+function writeTempJsonl(prefix: string, records: Record<string, unknown>[]): string {
+  const tmp = mkdtempSync(join(tmpdir(), prefix));
+  const path = join(tmp, "session.jsonl");
+  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  return path;
+}
 
 describe("claude-code v2 stateful behaviors", () => {
   test("model_change synth: from/to + synthesized across a model switch", async () => {
@@ -27,10 +36,12 @@ describe("claude-code v2 stateful behaviors", () => {
         (e.payload as { kind?: string }).kind === "permission_mode_change",
     );
     expect(pms).toHaveLength(2);
+    expect(pms[0]?.ts).toBe("2026-05-18T10:00:00.000Z");
     expect((pms[0]?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
       to: "default",
     });
     expect(pms[0]?.payload.text).toBe("Permission mode: default");
+    expect(pms[1]?.ts).toBe("2026-05-18T10:00:02.000Z");
     expect((pms[1]?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
       to: "acceptEdits",
       from: "default",
@@ -46,9 +57,116 @@ describe("claude-code v2 stateful behaviors", () => {
       return raw !== undefined && "envelope_ref" in raw;
     });
     expect(withRef).toBeDefined();
-    const ref = ((withRef?.source as { raw?: { envelope_ref?: string } }).raw ?? {}).envelope_ref;
+    const ref = (withRef?.source as { raw?: { envelope_ref?: string } } | undefined)?.raw
+      ?.envelope_ref;
     expect(typeof ref).toBe("string");
     expect(ref).not.toBe(""); // backfilled to a real id, not the placeholder
     expect(all.some((e) => e.id === ref)).toBe(true);
+  });
+
+  test("summary fallback preserves structured message content as JSON text", async () => {
+    const path = writeTempJsonl("cc-v2-summary-", [
+      {
+        type: "user",
+        uuid: "00000000-0000-0000-0000-00000000aa01",
+        parentUuid: null,
+        timestamp: "2026-05-18T10:00:00.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+        message: { role: "user", content: "hi" },
+      },
+      {
+        type: "summary",
+        uuid: "00000000-0000-0000-0000-00000000aa02",
+        parentUuid: "00000000-0000-0000-0000-00000000aa01",
+        timestamp: "2026-05-18T10:00:01.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+        message: { content: [{ type: "text", text: "structured summary" }] },
+      },
+    ]);
+    try {
+      const all = await parseClaudeCodeV2Entries(path, "unit-test");
+      const summary = all.find((e) => e.type === "session_summary");
+      expect((summary?.payload as { text?: string }).text).toBe(
+        '[{"type":"text","text":"structured summary"}]',
+      );
+    } finally {
+      rmSync(dirname(path), { recursive: true, force: true });
+    }
+  });
+
+  test("parseSession wrapper preserves envelope metadata and worktree vcs hints", async () => {
+    const path = writeTempJsonl("cc-v2-wrapper-", [
+      {
+        type: "user",
+        uuid: "00000000-0000-0000-0000-00000000bb01",
+        parentUuid: null,
+        timestamp: "2026-05-18T10:00:00.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+        cwd: "/this/path/does/not/exist",
+        message: { role: "user", content: "hi" },
+      },
+      { type: "ai-title", aiTitle: "Wire v2 metadata", sessionId: "s" },
+      { type: "agent-name", agentName: "wire-v2-metadata", sessionId: "s" },
+      {
+        type: "worktree-state",
+        sessionId: "s",
+        worktreeSession: {
+          originalCwd: "/orig/repo",
+          worktreePath: "/orig/repo/.worktrees/topic",
+          worktreeName: "topic",
+          worktreeBranch: "feature/topic",
+          originalBranch: "main",
+          originalHeadCommit: "abcdef0123456789abcdef0123456789abcdef01",
+        },
+      },
+    ]);
+    try {
+      const trail = await claudeCodeAdapterV2.parseSession({
+        id: "s",
+        adapter: "claude-code",
+        path,
+      });
+      expect(trail.envelope?.name).toBe("Wire v2 metadata");
+      expect(trail.envelope?.meta).toEqual({
+        "x-claudecode/ai_title": "Wire v2 metadata",
+        "x-claudecode/agent_name": "wire-v2-metadata",
+      });
+      expect(trail.header.vcs?.branch).toBe("feature/topic");
+      expect(trail.header.vcs?.head_commit).toBe("abcdef0123456789abcdef0123456789abcdef01");
+      expect(trail.header.vcs?.worktree).toEqual({
+        name: "topic",
+        path: "/orig/repo/.worktrees/topic",
+        original_cwd: "/orig/repo",
+        original_branch: "main",
+        original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+      });
+    } finally {
+      rmSync(dirname(path), { recursive: true, force: true });
+    }
+  });
+
+  test("strict reader throws on malformed JSONL instead of skipping lines", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "cc-v2-malformed-"));
+    const path = join(tmp, "session.jsonl");
+    try {
+      writeFileSync(
+        path,
+        `${JSON.stringify({
+          type: "user",
+          uuid: "00000000-0000-0000-0000-00000000cc01",
+          parentUuid: null,
+          timestamp: "2026-05-18T10:00:00.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          message: { role: "user", content: "hi" },
+        })}\n{bad json}\n`,
+      );
+      await expect(parseClaudeCodeV2Entries(path, "unit-test")).rejects.toThrow();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

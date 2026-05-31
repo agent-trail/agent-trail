@@ -1,8 +1,9 @@
 import type { Entry } from "@agent-trail/types";
 import { buildTrailEnvelope } from "../../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../../index.ts";
+import { readGitVcs } from "../../vcs.ts";
 import { claudeCodeAdapter } from "../index.ts";
-import { buildHeader } from "../parser.ts";
+import { buildHeader, extractMetadataHints } from "../parser.ts";
 import { parseLines } from "../source.ts";
 import { claudeCodeV2Adapter } from "./adapter.ts";
 
@@ -29,12 +30,31 @@ export const claudeCodeAdapterV2: TrailAdapter = {
   async parseSession(ref: SessionRef): Promise<TrailFile> {
     if (ref.path === undefined) throw new Error("Claude Code v2 parseSession requires ref.path");
     const text = await Bun.file(ref.path).text();
-    const header = buildHeader(parseLines(text));
+    const envelopes = parseLines(text);
+    const header = buildHeader(envelopes);
+    const hints = extractMetadataHints(envelopes);
+    if (header.vcs === undefined && typeof header.cwd === "string") {
+      const vcs = await readGitVcs(header.cwd);
+      if (vcs !== undefined) header.vcs = vcs;
+    }
+    if (header.vcs === undefined && hints.worktree?.original_head_commit !== undefined) {
+      header.vcs = {
+        type: "git",
+        revision: hints.worktree.original_head_commit,
+        head_commit: hints.worktree.original_head_commit,
+      };
+    }
+    if (header.vcs !== undefined) {
+      if (hints.worktreeBranch !== undefined) header.vcs.branch = hints.worktreeBranch;
+      if (hints.worktree !== undefined) header.vcs.worktree = hints.worktree;
+    }
     const sessionUid = header.session_uid ?? header.id;
     const entries = await claudeCodeV2Adapter.parse({ path: ref.path }, { sessionUid });
     const envelope = buildTrailEnvelope({
       producer: "@agent-trail/adapters-claude-code-v2",
       header,
+      name: hints.envelopeName,
+      meta: hints.envelopeMeta,
     });
     return { envelope, header, entries };
   },
