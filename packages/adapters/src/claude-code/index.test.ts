@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
 
+const ID_PATTERN =
+  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
+
 // Surface tests assert on the shape returned by parseSession. Entry ids are an
 // internal detail of the kit engine, so tests locate entries by type/content and
 // assert linkage via the found entries' own ids — never by a reconstructed id.
@@ -128,6 +131,10 @@ const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
   import.meta.url,
 ).pathname;
+const PERMISSION_MODE_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/permission-mode.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -150,6 +157,14 @@ async function parseInterruptModelFixture() {
     id: "interrupt-and-model-change",
     adapter: "claude-code",
     path: INTERRUPT_MODEL_FIXTURE_PATH,
+  });
+}
+
+async function parsePermissionModeFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "permission-mode",
+    adapter: "claude-code",
+    path: PERMISSION_MODE_FIXTURE_PATH,
   });
 }
 
@@ -356,11 +371,39 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   expect(trail.entries.some((e) => e.type === "context_compact")).toBe(true);
 });
 
+test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {
+  const first = await parseFixture();
+  const second = await parseFixture();
+  expect(first.entries.map((e) => e.id)).toEqual(second.entries.map((e) => e.id));
+  for (const entry of first.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(
+    first.entries.some(
+      (e) =>
+        e.type === "system_event" && (e.payload as { kind?: string }).kind === "queue_operation",
+    ),
+  ).toBe(true);
+
+  const model = await parseInterruptModelFixture();
+  const modelAgain = await parseInterruptModelFixture();
+  expect(model.entries.map((e) => e.id)).toEqual(modelAgain.entries.map((e) => e.id));
+  for (const entry of model.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(model.entries.some((e) => e.type === "model_change")).toBe(true);
+
+  const permission = await parsePermissionModeFixture();
+  const permissionAgain = await parsePermissionModeFixture();
+  expect(permission.entries.map((e) => e.id)).toEqual(permissionAgain.entries.map((e) => e.id));
+  for (const entry of permission.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(
+    permission.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: string }).kind === "permission_mode_change",
+    ),
+  ).toBe(true);
+});
+
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
   const trail = await parseInterruptModelFixture();
-  // Synthesized model_change id is deterministic (v5 from session_uid,
-  // envelope index, prev/current model). This test asserts sequence + type;
-  // determinism is covered explicitly by short-id.test.ts.
   const types = trail.entries.map((e) => e.type);
   expect(types).toEqual([
     "user_message",
@@ -392,6 +435,7 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
 
   const sonnetMsg = trail.entries[5];
   expect(sonnetMsg?.type).toBe("agent_message");
+  expect(sonnetMsg?.parent_id).toBe(modelChange?.id);
 
   expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
 });
@@ -417,6 +461,46 @@ test("parsed fixture round-trips through validateAdapterTrail with zero error di
   expect(errors).toEqual([]);
 });
 
+test("parseSession stamps timestamp-less drift quarantine from the nearest source timestamp", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-drift-ts-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const ts = "2026-05-18T10:00:00.000Z";
+    const sessionId = "00000000-0000-0000-0000-ddddd00000d1";
+    writeFileSync(
+      path,
+      `${JSON.stringify({
+        type: "user",
+        uuid: "00000000-0000-0000-0000-0000000000d1",
+        parentUuid: null,
+        timestamp: ts,
+        sessionId,
+        version: "1.0.0-synthetic",
+        message: { role: "user", content: "hi" },
+      })}\n${JSON.stringify({
+        type: "totally-unknown-type",
+        sessionId,
+        version: "1.0.0-synthetic",
+      })}\n`,
+    );
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const quarantine = trail.entries.find(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
+    );
+    expect(quarantine?.ts).toBe(ts);
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("every entry has source metadata: agent='claude-code', original_type populated, schema_version set, raw preserved", async () => {
   const trail = await parseFixture();
   for (const entry of trail.entries) {
@@ -424,6 +508,7 @@ test("every entry has source metadata: agent='claude-code', original_type popula
     expect(typeof entry.source?.original_type).toBe("string");
     expect(entry.source?.schema_version).toBe("1.0.0-synthetic");
     expect(entry.source?.raw).toBeDefined();
+    expect(Object.hasOwn(entry, "meta")).toBe(false);
   }
 });
 

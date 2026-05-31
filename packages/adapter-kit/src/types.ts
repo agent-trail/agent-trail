@@ -62,6 +62,7 @@ export interface OverrideDef<T extends RawRecord = RawRecord, S = unknown> {
 
 export interface ReconcilerRuleCtx {
   agent: AgentName;
+  records?: RawRecord[];
 }
 
 export type ReconcilerRule = (entries: Entry[], ctx: ReconcilerRuleCtx) => Entry[];

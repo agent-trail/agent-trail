@@ -10,6 +10,9 @@ import { piAdapter, validateAdapterTrail } from "../index.ts";
 import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
+const ID_PATTERN =
+  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
+
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
 let prevPiAgentDir: string | undefined;
@@ -80,6 +83,8 @@ const COMPACT_FIXTURE_PATH = new URL(
 ).pathname;
 const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl", import.meta.url)
   .pathname;
+const QUARANTINE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/quarantine.jsonl", import.meta.url)
+  .pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
@@ -118,6 +123,14 @@ async function parseUsageFixture() {
     id: "usage-and-cost",
     adapter: "pi",
     path: USAGE_FIXTURE_PATH,
+  });
+}
+
+async function parseQuarantineFixture() {
+  return piAdapter.parseSession({
+    id: "quarantine",
+    adapter: "pi",
+    path: QUARANTINE_FIXTURE_PATH,
   });
 }
 
@@ -273,6 +286,20 @@ test("linear-flow fixture emits only canonical event types in source order", asy
   ]);
 });
 
+test("parseSession() emits v0.1-shaped deterministic entry ids across representative fixtures", async () => {
+  const first = await parseFixture();
+  const second = await parseFixture();
+  expect(first.entries.map((e) => e.id)).toEqual(second.entries.map((e) => e.id));
+  for (const entry of first.entries) expect(entry.id).toMatch(ID_PATTERN);
+
+  const stateful = await parseReasoningFixture();
+  const statefulAgain = await parseReasoningFixture();
+  expect(stateful.entries.map((e) => e.id)).toEqual(statefulAgain.entries.map((e) => e.id));
+  for (const entry of stateful.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(stateful.entries.some((e) => e.type === "user_interrupt")).toBe(true);
+  expect(stateful.entries.some((e) => e.type === "session_terminated")).toBe(true);
+});
+
 test("every entry carries source metadata: agent='pi', original_type set, schema_version stringified, raw preserved", async () => {
   const trail = await parseFixture();
   for (const entry of trail.entries) {
@@ -415,6 +442,130 @@ test("detectSessions() returns one SessionRef per .jsonl file, skipping other ex
   const refs = await piAdapter.detectSessions();
   const sorted = [...refs].sort((a, b) => a.id.localeCompare(b.id));
   expect(sorted.map((r) => r.id)).toEqual(["sess-a", "sess-b"]);
+});
+
+test("parseSession() rejects non-object JSONL records instead of silently skipping them", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "non-object.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000100",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    })}\n"hidden"\n`,
+  );
+
+  await expect(
+    piAdapter.parseSession({ id: "non-object", adapter: "pi", path: file }),
+  ).rejects.toThrow(/expected JSON object on line 2/);
+});
+
+test("parseSession() stamps timestamp-less drift quarantine from the session header", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "timestamp-less-drift.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000101",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    })}\n${JSON.stringify({
+      type: "plugin_blob",
+      id: "00000000-0000-0000-0000-eeeee0000102",
+      parentId: null,
+      blob: { opaque: "data" },
+    })}\n`,
+  );
+
+  const trail = await piAdapter.parseSession({
+    id: "timestamp-less-drift",
+    adapter: "pi",
+    path: file,
+  });
+  const quarantine = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/unknown_record",
+  );
+  expect(quarantine?.ts).toBe("2026-05-21T14:00:00.000Z");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() preserves Pi tree parenting through quarantined source records", async () => {
+  const trail = await parseQuarantineFixture();
+  expect(trail.entries.map((e) => e.type)).toEqual([
+    "user_message",
+    "system_event",
+    "agent_message",
+  ]);
+
+  const user = trail.entries[0];
+  const quarantine = trail.entries[1];
+  const agent = trail.entries[2];
+
+  expect(user?.parent_id).toBeUndefined();
+  expect((quarantine?.payload as { kind?: string }).kind).toBe("x-pi/unknown_record");
+  expect(quarantine?.parent_id).toBe(user?.id);
+  expect(agent?.parent_id).toBe(user?.id);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() preserves Pi tree parenting through dropped known source records", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "dropped-known-parent.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000103",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    })}\n${JSON.stringify({
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeee0000104",
+      parentId: null,
+      timestamp: "2026-05-21T14:00:01.000Z",
+      message: { role: "user", content: "hello" },
+    })}\n${JSON.stringify({
+      type: "model_change",
+      id: "00000000-0000-0000-0000-eeeee0000105",
+      parentId: "00000000-0000-0000-0000-eeeee0000104",
+      timestamp: "2026-05-21T14:00:02.000Z",
+    })}\n${JSON.stringify({
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeee0000106",
+      parentId: "00000000-0000-0000-0000-eeeee0000105",
+      timestamp: "2026-05-21T14:00:03.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "stop",
+        content: "hi there",
+      },
+    })}\n`,
+  );
+
+  const trail = await piAdapter.parseSession({
+    id: "dropped-known-parent",
+    adapter: "pi",
+    path: file,
+  });
+  expect(trail.entries.map((e) => e.type)).toEqual(["user_message", "agent_message"]);
+  const user = trail.entries[0];
+  const agent = trail.entries[1];
+  expect(agent?.parent_id).toBe(user?.id);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 // TDD step 12: sourceVersion

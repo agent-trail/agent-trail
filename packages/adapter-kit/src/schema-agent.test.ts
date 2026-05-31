@@ -7,13 +7,22 @@ import type { AdapterDef } from "./types.ts";
 // A reader yielding one record at cli_version 0.128.0. `valid` controls whether
 // the record passes the codex/v0.128 schema (turn_context is in the type enum;
 // an unknown type is drift). `version` controls schema resolution.
-function codexReader(opts: { valid?: boolean; noVersion?: boolean } = {}): SourceReader {
-  const { valid = true, noVersion = false } = opts;
+function codexReader(
+  opts: { valid?: boolean; noVersion?: boolean; missingDriftTimestamp?: boolean } = {},
+): SourceReader {
+  const { valid = true, noVersion = false, missingDriftTimestamp = false } = opts;
   return {
     async *records(): AsyncIterable<RawRecord> {
+      if (missingDriftTimestamp) {
+        yield {
+          type: "session_meta",
+          timestamp: "2026-05-28T00:00:00.000Z",
+          payload: { id: "s" },
+        };
+      }
       yield {
         type: valid ? "turn_context" : "totally-unknown-type",
-        timestamp: "2026-05-28T00:00:00.000Z",
+        ...(missingDriftTimestamp ? {} : { timestamp: "2026-05-28T00:00:00.000Z" }),
         payload: { model: "x" },
       };
     },
@@ -58,6 +67,18 @@ describe("AdapterDef.schemaAgent", () => {
     const entry = entries[0];
     expect(entry).toBeDefined();
     expect(entry?.payload?.kind).toBe("x-codex/unknown_record");
+  });
+
+  test("timestamp-less drift inherits the nearest writer-strict source timestamp", async () => {
+    const adapter = defineAdapter(
+      adapterDef({
+        schemaAgent: "codex",
+        reader: codexReader({ valid: false, missingDriftTimestamp: true }),
+      }),
+    );
+    const entries = await adapter.parse(SOURCE, { sessionUid: "s" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ts).toBe("2026-05-28T00:00:00.000Z");
   });
 });
 

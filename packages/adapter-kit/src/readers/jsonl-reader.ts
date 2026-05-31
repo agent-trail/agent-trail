@@ -6,29 +6,39 @@ export interface JsonlReaderOptions {
   // Derives the source schema version from the first parsed record. Omit when
   // the source carries no version marker.
   versionFrom?: (first: RawRecord) => string | undefined;
+  // Tolerant mode skips malformed / non-object lines. Strict mode throws so
+  // adapters with strict source contracts do not silently omit source records.
+  mode?: "tolerant" | "strict";
 }
 
-function parseLine(line: string): RawRecord | undefined {
+function parseLine(
+  line: string,
+  lineNumber: number,
+  mode: "tolerant" | "strict",
+): RawRecord | undefined {
   if (line.length === 0) return undefined;
+  let value: unknown;
   try {
-    const value = JSON.parse(line);
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as RawRecord)
-      : undefined;
+    value = JSON.parse(line);
   } catch {
-    // Skip malformed lines defensively rather than aborting the whole source.
+    if (mode === "strict") {
+      throw new Error(`JsonlReader: malformed JSON on line ${lineNumber}`);
+    }
     return undefined;
   }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as RawRecord;
+  }
+  if (mode === "strict") {
+    throw new Error(`JsonlReader: expected JSON object on line ${lineNumber}`);
+  }
+  return undefined;
 }
 
-// Reads newline-delimited JSON sources. Yields one parsed object per line,
-// skipping blank and malformed lines.
-//
-// Note on malformed lines: this reader is tolerant (skips), whereas the codex
-// and claude-code adapters' own parseLines throw on malformed JSON. The reader
-// is not yet consumed by any adapter — the mapping pipeline that adopts it
-// lands in a later phase (#146), at which point the tolerant-vs-strict choice
-// is settled per adapter. Until then this divergence is inert.
+// Reads newline-delimited JSON sources. In tolerant mode, yields one parsed
+// object per line while skipping blank, malformed, and non-object lines. In
+// strict mode, blank lines are still ignored but malformed / non-object lines
+// throw. Adapter owners pick the mode at their source trust boundary.
 //
 // records() and identityHash() each read the source independently (two reads if
 // both are called). Intentional for a stateless reader; revisit with a cache
@@ -38,8 +48,10 @@ export class JsonlReader implements SourceReader {
 
   async *records(source: SourcePointer): AsyncIterable<RawRecord> {
     const text = await readFile(source.path, "utf8");
-    for (const line of text.split("\n")) {
-      const record = parseLine(line);
+    const mode = this.options.mode ?? "tolerant";
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i += 1) {
+      const record = parseLine(lines[i] ?? "", i + 1, mode);
       if (record !== undefined) yield record;
     }
   }

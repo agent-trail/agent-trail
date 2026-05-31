@@ -338,6 +338,42 @@ test("parseSession throws when the first record is not session_meta", async () =
   ).rejects.toThrow(/session_meta/);
 });
 
+test("parseSession stamps timestamp-less drift quarantine from the session header", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-timestamp-less-drift-019d.jsonl");
+  const ts = "2026-05-28T01:00:00.000Z";
+  writeFileSync(
+    path,
+    `${JSON.stringify({
+      timestamp: ts,
+      type: "session_meta",
+      payload: {
+        id: "019d7909-85dd-7881-aa12-95ffc8ca8bb2",
+        timestamp: ts,
+        cwd: process.cwd(),
+        cli_version: "0.128.0",
+      },
+    })}\n${JSON.stringify({ type: "totally_unknown_codex_record", payload: { opaque: true } })}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({
+    id: "019d7909-85dd-7881-aa12-95ffc8ca8bb2",
+    adapter: "codex",
+    path,
+  });
+  const quarantine = trail.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-codex/unknown_record",
+  );
+  expect(quarantine?.ts).toBe(ts);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("CODEX_HOME whitespace-only override falls back to default", () => {
   process.env.CODEX_HOME = "   ";
   expect(codexHomeDir()).toBe(join(tmpHome, ".codex"));

@@ -38,6 +38,20 @@ test("records: skips non-object JSON lines (arrays, scalars)", async () => {
   expect(records).toEqual([{ a: 1 }, { b: 2 }]);
 });
 
+test("records: strict mode throws on malformed lines", async () => {
+  const source = fixture("strict-malformed.jsonl", '{"a":1}\nnot json\n{"c":3}\n');
+  await expect(collect(new JsonlReader({ mode: "strict" }), source)).rejects.toThrow(
+    /malformed JSON on line 2/,
+  );
+});
+
+test("records: strict mode throws on non-object JSON lines", async () => {
+  const source = fixture("strict-nonobject.jsonl", '{"a":1}\n[1,2,3]\n{"b":2}\n');
+  await expect(collect(new JsonlReader({ mode: "strict" }), source)).rejects.toThrow(
+    /expected JSON object on line 2/,
+  );
+});
+
 test("identityHash: sha256 hex of file bytes", async () => {
   const text = '{"a":1}\n';
   const source = fixture("hash.jsonl", text);

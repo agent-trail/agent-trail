@@ -76,8 +76,8 @@ and `source.raw.envelope_ref` are derived by the kit engine and are not byte-ide
 hand-written parsers (that's expected — no stored trails depend on them). Accepted behaviors of the
 kit path:
 
-- A schema-invalid record with an **unparseable** timestamp quarantines with an empty `ts` (the
-  reconciler has no last-valid-ts to inherit).
+- A schema-invalid record with a missing or unparseable timestamp quarantines with the nearest
+  writer-strict source timestamp inherited by the kit, keeping the diagnostic entry schema-valid.
 - **`parent_id` topology varies by adapter reconciler config.** Pi is tree-native (`piParentResolution`
   rebuilds the real `parentUuid` tree). Claude Code runs the kit's `parentChain: true`, which emits an
   explicit **sequential** chain — each entry parents off the entry emitted immediately before it, and

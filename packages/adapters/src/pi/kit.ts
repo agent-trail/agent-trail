@@ -22,6 +22,7 @@ export function buildPiKitAdapter(sessionVersion: string | undefined): Adapter {
     quarantineNamespace: "pi",
     sourceFormatVersions: ["v1"],
     reader: new JsonlReader({
+      mode: "strict",
       versionFrom: (first) => versionString((first as PiEnvelope).version),
     }),
     tsFrom: (record) => timestampToIso((record as PiEnvelope).timestamp) ?? "",
