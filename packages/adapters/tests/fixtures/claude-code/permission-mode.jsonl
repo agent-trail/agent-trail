@@ -1,0 +1,4 @@
+{"type":"user","uuid":"00000000-0000-0000-0000-dddd00000001","parentUuid":null,"isSidechain":false,"timestamp":"2026-05-18T10:00:00.000Z","sessionId":"00000000-0000-0000-0000-ddddd0000009","version":"1.0.0-synthetic","cwd":"/tmp/synthetic-project","message":{"role":"user","content":"start working"}}
+{"type":"permission-mode","permissionMode":"default","sessionId":"00000000-0000-0000-0000-ddddd0000009","version":"1.0.0-synthetic"}
+{"type":"assistant","uuid":"00000000-0000-0000-0000-dddd00000002","parentUuid":"00000000-0000-0000-0000-dddd00000001","isSidechain":false,"timestamp":"2026-05-18T10:00:02.000Z","sessionId":"00000000-0000-0000-0000-ddddd0000009","version":"1.0.0-synthetic","message":{"role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"on it"}],"stop_reason":"end_turn"}}
+{"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"00000000-0000-0000-0000-ddddd0000009","version":"1.0.0-synthetic"}

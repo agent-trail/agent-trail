@@ -2,9 +2,11 @@
 // Imported by the CLI runner (scripts/diff-harness.ts) so `bun run diff:adapters`
 // compares old vs new. Kept separate from the generic harness so diff-harness/
 // stays adapter-agnostic and its unit tests run against an empty registry.
+import { claudeCodeV2HarnessTarget } from "../claude-code/v2/harness-target.ts";
 import { codexV2HarnessTarget } from "../codex/v2/harness-target.ts";
 import { piV2HarnessTarget } from "../pi/v2/harness-target.ts";
 import { v2HarnessTargets } from "./index.ts";
 
 v2HarnessTargets.push(piV2HarnessTarget);
 v2HarnessTargets.push(codexV2HarnessTarget);
+v2HarnessTargets.push(claudeCodeV2HarnessTarget);

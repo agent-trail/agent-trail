@@ -66,7 +66,7 @@ export function extractMetadataHints(envelopes: CcEnvelope[]): ClaudeCodeMetadat
   return hints;
 }
 
-function buildHeader(envelopes: CcEnvelope[]): Header {
+export function buildHeader(envelopes: CcEnvelope[]): Header {
   const first = envelopes.find((env) => isTracerEnvelope(env) && env.timestamp !== undefined);
   const firstSession = envelopes.find(
     (env) => isTracerEnvelope(env) && env.sessionId !== undefined,

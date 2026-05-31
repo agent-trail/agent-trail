@@ -18,7 +18,7 @@ import {
 } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
-function systemEventText(envelope: CcEnvelope): string {
+export function systemEventText(envelope: CcEnvelope): string {
   if (envelope.type === "system") {
     const subtype = stringValue(envelope.subtype) ?? "system";
     const content = stringValue(envelope.content);
@@ -106,7 +106,7 @@ function systemSubtypeToKind(subtype: string | undefined): string {
   }
 }
 
-function systemEventKind(envelope: CcEnvelope): string {
+export function systemEventKind(envelope: CcEnvelope): string {
   if (envelope.type === "queue-operation") return "queue_operation";
   if (envelope.type === "pr-link") return "x-claudecode/pr_link";
   if (envelope.type === "progress") {
@@ -119,7 +119,7 @@ function systemEventKind(envelope: CcEnvelope): string {
   return systemSubtypeToKind(stringValue(envelope.subtype));
 }
 
-function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefined {
+export function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefined {
   if (envelope.type === "progress") return jsonObjectValue(envelope.data);
   if (envelope.type === "pr-link") {
     const out: Record<string, unknown> = {};
