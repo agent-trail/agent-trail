@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defineAdapter } from "./define-adapter.ts";
+import { defineMapping } from "./define-mapping.ts";
 import type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 import type { AdapterDef } from "./types.ts";
 
@@ -73,5 +74,30 @@ describe("unrecognized source version is mapped leniently (not quarantined)", ()
     );
     const entries = await adapter.parse(SOURCE, { sessionUid: "s" });
     expect(entries).toHaveLength(0);
+  });
+
+  test("no schemaKey → schema-invalid record still maps when a mapping exists", async () => {
+    const adapter = defineAdapter(
+      adapterDef({
+        schemaAgent: "codex",
+        reader: codexReader({ valid: false, noVersion: true }),
+        mappings: [
+          defineMapping<RawRecord>({
+            match: { type: "totally-unknown-type" },
+            emit: () => [
+              {
+                type: "system_event",
+                payload: { kind: "mapped_without_schema", text: "mapped without schema" },
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const entries = await adapter.parse(SOURCE, { sessionUid: "s" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.type).toBe("system_event");
+    expect((entries[0]?.payload as { kind?: string }).kind).toBe("mapped_without_schema");
   });
 });

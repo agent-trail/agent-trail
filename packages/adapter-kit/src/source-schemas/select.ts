@@ -16,8 +16,8 @@ const metas: Record<string, SourceMeta> = {
  * Resolve a source-format schema version key from the upstream version reported
  * by a recording (e.g. codex `cli_version`, pi numeric `version`). Returns the
  * first range that matches, else the agent's declared `fallback`. A missing
- * version or unknown agent yields `undefined` — the caller decides whether to
- * quarantine wholesale.
+ * version or unknown agent yields `undefined`; `defineAdapter` treats that as
+ * validation-unavailable and still runs mappings.
  */
 export function selectSchemaVersion(
   agent: string,

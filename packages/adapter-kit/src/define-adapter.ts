@@ -10,9 +10,10 @@ import type { AdapterDef, ParseOptions } from "./types.ts";
 export interface Adapter {
   /**
    * Read a source, map its records to trail entries, and reconcile them. Records
-   * that fail source-schema validation (unknown version or shape drift) become
-   * lossless quarantine `system_event`s. Returns entries only — discovery and
-   * header building are per-adapter glue (#135 P4).
+   * that fail a resolved source-schema validation become lossless quarantine
+   * `system_event`s; when no source schema resolves, validation is unavailable
+   * and mappings run leniently. Returns entries only — discovery and header
+   * building are per-adapter glue (#135 P4).
    */
   parse(source: SourcePointer, options: ParseOptions): Promise<Entry[]>;
 }
