@@ -42,8 +42,12 @@ export function defineAdapter<S = unknown>(def: AdapterDef<S>): Adapter {
         sessionUid: options.sessionUid,
         tsFrom: def.tsFrom,
         drift: {
+          // Quarantine only when we have a schema AND the record fails it. When
+          // the source version is unrecognized (no schemaKey), map leniently —
+          // matching the v1 adapters, which skip validation for unknown versions
+          // rather than quarantining the whole session.
           isDrift: (record) =>
-            schemaKey === undefined ||
+            schemaKey !== undefined &&
             validateSourceRecord(schemaAgent, schemaKey, record).length > 0,
           toDraft: (record) =>
             quarantineDraft({ agent: def.agent, namespace: def.quarantineNamespace, record }),
