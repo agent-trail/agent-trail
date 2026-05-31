@@ -10,9 +10,10 @@ import type { AdapterDef, ParseOptions } from "./types.ts";
 export interface Adapter {
   /**
    * Read a source, map its records to trail entries, and reconcile them. Records
-   * that fail source-schema validation (unknown version or shape drift) become
-   * lossless quarantine `system_event`s. Returns entries only — discovery and
-   * header building are per-adapter glue (#135 P4).
+   * that fail a resolved source-schema validation become lossless quarantine
+   * `system_event`s; when no source schema resolves, validation is unavailable
+   * and mappings run leniently. Returns entries only — discovery and header
+   * building are per-adapter glue (#135 P4).
    */
   parse(source: SourcePointer, options: ParseOptions): Promise<Entry[]>;
 }
@@ -42,8 +43,12 @@ export function defineAdapter<S = unknown>(def: AdapterDef<S>): Adapter {
         sessionUid: options.sessionUid,
         tsFrom: def.tsFrom,
         drift: {
+          // Quarantine only when we have a schema AND the record fails it. When
+          // the source version is unrecognized (no schemaKey), map leniently —
+          // matching the v1 adapters, which skip validation for unknown versions
+          // rather than quarantining the whole session.
           isDrift: (record) =>
-            schemaKey === undefined ||
+            schemaKey !== undefined &&
             validateSourceRecord(schemaAgent, schemaKey, record).length > 0,
           toDraft: (record) =>
             quarantineDraft({ agent: def.agent, namespace: def.quarantineNamespace, record }),

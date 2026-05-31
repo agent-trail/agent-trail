@@ -95,6 +95,49 @@ describe("claude-code v2 stateful behaviors", () => {
     }
   });
 
+  test("schema version comes from later tracer when first raw line is versionless", async () => {
+    const path = writeTempJsonl("cc-v2-version-fallback-", [
+      { type: "ai-title", aiTitle: "Versionless first line", sessionId: "s" },
+      {
+        type: "user",
+        uuid: "00000000-0000-0000-0000-00000000dd01",
+        parentUuid: null,
+        timestamp: "2026-05-18T10:00:00.000Z",
+        sessionId: "s",
+        message: { role: "user", content: "hi" },
+      },
+      {
+        type: "user",
+        uuid: "00000000-0000-0000-0000-00000000dd02",
+        parentUuid: "00000000-0000-0000-0000-00000000dd01",
+        timestamp: "2026-05-18T10:00:01.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+        message: { role: "user", content: "continue" },
+      },
+      {
+        type: "totally-unknown-type",
+        timestamp: "2026-05-18T10:00:02.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+      },
+    ]);
+    try {
+      const all = await parseClaudeCodeV2Entries(path, "unit-test");
+      const quarantine = all.find(
+        (e) =>
+          e.type === "system_event" &&
+          (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
+      );
+      expect(quarantine).toBeDefined();
+      expect((quarantine?.payload as { data?: { raw?: { type?: string } } }).data?.raw?.type).toBe(
+        "totally-unknown-type",
+      );
+    } finally {
+      rmSync(dirname(path), { recursive: true, force: true });
+    }
+  });
+
   test("parseSession wrapper preserves envelope metadata and worktree vcs hints", async () => {
     const path = writeTempJsonl("cc-v2-wrapper-", [
       {
