@@ -158,7 +158,7 @@ function mcpToolFromName(rawName: string): { server: string; tool: string } | un
 function mcpToolFromArgs(
   rawName: string | undefined,
   args: Record<string, unknown>,
-): { server: string; tool: string } | undefined {
+): { server: string; tool: string; selectorKey?: "name" | "tool" } | undefined {
   if (rawName !== undefined) {
     const fromName = mcpToolFromName(rawName);
     if (fromName !== undefined) return fromName;
@@ -166,8 +166,14 @@ function mcpToolFromArgs(
   const namespace = stringValue(args.namespace);
   if (namespace?.startsWith("mcp__") === true) {
     const server = namespace.slice("mcp__".length);
-    const tool = stringValue(args.name) ?? stringValue(args.tool);
-    if (server.length > 0 && tool !== undefined) return { server, tool };
+    const nameTool = stringValue(args.name);
+    if (server.length > 0 && nameTool !== undefined) {
+      return { server, tool: nameTool, selectorKey: "name" };
+    }
+    const toolTool = stringValue(args.tool);
+    if (server.length > 0 && toolTool !== undefined) {
+      return { server, tool: toolTool, selectorKey: "tool" };
+    }
   }
   return undefined;
 }
@@ -176,8 +182,12 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   const args = isObject(rawArgs) ? rawArgs : {};
   const mcp = mcpToolFromArgs(rawName, args);
   if (mcp !== undefined) {
-    const { namespace: _namespace, name: _name, tool: _tool, ...toolArgs } = args;
-    return { tool: "mcp_call", args: { ...mcp, args: toolArgs } };
+    const toolArgs = { ...args };
+    if (mcp.selectorKey !== undefined) {
+      delete toolArgs.namespace;
+      delete toolArgs[mcp.selectorKey];
+    }
+    return { tool: "mcp_call", args: { server: mcp.server, tool: mcp.tool, args: toolArgs } };
   }
   // `exec_command` is the canonical interactive-shell tool in real Codex
   // rollouts (codex-tui 0.128+, Codex Desktop 0.133+). Args carry `cmd`

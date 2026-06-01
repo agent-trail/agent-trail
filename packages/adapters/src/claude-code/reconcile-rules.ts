@@ -8,6 +8,13 @@ import type { Entry, ToolKind } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 
+const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
+const TEXT_ENCODER = new TextEncoder();
+
+function byteLength(value: string): number {
+  return TEXT_ENCODER.encode(value).byteLength;
+}
+
 function hintOf(entry: Entry): CcHint | undefined {
   return entry.meta?.[HINT] as CcHint | undefined;
 }
@@ -90,6 +97,9 @@ export const ccToolKindToResult: ReconcilerRule = (entries) => {
     const payload = entry.payload as Record<string, unknown>;
     const output = typeof payload.output === "string" ? payload.output : undefined;
     if (output === undefined) return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    if (byteLength(output) > USER_INPUT_ANSWERS_META_MAX_BYTES) {
+      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    }
     const meta =
       payload.meta !== null && typeof payload.meta === "object"
         ? (payload.meta as Record<string, unknown>)

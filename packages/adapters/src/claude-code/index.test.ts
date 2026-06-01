@@ -400,6 +400,74 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
   }
 });
 
+test("AskUserQuestion result does not mirror oversized answers into meta", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-large-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000200";
+    const largeAnswer = "X".repeat(11_000);
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-large",
+              name: "AskUserQuestion",
+              input: { question: "Ship?", choices: ["yes", "no"] },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000200",
+        timestamp: "2026-05-17T16:10:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000200",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tooluse-question-large", content: largeAnswer },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000201",
+        timestamp: "2026-05-17T16:10:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const call = trail.entries.find(
+      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question-large",
+    );
+    const result = trail.entries.find(
+      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question-large",
+    );
+
+    expect(result?.payload).toEqual({
+      for_id: call?.id,
+      ok: true,
+      output: largeAnswer,
+    });
+    expect(result?.semantic?.tool_kind).toBe("user_input_request");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("parseSession() emits multiple tool_results with error state and semantic pairing", async () => {
   const trail = await parseFidelityFixture();
   // tool_call and tool_result block ids are fresh UUIDs at runtime, but the

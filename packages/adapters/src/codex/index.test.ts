@@ -292,6 +292,18 @@ test("mapTool promotes common Codex function calls out of other", () => {
     tool: "mcp_call",
     args: { server: "computer_use", tool: "click", args: { x: 10 } },
   });
+  expect(mapTool("mcp__demo__lookup", { name: "alice", tool: "hammer", other: 1 })).toEqual({
+    tool: "mcp_call",
+    args: { server: "demo", tool: "lookup", args: { name: "alice", tool: "hammer", other: 1 } },
+  });
+  expect(mapTool("connector", { namespace: "mcp__computer_use", name: "click", x: 10 })).toEqual({
+    tool: "mcp_call",
+    args: { server: "computer_use", tool: "click", args: { x: 10 } },
+  });
+  expect(mapTool("tool_search", { q: "auth flow", top_k: 3 })).toEqual({
+    tool: "tool_search",
+    args: { query: "auth flow", limit: 3 },
+  });
 });
 
 test("compact fixture emits context_compact from top-level compacted record", async () => {
@@ -582,7 +594,7 @@ test("response_item tool_search_call and open_page map to canonical tool kinds",
       payload: {
         type: "tool_search_call",
         call_id: "call-tool-search",
-        arguments: '{"query":"auth flow","limit":3}',
+        arguments: '{"q":"auth flow","top_k":3}',
       },
     },
     {
@@ -674,6 +686,63 @@ test("request_user_input result preserves structured answers under tool_result m
   });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("request_user_input result does not mirror oversized answers into meta", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-oversized-user-input-answer.jsonl");
+  const output = JSON.stringify({ answers: { ship: "X".repeat(11_000) } });
+  const lines = [
+    {
+      timestamp: "2026-05-28T12:30:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8b80-dddd-7000-a000-00000000000d",
+        timestamp: "2026-05-28T12:30:00.000Z",
+        cwd: process.cwd(),
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:30:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "request_user_input",
+        call_id: "call-user-input-large",
+        arguments: '{"question":"Ship?"}',
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:30:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-user-input-large",
+        output,
+      },
+    },
+  ];
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+  const trail = await codexAdapter.parseSession({
+    id: "019d8b80-dddd-7000-a000-00000000000d",
+    adapter: "codex",
+    path,
+  });
+  const result = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input-large",
+  );
+
+  expect(result?.payload).toEqual({
+    for_id: trail.entries.find((e) => e.semantic?.call_id === "call-user-input-large")?.id,
+    ok: true,
+    output,
+  });
+  expect(result?.semantic?.tool_kind).toBe("user_input_request");
 });
 
 test("custom_tool_call_output emits tool_result paired by call_id", async () => {

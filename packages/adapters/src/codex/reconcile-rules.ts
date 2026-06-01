@@ -2,6 +2,13 @@ import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trail/types";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
+const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
+const TEXT_ENCODER = new TextEncoder();
+
+function byteLength(value: string): number {
+  return TEXT_ENCODER.encode(value).byteLength;
+}
+
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
   const value = (entry.meta as Record<string, unknown> | undefined)?.[USAGE_CARRIER];
   return value as AgentMessageUsage | undefined;
@@ -143,6 +150,7 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
 
 function userInputAnswersFromOutput(output: unknown): unknown {
   if (typeof output !== "string") return undefined;
+  if (byteLength(output) > USER_INPUT_ANSWERS_META_MAX_BYTES) return undefined;
   try {
     const parsed = JSON.parse(output) as unknown;
     if (parsed !== null && typeof parsed === "object" && "answers" in parsed) {
