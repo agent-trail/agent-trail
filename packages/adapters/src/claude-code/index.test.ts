@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
+import { cleanGitEnv } from "../vcs.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
@@ -826,7 +827,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
   const repoDir = mkdtempSync(join(tmpdir(), "cc-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
-      const proc = Bun.spawn(["git", ...args], { cwd: repoDir, stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: repoDir,
+        env: cleanGitEnv(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       const code = await proc.exited;
       if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
     }

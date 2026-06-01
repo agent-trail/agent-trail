@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { piAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
+import { cleanGitEnv } from "../vcs.ts";
 // Adapter surface tests assert on the shape returned by parseSession. Entry ids
 // are an internal detail of the kit engine, so tests locate entries by type and
 // content and assert linkage via the found entries' own ids — never by a
@@ -1057,7 +1058,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
   const repoDir = mkdtempSync(join(tmpdir(), "pi-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
-      const proc = Bun.spawn(["git", ...args], { cwd: repoDir, stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: repoDir,
+        env: cleanGitEnv(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       const code = await proc.exited;
       if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
     }
