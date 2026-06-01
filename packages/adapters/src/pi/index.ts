@@ -4,7 +4,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
-import { buildPiKitAdapter, sessionVersionOf } from "./kit.ts";
+import { buildPiKitAdapter } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
 import { parseLines, versionString } from "./source.ts";
@@ -116,7 +116,8 @@ export const piAdapter: TrailAdapter = {
       throw new Error("Pi adapter requires SessionRef.path");
     }
     const text = await Bun.file(ref.path).text();
-    const header = buildHeader(parseLines(text));
+    const envelopes = parseLines(text);
+    const header = buildHeader(envelopes);
     if (header.session_uid === undefined) {
       throw new Error("Pi header missing session_uid (buildHeader invariant)");
     }
@@ -124,10 +125,9 @@ export const piAdapter: TrailAdapter = {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;
     }
-    const entries = await buildPiKitAdapter(sessionVersionOf(text)).parse(
-      { path: ref.path },
-      { sessionUid: header.session_uid },
-    );
+    const entries = await buildPiKitAdapter(
+      versionString(envelopes.find((env) => env.type === "session")?.version),
+    ).parse({ path: ref.path }, { sessionUid: header.session_uid });
     const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
     return { envelope, header, entries };
   },

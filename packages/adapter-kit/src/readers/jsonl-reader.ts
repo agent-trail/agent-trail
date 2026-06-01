@@ -16,10 +16,11 @@ function parseLine(
   lineNumber: number,
   mode: "tolerant" | "strict",
 ): RawRecord | undefined {
-  if (line.length === 0) return undefined;
+  const trimmedLine = line.trim();
+  if (trimmedLine.length === 0) return undefined;
   let value: unknown;
   try {
-    value = JSON.parse(line);
+    value = JSON.parse(trimmedLine);
   } catch {
     if (mode === "strict") {
       throw new Error(`JsonlReader: malformed JSON on line ${lineNumber}`);

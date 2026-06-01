@@ -26,6 +26,12 @@ test("records: yields parsed objects, skipping empty lines", async () => {
   expect(records).toEqual([{ a: 1 }, { b: 2 }]);
 });
 
+test("records: skips whitespace-only lines", async () => {
+  const source = fixture("whitespace.jsonl", '{"a":1}\n  \n\t\r\n{"b":2}\n');
+  const records = await collect(new JsonlReader(), source);
+  expect(records).toEqual([{ a: 1 }, { b: 2 }]);
+});
+
 test("records: skips malformed lines defensively", async () => {
   const source = fixture("malformed.jsonl", '{"a":1}\nnot json\n{"c":3}\n');
   const records = await collect(new JsonlReader(), source);
@@ -43,6 +49,12 @@ test("records: strict mode throws on malformed lines", async () => {
   await expect(collect(new JsonlReader({ mode: "strict" }), source)).rejects.toThrow(
     /malformed JSON on line 2/,
   );
+});
+
+test("records: strict mode skips whitespace-only lines", async () => {
+  const source = fixture("strict-whitespace.jsonl", '{"a":1}\n  \n\t\r\n{"b":2}\n');
+  const records = await collect(new JsonlReader({ mode: "strict" }), source);
+  expect(records).toEqual([{ a: 1 }, { b: 2 }]);
 });
 
 test("records: strict mode throws on non-object JSON lines", async () => {

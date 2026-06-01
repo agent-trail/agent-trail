@@ -7,7 +7,6 @@ import { readGitVcs } from "../vcs.ts";
 import { codexKitAdapter } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { codexSessionsDir } from "./paths.ts";
-import { parseLines } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-codex/${pkg.version}`;
 
@@ -136,6 +135,18 @@ async function readSessionVersionFromHead(path: string): Promise<string | undefi
   return undefined;
 }
 
+async function readFirstRecordFromHead(path: string): Promise<Record<string, unknown> | undefined> {
+  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
+  for (const line of lines) {
+    try {
+      return JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      // Skip malformed head lines defensively, matching parseLines' tolerance.
+    }
+  }
+  return undefined;
+}
+
 async function walkRolloutFiles(root: string): Promise<string[]> {
   if (!(await dirExists(root))) return [];
   const out: string[] = [];
@@ -213,8 +224,7 @@ export const codexAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Codex adapter requires SessionRef.path");
     }
-    const text = await Bun.file(ref.path).text();
-    const header = buildHeader((parseLines(text)[0] ?? {}) as Record<string, unknown>);
+    const header = buildHeader((await readFirstRecordFromHead(ref.path)) ?? {});
     if (header.vcs === undefined && typeof header.cwd === "string") {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;

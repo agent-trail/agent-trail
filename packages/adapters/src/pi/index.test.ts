@@ -3,15 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { piAdapter, validateAdapterTrail } from "../index.ts";
+import { ID_PATTERN } from "../test-helpers.ts";
 // Adapter surface tests assert on the shape returned by parseSession. Entry ids
 // are an internal detail of the kit engine, so tests locate entries by type and
 // content and assert linkage via the found entries' own ids — never by a
 // reconstructed id.
 import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
-
-const ID_PATTERN =
-  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;

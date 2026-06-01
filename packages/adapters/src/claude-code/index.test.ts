@@ -3,10 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
+import { ID_PATTERN } from "../test-helpers.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
-
-const ID_PATTERN =
-  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
 
 // Surface tests assert on the shape returned by parseSession. Entry ids are an
 // internal detail of the kit engine, so tests locate entries by type/content and
@@ -199,7 +197,7 @@ test("parseSession() emits a user_message for user text records, with no parent_
   expect(userMessage?.ts).toBe("2026-05-17T14:00:05.000Z");
   expect(userMessage?.payload).toEqual({ text: "please list the files" });
   // The leading user record has no parentUuid → root of the linear chain.
-  expect(userMessage?.parent_id ?? null).toBeNull();
+  expect(userMessage?.parent_id).toBeNull();
   expect(userMessage?.source?.original_type).toBe("user");
 });
 
