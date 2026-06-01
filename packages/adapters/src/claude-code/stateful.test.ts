@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Entry } from "@agent-trail/types";
 import { claudeCodeAdapter } from "./index.ts";
 import { parseClaudeCodeEntries } from "./kit.ts";
+import { ccToolKindToResult } from "./reconcile-rules.ts";
 
 const FIXTURES = join(import.meta.dir, "../../tests/fixtures/claude-code");
 const entries = (fixture: string): Promise<Entry[]> =>
@@ -18,6 +19,31 @@ function writeTempJsonl(prefix: string, records: Record<string, unknown>[]): str
 }
 
 describe("claude-code v2 stateful behaviors", () => {
+  test("user_query_response preserves linker-derived call_id", () => {
+    const out = ccToolKindToResult(
+      [
+        {
+          type: "user_query",
+          id: "query-1",
+          ts: "2026-05-18T10:00:00.000Z",
+          payload: { questions: [{ id: "ship", question: "Ship?" }] },
+          meta: { linker: { call_id: "tooluse-question" } },
+        },
+        {
+          type: "tool_result",
+          id: "result-1",
+          ts: "2026-05-18T10:00:01.000Z",
+          payload: { ok: true, output: '"Ship?"="yes"' },
+          meta: { linker: { call_id: "tooluse-question" } },
+        },
+      ] as Entry[],
+      { agent: "claude-code" },
+    );
+
+    expect(out[1]?.type).toBe("user_query_response");
+    expect(out[1]?.semantic).toEqual({ call_id: "tooluse-question" });
+  });
+
   test("model_change synth: from/to + synthesized across a model switch", async () => {
     const all = await entries("interrupt-and-model-change.jsonl");
     const change = all.find((e) => e.type === "model_change");

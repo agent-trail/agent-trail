@@ -263,7 +263,7 @@ export const codexUserQueryResponses: ReconcilerRule = (entries) => {
           ),
         },
         semantic: {
-          ...(entry.semantic?.call_id !== undefined ? { call_id: entry.semantic.call_id } : {}),
+          ...(callId !== undefined ? { call_id: callId } : {}),
         },
       } as Entry;
     }

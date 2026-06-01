@@ -104,7 +104,7 @@ export const ccToolKindToResult: ReconcilerRule = (entries) => {
           answers: answersForQuery(query, (entry.payload as { output?: unknown }).output),
         },
         semantic: {
-          ...(entry.semantic?.call_id !== undefined ? { call_id: entry.semantic.call_id } : {}),
+          ...(callId !== undefined ? { call_id: callId } : {}),
         },
       } as Entry;
     }
