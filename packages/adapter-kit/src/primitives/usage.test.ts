@@ -23,6 +23,27 @@ test("mapAgentMessageUsage: accepts camelCase aliases", () => {
   });
 });
 
+test("mapAgentMessageUsage: maps Pi's bare input/output/cacheRead/cacheWrite names", () => {
+  // Real Pi `message.usage` uses these keys (verified against local sessions);
+  // cacheWrite is Pi's cache-creation counter. totalTokens/cost have no spec
+  // usage field and are intentionally dropped here.
+  expect(
+    mapAgentMessageUsage({
+      input: 1234,
+      output: 567,
+      cacheRead: 100,
+      cacheWrite: 50,
+      totalTokens: 1801,
+      cost: 0.012,
+    }),
+  ).toEqual({
+    input_tokens: 1234,
+    output_tokens: 567,
+    cache_read_tokens: 100,
+    cache_creation_tokens: 50,
+  });
+});
+
 test("mapAgentMessageUsage: renames cache_*_input_tokens to spec names", () => {
   expect(
     mapAgentMessageUsage({ cache_read_input_tokens: 8, cache_creation_input_tokens: 2 }),

@@ -212,14 +212,22 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
   const trail = await parseUsageFixture();
   const agentMsg = trail.entries.find((e) => e.type === "agent_message");
   expect(agentMsg?.type).toBe("agent_message");
+  // Real Pi `message.usage` keys (input/output/cacheRead/cacheWrite) map to the
+  // spec usage fields. Pi has no cumulative/reasoning counters; `totalTokens` and
+  // `cost` have no spec usage field (preserved under source.raw, surfaced as a
+  // canonical field only once #116 lands).
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
     output_tokens: 567,
-    input_tokens_cumulative: 12340,
-    output_tokens_cumulative: 5670,
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
-    reasoning_tokens: 200,
+  });
+  expect(
+    (agentMsg?.source?.raw as { envelope?: { message?: { usage?: unknown } } })?.envelope?.message
+      ?.usage,
+  ).toMatchObject({
+    totalTokens: 1801,
+    cost: 0.0123,
   });
 });
 

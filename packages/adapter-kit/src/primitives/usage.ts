@@ -32,9 +32,9 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   if (typeof raw !== "object" || raw === null) return undefined;
   const src = raw as Record<string, unknown>;
   const usage: AgentMessageUsage = {};
-  const inputTokens = pick(src, ["input_tokens", "inputTokens"]);
+  const inputTokens = pick(src, ["input_tokens", "inputTokens", "input"]);
   if (inputTokens !== undefined) usage.input_tokens = inputTokens;
-  const outputTokens = pick(src, ["output_tokens", "outputTokens"]);
+  const outputTokens = pick(src, ["output_tokens", "outputTokens", "output"]);
   if (outputTokens !== undefined) usage.output_tokens = outputTokens;
   const inputCumulative = pick(src, [
     "input_tokens_cumulative",
@@ -49,20 +49,23 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   ]);
   if (outputCumulative !== undefined) usage.output_tokens_cumulative = outputCumulative;
   // Anthropic source: cache_read_input_tokens → spec: cache_read_tokens.
-  // Pi camelCase variants accepted defensively.
+  // Pi uses the bare `cacheRead`; camelCase variants accepted defensively.
   const cacheRead = pick(src, [
     "cache_read_input_tokens",
     "cache_read_tokens",
     "cacheReadInputTokens",
     "cacheReadTokens",
+    "cacheRead",
   ]);
   if (cacheRead !== undefined) usage.cache_read_tokens = cacheRead;
   // Anthropic source: cache_creation_input_tokens → spec: cache_creation_tokens.
+  // Pi writes cache-creation tokens under `cacheWrite`.
   const cacheCreate = pick(src, [
     "cache_creation_input_tokens",
     "cache_creation_tokens",
     "cacheCreationInputTokens",
     "cacheCreationTokens",
+    "cacheWrite",
   ]);
   if (cacheCreate !== undefined) usage.cache_creation_tokens = cacheCreate;
   const reasoning = pick(src, ["reasoning_tokens", "reasoningTokens"]);
