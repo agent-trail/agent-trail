@@ -1,6 +1,6 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
-import type { Entry, ToolKind } from "@agent-trail/types";
+import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
 import {
   AGENT_NAME,
   buildExecCommandEndData,
@@ -412,13 +412,92 @@ const itemCompleted = lifecycle("item_completed", (p) => {
   return { kind: "x-codex/item_completed", rawType: "event_msg.item_completed", data };
 });
 
+// Transient carrier: an image-bearing `response_item.message` maps to a carrier
+// system_event holding the attachments + text + role under this meta key.
+// `codexImageRollup` folds the attachments into the matching user/agent message
+// (whose text is the duplicate `event_msg` echo) and drops the carrier.
+export const IMAGE_CARRIER = "x-codex/_images";
+
+type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
+
+// Pull the media type out of a `data:<media-type>;base64,...` URI.
+function dataUriMediaType(uri: string): string | undefined {
+  const match = /^data:([^;,]+)[;,]/.exec(uri);
+  return match?.[1];
+}
+
+// Build spec `attachments[]` from a response_item.message content array. Codex
+// images appear as `input_image` (Responses API, `image_url` is a data: URI) or
+// `image` (`{ source: { media_type, data } }`). Non-image blocks are ignored.
+function imageAttachments(content: unknown): Attachment[] {
+  if (!Array.isArray(content)) return [];
+  const out: Attachment[] = [];
+  for (const block of content) {
+    if (!isObject(block)) continue;
+    const type = stringValue(block.type);
+    if (type !== "input_image" && type !== "image") continue;
+    const src = isObject(block.source) ? block.source : undefined;
+    let uri = stringValue(block.image_url) ?? stringValue(src?.url);
+    let mediaType = uri !== undefined ? dataUriMediaType(uri) : undefined;
+    if (uri === undefined && src !== undefined) {
+      const mt = stringValue(src.media_type);
+      const data = stringValue(src.data);
+      if (mt !== undefined && data !== undefined) uri = `data:${mt};base64,${data}`;
+      if (mt !== undefined) mediaType = mt;
+    }
+    const attachment: Attachment = { kind: "image" };
+    if (mediaType !== undefined) attachment.media_type = mediaType;
+    if (uri !== undefined) attachment.uri = uri;
+    out.push(attachment);
+  }
+  return out;
+}
+
+function textFromMessageContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(isObject)
+    .map((b) => (/text/.test(String(b.type)) ? (stringValue(b.text) ?? "") : ""))
+    .join("");
+}
+
+// `response_item.message` is the Responses-API conversation item. Its text
+// duplicates the `event_msg.{user,agent}_message` the adapter already emits, so
+// text-only ones are suppressed. Image-bearing ones carry content that is NOT in
+// the (text-only) event_msg echo, so they map to a transient IMAGE_CARRIER whose
+// attachments `codexImageRollup` folds into the matching message.
+const responseItemMessage = defineMapping<Raw>({
+  match: { type: "response_item", payload: { type: "message" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const attachments = imageAttachments(p.content);
+    if (attachments.length === 0) return []; // text-only → suppress (duplicate)
+    const carried: CarriedImages = {
+      attachments,
+      text: textFromMessageContent(p.content),
+      ...(stringValue(p.role) !== undefined ? { role: stringValue(p.role) } : {}),
+    };
+    return [
+      {
+        type: "system_event",
+        payload: { kind: IMAGE_CARRIER, text: "" },
+        source: source("response_item.message"),
+        meta: { [RAW_TYPE]: "response_item.message", [IMAGE_CARRIER]: carried },
+      },
+    ];
+  },
+});
+
 // Intentionally NOT mapped (recognized by the codex/v0.135 schema so they are not
 // quarantined, and dropped because they duplicate already-captured records):
-//   - response_item.message — duplicates event_msg.{user,agent}_message.
+//   - response_item.message (text-only) — duplicates event_msg.{user,agent}_message.
 //   - event_msg.context_compacted — duplicates the top-level `compacted` record.
 export const codexMappings: MappingDef<Raw>[] = [
   message("user_message"),
   message("agent_message"),
+  responseItemMessage,
   functionCall,
   toolResult("function_call_output"),
   customToolCall,

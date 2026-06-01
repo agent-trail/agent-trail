@@ -58,3 +58,29 @@ describe("codex v0.135 new event subtypes", () => {
     expect((compacts[0]?.payload as { summary?: string }).summary).toBe("summary of earlier turns");
   });
 });
+
+describe("codex v0.135 image-bearing response_item.message", () => {
+  const imageEntries = (): Promise<Entry[]> =>
+    parseCodexEntries(join(FIXTURES, "image-message.jsonl"), "unit-test");
+
+  test("image is attached to the matching user_message (no duplicate, no carrier leak)", async () => {
+    const all = await imageEntries();
+    const users = all.filter((e) => e.type === "user_message");
+    // Exactly one user_message (the event_msg echo) — the image-bearing
+    // response_item.message does NOT add a second message.
+    expect(users).toHaveLength(1);
+    expect((users[0]?.payload as { text?: string }).text).toBe("describe this screenshot");
+    expect((users[0]?.payload as { attachments?: unknown }).attachments).toEqual([
+      {
+        kind: "image",
+        media_type: "image/png",
+        uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+      },
+    ]);
+    // the transient carrier never reaches the output
+    expect(
+      all.some((e) => (e.meta as Record<string, unknown> | undefined)?.["x-codex/_images"]),
+    ).toBe(false);
+    expect(all.filter((e) => e.type === "agent_message")).toHaveLength(1);
+  });
+});

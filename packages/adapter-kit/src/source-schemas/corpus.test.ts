@@ -33,7 +33,10 @@ const DRIFT_FIXTURES = new Set(["pi/quarantine.jsonl"]);
 
 // Fixtures whose records belong to a newer source-schema than the agent's
 // corpus default. Keyed `${agent}/${file}` → schema version to validate against.
-const FIXTURE_VERSION_OVERRIDE = new Map([["codex/v0_135-events.jsonl", "v0.135"]]);
+const FIXTURE_VERSION_OVERRIDE = new Map([
+  ["codex/v0_135-events.jsonl", "v0.135"],
+  ["codex/image-message.jsonl", "v0.135"],
+]);
 
 for (const { agent, version } of corpus) {
   describe(`${agent} ${version} source schema corpus`, () => {
