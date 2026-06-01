@@ -395,6 +395,154 @@ test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matc
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() keeps failed TodoWrite results instead of dropping them as acks", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000132",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1321",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "please keep a plan" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1321",
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-cccccccc1322",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-write-failed",
+            name: "TodoWrite",
+            input: {
+              todos: [{ content: "Write failing test", status: "pending" }],
+            },
+          },
+        ],
+      },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1322",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1323",
+      timestamp: "2026-05-17T14:00:07.000Z",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "todo-write-failed",
+            is_error: true,
+            content: "TodoWrite failed",
+          },
+        ],
+      },
+    },
+  ]);
+
+  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  expect(result?.semantic?.call_id).toBe("todo-write-failed");
+  expect(result?.payload).toEqual({
+    ok: false,
+    output: "TodoWrite failed",
+    error: "TodoWrite failed",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() preserves source metadata and parentage when dropping first-block TodoWrite acks", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000133",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1331",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "please keep a plan and run a command" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1331",
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-cccccccc1332",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-write-ack-first",
+            name: "TodoWrite",
+            input: {
+              todos: [{ content: "Write failing test", status: "pending" }],
+            },
+          },
+          {
+            type: "tool_use",
+            id: "bash-after-plan",
+            name: "Bash",
+            input: { command: "printf real" },
+          },
+        ],
+      },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1332",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1333",
+      timestamp: "2026-05-17T14:00:07.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "todo-write-ack-first", content: "ok" },
+          { type: "tool_result", tool_use_id: "bash-after-plan", content: "real output" },
+        ],
+      },
+    },
+  ]);
+
+  expect(
+    trail.entries.some(
+      (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "todo-write-ack-first",
+    ),
+  ).toBe(false);
+  const shellCall = trail.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "bash-after-plan",
+  );
+  const shellResult = trail.entries.find(
+    (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "bash-after-plan",
+  );
+  expect(shellResult?.parent_id).toBe(shellCall?.id);
+  const raw = shellResult?.source?.raw as Record<string, unknown> | undefined;
+  expect(raw?.envelope).toBeDefined();
+  expect(raw?.envelope_ref).toBeUndefined();
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
   const trail = await parseFixture();
   const toolResult = trail.entries.find((e) => e.type === "tool_result");

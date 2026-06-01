@@ -330,7 +330,6 @@ export interface TaskPlanUpdate {
     explanation?: string;
     items: TaskPlanItem[];
     deltas?: TaskPlanDelta[];
-    minItems?: 0;
   };
   [k: string]: unknown;
 }

@@ -152,7 +152,8 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
 
 export const ccTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(entries);
 
-export const ccDropTaskPlanResults: ReconcilerRule = (entries) => dropTaskPlanAckResults(entries);
+export const ccDropTaskPlanResults: ReconcilerRule = (entries) =>
+  dropTaskPlanAckResults(entries, { sourceGroupKey: (entry) => hintOf(entry)?.sid });
 
 function stripHint(entry: Entry): Entry {
   const m = entry.meta as Record<string, unknown> | undefined;

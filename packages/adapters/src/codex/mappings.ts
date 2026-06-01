@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
-import { isTaskPlanStatus, type TaskPlanItem, taskPlanItemId } from "../task-plan.ts";
+import {
+  isTaskPlanStatus,
+  normalizeTaskPlanContent,
+  type TaskPlanItem,
+  taskPlanItemId,
+} from "../task-plan.ts";
 import {
   AGENT_NAME,
   buildExecCommandEndData,
@@ -57,13 +62,17 @@ function meta(rawType: string, callId?: string): Record<string, unknown> {
 function taskPlanItemsFromUpdatePlan(args: Record<string, unknown>): TaskPlanItem[] | undefined {
   if (!Array.isArray(args.plan)) return undefined;
   const items: TaskPlanItem[] = [];
-  for (const [index, rawItem] of args.plan.entries()) {
+  const occurrenceByContent = new Map<string, number>();
+  for (const rawItem of args.plan) {
     if (!isObject(rawItem)) return undefined;
     const content = stringValue(rawItem.step);
     const status = rawItem.status;
     if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    const normalized = normalizeTaskPlanContent(content);
+    const occurrence = occurrenceByContent.get(normalized) ?? 0;
+    occurrenceByContent.set(normalized, occurrence + 1);
     items.push({
-      id: taskPlanItemId(rawItem.id, index, content),
+      id: taskPlanItemId(rawItem.id, occurrence, content),
       content,
       status,
     });

@@ -1,46 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Entry } from "@agent-trail/types";
+import type { Entry, TaskPlanDelta, TaskPlanItem, TaskPlanStatus } from "@agent-trail/types";
 
-export type TaskPlanStatus = "pending" | "in_progress" | "completed" | "cancelled" | "blocked";
-
-export type TaskPlanItem = {
-  id: string;
-  content: string;
-  status: TaskPlanStatus;
-  active_form?: string;
-};
-
-type AddedDelta = {
-  kind: "added";
-  item_id: string;
-  to_content: string;
-  to_status: TaskPlanStatus;
-  to_active_form?: string;
-};
-
-type RemovedDelta = {
-  kind: "removed";
-  item_id: string;
-  from_content: string;
-  from_status: TaskPlanStatus;
-  from_active_form?: string;
-};
-
-type StatusChangedDelta = {
-  kind: "status_changed";
-  item_id: string;
-  from_status: TaskPlanStatus;
-  to_status: TaskPlanStatus;
-};
-
-type ContentChangedDelta = {
-  kind: "content_changed";
-  item_id: string;
-  from_content: string;
-  to_content: string;
-};
-
-export type TaskPlanDelta = AddedDelta | RemovedDelta | StatusChangedDelta | ContentChangedDelta;
+export type { TaskPlanDelta, TaskPlanItem, TaskPlanStatus } from "@agent-trail/types";
 
 const TASK_PLAN_STATUSES = new Set<TaskPlanStatus>([
   "pending",
@@ -54,18 +15,22 @@ export function isTaskPlanStatus(value: unknown): value is TaskPlanStatus {
   return typeof value === "string" && TASK_PLAN_STATUSES.has(value as TaskPlanStatus);
 }
 
-export function synthesizeTaskPlanItemId(position: number, content: string): string {
-  const normalized = content.replace(/\s+/g, " ").trim();
+export function normalizeTaskPlanContent(content: string): string {
+  return content.replace(/\s+/g, " ").trim();
+}
+
+export function synthesizeTaskPlanItemId(occurrence: number, content: string): string {
+  const normalized = normalizeTaskPlanContent(content);
   const digest = createHash("sha256")
-    .update(`${position}\0${normalized}`)
+    .update(`${normalized}\0${occurrence}`)
     .digest("hex")
     .slice(0, 16);
   return `item-${digest}`;
 }
 
-export function taskPlanItemId(rawId: unknown, position: number, content: string): string {
+export function taskPlanItemId(rawId: unknown, occurrence: number, content: string): string {
   if (typeof rawId === "string" && rawId.length > 0) return rawId;
-  return synthesizeTaskPlanItemId(position, content);
+  return synthesizeTaskPlanItemId(occurrence, content);
 }
 
 export function withTaskPlanDeltas(entries: Entry[]): Entry[] {
@@ -86,7 +51,21 @@ export function withTaskPlanDeltas(entries: Entry[]): Entry[] {
   });
 }
 
-export function dropTaskPlanAckResults(entries: Entry[]): Entry[] {
+type DropTaskPlanAckResultsOptions = {
+  sourceGroupKey?: (entry: Entry) => string | undefined;
+};
+
+const CODEX_UPDATE_PLAN_ACK_OUTPUTS = new Set(["", "{}", "null", "Plan updated"]);
+const CLAUDE_TODO_WRITE_ACK_OUTPUTS = new Set([
+  "",
+  "ok",
+  "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable",
+]);
+
+export function dropTaskPlanAckResults(
+  entries: Entry[],
+  options: DropTaskPlanAckResultsOptions = {},
+): Entry[] {
   const taskPlanCallIds = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== "task_plan_update") continue;
@@ -96,21 +75,86 @@ export function dropTaskPlanAckResults(entries: Entry[]): Entry[] {
   if (taskPlanCallIds.size === 0) return entries;
 
   const droppedParentById = new Map<string, string | null>();
+  const droppedSourceEnvelopeByGroup = new Map<string, unknown>();
   const kept: Entry[] = [];
   for (const entry of entries) {
-    if (entry.type === "tool_result" && taskPlanCallIds.has(entry.semantic?.call_id ?? "")) {
+    if (isDroppableTaskPlanAckResult(entry, taskPlanCallIds)) {
       droppedParentById.set(entry.id, entry.parent_id ?? null);
+      const groupKey = options.sourceGroupKey?.(entry);
+      const raw = sourceRaw(entry);
+      if (groupKey !== undefined && raw !== undefined && "envelope" in raw) {
+        droppedSourceEnvelopeByGroup.set(groupKey, raw.envelope);
+      }
       continue;
     }
     kept.push(entry);
   }
 
   if (droppedParentById.size === 0) return entries;
-  return kept.map((entry) => {
+  const reparented = kept.map((entry) => {
     const parentId = reparentThroughDropped(entry.parent_id, droppedParentById);
     if (parentId === entry.parent_id) return entry;
     return { ...entry, parent_id: parentId } as Entry;
   });
+  return promoteDroppedSourceEnvelopes(
+    reparented,
+    droppedSourceEnvelopeByGroup,
+    options.sourceGroupKey,
+  );
+}
+
+function isDroppableTaskPlanAckResult(entry: Entry, taskPlanCallIds: Set<string>): boolean {
+  if (entry.type !== "tool_result") return false;
+  const callId = entry.semantic?.call_id;
+  if (callId === undefined || !taskPlanCallIds.has(callId)) return false;
+
+  const payload = entry.payload as { for_id?: unknown; ok?: unknown; output?: unknown };
+  if (typeof payload.for_id === "string") return false;
+  if (payload.ok === false) return false;
+  const output = typeof payload.output === "string" ? payload.output.trim() : "";
+
+  switch (entry.source?.original_type) {
+    case "response_item.function_call_output":
+      return CODEX_UPDATE_PLAN_ACK_OUTPUTS.has(output);
+    case "tool_result":
+      return CLAUDE_TODO_WRITE_ACK_OUTPUTS.has(output);
+    default:
+      return false;
+  }
+}
+
+function promoteDroppedSourceEnvelopes(
+  entries: Entry[],
+  envelopeByGroup: Map<string, unknown>,
+  sourceGroupKey: DropTaskPlanAckResultsOptions["sourceGroupKey"],
+): Entry[] {
+  if (sourceGroupKey === undefined || envelopeByGroup.size === 0) return entries;
+  const promoted = new Set<string>();
+  return entries.map((entry) => {
+    const groupKey = sourceGroupKey(entry);
+    if (groupKey === undefined || promoted.has(groupKey)) return entry;
+    const envelope = envelopeByGroup.get(groupKey);
+    if (envelope === undefined) return entry;
+    const raw = sourceRaw(entry);
+    if (raw === undefined || "envelope" in raw || !("envelope_ref" in raw)) return entry;
+    const { envelope_ref: _drop, ...rest } = raw;
+    promoted.add(groupKey);
+    return {
+      ...entry,
+      source: {
+        ...entry.source,
+        raw: {
+          envelope,
+          ...rest,
+        },
+      },
+    } as Entry;
+  });
+}
+
+function sourceRaw(entry: Entry): Record<string, unknown> | undefined {
+  const raw = entry.source?.raw;
+  return typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : undefined;
 }
 
 function taskPlanDeltas(

@@ -1,7 +1,12 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { isTaskPlanStatus, type TaskPlanItem, taskPlanItemId } from "../task-plan.ts";
+import {
+  isTaskPlanStatus,
+  normalizeTaskPlanContent,
+  type TaskPlanItem,
+  taskPlanItemId,
+} from "../task-plan.ts";
 import { sourceFor } from "./entry-metadata.ts";
 import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
 import {
@@ -70,14 +75,18 @@ function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined 
   const args = jsonObjectValue(input) ?? {};
   if (!Array.isArray(args.todos)) return undefined;
   const items: TaskPlanItem[] = [];
-  for (const [index, rawTodo] of args.todos.entries()) {
+  const occurrenceByContent = new Map<string, number>();
+  for (const rawTodo of args.todos) {
     if (!isObject(rawTodo)) return undefined;
     const content = stringValue(rawTodo.content);
     const status = rawTodo.status;
     if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    const normalized = normalizeTaskPlanContent(content);
+    const occurrence = occurrenceByContent.get(normalized) ?? 0;
+    occurrenceByContent.set(normalized, occurrence + 1);
     const activeForm = stringValue(rawTodo.activeForm) ?? stringValue(rawTodo.active_form);
     items.push({
-      id: taskPlanItemId(rawTodo.id, index, content),
+      id: taskPlanItemId(rawTodo.id, occurrence, content),
       content,
       status,
       ...(activeForm !== undefined ? { active_form: activeForm } : {}),
