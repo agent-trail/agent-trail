@@ -11,7 +11,7 @@ command = "bun run check"
 
 [[actions]]
 name = "Typecheck"
-icon = "tool"
+icon = "wrench"
 command = "bun run typecheck"
 
 [[actions]]
