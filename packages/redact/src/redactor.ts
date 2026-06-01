@@ -479,7 +479,7 @@ function redactUserQueryAnswerKeys(
 
     const answers = payload.answers as Record<string, unknown>;
     const idMap = queryIdMaps.get(payload.for_id);
-    const rewritten: Record<string, unknown> = {};
+    const rewritten = Object.create(null) as Record<string, unknown>;
     const used = new Set<string>();
     let changed = false;
     for (const [before, answer] of Object.entries(answers)) {

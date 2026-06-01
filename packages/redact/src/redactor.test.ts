@@ -407,6 +407,46 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
   expect(summary.counts.user_query_secret_source_raw).toBe(1);
 });
 
+test("redactTrail rewrites user_query_response answer keys into a null-prototype object", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query",
+      id: "query1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        questions: [
+          { id: "__proto__", question: "Prototype?" },
+          { id: "alice@example.com", question: "Contact alice@example.com?" },
+        ],
+      },
+    }),
+    record(3, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "query1",
+        answers: {
+          ["__proto__"]: { selected: ["yes"] },
+          "alice@example.com": { selected: ["alice@example.com"] },
+        },
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+  const response = out[2]?.value as {
+    payload: { answers: Record<string, { selected: string[] }> };
+  };
+  const answers = response.payload.answers;
+
+  expect(Object.getPrototypeOf(answers)).toBe(null);
+  expect(Object.hasOwn(answers, "__proto__")).toBe(true);
+  expect(answers.__proto__).toEqual({ selected: ["yes"] });
+  expect(answers["[EMAIL]"]).toEqual({ selected: ["[EMAIL]"] });
+});
+
 test("redactTrail does not mutate input records", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
