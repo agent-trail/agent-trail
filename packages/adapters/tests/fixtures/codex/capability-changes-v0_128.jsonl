@@ -1,0 +1,2 @@
+{"timestamp":"2026-06-01T01:10:00.000Z","type":"session_meta","payload":{"id":"019d9200-bbbb-7000-f000-000000000129","timestamp":"2026-06-01T01:10:00.000Z","cwd":"/proj/codex-capabilities","originator":"codex-tui","cli_version":"0.128.0","source":"interactive"}}
+{"timestamp":"2026-06-01T01:10:01.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"linear","status":{"state":"ready"}}}

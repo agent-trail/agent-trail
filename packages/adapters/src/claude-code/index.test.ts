@@ -134,6 +134,10 @@ const PERMISSION_MODE_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/permission-mode.jsonl",
   import.meta.url,
 ).pathname;
+const CAPABILITY_CHANGES_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/capability-changes.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -164,6 +168,14 @@ async function parsePermissionModeFixture() {
     id: "permission-mode",
     adapter: "claude-code",
     path: PERMISSION_MODE_FIXTURE_PATH,
+  });
+}
+
+async function parseCapabilityChangesFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "capability-changes",
+    adapter: "claude-code",
+    path: CAPABILITY_CHANGES_FIXTURE_PATH,
   });
 }
 
@@ -269,6 +281,55 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
   expect(ids).not.toContain("00000000-0000-0000-0000-cccccccceee1");
+});
+
+test("parseSession() maps Claude Code capability attachment deltas", async () => {
+  const trail = await parseCapabilityChangesFixture();
+  const changes = trail.entries.filter((entry) => entry.type === "capability_change");
+  expect(changes.map((entry) => entry.payload)).toEqual([
+    {
+      scope: "tool",
+      reason: "registered",
+      added: [{ name: "ToolSearch" }, { name: "Task" }],
+    },
+    {
+      scope: "tool",
+      reason: "deregistered",
+      removed: [{ name: "OldTool" }],
+    },
+    {
+      scope: "skill",
+      reason: "loaded",
+      snapshot: [
+        { name: "tdd", metadata: { description: "Test-driven development" } },
+        { name: "code-review" },
+      ],
+    },
+    {
+      scope: "skill",
+      reason: "loaded",
+      changed: [
+        {
+          name: "skill_listing",
+          field: "listing",
+          to: "Available skills: tdd, code-review",
+        },
+      ],
+    },
+    {
+      scope: "mcp_server",
+      reason: "instructions_updated",
+      changed: [
+        {
+          name: "linear",
+          field: "instructions",
+          to: "linear tools are now available",
+        },
+      ],
+    },
+  ]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {

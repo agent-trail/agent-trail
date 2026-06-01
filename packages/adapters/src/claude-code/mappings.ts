@@ -10,6 +10,7 @@ import {
   type CcEnvelope,
   isContinuationPreamble,
   isInterruptMarker,
+  isObject,
   jsonString,
   stringValue,
   textFromToolResultContent,
@@ -396,10 +397,142 @@ const permissionMode = defineMapping<Raw>({
   },
 });
 
+type CapabilityItem = { name: string; metadata?: Record<string, unknown> };
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function skillMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const description = stringValue(value.description);
+  return description === undefined ? undefined : { description };
+}
+
+function skillItems(attachment: Record<string, unknown>): CapabilityItem[] {
+  const skills = Array.isArray(attachment.skills) ? attachment.skills : undefined;
+  if (skills !== undefined) {
+    return skills.flatMap((skill) => {
+      if (typeof skill === "string") return [{ name: skill }];
+      if (!isObject(skill)) return [];
+      const name = stringValue(skill.name);
+      if (name === undefined) return [];
+      const metadata = skillMetadata(skill);
+      return [{ name, ...(metadata !== undefined ? { metadata } : {}) }];
+    });
+  }
+
+  return stringArray(attachment.skillNames ?? attachment.names).map((name) => ({ name }));
+}
+
+function listingText(attachment: Record<string, unknown>): string | undefined {
+  const content = attachment.content ?? attachment.text;
+  if (content === undefined) return undefined;
+  if (typeof content === "string") return content;
+  return jsonString(content);
+}
+
+const capabilityAttachment = defineMapping<Raw>({
+  match: { type: "attachment" },
+  emit: (raw) => {
+    const record = raw as CcEnvelope;
+    if (!gate(record)) return [];
+    const attachment = isObject(record.attachment) ? record.attachment : undefined;
+    const subtype = stringValue(attachment?.type);
+    if (attachment === undefined || subtype === undefined) return [];
+
+    if (subtype === "deferred_tools_delta") {
+      const drafts: TrailEntryDraft[] = [];
+      const added = stringArray(attachment.addedNames ?? attachment.added_names).map((name) => ({
+        name,
+      }));
+      if (added.length > 0) {
+        drafts.push({
+          type: "capability_change",
+          payload: { scope: "tool", reason: "registered", added },
+          source: src(record, "attachment.deferred_tools_delta"),
+          meta: meta(record),
+        });
+      }
+      const removed = stringArray(attachment.removedNames ?? attachment.removed_names).map(
+        (name) => ({ name }),
+      );
+      if (removed.length > 0) {
+        drafts.push({
+          type: "capability_change",
+          payload: { scope: "tool", reason: "deregistered", removed },
+          source: src(record, "attachment.deferred_tools_delta"),
+          meta: meta(record),
+        });
+      }
+      return drafts;
+    }
+
+    if (subtype === "skill_listing") {
+      const snapshot = skillItems(attachment);
+      if (snapshot.length > 0) {
+        return [
+          {
+            type: "capability_change",
+            payload: { scope: "skill", reason: "loaded", snapshot },
+            source: src(record, "attachment.skill_listing"),
+            meta: meta(record),
+          },
+        ];
+      }
+      const text = listingText(attachment);
+      if (text === undefined || text.length === 0) return [];
+      return [
+        {
+          type: "capability_change",
+          payload: {
+            scope: "skill",
+            reason: "loaded",
+            changed: [{ name: "skill_listing", field: "listing", to: text }],
+          },
+          source: src(record, "attachment.skill_listing"),
+          meta: meta(record),
+        },
+      ];
+    }
+
+    if (subtype === "mcp_instructions_delta") {
+      const name =
+        stringValue(attachment.serverName) ??
+        stringValue(attachment.server) ??
+        stringValue(attachment.name) ??
+        "mcp_instructions";
+      const content = listingText(attachment);
+      return [
+        {
+          type: "capability_change",
+          payload: {
+            scope: "mcp_server",
+            reason: "instructions_updated",
+            changed: [
+              {
+                name,
+                field: "instructions",
+                ...(content !== undefined && content.length > 0 ? { to: content } : {}),
+              },
+            ],
+          },
+          source: src(record, "attachment.mcp_instructions_delta"),
+          meta: meta(record),
+        },
+      ];
+    }
+
+    return [];
+  },
+});
+
 export const claudeCodeMappings: MappingDef<Raw>[] = [
   userMessage,
   assistantMessage,
   summary,
+  capabilityAttachment,
   systemEvent("system", false),
   systemEvent("progress", false),
   systemEvent("queue-operation", true),
