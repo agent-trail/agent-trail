@@ -5,6 +5,12 @@ import { matchesPattern } from "./match.ts";
 import type { RawRecord } from "./readers/types.ts";
 import type { MappingDef, OverrideDef, TrailEntryDraft } from "./types.ts";
 
+const WRITER_STRICT_ISO8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+function usableTimestamp(ts: string): string | undefined {
+  return WRITER_STRICT_ISO8601.test(ts) ? ts : undefined;
+}
+
 export interface Pass1Params<S = unknown> {
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous mapping inputs
   mappings: MappingDef<any>[];
@@ -35,10 +41,25 @@ export function runPass1<S = unknown>(records: RawRecord[], params: Pass1Params<
   }
   const entries: Entry[] = [];
   const state = params.initialState?.() as S;
+  const firstUsableTs = records
+    .map((record) => usableTimestamp(params.tsFrom(record)))
+    .find((ts) => ts !== undefined);
+  let inheritedTs = firstUsableTs;
 
   records.forEach((record, index) => {
+    const recordTs = params.tsFrom(record);
+    const usableRecordTs = usableTimestamp(recordTs);
+    if (usableRecordTs !== undefined) inheritedTs = usableRecordTs;
+
     if (params.drift?.isDrift(record) === true) {
-      appendDrafts(entries, [params.drift.toDraft(record)], record, index, params);
+      appendDrafts(
+        entries,
+        [params.drift.toDraft(record)],
+        record,
+        index,
+        params,
+        usableRecordTs ?? inheritedTs ?? "",
+      );
       return;
     }
 
@@ -71,8 +92,9 @@ export function appendDrafts(
   record: RawRecord,
   index: number,
   params: Pick<Pass1Params, "idNamespace" | "sessionUid" | "tsFrom">,
+  tsOverride?: string,
 ): void {
-  const ts = params.tsFrom(record);
+  const ts = tsOverride ?? params.tsFrom(record);
   drafts.forEach((draft, ordinal) => {
     const id = deriveSynthesizedEntryId(params.idNamespace, [
       params.sessionUid,

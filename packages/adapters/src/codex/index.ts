@@ -4,7 +4,8 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
-import { parseCodexJsonl } from "./parser.ts";
+import { codexKitAdapter } from "./kit.ts";
+import { buildHeader } from "./parser.ts";
 import { codexSessionsDir } from "./paths.ts";
 
 const PRODUCER = `@agent-trail/adapters-codex/${pkg.version}`;
@@ -77,6 +78,10 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
 // See `docs/parser-source-matrix.md` Codex row for verification notes.
 type HeadMetadata = { id?: string; cwd?: string };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
   const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
   let id: string | undefined;
@@ -130,6 +135,19 @@ async function readSessionVersionFromHead(path: string): Promise<string | undefi
     }
   } catch {
     // ignore
+  }
+  return undefined;
+}
+
+async function readFirstRecordFromHead(path: string): Promise<Record<string, unknown> | undefined> {
+  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
+  for (const line of lines) {
+    try {
+      const value: unknown = JSON.parse(line);
+      if (isRecord(value)) return value;
+    } catch {
+      // Skip malformed head lines defensively.
+    }
   }
   return undefined;
 }
@@ -211,12 +229,17 @@ export const codexAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Codex adapter requires SessionRef.path");
     }
-    const text = await Bun.file(ref.path).text();
-    const { header, entries } = parseCodexJsonl(text);
+    const firstRecord = await readFirstRecordFromHead(ref.path);
+    if (firstRecord === undefined) {
+      throw new Error("Codex session must contain a parseable JSON object header");
+    }
+    const header = buildHeader(firstRecord);
     if (header.vcs === undefined && typeof header.cwd === "string") {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;
     }
+    const sessionUid = header.session_uid ?? header.id;
+    const entries = await codexKitAdapter.parse({ path: ref.path }, { sessionUid });
     const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
     return { envelope, header, entries };
   },

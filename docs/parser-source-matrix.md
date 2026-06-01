@@ -46,45 +46,44 @@ mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built
 `file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
 synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
 
-**Adapter-kit migration (#146 Phase 4).** A second Pi implementation lives at
-`packages/adapters/src/pi/v2/`, built on the adapter-kit mapping DSL + two-pass reconciler
-(`defineAdapter`): 10 pure mappings (one per record type, **override-ratio 0**) plus four
-Pi-specific custom reconciler rules for tree parenting + `branch_summary` divergence, tool-kind
-propagation, `model_change.from_model` threading, and EOF `session_terminated` synthesis (the kit's
-general `branchReconciliation` is deferred). v1 remains the production adapter; v2 is gated by the
-diff harness (`bun run diff:adapters`), which compares v1 vs v2 emitted entries over every Pi fixture
-above with zero blocking regressions. Id-bearing fields that legitimately rehash between adapters
-(`id`, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
-`source.raw.envelope_ref`) are normalized out of that comparison. One known v2/v1 divergence: a
-schema-invalid record with an **unparseable** timestamp quarantines with an empty `ts` under v2 (the
-kit reconciler has no last-valid-ts to inherit), vs v1's inherited timestamp — fixtures keep invalid
-records on valid timestamps.
+**Adapter-kit implementation (#146 Phase 4).** All three adapters are built on the adapter-kit
+mapping DSL + two-pass reconciler (`defineAdapter`). Each agent's production `TrailAdapter`
+(`<agent>Adapter` in `<agent>/index.ts`) keeps the discovery/header/VCS/envelope glue and delegates
+entry production to its kit engine (`<agent>/kit.ts` + `mappings.ts` + `reconcile-rules.ts`,
+Codex also `overrides.ts`). The earlier hand-written parsers were removed once parity held; only the
+shared helpers they exported (`buildHeader`, `source.ts`/`tools.ts`/`entry-metadata.ts` helpers,
+Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
 
-**Codex adapter-kit migration (#146 Phase 4).** A second Codex implementation lives at
-`packages/adapters/src/codex/v2/`. Codex is linear (kit `parentChain`; no `parent_id` in v1) with
-explicit `call_id`s (kit `toolLinking`) and no per-entry `source.schema_version`, so its mappings are
-a static array (18 pure mappings). Its three stateful behaviors are split per the kit's grain:
-**pass-1 overrides** for synthesized `model_change` (turn_context model transitions) and per-turn
-reasoning dedup (shared state, reset on `turn_id`); a **custom reconciler rule** for the
-`token_count` → preceding-`agent_message` usage rollup (a back-reference an override can't express).
-Override-ratio ≈ 0.18 — Codex is the legitimately stateful adapter. The emitted `source.agent` is
-`codex-cli` while the source schema registers under `codex`; the kit gained an optional
-`AdapterDef.schemaAgent` to separate the schema-registry key from the emitted `AgentName`. v1 stays
-production; v2 is gated by the diff harness over every Codex fixture above with zero blocking
-regressions.
+- **Pi** — tree-native: 10 pure mappings (**override-ratio 0**) plus four custom reconciler rules for
+  tree parenting + `branch_summary` divergence, tool-kind propagation, `model_change.from_model`
+  threading, and EOF `session_terminated` synthesis (the kit's general `branchReconciliation` is
+  deferred — Pi carries its own rule).
+- **Codex** — linear (`parentChain`), explicit `call_id`s (`toolLinking`), no per-entry
+  `source.schema_version` → static mappings (18 pure). Stateful behaviors split per the kit's grain:
+  **pass-1 overrides** for synthesized `model_change` + per-turn reasoning dedup (reset on `turn_id`),
+  and a **custom reconciler rule** for the `token_count` → preceding-`agent_message` usage rollup.
+  Override-ratio ≈ 0.18. The emitted `source.agent` is `codex-cli` while the schema registers under
+  `codex`, so `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
+- **Claude Code** — linear (`parentChain`); every record carries `version` → per-record
+  `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eight pure mappings
+  (user/assistant multi-block fanout, summary→session_summary/context_compact,
+  system/progress/queue-operation/pr-link→system_event, permission-mode) plus four custom rules:
+  synthesized `model_change`, `permission_mode_change` deltas, tool-kind propagation to results, and
+  multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
 
-**Claude Code adapter-kit migration (#146 Phase 4).** A third implementation lives at
-`packages/adapters/src/claude-code/v2/`. Claude Code is **linear** (its uuid/parentUuid chain does
-not fork) → built-in `parentChain`; every record carries `version` → per-record
-`source.schema_version` and static mappings; `agent` == schema key `claude-code` (no `schemaAgent`).
-Eight pure mappings (user/assistant multi-block fanout, summary→session_summary/context_compact,
-system/progress/queue-operation/pr-link→system_event, permission-mode) plus four custom rules:
-synthesized `model_change` (assistant model transitions — a custom rule because the assistant record
-is mapped, so an override would suppress it), `permission_mode_change` deltas, tool_kind propagation
-to results, and multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
-A timestamp-less `permission-mode.jsonl` fixture was added (none existed) so parity exercises the
-delta path and v1-style timestamp inheritance. v1 stays production; v2 is gated by the diff harness
-over every Claude Code fixture above with zero blocking regressions.
+Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
+and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
+hand-written parsers (that's expected — no stored trails depend on them). Accepted behaviors of the
+kit path:
+
+- A schema-invalid record with a missing or unparseable timestamp quarantines with the nearest
+  writer-strict source timestamp inherited by the kit, keeping the diagnostic entry schema-valid.
+- **`parent_id` topology varies by adapter reconciler config.** Pi is tree-native (`piParentResolution`
+  rebuilds the real `parentUuid` tree). Claude Code runs the kit's `parentChain: true`, which emits an
+  explicit **sequential** chain — each entry parents off the entry emitted immediately before it, and
+  roots carry a `null` `parent_id` (the prior hand-written parser emitted no `parent_id` for linear
+  Claude Code sessions). Codex runs `parentChain: false` and emits **no** `parent_id`, matching its
+  prior parser. All three are schema-valid (`parent_id` is optional and nullable).
 
 `edit` has four observed Pi argument shapes:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;

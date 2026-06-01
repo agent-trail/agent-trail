@@ -7,8 +7,8 @@ import {
   type SourcePointer,
   type SourceReader,
 } from "@agent-trail/adapter-kit";
-import { CLAUDE_CODE_ENTRY_ID_NAMESPACE } from "../../session-uid.ts";
-import { isTracerEnvelope, parseLines, stringValue } from "../source.ts";
+import type { Entry } from "@agent-trail/types";
+import { CLAUDE_CODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { claudeCodeMappings } from "./mappings.ts";
 import {
   ccEnvelopeRefBackfill,
@@ -16,6 +16,7 @@ import {
   ccPermissionModeDelta,
   ccToolKindToResult,
 } from "./reconcile-rules.ts";
+import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 
@@ -71,7 +72,7 @@ class ClaudeCodeJsonlReader implements SourceReader {
  * Synthesized model_change + permission-mode deltas + envelope_ref backfill are
  * custom rules (the assistant record is mapped, so an override would suppress it).
  */
-export const claudeCodeV2Adapter: Adapter = defineAdapter({
+export const claudeCodeKitAdapter: Adapter = defineAdapter({
   agent: "claude-code",
   idNamespace: CLAUDE_CODE_ENTRY_ID_NAMESPACE,
   quarantineNamespace: "claudecode",
@@ -81,8 +82,13 @@ export const claudeCodeV2Adapter: Adapter = defineAdapter({
   mappings: claudeCodeMappings,
   reconciler: {
     toolLinking: true,
-    parentChain: true, // linear; v1 parentUuid chain doesn't fork
+    parentChain: true, // linear; the parentUuid chain doesn't fork
     cumulativeTokens: false,
     custom: [ccModelChangeSynth, ccToolKindToResult, ccPermissionModeDelta, ccEnvelopeRefBackfill],
   },
 });
+
+/** Run the kit-based Claude Code adapter over a source file, returning entries. */
+export async function parseClaudeCodeEntries(path: string, sessionUid: string): Promise<Entry[]> {
+  return claudeCodeKitAdapter.parse({ path }, { sessionUid });
+}

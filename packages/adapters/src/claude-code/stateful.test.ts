@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Entry } from "@agent-trail/types";
-import { claudeCodeAdapterV2, parseClaudeCodeV2Entries } from "./index.ts";
+import { claudeCodeAdapter } from "./index.ts";
+import { parseClaudeCodeEntries } from "./kit.ts";
 
-const FIXTURES = join(import.meta.dir, "../../../tests/fixtures/claude-code");
+const FIXTURES = join(import.meta.dir, "../../tests/fixtures/claude-code");
 const entries = (fixture: string): Promise<Entry[]> =>
-  parseClaudeCodeV2Entries(join(FIXTURES, fixture), "unit-test");
+  parseClaudeCodeEntries(join(FIXTURES, fixture), "unit-test");
 
 function writeTempJsonl(prefix: string, records: Record<string, unknown>[]): string {
   const tmp = mkdtempSync(join(tmpdir(), prefix));
@@ -85,7 +86,7 @@ describe("claude-code v2 stateful behaviors", () => {
       },
     ]);
     try {
-      const all = await parseClaudeCodeV2Entries(path, "unit-test");
+      const all = await parseClaudeCodeEntries(path, "unit-test");
       const summary = all.find((e) => e.type === "session_summary");
       expect((summary?.payload as { text?: string }).text).toBe(
         '[{"type":"text","text":"structured summary"}]',
@@ -123,7 +124,7 @@ describe("claude-code v2 stateful behaviors", () => {
       },
     ]);
     try {
-      const all = await parseClaudeCodeV2Entries(path, "unit-test");
+      const all = await parseClaudeCodeEntries(path, "unit-test");
       const quarantine = all.find(
         (e) =>
           e.type === "system_event" &&
@@ -166,7 +167,7 @@ describe("claude-code v2 stateful behaviors", () => {
       },
     ]);
     try {
-      const trail = await claudeCodeAdapterV2.parseSession({
+      const trail = await claudeCodeAdapter.parseSession({
         id: "s",
         adapter: "claude-code",
         path,
@@ -206,7 +207,7 @@ describe("claude-code v2 stateful behaviors", () => {
           message: { role: "user", content: "hi" },
         })}\n{bad json}\n`,
       );
-      await expect(parseClaudeCodeV2Entries(path, "unit-test")).rejects.toThrow();
+      await expect(parseClaudeCodeEntries(path, "unit-test")).rejects.toThrow();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

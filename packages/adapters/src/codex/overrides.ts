@@ -1,6 +1,6 @@
 import type { OverrideDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
-import { AGENT_NAME, reasoningDedupKey } from "../parser.ts";
-import { isObject, stringValue, timestampToIso } from "../source.ts";
+import { AGENT_NAME, reasoningDedupKey } from "./parser.ts";
+import { isObject, stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 

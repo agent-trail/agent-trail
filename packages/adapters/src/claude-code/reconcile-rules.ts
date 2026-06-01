@@ -5,7 +5,7 @@
 // backfill + hint stripping. ccEnvelopeRefBackfill runs LAST (it strips hints).
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../../session-uid.ts";
+import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 
 function hintOf(entry: Entry): CcHint | undefined {
@@ -40,19 +40,24 @@ export const ccModelChangeSynth: ReconcilerRule = (entries) => {
           synthesized: true,
           ...(envelope !== undefined ? { raw: envelope } : {}),
         } as Entry["source"];
+        const modelChangeId = deriveSynthesizedEntryId(CLAUDE_CODE_ENTRY_ID_NAMESPACE, [
+          "model_change",
+          entry.id,
+          prevModel,
+          model,
+        ]);
         out.push({
           type: "model_change",
-          id: deriveSynthesizedEntryId(CLAUDE_CODE_ENTRY_ID_NAMESPACE, [
-            "model_change",
-            entry.id,
-            prevModel,
-            model,
-          ]),
+          id: modelChangeId,
           ts: entry.ts,
           parent_id: entry.parent_id ?? null,
           payload: { from_model: prevModel, to_model: model },
           source,
         } as Entry);
+        out.push({ ...entry, parent_id: modelChangeId });
+        prevModel = model;
+        lastSid = sid;
+        continue;
       }
       prevModel = model;
       lastSid = sid;
@@ -117,7 +122,9 @@ function stripHint(entry: Entry): Entry {
   const { [HINT]: _drop, ...rest } = m;
   // v1 Claude Code entries carry no entry-level meta — drop it when only the
   // (now-removed) hint remained.
-  return Object.keys(rest).length > 0 ? { ...entry, meta: rest } : { ...entry, meta: undefined };
+  if (Object.keys(rest).length > 0) return { ...entry, meta: rest };
+  const { meta: _meta, ...withoutMeta } = entry;
+  return withoutMeta as Entry;
 }
 
 /**

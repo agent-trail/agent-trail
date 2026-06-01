@@ -4,11 +4,11 @@
 // it. Order matters and is fixed in adapter.ts: piModelChangeFromModel runs first
 // (it reads the assistant model off the parenting hint, which piParentResolution
 // later strips), then piToolKindToResult, piParentResolution, piSessionTerminatedEof.
-import type { ReconcilerRule } from "@agent-trail/adapter-kit";
+import type { RawRecord, ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
-import { type ParentableEntry, resolveEntryParents } from "../../parenting.ts";
-import { deriveSynthesizedEntryId, PI_ENTRY_ID_NAMESPACE } from "../../session-uid.ts";
-import { findAbandonedBranchRootId } from "../divergence.ts";
+import { type ParentableEntry, resolveEntryParents } from "../parenting.ts";
+import { deriveSynthesizedEntryId, PI_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
+import { findAbandonedBranchRootId } from "./divergence.ts";
 import { PARENT_HINT, type ParentHint } from "./mappings.ts";
 
 function hintOf(entry: Entry): ParentHint | undefined {
@@ -24,20 +24,55 @@ function stripHint(entry: Entry): Entry {
   return { ...entry, meta: rest };
 }
 
+function rawParentEdge(raw: Record<string, unknown> | undefined): ParentHintEdge | undefined {
+  if (raw === undefined) return undefined;
+  if (raw.type === "session") return undefined;
+  const sid = raw.id;
+  if (typeof sid !== "string") return undefined;
+  const rawPid = raw.parentId;
+  return { sid, pid: typeof rawPid === "string" ? rawPid : null };
+}
+
+type ParentHintEdge = { sid: string; pid: string | null };
+
+function rawParentEdgeFromEntry(entry: Entry): ParentHintEdge | undefined {
+  return rawParentEdge(
+    entry.source?.raw ??
+      ((entry.payload as { data?: { raw?: unknown } }).data?.raw as
+        | Record<string, unknown>
+        | undefined),
+  );
+}
+
+function rawParentEdgeFromRecord(record: RawRecord): ParentHintEdge | undefined {
+  return rawParentEdge(record as Record<string, unknown>);
+}
+
 /**
  * Pi tree-topology pass (replaces the deferred kit `branchReconciliation`).
  * Rebuilds the source-id → entry-id maps from the `PARENT_HINT` stashed by the
  * mappings, fills `parent_id` (intra-envelope block chains honored), resolves
  * each `branch_summary.abandoned_branch_id` via the divergence walk, then strips
- * the transient hints. Mirrors v1 `parsePiJsonl` parenting + `divergence.ts`.
+ * the transient hints. Tree parenting + `divergence.ts` for Pi's forked sessions.
  */
-export const piParentResolution: ReconcilerRule = (entries) => {
+export const piParentResolution: ReconcilerRule = (entries, ctx) => {
   const parentBySourceId = new Map<string, string | null>();
   const sourceIdToFirstEntryId = new Map<string, string>();
   const sourceIdToLastEntryId = new Map<string, string>();
   const lastEntryIdForSid = new Map<string, string>();
 
+  for (const record of ctx.records ?? []) {
+    const edge = rawParentEdgeFromRecord(record);
+    if (edge !== undefined && !parentBySourceId.has(edge.sid)) {
+      parentBySourceId.set(edge.sid, edge.pid);
+    }
+  }
+
   for (const entry of entries) {
+    const edge = rawParentEdgeFromEntry(entry);
+    if (edge !== undefined && !parentBySourceId.has(edge.sid)) {
+      parentBySourceId.set(edge.sid, edge.pid);
+    }
     const hint = hintOf(entry);
     if (hint === undefined) continue;
     if (!parentBySourceId.has(hint.sid)) parentBySourceId.set(hint.sid, hint.pid);
@@ -47,7 +82,9 @@ export const piParentResolution: ReconcilerRule = (entries) => {
 
   const built: ParentableEntry[] = entries.map((entry) => {
     const hint = hintOf(entry);
-    if (hint === undefined) return { entry, parentSourceId: null };
+    if (hint === undefined) {
+      return { entry, parentSourceId: rawParentEdgeFromEntry(entry)?.pid ?? null };
+    }
     // Within one source envelope (multi-block assistant), each block after the
     // first chains off the previous block's entry. Safe regardless of other
     // entries interleaving: the kit emits one record's drafts contiguously and

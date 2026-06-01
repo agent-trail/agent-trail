@@ -55,7 +55,7 @@ export function defineAdapter<S = unknown>(def: AdapterDef<S>): Adapter {
         },
       });
 
-      return reconcile(entries, def.reconciler, { agent: def.agent });
+      return reconcile(entries, def.reconciler, { agent: def.agent, records });
     },
   };
 }

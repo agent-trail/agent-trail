@@ -1,7 +1,7 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { ToolKind } from "@agent-trail/types";
-import { sourceFor } from "../entry-metadata.ts";
+import { sourceFor } from "./entry-metadata.ts";
 import {
   asBlocks,
   idValue,
@@ -12,8 +12,8 @@ import {
   stringValue,
   textFromContent,
   timestampToIso,
-} from "../source.ts";
-import { toolKindAndArgs } from "../tools.ts";
+} from "./source.ts";
+import { toolKindAndArgs } from "./tools.ts";
 
 /**
  * Internal parenting hint stashed on `meta` by the mappings and consumed +

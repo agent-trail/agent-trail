@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Entry } from "@agent-trail/types";
-import { codexAdapter } from "../index.ts";
-import { parseCodexV2Entries } from "./index.ts";
+import { codexAdapter } from "./index.ts";
+import { parseCodexEntries } from "./kit.ts";
 
-const FIXTURES = join(import.meta.dir, "../../../tests/fixtures/codex");
+const FIXTURES = join(import.meta.dir, "../../tests/fixtures/codex");
 const entries = (fixture: string): Promise<Entry[]> =>
-  parseCodexV2Entries(join(FIXTURES, fixture), "unit-test");
+  parseCodexEntries(join(FIXTURES, fixture), "unit-test");
 
 const thinkingTexts = (es: Entry[]): string[] =>
   es.filter((e) => e.type === "agent_thinking").map((e) => normalize(String(e.payload.text)));
