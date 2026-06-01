@@ -78,6 +78,10 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
 // See `docs/parser-source-matrix.md` Codex row for verification notes.
 type HeadMetadata = { id?: string; cwd?: string };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
   const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
   let id: string | undefined;
@@ -139,9 +143,10 @@ async function readFirstRecordFromHead(path: string): Promise<Record<string, unk
   const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
   for (const line of lines) {
     try {
-      return JSON.parse(line) as Record<string, unknown>;
+      const value: unknown = JSON.parse(line);
+      if (isRecord(value)) return value;
     } catch {
-      // Skip malformed head lines defensively, matching parseLines' tolerance.
+      // Skip malformed head lines defensively.
     }
   }
   return undefined;
@@ -224,7 +229,11 @@ export const codexAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Codex adapter requires SessionRef.path");
     }
-    const header = buildHeader((await readFirstRecordFromHead(ref.path)) ?? {});
+    const firstRecord = await readFirstRecordFromHead(ref.path);
+    if (firstRecord === undefined) {
+      throw new Error("Codex session must contain a parseable JSON object header");
+    }
+    const header = buildHeader(firstRecord);
     if (header.vcs === undefined && typeof header.cwd === "string") {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;

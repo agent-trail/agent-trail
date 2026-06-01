@@ -338,6 +338,18 @@ test("parseSession throws when the first record is not session_meta", async () =
   ).rejects.toThrow(/session_meta/);
 });
 
+test("parseSession throws when no parseable object header exists", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-non-object-header.jsonl");
+  writeFileSync(path, "[]\n42\nnot json\n");
+  await expect(
+    codexAdapter.parseSession({ id: "malformed", adapter: "codex", path }),
+  ).rejects.toThrow(/parseable JSON object header/);
+});
+
 test("parseSession stamps timestamp-less drift quarantine from the session header", async () => {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
