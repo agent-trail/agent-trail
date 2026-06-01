@@ -105,6 +105,7 @@ export type Entry = EntryBase &
   (
     | UserMessage
     | AgentMessage
+    | TaskPlanUpdate
     | ToolCall
     | ToolResult
     | UserQuery
@@ -136,9 +137,36 @@ export type ToolKind =
   | "web_search"
   | "tool_search"
   | "notebook_edit"
-  | "task_plan"
   | "subagent_invoke"
   | "other";
+export type TaskPlanStatus = "pending" | "in_progress" | "completed" | "cancelled" | "blocked";
+export type TaskPlanDelta =
+  | {
+      kind: "added";
+      item_id: string;
+      to_content: string;
+      to_status: TaskPlanStatus;
+      to_active_form?: string;
+    }
+  | {
+      kind: "removed";
+      item_id: string;
+      from_content: string;
+      from_status: TaskPlanStatus;
+      from_active_form?: string;
+    }
+  | {
+      kind: "status_changed";
+      item_id: string;
+      from_status: TaskPlanStatus;
+      to_status: TaskPlanStatus;
+    }
+  | {
+      kind: "content_changed";
+      item_id: string;
+      from_content: string;
+      to_content: string;
+    };
 
 /**
  * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.
@@ -301,6 +329,21 @@ export interface AgentMessageUsage {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   reasoning_tokens?: number;
+}
+export interface TaskPlanUpdate {
+  type?: "task_plan_update";
+  payload?: {
+    explanation?: string;
+    items: TaskPlanItem[];
+    deltas?: TaskPlanDelta[];
+  };
+  [k: string]: unknown;
+}
+export interface TaskPlanItem {
+  id: string;
+  content: string;
+  status: TaskPlanStatus;
+  active_form?: string;
 }
 export interface ToolCall {
   type?: "tool_call";

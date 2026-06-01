@@ -31,6 +31,7 @@ export const validateEntryBase = compileSchemaRef(`${schemaId}#/$defs/entryBase`
 export const implementedEventTypes = [
   "user_message",
   "agent_message",
+  "task_plan_update",
   "tool_call",
   "tool_result",
   "user_query",

@@ -11,9 +11,11 @@ import type { Entry } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { claudeCodeMappings } from "./mappings.ts";
 import {
+  ccDropTaskPlanResults,
   ccEnvelopeRefBackfill,
   ccModelChangeSynth,
   ccPermissionModeDelta,
+  ccTaskPlanDeltas,
   ccToolKindToResult,
 } from "./reconcile-rules.ts";
 import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
@@ -84,7 +86,14 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
     toolLinking: true,
     parentChain: true, // linear; the parentUuid chain doesn't fork
     cumulativeTokens: false,
-    custom: [ccModelChangeSynth, ccToolKindToResult, ccPermissionModeDelta, ccEnvelopeRefBackfill],
+    custom: [
+      ccModelChangeSynth,
+      ccToolKindToResult,
+      ccPermissionModeDelta,
+      ccTaskPlanDeltas,
+      ccDropTaskPlanResults,
+      ccEnvelopeRefBackfill,
+    ],
   },
 });
 

@@ -1,5 +1,6 @@
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
@@ -140,6 +141,11 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
   }
   return out;
 };
+
+export const codexTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(entries);
+
+export const codexDropTaskPlanResults: ReconcilerRule = (entries) =>
+  dropTaskPlanAckResults(entries);
 
 function linkerCallId(entry: Entry): string | undefined {
   const linker = entry.meta?.linker;

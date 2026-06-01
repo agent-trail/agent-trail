@@ -6,6 +6,7 @@
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
+import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 
 function hintOf(entry: Entry): CcHint | undefined {
@@ -225,6 +226,11 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
     return next;
   });
 };
+
+export const ccTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(entries);
+
+export const ccDropTaskPlanResults: ReconcilerRule = (entries) =>
+  dropTaskPlanAckResults(entries, { sourceGroupKey: (entry) => hintOf(entry)?.sid });
 
 function stripHint(entry: Entry): Entry {
   const m = entry.meta as Record<string, unknown> | undefined;

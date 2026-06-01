@@ -2,6 +2,13 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
+import {
+  isNonEmptyString,
+  isTaskPlanStatus,
+  normalizeTaskPlanContent,
+  type TaskPlanItem,
+  taskPlanItemId,
+} from "../task-plan.ts";
 import { sourceFor } from "./entry-metadata.ts";
 import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
 import {
@@ -11,6 +18,7 @@ import {
   isContinuationPreamble,
   isInterruptMarker,
   isObject,
+  jsonObjectValue,
   jsonString,
   stringValue,
   textFromToolResultContent,
@@ -135,6 +143,30 @@ function gate(record: CcEnvelope, allowNoUuid = false): boolean {
   if (typeof record.timestamp !== "string") return false;
   if (!allowNoUuid && typeof record.uuid !== "string") return false;
   return true;
+}
+
+function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined {
+  const args = jsonObjectValue(input) ?? {};
+  if (!Array.isArray(args.todos)) return undefined;
+  const items: TaskPlanItem[] = [];
+  const occurrenceByContent = new Map<string, number>();
+  for (const rawTodo of args.todos) {
+    if (!isObject(rawTodo)) return undefined;
+    const content = stringValue(rawTodo.content);
+    const status = rawTodo.status;
+    if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    const normalized = normalizeTaskPlanContent(content);
+    const occurrence = occurrenceByContent.get(normalized) ?? 0;
+    occurrenceByContent.set(normalized, occurrence + 1);
+    const activeForm = stringValue(rawTodo.activeForm) ?? stringValue(rawTodo.active_form);
+    items.push({
+      id: taskPlanItemId(rawTodo.id, occurrence, content),
+      content,
+      status,
+      ...(activeForm !== undefined ? { active_form: activeForm } : {}),
+    });
+  }
+  return items;
 }
 
 const userMessage = defineMapping<Raw>({
@@ -279,21 +311,37 @@ const assistantMessage = defineMapping<Raw>({
       }
       if (block.type === "tool_use") {
         const callId = stringValue(block.id);
-        if (stringValue(block.name) === "AskUserQuestion") {
+        const toolName = stringValue(block.name);
+        const taskPlanItems =
+          toolName === "TodoWrite" ? taskPlanItemsFromTodoWrite(block.input) : undefined;
+        if (taskPlanItems !== undefined) {
+          const taskPlanCallId = isNonEmptyString(callId) ? callId : undefined;
+          return [
+            {
+              type: "task_plan_update",
+              payload: { items: taskPlanItems },
+              ...(taskPlanCallId !== undefined ? { semantic: { call_id: taskPlanCallId } } : {}),
+              source,
+              meta: meta(record, { model, callId: taskPlanCallId }),
+            } as TrailEntryDraft,
+          ];
+        }
+        if (toolName === "AskUserQuestion") {
           const payload = userQueryPayload(block.input);
           if (payload !== undefined) {
+            const queryCallId = isNonEmptyString(callId) ? callId : undefined;
             return [
               {
                 type: "user_query",
                 payload,
-                semantic: { ...(callId !== undefined ? { call_id: callId } : {}) },
+                ...(queryCallId !== undefined ? { semantic: { call_id: queryCallId } } : {}),
                 source,
-                meta: meta(record, { model, callId }),
+                meta: meta(record, { model, callId: queryCallId }),
               },
             ];
           }
         }
-        const mapped = toolKindAndArgs(stringValue(block.name), block.input);
+        const mapped = toolKindAndArgs(toolName, block.input);
         return [
           {
             type: "tool_call",

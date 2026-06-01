@@ -108,6 +108,19 @@ const resultActionUnion = [
 ].join("\n");
 generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);
 
+// json-schema-to-typescript can mistake the `task_plan_update.payload.items`
+// property name for the schema `items` keyword and leak `minItems?: 0` into the
+// generated payload type. The schema has `additionalProperties:false`; this
+// post-process keeps the public type aligned with writer-strict validation.
+const TASK_PLAN_MIN_ITEMS_RE =
+  /(export interface TaskPlanUpdate \{\n {2}type\?: "task_plan_update";\n {2}payload\?: \{\n(?: {4}[^\n]+\n)+?) {4}minItems\?: 0;\n/;
+if (!TASK_PLAN_MIN_ITEMS_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the TaskPlanUpdate.payload.minItems artifact to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+generated = generated.replace(TASK_PLAN_MIN_ITEMS_RE, "$1");
+
 if (checkOnly) {
   const existing = await readFile(outputUrl, "utf8").catch(() => "");
 

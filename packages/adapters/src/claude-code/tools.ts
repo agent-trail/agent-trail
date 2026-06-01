@@ -1,4 +1,4 @@
-import { isObject, jsonObjectValue, jsonString, maybeNumber, stringValue } from "./source.ts";
+import { isObject, jsonObjectValue, maybeNumber, stringValue } from "./source.ts";
 
 export function toolKindAndArgs(
   name: string | undefined,
@@ -114,12 +114,6 @@ export function toolKindAndArgs(
         };
       }
       break;
-    }
-    case "TodoWrite": {
-      return {
-        tool: "task_plan",
-        args: { ...(Array.isArray(args.todos) ? { items: args.todos.map(jsonString) } : {}) },
-      };
     }
     case "Task":
     case "Agent": {
