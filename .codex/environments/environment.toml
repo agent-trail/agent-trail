@@ -16,7 +16,7 @@ command = "bun run typecheck"
 
 [[actions]]
 name = "Test"
-icon = "test"
+icon = "beaker"
 command = "bun run test"
 
 [[actions]]
