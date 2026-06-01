@@ -10,13 +10,20 @@ import type {
 } from "./types.ts";
 
 type Visit = {
+  recordIndex: number;
   location: string;
   get: () => string;
   set: (next: string) => void;
 };
 
-function arrayVisit(container: unknown[], index: number, location: string): Visit {
+function arrayVisit(
+  container: unknown[],
+  index: number,
+  recordIndex: number,
+  location: string,
+): Visit {
   return {
+    recordIndex,
     location,
     get: () => container[index] as string,
     set: (next) => {
@@ -25,8 +32,14 @@ function arrayVisit(container: unknown[], index: number, location: string): Visi
   };
 }
 
-function keyVisit(container: Record<string, unknown>, key: string, location: string): Visit {
+function keyVisit(
+  container: Record<string, unknown>,
+  key: string,
+  recordIndex: number,
+  location: string,
+): Visit {
   return {
+    recordIndex,
     location,
     get: () => container[key] as string,
     set: (next) => {
@@ -37,6 +50,7 @@ function keyVisit(container: Record<string, unknown>, key: string, location: str
 
 function* walkContainer(
   container: Record<string, unknown> | unknown[],
+  recordIndex: number,
   prefix: string,
 ): Generator<Visit> {
   if (Array.isArray(container)) {
@@ -44,9 +58,9 @@ function* walkContainer(
       const child = container[i];
       const path = `${prefix}[${i}]`;
       if (typeof child === "string") {
-        yield arrayVisit(container, i, path);
+        yield arrayVisit(container, i, recordIndex, path);
       } else if (child !== null && typeof child === "object") {
-        yield* walkContainer(child as Record<string, unknown> | unknown[], path);
+        yield* walkContainer(child as Record<string, unknown> | unknown[], recordIndex, path);
       }
     }
     return;
@@ -55,9 +69,9 @@ function* walkContainer(
     const child = container[key];
     const path = `${prefix}.${key}`;
     if (typeof child === "string") {
-      yield keyVisit(container, key, path);
+      yield keyVisit(container, key, recordIndex, path);
     } else if (child !== null && typeof child === "object") {
-      yield* walkContainer(child as Record<string, unknown> | unknown[], path);
+      yield* walkContainer(child as Record<string, unknown> | unknown[], recordIndex, path);
     }
   }
 }
@@ -78,6 +92,9 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "branch_summary",
   "tool_call",
   "tool_result",
+  "user_query",
+  "user_query_response",
+  "capability_change",
 ]);
 
 // Attachment references (image/file uris) appear on user_message, agent_message,
@@ -92,7 +109,7 @@ function* visitAttachments(payload: Record<string, unknown>, index: number): Gen
     if (a === null || typeof a !== "object") continue;
     const obj = a as Record<string, unknown>;
     if (typeof obj.uri === "string") {
-      yield keyVisit(obj, "uri", `records[${index}].payload.attachments[${i}].uri`);
+      yield keyVisit(obj, "uri", index, `records[${index}].payload.attachments[${i}].uri`);
     }
   }
 }
@@ -105,15 +122,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (type === "session") {
       if (typeof value.cwd === "string") {
-        yield keyVisit(value, "cwd", `records[${index}].cwd`);
+        yield keyVisit(value, "cwd", index, `records[${index}].cwd`);
       }
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
+        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
       }
       const headerSource = value.source as Record<string, unknown> | undefined;
       if (headerSource && typeof headerSource.path === "string") {
-        yield keyVisit(headerSource, "path", `records[${index}].source.path`);
+        yield keyVisit(headerSource, "path", index, `records[${index}].source.path`);
       }
     }
 
@@ -121,7 +138,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
+        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
       }
     }
 
@@ -134,15 +151,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
         type === "system_event") &&
       typeof payload.text === "string"
     ) {
-      yield keyVisit(payload, "text", `records[${index}].payload.text`);
+      yield keyVisit(payload, "text", index, `records[${index}].payload.text`);
     }
 
     if (payload && type === "user_interrupt" && typeof payload.reason === "string") {
-      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+      yield keyVisit(payload, "reason", index, `records[${index}].payload.reason`);
     }
 
     if (payload && type === "branch_point" && typeof payload.reason === "string") {
-      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+      yield keyVisit(payload, "reason", index, `records[${index}].payload.reason`);
     }
 
     if (
@@ -150,11 +167,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       (type === "context_compact" || type === "branch_summary") &&
       typeof payload.summary === "string"
     ) {
-      yield keyVisit(payload, "summary", `records[${index}].payload.summary`);
+      yield keyVisit(payload, "summary", index, `records[${index}].payload.summary`);
     }
 
     if (payload && (type === "user_message" || type === "agent_message")) {
       yield* visitAttachments(payload, index);
+    }
+
+    if (payload && (type === "user_query" || type === "user_query_response")) {
+      yield* walkContainer(payload, index, `records[${index}].payload`);
     }
 
     if (payload && type === "system_event") {
@@ -162,6 +183,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (data !== null && typeof data === "object") {
         yield* walkContainer(
           data as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.data`,
         );
       }
@@ -172,6 +194,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (args !== null && typeof args === "object") {
         yield* walkContainer(
           args as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.args`,
         );
       }
@@ -179,19 +202,24 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (payload && type === "tool_result") {
       if (typeof payload.output === "string") {
-        yield keyVisit(payload, "output", `records[${index}].payload.output`);
+        yield keyVisit(payload, "output", index, `records[${index}].payload.output`);
       }
       if (typeof payload.error === "string") {
-        yield keyVisit(payload, "error", `records[${index}].payload.error`);
+        yield keyVisit(payload, "error", index, `records[${index}].payload.error`);
       }
       yield* visitAttachments(payload, index);
       const resultMeta = payload.meta;
       if (resultMeta !== null && typeof resultMeta === "object") {
         yield* walkContainer(
           resultMeta as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.meta`,
         );
       }
+    }
+
+    if (payload && type === "capability_change") {
+      yield* walkContainer(payload, index, `records[${index}].payload`);
     }
 
     // Forward-compat fallback: schema permits future event types whose
@@ -199,12 +227,16 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     // already handled above, walk payload generically so unknown adapters
     // and vendor events do not bypass redaction.
     if (payload && typeof type === "string" && !HANDLED_EVENT_TYPES.has(type)) {
-      yield* walkContainer(payload, `records[${index}].payload`);
+      yield* walkContainer(payload, index, `records[${index}].payload`);
     }
 
     const meta = value.meta;
     if (meta !== null && typeof meta === "object") {
-      yield* walkContainer(meta as Record<string, unknown> | unknown[], `records[${index}].meta`);
+      yield* walkContainer(
+        meta as Record<string, unknown> | unknown[],
+        index,
+        `records[${index}].meta`,
+      );
     }
 
     if (includeSourceRaw && type !== "session") {
@@ -213,10 +245,82 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (raw !== undefined && raw !== null && typeof raw === "object") {
         yield* walkContainer(
           raw as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].source.raw`,
         );
       } else if (typeof raw === "string" && source) {
-        yield keyVisit(source, "raw", `records[${index}].source.raw`);
+        yield keyVisit(source, "raw", index, `records[${index}].source.raw`);
+      }
+    }
+  }
+}
+
+function secretQuestionIdsByQueryId(records: JsonlRecord[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const record of records) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query") continue;
+    const entryId = value.id;
+    const payload = value.payload as { questions?: unknown } | undefined;
+    if (typeof entryId !== "string" || !Array.isArray(payload?.questions)) continue;
+    const secretIds = new Set<string>();
+    for (const question of payload.questions) {
+      if (question === null || typeof question !== "object") continue;
+      const q = question as { id?: unknown; is_secret?: unknown };
+      if (typeof q.id === "string" && q.is_secret === true) secretIds.add(q.id);
+    }
+    if (secretIds.size > 0) out.set(entryId, secretIds);
+  }
+  return out;
+}
+
+function stripSecretUserQueryAnswers(
+  records: JsonlRecord[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  const secretByQueryId = secretQuestionIdsByQueryId(records);
+  if (secretByQueryId.size === 0) return;
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query_response") continue;
+    const payload = value.payload as { for_id?: unknown; answers?: unknown } | undefined;
+    if (typeof payload?.for_id !== "string") continue;
+    if (payload.answers === null || typeof payload.answers !== "object") continue;
+    const secretIds = secretByQueryId.get(payload.for_id);
+    if (secretIds === undefined) continue;
+    const source = value.source as Record<string, unknown> | undefined;
+    if (source !== undefined && source.raw !== undefined) {
+      source.raw = { redacted: "[STRIPPED secret user_query_response source.raw]" };
+      summary.counts.user_query_secret_source_raw =
+        (summary.counts.user_query_secret_source_raw ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "user_query_secret_source_raw",
+          location: `records[${index}].source.raw`,
+          before: "[secret source raw]",
+          after: "[STRIPPED]",
+        });
+      }
+    }
+    const answers = payload.answers as Record<string, unknown>;
+    for (const questionId of secretIds) {
+      const answer = answers[questionId];
+      if (answer === null || typeof answer !== "object") continue;
+      const answerObject = answer as Record<string, unknown>;
+      const hadSelected = Array.isArray(answerObject.selected) && answerObject.selected.length > 0;
+      const hadOther = typeof answerObject.other === "string" && answerObject.other.length > 0;
+      if (!hadSelected && !hadOther) continue;
+      answerObject.selected = [];
+      delete answerObject.other;
+      summary.counts.user_query_secret_answer = (summary.counts.user_query_secret_answer ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "user_query_secret_answer",
+          location: `records[${index}].payload.answers.${questionId}`,
+          before: "[secret answer]",
+          after: "[STRIPPED]",
+        });
       }
     }
   }
@@ -224,10 +328,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
 const SAMPLE_HEAD = 4;
 const SAMPLE_TAIL = 4;
+const TEXT_ENCODER = new TextEncoder();
 // Show head+tail only when both can be revealed without overlap and still
 // elide at least one character from the middle. Otherwise, hide the entire
 // match to avoid leaking short secrets verbatim in samples.
 const SAMPLE_MIN_REVEAL = SAMPLE_HEAD + SAMPLE_TAIL + 1;
+
+function byteLength(s: string): number {
+  return TEXT_ENCODER.encode(s).byteLength;
+}
 
 function maskSample(secret: string): string {
   if (secret.length === 0) return secret;
@@ -244,12 +353,12 @@ function applyPattern(
   pattern: RedactionPattern,
   summary: RedactionSummary,
   maxSamples: number,
-): void {
+): number {
   const current = visit.get();
   const regex = ensureGlobal(pattern.regex);
   regex.lastIndex = 0;
   const matches = Array.from(current.matchAll(regex));
-  if (matches.length === 0) return;
+  if (matches.length === 0) return 0;
   regex.lastIndex = 0;
   visit.set(current.replace(regex, pattern.placeholder));
   summary.counts[pattern.id] = (summary.counts[pattern.id] ?? 0) + matches.length;
@@ -262,6 +371,50 @@ function applyPattern(
       after: pattern.placeholder,
     });
   }
+  return matches.length;
+}
+
+function redactVisit(
+  visit: Visit,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  for (const pattern of userPatterns) {
+    applyPattern(visit, pattern, summary, maxSamples);
+  }
+  for (const pattern of patterns) {
+    applyPattern(visit, pattern, summary, maxSamples);
+  }
+  const current = visit.get();
+  const pii = applyPii(current, visit.location, summary, maxSamples);
+  if (pii.text !== current) {
+    visit.set(pii.text);
+  }
+  for (const sample of pii.samples) {
+    if (summary.samples.length >= maxSamples) break;
+    summary.samples.push(sample);
+  }
+}
+
+function redactString(
+  value: string,
+  location: string,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): string {
+  const container: Record<string, unknown> = { value };
+  redactVisit(
+    keyVisit(container, "value", -1, location),
+    userPatterns,
+    patterns,
+    summary,
+    maxSamples,
+  );
+  return container.value as string;
 }
 
 function escapeRegex(literal: string): string {
@@ -295,6 +448,98 @@ function stripVcsRemoteUrl(
   }
 }
 
+function uniqueKey(preferred: string, used: Set<string>): string {
+  if (!used.has(preferred)) return preferred;
+  let suffix = 2;
+  let candidate = `${preferred}_${suffix}`;
+  while (used.has(candidate)) {
+    suffix += 1;
+    candidate = `${preferred}_${suffix}`;
+  }
+  return candidate;
+}
+
+function redactUserQueryQuestionIds(
+  records: JsonlRecord[],
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): Map<string, Map<string, string>> {
+  const idMaps = new Map<string, Map<string, string>>();
+
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query" || typeof value.id !== "string") continue;
+    const payload = value.payload as { questions?: unknown } | undefined;
+    if (!Array.isArray(payload?.questions)) continue;
+
+    const used = new Set<string>();
+    const idMap = new Map<string, string>();
+    for (let i = 0; i < payload.questions.length; i += 1) {
+      const question = payload.questions[i];
+      if (question === null || typeof question !== "object") continue;
+      const questionObject = question as Record<string, unknown>;
+      const before = questionObject.id;
+      if (typeof before !== "string") continue;
+      const redacted = redactString(
+        before,
+        `records[${index}].payload.questions[${i}].id`,
+        userPatterns,
+        patterns,
+        summary,
+        maxSamples,
+      );
+      const after = redacted !== before ? uniqueKey(redacted, used) : redacted;
+      questionObject.id = after;
+      used.add(after);
+      if (after !== before) idMap.set(before, after);
+    }
+    if (idMap.size > 0) idMaps.set(value.id, idMap);
+  }
+
+  return idMaps;
+}
+
+function redactUserQueryAnswerKeys(
+  records: JsonlRecord[],
+  queryIdMaps: Map<string, Map<string, string>>,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query_response") continue;
+    const payload = value.payload as { for_id?: unknown; answers?: unknown } | undefined;
+    if (typeof payload?.for_id !== "string") continue;
+    if (payload.answers === null || typeof payload.answers !== "object") continue;
+
+    const answers = payload.answers as Record<string, unknown>;
+    const idMap = queryIdMaps.get(payload.for_id);
+    const rewritten = Object.create(null) as Record<string, unknown>;
+    const used = new Set<string>();
+    let changed = false;
+    for (const [before, answer] of Object.entries(answers)) {
+      const redacted = redactString(
+        before,
+        `records[${index}].payload.answers.${before}`,
+        userPatterns,
+        patterns,
+        summary,
+        maxSamples,
+      );
+      const mapped = idMap?.get(before) ?? redacted;
+      const after = uniqueKey(mapped, used);
+      used.add(after);
+      rewritten[after] = answer;
+      if (after !== before) changed = true;
+    }
+    if (changed) payload.answers = rewritten;
+  }
+}
+
 function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
   // Note: if a user-supplied secret happens to equal a placeholder
   // ("[OPENAI_KEY]", "<home>", etc.) repeated redaction passes can shorten
@@ -314,6 +559,42 @@ function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
   );
 }
 
+function addMutationCount(counts: Map<number, number>, recordIndex: number, count: number): void {
+  if (count <= 0) return;
+  counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
+}
+
+function snapshotToolResultOutputSizes(records: JsonlRecord[]): Map<number, number> {
+  const sizes = new Map<number, number>();
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "tool_result") continue;
+    const payload = value.payload as Record<string, unknown> | undefined;
+    if (typeof payload?.output === "string") {
+      sizes.set(index, byteLength(payload.output));
+    }
+  }
+  return sizes;
+}
+
+function applyRedactionCounts(records: JsonlRecord[], counts: ReadonlyMap<number, number>): void {
+  for (const [index, count] of counts) {
+    const value = records[index]?.value as Record<string, unknown> | undefined;
+    if (value === undefined || value.type === "session" || value.type === "trail") continue;
+    const meta =
+      value.meta !== null && typeof value.meta === "object"
+        ? (value.meta as Record<string, unknown>)
+        : {};
+    const previous =
+      typeof meta.redaction_count === "number" &&
+      Number.isInteger(meta.redaction_count) &&
+      meta.redaction_count >= 0
+        ? meta.redaction_count
+        : 0;
+    value.meta = { ...meta, redaction_count: previous + count };
+  }
+}
+
 export function redactTrail(
   records: JsonlRecord[],
   options: RedactTrailOptions = {},
@@ -328,23 +609,45 @@ export function redactTrail(
   const maxSamples = options.maxSamples ?? 20;
   const keepRemoteUrl = options.keepRemoteUrl ?? false;
   const out = records.map((record) => structuredClone(record));
+  const originalToolResultOutputSizes = snapshotToolResultOutputSizes(out);
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
+  const redactionCounts = new Map<number, number>();
 
   if (!keepRemoteUrl) {
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
   }
 
+  const queryIdMaps = redactUserQueryQuestionIds(
+    out,
+    userPatterns,
+    patterns,
+    rawSummary,
+    maxSamples,
+  );
+  redactUserQueryAnswerKeys(out, queryIdMaps, userPatterns, patterns, rawSummary, maxSamples);
+
+  stripSecretUserQueryAnswers(out, rawSummary, maxSamples);
+
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
+      addMutationCount(
+        redactionCounts,
+        visit.recordIndex,
+        applyPattern(visit, pattern, rawSummary, maxSamples),
+      );
     }
     for (const pattern of patterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
+      addMutationCount(
+        redactionCounts,
+        visit.recordIndex,
+        applyPattern(visit, pattern, rawSummary, maxSamples),
+      );
     }
     const current = visit.get();
     const pii = applyPii(current, visit.location, rawSummary, maxSamples);
     if (pii.text !== current) {
       visit.set(pii.text);
+      addMutationCount(redactionCounts, visit.recordIndex, pii.count);
     }
     for (const sample of pii.samples) {
       if (rawSummary.samples.length >= maxSamples) break;
@@ -352,7 +655,15 @@ export function redactTrail(
     }
   }
 
-  truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);
+  truncateOutputs(
+    out,
+    outputMaxBytes,
+    rawSummary,
+    maxSamples,
+    redactionCounts,
+    originalToolResultOutputSizes,
+  );
+  applyRedactionCounts(out, redactionCounts);
 
   // Redacted bytes differ from the input artifact, so any finalized
   // content_hash carried on the input is now stale. Reset to the

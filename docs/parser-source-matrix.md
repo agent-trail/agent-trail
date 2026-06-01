@@ -29,8 +29,8 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, user_interrupt, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -106,6 +106,8 @@ strings → `other`, since spec §10.1 `file_edit` is single-file unified-diff o
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
 `fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.5,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
+Pi has no observed mid-session registry delta primitive; extension-like tool calls remain
+`tool_call.tool="other"` and do not synthesize `capability_change` events.
 
 Tree and branch coverage (spec §12.1-12.3, §9.3): Pi is tree-native — every entry emits `parent_id`
 mirroring the source `parentId` chain, including forks where multiple envelopes share one
@@ -225,7 +227,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
     (same helper Pi uses) so the canonical `args.command` is always a single string.
   - `write_stdin` with non-empty `chars` → `shell_input{input, session_id?}`; numeric
     `session_id` is stringified. Empty or missing `chars` → `shell_output{command_id?}`.
-  - `request_user_input` → `user_input_request`.
+  - `request_user_input` → `user_query`.
   - `tool_search` → `tool_search`.
   - MCP-shaped names (`mcp__<server>__<tool>`) or args with `namespace:"mcp__<server>"`
     → `mcp_call{server, tool, args}`.
@@ -238,8 +240,8 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   spinner-strip cleaned: trailing TUI decorations (a `\n` followed by `·` and a space) are
   removed when the trim region contains an unambiguous spinner glyph (`·`, `•`); natural
   trailing whitespace such as a shell command's `\n` is preserved. For paired
-  `user_input_request` calls, Codex's JSON `{"answers": ...}` output is also exposed under
-  `tool_result.payload.meta.user_input_request.answers`.
+  `request_user_input` calls, Codex's JSON `{"answers": ...}` output is converted to
+  `user_query_response`.
 - `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
   string `input` (not a JSON `arguments` string). Dispatch:
   - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /
@@ -328,6 +330,17 @@ Lifecycle-vocabulary `system_event` emissions:
   reference-only attachments (`sha256:` for inline `data:` images) onto the nearest matching
   event-message echo, with a standalone message fallback when no echo is present.
 
+Capability-registry emissions:
+
+- `session_meta.payload.dynamic_tools` → `capability_change{scope:"tool", reason:"loaded"}` with
+  `snapshot`. The adapter keeps only compact `metadata` (`namespace`, `description`,
+  `defer_loading`) and intentionally drops full tool input schemas.
+- `event_msg.mcp_startup_update` / `event_msg.mcp_startup_complete` →
+  `capability_change{scope:"mcp_server"}`. Starting maps to `loaded`, ready to `connected`,
+  failed to `error`, and cancelled to `disconnected`.
+- `DynamicToolCallRequest` / `DynamicToolCallResponse` are dynamic tool invocation records, not
+  registry changes; they are not mapped to `capability_change`.
+
 `dev.codex.raw_type` audit-tag values stamped by the adapter:
 
 - `event_msg.user_message` — live user input.
@@ -372,9 +385,8 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
 - 12s `event_msg` ↔ `response_fallback` dedupe — no `response_fallback` records observed in
   the corpus; defer until evidence.
 - `request_user_input` Q&A reconstruction is verified from local real sessions: the request is a
-  `function_call`, and the answer arrives as paired `function_call_output` JSON with an `answers`
-  key. The adapter exposes that parsed value at
-  `tool_result.payload.meta.user_input_request.answers`.
+  `function_call` mapped to `user_query`, and the answer arrives as paired
+  `function_call_output` JSON with an `answers` key mapped to `user_query_response`.
 
 Opt-in real-session test hook: `packages/adapters/src/codex/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_CODEX_SESSION` (absolute path to a real Codex JSONL session) and skips when
@@ -386,9 +398,8 @@ real summary and compact-summary records, meaningful system/progress/queue recor
 markers (both `[Request interrupted by user]` and `[Request interrupted by user for tool use]`
 variants observed in real sessions), and in-session model switches (emitted as synthetic
 `model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
-`AskUserQuestion` results arrive as user-side `tool_result` blocks linked by `tool_use_id`; the
-adapter keeps the raw answer in `tool_result.payload.output` and mirrors it under
-`tool_result.payload.meta.user_input_request.answers`.
+`AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
+`tool_use_id` are converted to `user_query_response`.
 Deferred shapes include image attachments, server-tool result blocks, cross-file subagent merging,
 and overflow blob storage.
 
@@ -421,6 +432,16 @@ Vendor extensions (Claude Code-specific):
 - `x-claudecode/pr_link` — `pr-link` envelope. id synthesized (`source.synthesized: true`).
 
 Vendor kinds are not portable across agents. Promote to the reserved enum (with a minor spec version bump) if another adapter ends up emitting the same shape.
+
+Capability-registry attachments:
+
+- `attachment.deferred_tools_delta` → `capability_change{scope:"tool"}`. Mixed add/remove
+  payloads split into separate `registered` and `deregistered` events.
+- `attachment.skill_listing` → `capability_change{scope:"skill", reason:"loaded"}`. Structured
+  names become a `snapshot`; string-only listings become a `changed` record preserving the listing
+  text without inventing skill names.
+- `attachment.mcp_instructions_delta` →
+  `capability_change{scope:"mcp_server", reason:"instructions_updated"}`.
 
 Header / envelope enrichment from non-timeline envelopes:
 

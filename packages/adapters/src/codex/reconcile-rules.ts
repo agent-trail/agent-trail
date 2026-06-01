@@ -3,13 +3,6 @@ import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trai
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
-const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
-const TEXT_ENCODER = new TextEncoder();
-
-function byteLength(value: string): number {
-  return TEXT_ENCODER.encode(value).byteLength;
-}
-
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
   const value = (entry.meta as Record<string, unknown> | undefined)?.[USAGE_CARRIER];
   return value as AgentMessageUsage | undefined;
@@ -154,58 +147,136 @@ export const codexTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDelt
 export const codexDropTaskPlanResults: ReconcilerRule = (entries) =>
   dropTaskPlanAckResults(entries);
 
-function userInputAnswersFromOutput(output: unknown): unknown {
-  if (typeof output !== "string") return undefined;
-  if (byteLength(output) > USER_INPUT_ANSWERS_META_MAX_BYTES) return undefined;
+function linkerCallId(entry: Entry): string | undefined {
+  const linker = entry.meta?.linker;
+  if (linker === null || typeof linker !== "object") return undefined;
+  const callId = (linker as Record<string, unknown>).call_id;
+  return typeof callId === "string" ? callId : undefined;
+}
+
+function parsedAnswers(output: unknown): Record<string, unknown> {
+  if (typeof output !== "string") return {};
   try {
     const parsed = JSON.parse(output) as unknown;
-    if (parsed !== null && typeof parsed === "object" && "answers" in parsed) {
-      return (parsed as { answers?: unknown }).answers;
-    }
+    const answers =
+      parsed !== null && typeof parsed === "object"
+        ? (parsed as { answers?: unknown }).answers
+        : undefined;
+    return answers !== null && typeof answers === "object" && !Array.isArray(answers)
+      ? (answers as Record<string, unknown>)
+      : {};
   } catch {
-    return undefined;
+    return {};
+  }
+}
+
+function selectedValues(answer: unknown): string[] {
+  if (typeof answer === "string") return [answer];
+  if (Array.isArray(answer))
+    return answer.filter((value): value is string => typeof value === "string");
+  if (answer !== null && typeof answer === "object") {
+    const objectAnswer = answer as { answers?: unknown; selected?: unknown };
+    if (Array.isArray(objectAnswer.answers)) {
+      return objectAnswer.answers.filter((value): value is string => typeof value === "string");
+    }
+    if (Array.isArray(objectAnswer.selected)) {
+      return objectAnswer.selected.filter((value): value is string => typeof value === "string");
+    }
+  }
+  return [];
+}
+
+function otherValue(answer: unknown): string | undefined {
+  if (answer !== null && typeof answer === "object") {
+    const other = (answer as { other?: unknown }).other;
+    return typeof other === "string" ? other : undefined;
   }
   return undefined;
 }
 
-function withUserInputAnswersMeta(entry: Entry, answers: unknown, kind: ToolKind): Entry {
-  const payload = entry.payload as Record<string, unknown>;
-  const meta =
-    payload.meta !== null && typeof payload.meta === "object"
-      ? (payload.meta as Record<string, unknown>)
-      : {};
-  return {
-    ...entry,
-    semantic: { ...entry.semantic, tool_kind: kind },
-    payload: {
-      ...payload,
-      meta: {
-        ...meta,
-        user_input_request: { ...(meta.user_input_request as object | undefined), answers },
-      },
-    },
-  } as Entry;
+function queryQuestions(entry: Entry): Record<string, unknown>[] {
+  const questions = (entry.payload as { questions?: unknown }).questions;
+  return Array.isArray(questions)
+    ? questions.filter((q): q is Record<string, unknown> => q !== null && typeof q === "object")
+    : [];
 }
 
-export const codexUserInputAnswersMeta: ReconcilerRule = (entries) => {
+function normalizeAnswers(
+  query: Entry,
+  rawAnswers: Record<string, unknown>,
+): Record<string, unknown> {
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const question of queryQuestions(query)) {
+    const id = question.id;
+    if (typeof id === "string") byId.set(id, question);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [questionId, rawAnswer] of Object.entries(rawAnswers)) {
+    const question = byId.get(questionId);
+    if (question === undefined) continue;
+    const selected = selectedValues(rawAnswer);
+    const optionLabels = new Set(
+      (Array.isArray(question?.options) ? question.options : [])
+        .filter(
+          (option): option is Record<string, unknown> =>
+            option !== null && typeof option === "object",
+        )
+        .map((option) => option.label)
+        .filter((label): label is string => typeof label === "string"),
+    );
+    const allowOther = question?.allow_other === true;
+    const known =
+      optionLabels.size > 0 ? selected.filter((value) => optionLabels.has(value)) : selected;
+    const unknown =
+      optionLabels.size > 0 ? selected.filter((value) => !optionLabels.has(value)) : [];
+    const answer: Record<string, unknown> = { selected: allowOther ? known : selected };
+    const other = otherValue(rawAnswer);
+    if (allowOther) {
+      const otherParts = [...(other !== undefined && other.length > 0 ? [other] : []), ...unknown];
+      if (otherParts.length > 0) answer.other = otherParts.join(", ");
+    }
+    out[questionId] = answer;
+  }
+  return out;
+}
+
+export const codexUserQueryResponses: ReconcilerRule = (entries) => {
   const kindByCallEntryId = new Map<string, ToolKind>();
+  const queryByCallId = new Map<string, Entry>();
   for (const entry of entries) {
-    if (entry.type !== "tool_call") continue;
-    const kind = entry.semantic?.tool_kind;
-    if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+    if (entry.type === "tool_call") {
+      const kind = entry.semantic?.tool_kind;
+      if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+    }
+    if (entry.type === "user_query") {
+      const callId = entry.semantic?.call_id ?? linkerCallId(entry);
+      if (callId !== undefined) queryByCallId.set(callId, entry);
+    }
   }
   return entries.map((entry) => {
     if (entry.type !== "tool_result") return entry;
+    const callId = entry.semantic?.call_id ?? linkerCallId(entry);
+    const query = callId !== undefined ? queryByCallId.get(callId) : undefined;
+    if (query !== undefined) {
+      return {
+        ...entry,
+        type: "user_query_response",
+        payload: {
+          for_id: query.id,
+          answers: normalizeAnswers(
+            query,
+            parsedAnswers((entry.payload as { output?: unknown }).output),
+          ),
+        },
+        semantic: {
+          ...(callId !== undefined ? { call_id: callId } : {}),
+        },
+      } as Entry;
+    }
     const forId = (entry.payload as { for_id?: unknown }).for_id;
     if (typeof forId !== "string") return entry;
     const kind = kindByCallEntryId.get(forId);
     if (kind === undefined) return entry;
-    if (kind !== "user_input_request") {
-      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
-    }
-    const answers = userInputAnswersFromOutput((entry.payload as { output?: unknown }).output);
-    if (answers === undefined)
-      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
-    return withUserInputAnswersMeta(entry, answers, kind);
+    return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
   });
 };

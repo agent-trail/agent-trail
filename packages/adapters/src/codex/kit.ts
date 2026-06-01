@@ -8,7 +8,7 @@ import {
   codexImageRollup,
   codexTaskPlanDeltas,
   codexTokenRollup,
-  codexUserInputAnswersMeta,
+  codexUserQueryResponses,
 } from "./reconcile-rules.ts";
 import { stringValue, timestampToIso } from "./source.ts";
 
@@ -48,7 +48,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
       codexImageRollup,
       codexTaskPlanDeltas,
       codexDropTaskPlanResults,
-      codexUserInputAnswersMeta,
+      codexUserQueryResponses,
     ],
   },
 });

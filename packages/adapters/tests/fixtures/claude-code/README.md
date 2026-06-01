@@ -13,6 +13,7 @@ secrets, no contributor file paths, no real session ids. Real local sessions sta
 | `fidelity-edge-cases.jsonl` | Mixed assistant text/thinking/redacted_thinking/multiple tool_use blocks, user text plus multiple tool_result blocks including an error, Claude system/progress/queue records, continuation preamble, real summary shape, and compact summary shape. | 9 source records | 15 entries (user_message, agent_message, agent_thinking, tool_call, tool_result, system_event, session_summary, context_compact) |
 | `interrupt-and-model-change.jsonl` | User → assistant (opus) → `[Request interrupted by …]` → user → assistant (sonnet). Exercises `user_interrupt` detection and a synthesized `model_change` at the opus→sonnet switch. | 6 source records | 7 entries (user_message, agent_message, user_interrupt, model_change) |
 | `permission-mode.jsonl` | User → `permission-mode` (default) → assistant → `permission-mode` (acceptEdits). Exercises timestamp-less `permission-mode` records inheriting the prior envelope timestamp, `data.to`, then `data.from` + delta text on the second change. | 4 source records | 4 entries (user_message, system_event ×2 permission_mode_change, agent_message) |
+| `capability-changes.jsonl` | User → four capability attachment records. Exercises `deferred_tools_delta` add/remove split, structured `skill_listing` snapshot, text-only `skill_listing` fallback, and `mcp_instructions_delta` instructions update. | 5 source records | 6 entries (user_message, capability_change ×5) |
 
 ## Adding a fixture
 

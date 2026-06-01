@@ -60,6 +60,13 @@ test("valid/agent-message-attachments-multiple.trail.jsonl validates clean", asy
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/capability-change.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/capability-change.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl reports pattern at /payload/attachments/0/uri", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl"),
@@ -132,6 +139,45 @@ test("invalid-schema/user-message-missing-text.trail.jsonl reports required /pay
     severity: "error",
     code: "required",
     message: "must have required property 'text'",
+  });
+});
+
+test("invalid-schema/capability-change-bad-scope.trail.jsonl reports enum at /payload/scope", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/capability-change-bad-scope.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/scope",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("invalid-schema/capability-change-bad-reason.trail.jsonl reports enum at /payload/reason", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/capability-change-bad-reason.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/reason",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("invalid-schema/capability-change-empty.trail.jsonl reports anyOf at /payload", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/capability-change-empty.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
   });
 });
 
@@ -255,6 +301,46 @@ test("valid/tool-result-meta-shell-command.trail.jsonl validates clean", async (
     await loadFixture("valid/tool-result-meta-shell-command.trail.jsonl"),
   );
   expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-result-output-size-truncated.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-output-size-truncated.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/redaction-count-meta.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/redaction-count-meta.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl reports required output_size", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/output_size",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'output_size'",
+  });
+});
+
+test("invalid-schema/redaction-count-non-integer.trail.jsonl reports type error", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/redaction-count-non-integer.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/meta/redaction_count",
+    severity: "error",
+    code: "type",
+    message: "must be integer",
+  });
 });
 
 test("valid/command-invoke-minimal.trail.jsonl validates clean", async () => {
@@ -776,6 +862,22 @@ test("reader-tolerant/nested-unknown-payload-field warns at nested path", async 
     {
       line: 2,
       path: "/payload/attachments/0/future_field",
+      severity: "warning",
+      code: "reader_tolerant_unknown_payload_field",
+      message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
+    },
+  ]);
+});
+
+test("reader-tolerant/capability-change-unknown-payload-field warns at capability payload path", async () => {
+  const tolerant = await validateTrailString(
+    await loadFixture("reader-tolerant/capability-change-unknown-payload-field.trail.jsonl"),
+    { profile: "reader-tolerant" },
+  );
+  expect(tolerant).toEqual([
+    {
+      line: 2,
+      path: "/payload/future_field",
       severity: "warning",
       code: "reader_tolerant_unknown_payload_field",
       message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',

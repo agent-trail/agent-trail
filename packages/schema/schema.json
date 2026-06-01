@@ -117,7 +117,6 @@
         "web_fetch",
         "web_search",
         "tool_search",
-        "user_input_request",
         "notebook_edit",
         "subagent_invoke",
         "other"
@@ -491,7 +490,16 @@
         "payload": { "type": "object" },
         "semantic": { "$ref": "#/$defs/semanticMetadata" },
         "source": { "$ref": "#/$defs/sourceMetadata" },
-        "meta": { "type": "object" }
+        "meta": {
+          "type": "object",
+          "properties": {
+            "redaction_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of redactor mutations applied to this event entry."
+            }
+          }
+        }
       },
       "additionalProperties": false
     },
@@ -506,6 +514,8 @@
             { "$ref": "#/$defs/events/task_plan_update" },
             { "$ref": "#/$defs/events/tool_call" },
             { "$ref": "#/$defs/events/tool_result" },
+            { "$ref": "#/$defs/events/user_query" },
+            { "$ref": "#/$defs/events/user_query_response" },
             { "$ref": "#/$defs/events/session_summary" },
             { "$ref": "#/$defs/events/system_event" },
             { "$ref": "#/$defs/events/agent_thinking" },
@@ -517,6 +527,7 @@
             { "$ref": "#/$defs/events/session_terminated" },
             { "$ref": "#/$defs/events/session_end" },
             { "$ref": "#/$defs/events/command_invoke" },
+            { "$ref": "#/$defs/events/capability_change" },
             { "$ref": "#/$defs/events/unknown" }
           ]
         }
@@ -787,41 +798,6 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "user_input_request" } } },
-                "then": {
-                  "properties": {
-                    "args": {
-                      "type": "object",
-                      "properties": {
-                        "question": { "type": "string" },
-                        "choices": {
-                          "type": "array",
-                          "items": { "type": "string" }
-                        },
-                        "questions": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "required": ["question"],
-                            "properties": {
-                              "question": { "type": "string" },
-                              "header": { "type": "string" },
-                              "id": { "type": "string" },
-                              "choices": {
-                                "type": "array",
-                                "items": { "type": "string" }
-                              }
-                            },
-                            "additionalProperties": false
-                          }
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  }
-                }
-              },
-              {
                 "if": { "properties": { "tool": { "const": "notebook_edit" } } },
                 "then": {
                   "properties": {
@@ -891,6 +867,11 @@
               "ok": { "type": "boolean" },
               "output": { "type": "string" },
               "truncated": { "type": "boolean" },
+              "output_size": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "UTF-8 byte length of the original output before truncation. Required when truncated is true."
+              },
               "overflow_ref": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]
               },
@@ -967,19 +948,101 @@
                       "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
                     },
                     "additionalProperties": false
-                  },
-                  "user_input_request": {
-                    "type": "object",
-                    "properties": {
-                      "answers": {}
-                    },
-                    "patternProperties": {
-                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
-                    },
-                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": { "type": "object" }
+              }
+            },
+            "additionalProperties": false,
+            "dependentSchemas": {
+              "truncated": {
+                "if": {
+                  "properties": {
+                    "truncated": { "const": true }
+                  },
+                  "required": ["truncated"]
+                },
+                "then": {
+                  "properties": {
+                    "output_size": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["output_size"]
+                }
+              }
+            }
+          }
+        }
+      },
+
+      "user_query": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_query" },
+          "payload": {
+            "type": "object",
+            "required": ["questions"],
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "question"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "question": { "type": "string" },
+                    "header": { "type": "string" },
+                    "multi_select": { "type": "boolean" },
+                    "is_secret": { "type": "boolean" },
+                    "allow_other": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["label"],
+                        "properties": {
+                          "label": { "type": "string" },
+                          "description": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "user_query_response": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_query_response" },
+          "payload": {
+            "type": "object",
+            "required": ["for_id", "answers"],
+            "properties": {
+              "for_id": { "$ref": "#/$defs/id" },
+              "answers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": ["selected"],
+                  "properties": {
+                    "selected": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "other": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
               }
             },
             "additionalProperties": false
@@ -1244,6 +1307,193 @@
         }
       },
 
+      "capability_change": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "capability_change" },
+          "payload": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": ["scope", "reason", "added"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "removed"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "changed"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "snapshot"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+
       "unknown": {
         "type": "object",
         "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
@@ -1258,6 +1508,8 @@
                 "task_plan_update",
                 "tool_call",
                 "tool_result",
+                "user_query",
+                "user_query_response",
                 "session_summary",
                 "system_event",
                 "agent_thinking",
@@ -1268,13 +1520,45 @@
                 "model_change",
                 "session_terminated",
                 "session_end",
-                "command_invoke"
+                "command_invoke",
+                "capability_change"
               ]
             }
           },
           "payload": { "type": "object" }
         }
       }
+    },
+
+    "capabilityAddedItem": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+
+    "capabilityRemovedItem": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "capabilityChangedItem": {
+      "type": "object",
+      "required": ["name", "field"],
+      "properties": {
+        "name": { "type": "string" },
+        "field": { "type": "string" },
+        "from": {},
+        "to": {}
+      },
+      "additionalProperties": false
     }
   }
 }

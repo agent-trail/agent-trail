@@ -128,6 +128,12 @@ Expected: no diagnostics under either profile.
 
 Expected: no diagnostics under either profile.
 
+#### `valid/capability-change.trail.jsonl`
+
+Exercises `capability_change` `added`, `removed`, `changed`, and `snapshot` payload shapes across tool, skill, MCP server, and MCP tool scopes.
+
+Expected: no diagnostics under either profile.
+
 ### invalid-schema/
 
 Current coverage targets `user_message` and `tool_call` payload violations. Additional event-type fixtures will be added as adapters and downstream issues require them.
@@ -169,6 +175,24 @@ Expected (strict, subset): `error additionalProperties /payload/usage/cost_usd l
 `session_end.payload.final_message_id` is `null`. The schema requires a string id (`$defs/id`). The graph layer's `unknown_final_message_id` check skips non-string values, so only the schema error fires (and does not crash).
 
 Expected (strict, subset): `error type /payload/final_message_id line 3`. No `unknown_final_message_id` warning.
+
+#### `invalid-schema/capability-change-bad-scope.trail.jsonl`
+
+`capability_change.payload.scope` is not one of the reserved scope values.
+
+Expected (strict, subset): `error enum /payload/scope line 2`.
+
+#### `invalid-schema/capability-change-bad-reason.trail.jsonl`
+
+`capability_change.payload.reason` is not one of the reserved reason values.
+
+Expected (strict, subset): `error enum /payload/reason line 2`.
+
+#### `invalid-schema/capability-change-empty.trail.jsonl`
+
+`capability_change` carries `scope` and `reason` but no non-empty `added`, `removed`, `changed`, or `snapshot` array.
+
+Expected (strict, subset): `error anyOf /payload line 2`.
 
 ### invalid-graph/
 
@@ -295,6 +319,12 @@ Header `schema_version: "0.1.1"` (a future patch release matching `^0\.1\.\d+$`)
 Unknown `future_field` nested inside `payload.attachments[0]`.
 
 - Reader-tolerant: single `warning reader_tolerant_unknown_payload_field /payload/attachments/0/future_field line 2`.
+
+#### `reader-tolerant/capability-change-unknown-payload-field.trail.jsonl`
+
+Unknown `future_field` on a `capability_change` payload.
+
+- Reader-tolerant: single `warning reader_tolerant_unknown_payload_field /payload/future_field line 2`.
 
 #### `reader-tolerant/unknown-event-type.trail.jsonl`
 

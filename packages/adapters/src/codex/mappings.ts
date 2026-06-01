@@ -25,6 +25,7 @@ import {
 import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
+type UserQueryOption = { label: string; description?: string };
 
 /**
  * Private meta key on a transient pass-1 carrier `system_event`: token_count maps
@@ -81,6 +82,100 @@ function taskPlanItemsFromUpdatePlan(args: Record<string, unknown>): TaskPlanIte
   return items;
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function optionObjects(value: unknown): UserQueryOption[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string") return { label: option };
+      if (!isObject(option)) return undefined;
+      const label = stringValue(option.label);
+      if (label === undefined) return undefined;
+      const description = stringValue(option.description);
+      return { label, ...(description !== undefined ? { description } : {}) };
+    })
+    .filter((option): option is UserQueryOption => option !== undefined);
+  return options.length === value.length ? options : undefined;
+}
+
+function userQueryQuestion(raw: Raw, fallbackIndex: number): Record<string, unknown> | undefined {
+  const question = stringValue(raw.question);
+  if (question === undefined) return undefined;
+  const id =
+    stringValue(raw.id) ?? (fallbackIndex === 0 ? "question" : `question-${fallbackIndex}`);
+  const out: Record<string, unknown> = { id, question };
+  const header = stringValue(raw.header);
+  if (header !== undefined) out.header = header;
+  const multiSelect = booleanValue(raw.multi_select) ?? booleanValue(raw.multiSelect);
+  if (multiSelect !== undefined) out.multi_select = multiSelect;
+  const isSecret = booleanValue(raw.is_secret) ?? booleanValue(raw.isSecret);
+  if (isSecret !== undefined) out.is_secret = isSecret;
+  const allowOther =
+    booleanValue(raw.allow_other) ??
+    booleanValue(raw.allowOther) ??
+    booleanValue(raw.is_other) ??
+    booleanValue(raw.isOther);
+  if (allowOther !== undefined) out.allow_other = allowOther;
+  const options = optionObjects(raw.options) ?? optionObjects(raw.choices);
+  if (options !== undefined) out.options = options;
+  return out;
+}
+
+function userQueryPayload(args: Raw): { questions: Record<string, unknown>[] } | undefined {
+  if (Array.isArray(args.questions)) {
+    const questions = args.questions
+      .filter(isObject)
+      .map((question, index) => userQueryQuestion(question, index))
+      .filter((question): question is Record<string, unknown> => question !== undefined);
+    if (questions.length > 0) return { questions };
+  }
+  const question = userQueryQuestion(args, 0);
+  return question !== undefined ? { questions: [question] } : undefined;
+}
+
+function capabilityMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const metadata: Record<string, unknown> = {};
+  const namespace = stringValue(value.namespace);
+  if (namespace !== undefined) metadata.namespace = namespace;
+  const description = stringValue(value.description);
+  if (description !== undefined) metadata.description = description;
+  const deferLoading = value.defer_loading ?? value.deferLoading;
+  if (typeof deferLoading === "boolean") metadata.defer_loading = deferLoading;
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+const sessionDynamicTools = defineMapping<Raw>({
+  match: { type: "session_meta" },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const tools = Array.isArray(p.dynamic_tools)
+      ? p.dynamic_tools
+      : Array.isArray(p.dynamicTools)
+        ? p.dynamicTools
+        : [];
+    const snapshot = tools.flatMap((tool) => {
+      if (!isObject(tool)) return [];
+      const name = stringValue(tool.name);
+      if (name === undefined) return [];
+      const metadata = capabilityMetadata(tool);
+      return [{ name, ...(metadata !== undefined ? { metadata } : {}) }];
+    });
+    if (snapshot.length === 0) return [];
+    return [
+      {
+        type: "capability_change",
+        payload: { scope: "tool", reason: "loaded", snapshot },
+        source: source("session_meta.dynamic_tools"),
+        meta: meta("session_meta.dynamic_tools"),
+      },
+    ];
+  },
+});
+
 function message(payloadType: "user_message" | "agent_message"): MappingDef<Raw> {
   const rawType = `event_msg.${payloadType}`;
   return defineMapping<Raw>({
@@ -129,6 +224,21 @@ const functionCall = defineMapping<Raw>({
           meta: meta("response_item.function_call", taskPlanCallId),
         } as TrailEntryDraft,
       ];
+    }
+    if (name === "request_user_input") {
+      const payload = userQueryPayload(parsed.args);
+      if (payload !== undefined) {
+        const queryCallId = isNonEmptyString(callId) ? callId : undefined;
+        return [
+          {
+            type: "user_query",
+            payload,
+            ...(queryCallId !== undefined ? { semantic: { call_id: queryCallId } } : {}),
+            source: source("response_item.function_call", raw),
+            meta: meta("response_item.function_call", queryCallId),
+          },
+        ];
+      }
     }
     const mapping = mapTool(name, parsed.args);
     return [
@@ -619,11 +729,143 @@ const responseItemMessage = defineMapping<Raw>({
   },
 });
 
+function mcpStatusState(status: unknown): string | undefined {
+  if (typeof status === "string") return status;
+  if (!isObject(status)) return undefined;
+  return stringValue(status.state);
+}
+
+function mcpStatusError(status: unknown): string | undefined {
+  return isObject(status) ? stringValue(status.error) : undefined;
+}
+
+const mcpStartupUpdate = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "mcp_startup_update" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const name = stringValue(p.server);
+    if (name === undefined) return [];
+    const state = mcpStatusState(p.status);
+    if (state === "starting") {
+      return [
+        {
+          type: "capability_change",
+          payload: { scope: "mcp_server", reason: "loaded", added: [{ name }] },
+          source: source("event_msg.mcp_startup_update"),
+          meta: meta("event_msg.mcp_startup_update"),
+        },
+      ];
+    }
+    if (state === "ready") {
+      return [
+        {
+          type: "capability_change",
+          payload: { scope: "mcp_server", reason: "connected", added: [{ name }] },
+          source: source("event_msg.mcp_startup_update"),
+          meta: meta("event_msg.mcp_startup_update"),
+        },
+      ];
+    }
+    if (state === "failed") {
+      return [
+        {
+          type: "capability_change",
+          payload: {
+            scope: "mcp_server",
+            reason: "error",
+            changed: [
+              {
+                name,
+                field: "error",
+                to: mcpStatusError(p.status) ?? "failed",
+              },
+            ],
+          },
+          source: source("event_msg.mcp_startup_update"),
+          meta: meta("event_msg.mcp_startup_update"),
+        },
+      ];
+    }
+    if (state === "cancelled") {
+      return [
+        {
+          type: "capability_change",
+          payload: { scope: "mcp_server", reason: "disconnected", removed: [{ name }] },
+          source: source("event_msg.mcp_startup_update"),
+          meta: meta("event_msg.mcp_startup_update"),
+        },
+      ];
+    }
+    return [];
+  },
+});
+
+const mcpStartupComplete = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "mcp_startup_complete" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const drafts: TrailEntryDraft[] = [];
+    const ready = Array.isArray(p.ready)
+      ? p.ready.filter((item): item is string => typeof item === "string").map((name) => ({ name }))
+      : [];
+    if (ready.length > 0) {
+      drafts.push({
+        type: "capability_change",
+        payload: { scope: "mcp_server", reason: "connected", added: ready },
+        source: source("event_msg.mcp_startup_complete"),
+        meta: meta("event_msg.mcp_startup_complete"),
+      });
+    }
+
+    const failed = Array.isArray(p.failed)
+      ? p.failed.flatMap((item) => {
+          if (!isObject(item)) return [];
+          const name = stringValue(item.server);
+          if (name === undefined) return [];
+          return [
+            {
+              name,
+              field: "error",
+              to: stringValue(item.error) ?? "failed",
+            },
+          ];
+        })
+      : [];
+    if (failed.length > 0) {
+      drafts.push({
+        type: "capability_change",
+        payload: { scope: "mcp_server", reason: "error", changed: failed },
+        source: source("event_msg.mcp_startup_complete"),
+        meta: meta("event_msg.mcp_startup_complete"),
+      });
+    }
+
+    const cancelled = Array.isArray(p.cancelled)
+      ? p.cancelled
+          .filter((item): item is string => typeof item === "string")
+          .map((name) => ({ name }))
+      : [];
+    if (cancelled.length > 0) {
+      drafts.push({
+        type: "capability_change",
+        payload: { scope: "mcp_server", reason: "disconnected", removed: cancelled },
+        source: source("event_msg.mcp_startup_complete"),
+        meta: meta("event_msg.mcp_startup_complete"),
+      });
+    }
+
+    return drafts;
+  },
+});
+
 // Intentionally NOT mapped (recognized by the codex/v0.135 schema so they are not
 // quarantined, and dropped because they duplicate already-captured records):
 //   - response_item.message (text-only) — duplicates event_msg.{user,agent}_message.
 //   - event_msg.context_compacted — duplicates the top-level `compacted` record.
 export const codexMappings: MappingDef<Raw>[] = [
+  sessionDynamicTools,
   message("user_message"),
   message("agent_message"),
   responseItemMessage,
@@ -645,4 +887,6 @@ export const codexMappings: MappingDef<Raw>[] = [
   webSearchEnd,
   turnAborted,
   itemCompleted,
+  mcpStartupUpdate,
+  mcpStartupComplete,
 ];

@@ -34,6 +34,8 @@ export const implementedEventTypes = [
   "task_plan_update",
   "tool_call",
   "tool_result",
+  "user_query",
+  "user_query_response",
   "session_summary",
   "system_event",
   "agent_thinking",
@@ -47,6 +49,7 @@ export const implementedEventTypes = [
   // session_end signals a normal finish, session_terminated an abnormal one.
   "session_end",
   "command_invoke",
+  "capability_change",
 ] as const;
 
 const eventValidators = new Map<string, ValidateFunction<unknown>>(

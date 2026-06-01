@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
@@ -25,6 +26,7 @@ import {
 import { toolKindAndArgs } from "./tools.ts";
 
 type Raw = Record<string, unknown>;
+type UserQueryOption = { label: string; description?: string };
 
 /**
  * Transient hint stashed on `meta`: source uuid (`sid`, for multi-block
@@ -51,6 +53,77 @@ function meta(
     ...(opts?.callId !== undefined ? { linker: { call_id: opts.callId } } : {}),
     [HINT]: hint,
   };
+}
+
+function questionId(question: string, occurrence: number): string {
+  const base = `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
+  return occurrence === 0 ? base : `${base}_${occurrence + 1}`;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function optionObjects(value: unknown): UserQueryOption[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string") return { label: option };
+      if (option === null || typeof option !== "object") return undefined;
+      const label = stringValue((option as { label?: unknown }).label);
+      if (label === undefined) return undefined;
+      const description = stringValue((option as { description?: unknown }).description);
+      return { label, ...(description !== undefined ? { description } : {}) };
+    })
+    .filter((option): option is UserQueryOption => option !== undefined);
+  return options.length === value.length ? options : undefined;
+}
+
+function userQueryQuestion(
+  raw: Record<string, unknown>,
+  fallbackOccurrence: number,
+): Record<string, unknown> | undefined {
+  const question = stringValue(raw.question);
+  if (question === undefined) return undefined;
+  const out: Record<string, unknown> = {
+    id: stringValue(raw.id) ?? questionId(question, fallbackOccurrence),
+    question,
+  };
+  const header = stringValue(raw.header);
+  if (header !== undefined) out.header = header;
+  const multiSelect = booleanValue(raw.multi_select) ?? booleanValue(raw.multiSelect);
+  if (multiSelect !== undefined) out.multi_select = multiSelect;
+  const isSecret = booleanValue(raw.is_secret) ?? booleanValue(raw.isSecret);
+  if (isSecret !== undefined) out.is_secret = isSecret;
+  const allowOther =
+    booleanValue(raw.allow_other) ?? booleanValue(raw.allowOther) ?? booleanValue(raw.is_other);
+  if (allowOther !== undefined) out.allow_other = allowOther;
+  const options = optionObjects(raw.options) ?? optionObjects(raw.choices);
+  if (options !== undefined) out.options = options;
+  return out;
+}
+
+function userQueryPayload(input: unknown): { questions: Record<string, unknown>[] } | undefined {
+  const args =
+    input !== null && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  if (Array.isArray(args.questions)) {
+    const occurrences = new Map<string, number>();
+    const questions = args.questions
+      .filter(
+        (question): question is Record<string, unknown> =>
+          question !== null && typeof question === "object",
+      )
+      .map((question) => {
+        const text = stringValue(question.question);
+        const occurrence = text === undefined ? 0 : (occurrences.get(text) ?? 0);
+        if (text !== undefined) occurrences.set(text, occurrence + 1);
+        return userQueryQuestion(question, occurrence);
+      })
+      .filter((question): question is Record<string, unknown> => question !== undefined);
+    if (questions.length > 0) return { questions };
+  }
+  const question = userQueryQuestion(args, 0);
+  return question !== undefined ? { questions: [question] } : undefined;
 }
 
 function src(
@@ -253,6 +326,21 @@ const assistantMessage = defineMapping<Raw>({
             } as TrailEntryDraft,
           ];
         }
+        if (toolName === "AskUserQuestion") {
+          const payload = userQueryPayload(block.input);
+          if (payload !== undefined) {
+            const queryCallId = isNonEmptyString(callId) ? callId : undefined;
+            return [
+              {
+                type: "user_query",
+                payload,
+                ...(queryCallId !== undefined ? { semantic: { call_id: queryCallId } } : {}),
+                source,
+                meta: meta(record, { model, callId: queryCallId }),
+              },
+            ];
+          }
+        }
         const mapped = toolKindAndArgs(toolName, block.input);
         return [
           {
@@ -357,10 +445,142 @@ const permissionMode = defineMapping<Raw>({
   },
 });
 
+type CapabilityItem = { name: string; metadata?: Record<string, unknown> };
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function skillMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const description = stringValue(value.description);
+  return description === undefined ? undefined : { description };
+}
+
+function skillItems(attachment: Record<string, unknown>): CapabilityItem[] {
+  const skills = Array.isArray(attachment.skills) ? attachment.skills : undefined;
+  if (skills !== undefined) {
+    return skills.flatMap((skill) => {
+      if (typeof skill === "string") return [{ name: skill }];
+      if (!isObject(skill)) return [];
+      const name = stringValue(skill.name);
+      if (name === undefined) return [];
+      const metadata = skillMetadata(skill);
+      return [{ name, ...(metadata !== undefined ? { metadata } : {}) }];
+    });
+  }
+
+  return stringArray(attachment.skillNames ?? attachment.names).map((name) => ({ name }));
+}
+
+function listingText(attachment: Record<string, unknown>): string | undefined {
+  const content = attachment.content ?? attachment.text;
+  if (content === undefined) return undefined;
+  if (typeof content === "string") return content;
+  return jsonString(content);
+}
+
+const capabilityAttachment = defineMapping<Raw>({
+  match: { type: "attachment" },
+  emit: (raw) => {
+    const record = raw as CcEnvelope;
+    if (!gate(record)) return [];
+    const attachment = isObject(record.attachment) ? record.attachment : undefined;
+    const subtype = stringValue(attachment?.type);
+    if (attachment === undefined || subtype === undefined) return [];
+
+    if (subtype === "deferred_tools_delta") {
+      const drafts: TrailEntryDraft[] = [];
+      const added = stringArray(attachment.addedNames ?? attachment.added_names).map((name) => ({
+        name,
+      }));
+      if (added.length > 0) {
+        drafts.push({
+          type: "capability_change",
+          payload: { scope: "tool", reason: "registered", added },
+          source: src(record, "attachment.deferred_tools_delta"),
+          meta: meta(record),
+        });
+      }
+      const removed = stringArray(attachment.removedNames ?? attachment.removed_names).map(
+        (name) => ({ name }),
+      );
+      if (removed.length > 0) {
+        drafts.push({
+          type: "capability_change",
+          payload: { scope: "tool", reason: "deregistered", removed },
+          source: src(record, "attachment.deferred_tools_delta"),
+          meta: meta(record),
+        });
+      }
+      return drafts;
+    }
+
+    if (subtype === "skill_listing") {
+      const snapshot = skillItems(attachment);
+      if (snapshot.length > 0) {
+        return [
+          {
+            type: "capability_change",
+            payload: { scope: "skill", reason: "loaded", snapshot },
+            source: src(record, "attachment.skill_listing"),
+            meta: meta(record),
+          },
+        ];
+      }
+      const text = listingText(attachment);
+      if (text === undefined || text.length === 0) return [];
+      return [
+        {
+          type: "capability_change",
+          payload: {
+            scope: "skill",
+            reason: "loaded",
+            changed: [{ name: "skill_listing", field: "listing", to: text }],
+          },
+          source: src(record, "attachment.skill_listing"),
+          meta: meta(record),
+        },
+      ];
+    }
+
+    if (subtype === "mcp_instructions_delta") {
+      const name =
+        stringValue(attachment.serverName) ??
+        stringValue(attachment.server) ??
+        stringValue(attachment.name) ??
+        "mcp_instructions";
+      const content = listingText(attachment);
+      return [
+        {
+          type: "capability_change",
+          payload: {
+            scope: "mcp_server",
+            reason: "instructions_updated",
+            changed: [
+              {
+                name,
+                field: "instructions",
+                ...(content !== undefined && content.length > 0 ? { to: content } : {}),
+              },
+            ],
+          },
+          source: src(record, "attachment.mcp_instructions_delta"),
+          meta: meta(record),
+        },
+      ];
+    }
+
+    return [];
+  },
+});
+
 export const claudeCodeMappings: MappingDef<Raw>[] = [
   userMessage,
   assistantMessage,
   summary,
+  capabilityAttachment,
   systemEvent("system", false),
   systemEvent("progress", false),
   systemEvent("queue-operation", true),

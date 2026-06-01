@@ -108,6 +108,8 @@ export type Entry = EntryBase &
     | TaskPlanUpdate
     | ToolCall
     | ToolResult
+    | UserQuery
+    | UserQueryResponse
     | SessionSummary
     | SystemEvent
     | AgentThinking
@@ -119,6 +121,7 @@ export type Entry = EntryBase &
     | SessionTerminated
     | SessionEnd
     | CommandInvoke
+    | CapabilityChange
     | Unknown
   );
 export type ToolKind =
@@ -133,7 +136,6 @@ export type ToolKind =
   | "web_fetch"
   | "web_search"
   | "tool_search"
-  | "user_input_request"
   | "notebook_edit"
   | "subagent_invoke"
   | "other";
@@ -258,6 +260,10 @@ export interface EntryBase {
   semantic?: SemanticMetadata;
   source?: SourceMetadata;
   meta?: {
+    /**
+     * Number of redactor mutations applied to this event entry.
+     */
+    redaction_count?: number;
     [k: string]: unknown;
   };
 }
@@ -356,6 +362,10 @@ export interface ToolResult {
     ok: boolean;
     output?: string;
     truncated?: boolean;
+    /**
+     * UTF-8 byte length of the original output before truncation. Required when truncated is true.
+     */
+    output_size?: number;
     overflow_ref?: string | null;
     error?: string | null;
     attachments?: Attachment[];
@@ -405,16 +415,59 @@ export interface ToolResult {
          */
         [k: string]: unknown;
       };
-      user_input_request?: {
-        answers?: unknown;
-        /**
-         * This interface was referenced by `undefined`'s JSON-Schema definition
-         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
-         */
-        [k: string]: unknown;
-      };
       [k: string]: {
         [k: string]: unknown;
+      };
+    };
+  };
+  [k: string]: unknown;
+}
+export interface UserQuery {
+  type?: "user_query";
+  payload?: {
+    /**
+     * @minItems 1
+     */
+    questions: [
+      {
+        id: string;
+        question: string;
+        header?: string;
+        multi_select?: boolean;
+        is_secret?: boolean;
+        allow_other?: boolean;
+        options?: {
+          label: string;
+          description?: string;
+        }[];
+      },
+      ...{
+        id: string;
+        question: string;
+        header?: string;
+        multi_select?: boolean;
+        is_secret?: boolean;
+        allow_other?: boolean;
+        options?: {
+          label: string;
+          description?: string;
+        }[];
+      }[],
+    ];
+  };
+  [k: string]: unknown;
+}
+export interface UserQueryResponse {
+  type?: "user_query_response";
+  payload?: {
+    /**
+     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     */
+    for_id: string;
+    answers: {
+      [k: string]: {
+        selected: string[];
+        other?: string;
       };
     };
   };
@@ -582,6 +635,138 @@ export interface CommandInvoke {
       | null;
   };
   [k: string]: unknown;
+}
+export interface CapabilityChange {
+  type?: "capability_change";
+  payload?:
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        /**
+         * @minItems 1
+         */
+        added: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        /**
+         * @minItems 1
+         */
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        /**
+         * @minItems 1
+         */
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        /**
+         * @minItems 1
+         */
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      };
+  [k: string]: unknown;
+}
+export interface CapabilityAddedItem {
+  name: string;
+  metadata?: {
+    [k: string]: unknown;
+  };
+}
+export interface CapabilityRemovedItem {
+  name: string;
+}
+export interface CapabilityChangedItem {
+  name: string;
+  field: string;
+  from?: unknown;
+  to?: unknown;
 }
 /**
  * Catch-all for unrecognized event types. Readers must tolerate these.

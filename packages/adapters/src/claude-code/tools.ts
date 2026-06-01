@@ -115,24 +115,6 @@ export function toolKindAndArgs(
       }
       break;
     }
-    case "AskUserQuestion": {
-      const question = stringValue(args.question);
-      const rawChoices = args.choices;
-      const choices = Array.isArray(rawChoices)
-        ? rawChoices.filter((choice): choice is string => typeof choice === "string")
-        : undefined;
-      return {
-        tool: "user_input_request",
-        args: {
-          ...(question !== undefined ? { question } : {}),
-          ...(choices !== undefined &&
-          Array.isArray(rawChoices) &&
-          choices.length === rawChoices.length
-            ? { choices }
-            : {}),
-        },
-      };
-    }
     case "Task":
     case "Agent": {
       const task =

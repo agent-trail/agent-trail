@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
+import { cleanGitEnv } from "../vcs.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
@@ -134,6 +135,10 @@ const PERMISSION_MODE_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/permission-mode.jsonl",
   import.meta.url,
 ).pathname;
+const CAPABILITY_CHANGES_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/capability-changes.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -180,6 +185,14 @@ async function parseClaudeCodeJsonl(records: Record<string, unknown>[]) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+async function parseCapabilityChangesFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "capability-changes",
+    adapter: "claude-code",
+    path: CAPABILITY_CHANGES_FIXTURE_PATH,
+  });
 }
 
 test("parseSession() builds a header from sessionId, first ts, version, and cwd", async () => {
@@ -583,6 +596,55 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
   expect(ids).not.toContain("00000000-0000-0000-0000-cccccccceee1");
 });
 
+test("parseSession() maps Claude Code capability attachment deltas", async () => {
+  const trail = await parseCapabilityChangesFixture();
+  const changes = trail.entries.filter((entry) => entry.type === "capability_change");
+  expect(changes.map((entry) => entry.payload)).toEqual([
+    {
+      scope: "tool",
+      reason: "registered",
+      added: [{ name: "ToolSearch" }, { name: "Task" }],
+    },
+    {
+      scope: "tool",
+      reason: "deregistered",
+      removed: [{ name: "OldTool" }],
+    },
+    {
+      scope: "skill",
+      reason: "loaded",
+      snapshot: [
+        { name: "tdd", metadata: { description: "Test-driven development" } },
+        { name: "code-review" },
+      ],
+    },
+    {
+      scope: "skill",
+      reason: "loaded",
+      changed: [
+        {
+          name: "skill_listing",
+          field: "listing",
+          to: "Available skills: tdd, code-review",
+        },
+      ],
+    },
+    {
+      scope: "mcp_server",
+      reason: "instructions_updated",
+      changed: [
+        {
+          name: "linear",
+          field: "instructions",
+          to: "linear tools are now available",
+        },
+      ],
+    },
+  ]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {
   const trail = await parseFidelityFixture();
   // Multi-block envelopes mint fresh UUIDs per block (see entry-metadata.ts);
@@ -627,12 +689,6 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     tool: "tool_search",
     args: { query: "auth flow" },
   });
-  expect(
-    toolKindAndArgs("AskUserQuestion", { question: "Which backend?", choices: ["bun"] }),
-  ).toEqual({
-    tool: "user_input_request",
-    args: { question: "Which backend?", choices: ["bun"] },
-  });
   expect(toolKindAndArgs("Agent", { prompt: "Review this", subagent_type: "reviewer" })).toEqual({
     tool: "subagent_invoke",
     args: { task: "Review this", agent_type: "reviewer" },
@@ -643,7 +699,7 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
   });
 });
 
-test("AskUserQuestion result preserves answer under tool_result meta", async () => {
+test("AskUserQuestion emits structured user query and response events", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-"));
   const path = join(tmp, "session.jsonl");
   try {
@@ -659,7 +715,19 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
               type: "tool_use",
               id: "tooluse-question",
               name: "AskUserQuestion",
-              input: { question: "Ship?", choices: ["yes", "no"] },
+              input: {
+                questions: [
+                  {
+                    question: "Ship it?",
+                    header: "Ship",
+                    multiSelect: false,
+                    options: [
+                      { label: "yes", description: "Ship now" },
+                      { label: "no", description: "Hold" },
+                    ],
+                  },
+                ],
+              },
             },
           ],
         },
@@ -675,7 +743,12 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
         message: {
           role: "user",
           content: [
-            { type: "tool_result", tool_use_id: "tooluse-question", content: "yes, ship it" },
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question",
+              content:
+                'User has answered your questions: "Ship it?"="yes". You can now continue...',
+            },
           ],
         },
         type: "user",
@@ -692,19 +765,125 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
       adapter: "claude-code",
       path,
     });
-    const call = trail.entries.find(
-      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question",
     );
-    const result = trail.entries.find(
-      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question",
     );
-    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
+    if (query === undefined || response === undefined) {
+      throw new Error("expected paired query entries");
+    }
+    const [question] = (query.payload as { questions: Array<{ id: string }> }).questions;
+    if (question === undefined) throw new Error("expected query question");
 
-    expect(result.payload).toEqual({
-      for_id: call.id,
-      ok: true,
-      output: "yes, ship it",
-      meta: { user_input_request: { answers: "yes, ship it" } },
+    expect(query.payload).toEqual({
+      questions: [
+        {
+          id: question.id,
+          header: "Ship",
+          question: "Ship it?",
+          multi_select: false,
+          options: [
+            { label: "yes", description: "Ship now" },
+            { label: "no", description: "Hold" },
+          ],
+        },
+      ],
+    });
+    expect(response.payload).toEqual({
+      for_id: query.id,
+      answers: { [question.id]: { selected: ["yes"] } },
+    });
+    expect(
+      trail.entries.some(
+        (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
+      ),
+    ).toBe(false);
+    expect(
+      trail.entries.some(
+        (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
+      ),
+    ).toBe(false);
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("AskUserQuestion parses escaped quoted answers", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-quoted-answer-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000150";
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-quoted",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    question: 'Use "prod"?',
+                    options: [{ label: "yes" }, { label: "no" }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000150",
+        timestamp: "2026-05-17T16:05:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000150",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question-quoted",
+              content: String.raw`User has answered your questions: "Use \"prod\"?"="yes". You can now continue...`,
+            },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000151",
+        timestamp: "2026-05-17T16:05:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-quoted",
+    );
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-quoted",
+    );
+    const [question] = (query?.payload as { questions: Array<{ id: string }> }).questions;
+    if (question === undefined) throw new Error("expected query question");
+
+    expect(response?.payload).toEqual({
+      for_id: query?.id,
+      answers: { [question.id]: { selected: ["yes"] } },
     });
     const diagnostics = await validateAdapterTrail(trail);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -713,14 +892,88 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
   }
 });
 
-test("AskUserQuestion result does not mirror oversized answers into meta", async () => {
+test("AskUserQuestion uses unique fallback ids and does not fan out duplicate-text answers", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-duplicate-question-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000160";
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-duplicate",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  { question: "Repeat?", options: [{ label: "yes" }, { label: "no" }] },
+                  { question: "Repeat?", options: [{ label: "yes" }, { label: "no" }] },
+                ],
+              },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000160",
+        timestamp: "2026-05-17T16:06:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000160",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question-duplicate",
+              content: '"Repeat?"="yes"',
+            },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000161",
+        timestamp: "2026-05-17T16:06:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-duplicate",
+    );
+    const response = trail.entries.find(
+      (e) =>
+        e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-duplicate",
+    );
+    const questions = (query?.payload as { questions: Array<{ id: string }> }).questions;
+
+    expect(questions.map((question) => question.id)).toHaveLength(2);
+    expect(new Set(questions.map((question) => question.id)).size).toBe(2);
+    expect(response?.payload).toEqual({ for_id: query?.id, answers: {} });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("AskUserQuestion dismissed response emits empty answers", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-large-"));
   const path = join(tmp, "session.jsonl");
   try {
     const sessionId = "00000000-0000-0000-0000-ccccc0000200";
-    const largeAnswer = "🙂".repeat(3_000);
-    expect(largeAnswer.length).toBeLessThan(10_240);
-    expect(new TextEncoder().encode(largeAnswer).byteLength).toBeGreaterThan(10_240);
     const lines = [
       {
         parentUuid: null,
@@ -747,9 +1000,7 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
         isSidechain: false,
         message: {
           role: "user",
-          content: [
-            { type: "tool_result", tool_use_id: "tooluse-question-large", content: largeAnswer },
-          ],
+          content: [{ type: "tool_result", tool_use_id: "tooluse-question-large", content: "" }],
         },
         type: "user",
         uuid: "00000000-0000-0000-0000-000000000201",
@@ -765,20 +1016,16 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
       adapter: "claude-code",
       path,
     });
-    const call = trail.entries.find(
-      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question-large",
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-large",
     );
-    const result = trail.entries.find(
-      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question-large",
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-large",
     );
-    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
 
-    expect(result.payload).toEqual({
-      for_id: call.id,
-      ok: true,
-      output: largeAnswer,
-    });
-    expect(result.semantic?.tool_kind).toBe("user_input_request");
+    expect(response?.payload).toEqual({ for_id: query?.id, answers: {} });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -1077,7 +1324,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
   const repoDir = mkdtempSync(join(tmpdir(), "cc-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
-      const proc = Bun.spawn(["git", ...args], { cwd: repoDir, stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: repoDir,
+        env: cleanGitEnv(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       const code = await proc.exited;
       if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
     }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hasEmbeddedCredentials, normalizeRemoteUrl, readGitVcs } from "./vcs";
+import { cleanGitEnv, hasEmbeddedCredentials, normalizeRemoteUrl, readGitVcs } from "./vcs";
 
 describe("normalizeRemoteUrl", () => {
   test("strips trailing .git from https url", () => {
@@ -115,11 +115,85 @@ describe("readGitVcs", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  async function git(args: string[]): Promise<void> {
-    const proc = Bun.spawn(["git", ...args], { cwd: tmp, stdout: "pipe", stderr: "pipe" });
-    const code = await proc.exited;
-    if (code !== 0) throw new Error(`git ${args.join(" ")} failed: ${code}`);
+  async function git(args: string[], cwd = tmp): Promise<string> {
+    const proc = Bun.spawn(["git", ...args], {
+      cwd,
+      env: cleanGitEnv(),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (code !== 0) throw new Error(`git ${args.join(" ")} failed: ${code}: ${stderr}`);
+    return stdout.trim();
   }
+
+  async function initRepo(cwd: string, message: string): Promise<string> {
+    await git(["init", "-q"], cwd);
+    await git(
+      [
+        "-c",
+        "user.email=a@b",
+        "-c",
+        "user.name=Tester",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        message,
+      ],
+      cwd,
+    );
+    return git(["rev-parse", "HEAD"], cwd);
+  }
+
+  test("cleanGitEnv removes Git hook-local environment while preserving unrelated keys", () => {
+    expect(
+      cleanGitEnv({
+        PATH: "/bin",
+        HOME: "/tmp/home",
+        GIT_DIR: "/tmp/repo/.git",
+        GIT_WORK_TREE: "/tmp/repo",
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "safe.directory",
+        GIT_CONFIG_VALUE_0: "*",
+      }),
+    ).toEqual({ PATH: "/bin", HOME: "/tmp/home" });
+  });
+
+  test("ignores inherited Git hook environment when reading a target cwd", async () => {
+    const outer = mkdtempSync(join(tmpdir(), "vcs-outer-"));
+    const inner = mkdtempSync(join(tmpdir(), "vcs-inner-"));
+    const previousGitDir = process.env.GIT_DIR;
+    const previousGitWorkTree = process.env.GIT_WORK_TREE;
+    try {
+      const outerRevision = await initRepo(outer, "outer");
+      const innerRevision = await initRepo(inner, "inner");
+
+      process.env.GIT_DIR = join(outer, ".git");
+      process.env.GIT_WORK_TREE = outer;
+
+      const vcs = await readGitVcs(inner);
+      expect(outerRevision).not.toBe(innerRevision);
+      expect(vcs?.revision).toBe(innerRevision);
+    } finally {
+      if (previousGitDir === undefined) {
+        delete process.env.GIT_DIR;
+      } else {
+        process.env.GIT_DIR = previousGitDir;
+      }
+      if (previousGitWorkTree === undefined) {
+        delete process.env.GIT_WORK_TREE;
+      } else {
+        process.env.GIT_WORK_TREE = previousGitWorkTree;
+      }
+      rmSync(outer, { recursive: true, force: true });
+      rmSync(inner, { recursive: true, force: true });
+    }
+  });
 
   test("returns undefined for a non-git directory", async () => {
     const vcs = await readGitVcs(tmp);

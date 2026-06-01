@@ -9,15 +9,15 @@ import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../ses
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 
-const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
-const TEXT_ENCODER = new TextEncoder();
-
-function byteLength(value: string): number {
-  return TEXT_ENCODER.encode(value).byteLength;
-}
-
 function hintOf(entry: Entry): CcHint | undefined {
   return entry.meta?.[HINT] as CcHint | undefined;
+}
+
+function linkerCallId(entry: Entry): string | undefined {
+  const linker = entry.meta?.linker;
+  if (linker === null || typeof linker !== "object") return undefined;
+  const callId = (linker as Record<string, unknown>).call_id;
+  return typeof callId === "string" ? callId : undefined;
 }
 
 /**
@@ -81,46 +81,123 @@ export const ccModelChangeSynth: ReconcilerRule = (entries) => {
  */
 export const ccToolKindToResult: ReconcilerRule = (entries) => {
   const kindByCallEntryId = new Map<string, ToolKind>();
+  const queryByCallId = new Map<string, Entry>();
   for (const entry of entries) {
-    if (entry.type !== "tool_call") continue;
-    const kind = entry.semantic?.tool_kind;
-    if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+    if (entry.type === "tool_call") {
+      const kind = entry.semantic?.tool_kind;
+      if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+    }
+    if (entry.type === "user_query") {
+      const callId = entry.semantic?.call_id ?? linkerCallId(entry);
+      if (callId !== undefined) queryByCallId.set(callId, entry);
+    }
   }
   return entries.map((entry) => {
     if (entry.type !== "tool_result") return entry;
+    const callId = entry.semantic?.call_id ?? linkerCallId(entry);
+    const query = callId !== undefined ? queryByCallId.get(callId) : undefined;
+    if (query !== undefined) {
+      return {
+        ...entry,
+        type: "user_query_response",
+        payload: {
+          for_id: query.id,
+          answers: answersForQuery(query, (entry.payload as { output?: unknown }).output),
+        },
+        semantic: {
+          ...(callId !== undefined ? { call_id: callId } : {}),
+        },
+      } as Entry;
+    }
     const forId = (entry.payload as { for_id?: unknown }).for_id;
     if (typeof forId !== "string") return entry;
     const kind = kindByCallEntryId.get(forId);
     if (kind === undefined) return entry;
-    if (kind !== "user_input_request") {
-      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
-    }
-    const payload = entry.payload as Record<string, unknown>;
-    const output = typeof payload.output === "string" ? payload.output : undefined;
-    if (output === undefined) return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
-    if (byteLength(output) > USER_INPUT_ANSWERS_META_MAX_BYTES) {
-      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
-    }
-    const meta =
-      payload.meta !== null && typeof payload.meta === "object"
-        ? (payload.meta as Record<string, unknown>)
-        : {};
-    return {
-      ...entry,
-      semantic: { ...entry.semantic, tool_kind: kind },
-      payload: {
-        ...payload,
-        meta: {
-          ...meta,
-          user_input_request: {
-            ...(meta.user_input_request as object | undefined),
-            answers: output,
-          },
-        },
-      },
-    } as Entry;
+    return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
   });
 };
+
+function queryQuestions(entry: Entry): Record<string, unknown>[] {
+  const questions = (entry.payload as { questions?: unknown }).questions;
+  return Array.isArray(questions)
+    ? questions.filter(
+        (question): question is Record<string, unknown> =>
+          question !== null && typeof question === "object",
+      )
+    : [];
+}
+
+function unescapeQuoted(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+}
+
+function parseSerializedAnswers(output: unknown): Map<string, string> {
+  const answers = new Map<string, string>();
+  if (typeof output !== "string" || output.length === 0) return answers;
+  const pairPattern = /"((?:\\.|[^"\\])*)"="((?:\\.|[^"\\])*)"/g;
+  for (const match of output.matchAll(pairPattern)) {
+    const question = match[1] as string;
+    const answer = match[2] as string;
+    answers.set(unescapeQuoted(question), unescapeQuoted(answer));
+  }
+  if (answers.size === 0) answers.set("", output);
+  return answers;
+}
+
+function selectedFor(
+  question: Record<string, unknown>,
+  answerText: string,
+): Record<string, unknown> {
+  const selected =
+    question.multi_select === true
+      ? answerText
+          .split(",")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : answerText.length > 0
+        ? [answerText]
+        : [];
+  const optionLabels = new Set(
+    (Array.isArray(question.options) ? question.options : [])
+      .filter(
+        (option): option is Record<string, unknown> =>
+          option !== null && typeof option === "object",
+      )
+      .map((option) => option.label)
+      .filter((label): label is string => typeof label === "string"),
+  );
+  if (question.allow_other !== true || optionLabels.size === 0) return { selected };
+  const known = selected.filter((value) => optionLabels.has(value));
+  const unknown = selected.filter((value) => !optionLabels.has(value));
+  return { selected: known, ...(unknown.length > 0 ? { other: unknown.join(", ") } : {}) };
+}
+
+function answersForQuery(query: Entry, output: unknown): Record<string, unknown> {
+  const serialized = parseSerializedAnswers(output);
+  if (serialized.size === 0) return {};
+  const questions = queryQuestions(query);
+  const fallback = questions.length === 1 && serialized.has("") ? serialized.get("") : undefined;
+  const textCounts = new Map<string, number>();
+  for (const question of questions) {
+    const text = typeof question.question === "string" ? question.question : undefined;
+    if (text !== undefined) textCounts.set(text, (textCounts.get(text) ?? 0) + 1);
+  }
+  const out: Record<string, unknown> = {};
+  for (const question of questions) {
+    const id = typeof question.id === "string" ? question.id : undefined;
+    const text = typeof question.question === "string" ? question.question : undefined;
+    if (id === undefined) continue;
+    const answerText =
+      (text !== undefined && textCounts.get(text) === 1 ? serialized.get(text) : undefined) ??
+      fallback;
+    if (answerText !== undefined) out[id] = selectedFor(question, answerText);
+  }
+  return out;
+}
 
 /**
  * Fill `permission_mode_change` `data.from` and the delta `text` from the prior

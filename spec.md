@@ -67,7 +67,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
 | **Active leaf** | In a tree session, the last event in the file; the "current" position. |
-| **Canonical event** | One of the five mandatory event types in §9. |
+| **Canonical event** | One of the seven mandatory event types in §9. |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism such as gist. |
@@ -262,7 +262,7 @@ The trail envelope (§8.0), the session header (§8), and every event entry (§9
 
 For verbatim source-event preservation, use `source.raw` (§9.6, §14.1) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
-No reserved keys ship in this draft. Standard keys may be promoted in later minor bumps based on observed usage.
+This draft defines one standard event-entry `meta` key: `redaction_count` (§15). Other standard keys may be promoted in later minor bumps based on observed usage.
 
 ### 8.0.4 The `sessions` manifest
 
@@ -546,7 +546,7 @@ Every event entry has this base shape:
 
 ### 9.2 Mandatory event types
 
-Every adapter must be able to emit these five when the source data contains the corresponding semantics. Readers must support them.
+Every adapter must be able to emit these when the source data contains the corresponding semantics. Readers must support them.
 
 #### `user_message`
 
@@ -728,6 +728,7 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
     "ok": true,
     "output": "<truncated-or-full>",
     "truncated": false,
+    "output_size": 12345,
     "overflow_ref": null,
     "error": null
   },
@@ -744,6 +745,7 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 | `ok` | yes | boolean | did the call succeed |
 | `output` | no | string | textual output |
 | `truncated` | no | boolean | true if `output` was truncated |
+| `output_size` | no | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
 | `overflow_ref` | no | string | reference to full output |
 | `error` | no | string | error message if `ok` is false |
 | `attachments` | no | array | non-MCP image / multi-part tool output by reference (e.g. a screenshot or plot tool returning an image that `output` flattens); same object shape as `user_message.payload.attachments` |
@@ -763,7 +765,7 @@ extend a registered tool kind by adding sibling keys to its object that match th
 pattern (e.g. `meta.mcp_call.x-acme/cache_hit`). Unregistered and future tool kinds are accepted as
 opaque objects, so new kinds can be standardized in a later minor version without a schema migration.
 
-The v0.1 registry covers four tool kinds:
+The v0.1 registry covers three tool kinds:
 
 `meta.mcp_call` — preserves MCP content-block structure that `output` flattens.
 
@@ -795,14 +797,83 @@ The v0.1 registry covers four tool kinds:
 top-level `exit_code` on `tool_result`, because the concept does not apply to kinds like `mcp_call`
 or `web_fetch`.
 
-`meta.user_input_request` — parsed answers to an agent request for user input.
-
-| Sub-field | Required | Type | Notes |
-|---|---|---|---|
-| `answers` | no | any JSON value | Parsed answer payload when the source exposes one. Codex commonly returns an object under `answers`; Claude Code question results are plain strings. Raw display text remains in `payload.output`. |
-
 Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
 redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
+
+#### `user_query`
+
+The agent asks the user one or more structured questions and yields control until the user answers or dismisses the prompt. This is not a `tool_call`: no external tool executes.
+
+```jsonc
+{
+  "type": "user_query",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "questions": [
+      {
+        "id": "ship",
+        "header": "Ship",
+        "question": "Ship it?",
+        "multi_select": false,
+        "is_secret": false,
+        "allow_other": true,
+        "options": [
+          { "label": "yes", "description": "Ship now" },
+          { "label": "no" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `questions` | yes | array | One or more structured questions. |
+
+| Question field | Required | Type | Notes |
+|---|---|---|---|
+| `id` | yes | string | Stable within this `user_query`; responses key answers by this value. |
+| `question` | yes | string | Full prompt shown to the user. |
+| `header` | no | string | Short label/chip. |
+| `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
+| `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
+| `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
+| `options` | no | array | Option objects with required `label` and optional `description`. |
+
+#### `user_query_response`
+
+The user's response to a `user_query`. `payload.for_id` links to the query entry id. A dismissed prompt emits a response with an empty `answers` object.
+
+```jsonc
+{
+  "type": "user_query_response",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "for_id": "<user-query-id>",
+    "answers": {
+      "ship": {
+        "selected": ["yes"],
+        "other": "with changelog"
+      }
+    }
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `for_id` | yes | string | Entry id of the `user_query`. |
+| `answers` | yes | object | Keys are `questions[].id`. May be empty for dismissed/unanswered prompts. |
+
+| Answer field | Required | Type | Notes |
+|---|---|---|---|
+| `selected` | yes | string[] | Selected option labels. Use one value for single-select answers. |
+| `other` | no | string | Free-form answer when `allow_other` was used. |
+
+Privacy: share-time redaction MUST strip answers for questions whose `is_secret` is true, regardless of pattern matching.
 
 #### `session_summary`
 
@@ -920,6 +991,46 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 - Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
+
+#### `capability_change`
+
+A change in the set of capabilities available to the agent at a point in the session. Use this for tool, skill, plugin, MCP server, and MCP tool registry snapshots/deltas. This records availability changes, not tool invocations; calls still use `tool_call` / `tool_result`.
+
+```jsonc
+{
+  "type": "capability_change",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "scope": "tool",
+    "reason": "registered",
+    "added": [{ "name": "ToolSearch", "metadata": { "namespace": "claude-code" } }]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `scope` | yes | string enum | `tool` \| `skill` \| `mcp_server` \| `mcp_tool` \| `plugin` |
+| `reason` | yes | string enum | `registered` \| `deregistered` \| `connected` \| `disconnected` \| `loaded` \| `unloaded` \| `error` \| `instructions_updated` |
+| `added` | no | array | Non-empty array of `{ name, metadata? }`. |
+| `removed` | no | array | Non-empty array of `{ name }`. |
+| `changed` | no | array | Non-empty array of `{ name, field, from?, to? }`. |
+| `snapshot` | no | array | Non-empty array of `{ name, metadata? }`; replaces accumulated state for this `scope` at this point. |
+
+Writer-strict validation requires at least one of `added`, `removed`, `changed`, or `snapshot`.
+
+##### Cross-agent mapping
+
+| Source | `scope` | `reason` | Delta shape |
+| --- | --- | --- | --- |
+| Claude Code `attachment.deferred_tools_delta` | `tool` | `registered` / `deregistered` | `added` / `removed` |
+| Claude Code `attachment.skill_listing` | `skill` | `loaded` | `snapshot`, or `changed` when only listing text is available |
+| Claude Code `attachment.mcp_instructions_delta` | `mcp_server` | `instructions_updated` | `changed` |
+| Codex `SessionMeta.dynamic_tools` | `tool` | `loaded` | `snapshot` |
+| Codex `McpStartupUpdate` / `McpStartupComplete` | `mcp_server` | `loaded` / `connected` / `disconnected` / `error` | `added`, `removed`, or `changed` |
+
+Out of scope: full tool input/output schemas; they are static registry data and can be large or sensitive. Adapters should keep only compact identifying metadata in `metadata`.
 
 #### `command_invoke`
 
@@ -1184,7 +1295,6 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `web_fetch` | `{ url, method?, headers? }` | Claude Code `WebFetch`, Pi web tool |
 | `web_search` | `{ query }` | Web search tools distinct from fetching a known URL |
 | `tool_search` | `{ query, limit? }` | Tool-discovery searches such as Claude Code `ToolSearch` and Codex `tool_search_call` |
-| `user_input_request` | `{ question?, choices?, questions? }` | Agent request for user input, such as Claude Code `AskUserQuestion` or Codex `request_user_input` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` | Notebook cell edits |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` | Claude Code `Task`, Cursor background agent |
 | `other` | `{ name, args }` | Anything not covered above |
@@ -1244,6 +1354,8 @@ Implementations and vendors can add custom data via the `meta` field on the trai
 
 Readers may preserve, ignore, or render `meta` fields. They must not abort on unknown keys.
 
+`entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
+
 The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` (§14.1) instead. See §8.0.3 for the full convention.
 
 ---
@@ -1297,11 +1409,12 @@ New agents may be added by amending this spec. Until registered, adapters may us
 
 ## 14. Truncation, overflow, and raw source size
 
-Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with two fields on `tool_result.payload`:
+Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with three fields on `tool_result.payload`:
 
 | Field | Type | Notes |
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
+| `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
 | `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
@@ -1349,6 +1462,8 @@ Adapters and share tools should:
 - Strip or normalize `vcs.remote_url` (§8.2) in redacted artifacts unless the user opts in. The field reveals repository identity, including private repositories.
 
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
+
+Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry, including secret/PII/path replacements and output or structured-meta truncation. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 
 Token-usage objects (`agent_message.payload.usage`, §9.2) are preserved in redacted artifacts by default — they carry no PII and are needed for downstream cost reporting. Share tools that need to strip usage can do so via a future metadata-strip flag.
 
@@ -1492,7 +1607,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 Initial public draft. v0.1.0 defines:
 
-- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
+- JSONL file layout, session header, core event envelope, seven mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
@@ -1526,7 +1641,7 @@ An envelope at line 1 followed by a session header at line 2 is valid. Events ar
 - **JSONL over JSON:** streamable, append-friendly, line-grep-able, no parser-bomb risk.
 - **Optional `parent_id`:** most agents produce linear sessions; tree complexity should be paid only by sessions that need it.
 - **`source.raw` escape hatch:** lets adapters preserve everything the canonical model loses; enables lossless round-trip for source-aware tools.
-- **Five mandatory event types:** minimum semantic surface for a useful viewer; everything else is optional.
+- **Seven mandatory event types:** minimum semantic surface for a useful viewer; everything else is optional.
 - **Fixed tool taxonomy:** cross-agent search and rendering depend on shared tool names.
 - **No runtime fields:** active leaf pointers, in-memory caches, etc. are reader concerns and not in the file.
 - **Header outside the event graph:** the header is metadata about the file, not a participant in the conversation.

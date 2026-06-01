@@ -26,7 +26,7 @@ const PII_REDACTOR = new Redactor({
   rules: { EMAIL: true, PHONE: true, SSN: true, CREDIT_CARD: true, NAME: true },
 });
 
-export type PiiResult = { text: string; samples: RedactionSample[] };
+export type PiiResult = { text: string; samples: RedactionSample[]; count: number };
 
 export function applyPii(
   text: string,
@@ -34,16 +34,18 @@ export function applyPii(
   summary: RedactionSummary,
   maxSamples: number,
 ): PiiResult {
-  if (!text) return { text, samples: [] };
+  if (!text) return { text, samples: [], count: 0 };
   const anonymized = PII_REDACTOR.redact(text);
-  if (anonymized === text) return { text, samples: [] };
+  if (anonymized === text) return { text, samples: [], count: 0 };
 
   const localSamples: RedactionSample[] = [];
   const seenPatternIds = new Set<string>();
+  let count = 0;
   for (const match of anonymized.matchAll(TOKEN_PATTERN)) {
     const kind = match[1] ?? "";
     const patternId = TOKEN_TO_PATTERN_ID[kind];
     if (!patternId) continue;
+    count += 1;
     summary.counts[patternId] = (summary.counts[patternId] ?? 0) + 1;
     if (
       !seenPatternIds.has(patternId) &&
@@ -62,5 +64,5 @@ export function applyPii(
     return TOKEN_TO_PLACEHOLDER[kind] ?? "[PII]";
   });
 
-  return { text: normalized, samples: localSamples };
+  return { text: normalized, samples: localSamples, count };
 }

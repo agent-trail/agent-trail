@@ -31,36 +31,101 @@ function truncateRawToByteLimit(text: string, budget: number): string {
   return text.slice(0, lo);
 }
 
-function serializedByteLength(value: unknown): number {
-  return byteLength(typeof value === "string" ? value : JSON.stringify(value));
+function addMutationCount(
+  counts: Map<number, number> | undefined,
+  recordIndex: number,
+  count: number,
+): void {
+  if (counts === undefined || count <= 0) return;
+  counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
 }
 
-function truncateUserInputAnswersMeta(
+function hasValidOutputSize(payload: Record<string, unknown>): boolean {
+  const outputSize = payload.output_size;
+  return typeof outputSize === "number" && Number.isInteger(outputSize) && outputSize >= 0;
+}
+
+function truncateToolResultOutput(
   payload: Record<string, unknown>,
   recordIndex: number,
   maxBytes: number,
   summary: RedactionSummary,
   maxSamples: number,
+  mutationCounts?: Map<number, number>,
+  originalOutputSizes?: ReadonlyMap<number, number>,
 ): void {
-  const meta = payload.meta;
-  if (meta === null || typeof meta !== "object") return;
-  const userInput = (meta as Record<string, unknown>).user_input_request;
-  if (userInput === null || typeof userInput !== "object") return;
-  const answerMeta = userInput as Record<string, unknown>;
-  if (!("answers" in answerMeta)) return;
-  const answers = answerMeta.answers;
-  if (answers === undefined) return;
-  if (serializedByteLength(answers) <= maxBytes) return;
-  const serialized = typeof answers === "string" ? answers : JSON.stringify(answers);
-  answerMeta.answers = truncateToByteLimit(serialized, maxBytes);
-  summary.counts.meta_truncated = (summary.counts.meta_truncated ?? 0) + 1;
+  const output = payload.output;
+  if (typeof output !== "string") return;
+  if (payload.truncated === true && !hasValidOutputSize(payload)) {
+    payload.output_size = originalOutputSizes?.get(recordIndex) ?? byteLength(output);
+    addMutationCount(mutationCounts, recordIndex, 1);
+    summary.counts.output_size_repaired = (summary.counts.output_size_repaired ?? 0) + 1;
+  }
+  if (byteLength(output) <= maxBytes) return;
+  const original = output;
+  if (!hasValidOutputSize(payload)) {
+    payload.output_size = originalOutputSizes?.get(recordIndex) ?? byteLength(original);
+  }
+  payload.output = truncateToByteLimit(output, maxBytes);
+  payload.truncated = true;
+  addMutationCount(mutationCounts, recordIndex, 1);
+  summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
   if (summary.samples.length < maxSamples) {
     summary.samples.push({
-      patternId: "meta_truncated",
-      location: `records[${recordIndex}].payload.meta.user_input_request.answers`,
-      before: `${serialized.length} chars`,
-      after: `${(answerMeta.answers as string).length} chars`,
+      patternId: "output_truncated",
+      location: `records[${recordIndex}].payload.output`,
+      before: `${original.length} chars`,
+      after: `${(payload.output as string).length} chars`,
     });
+  }
+}
+
+function truncateUserQueryResponseAnswers(
+  payload: Record<string, unknown>,
+  recordIndex: number,
+  maxBytes: number,
+  summary: RedactionSummary,
+  maxSamples: number,
+  mutationCounts?: Map<number, number>,
+): void {
+  const answers = payload.answers;
+  if (answers === null || typeof answers !== "object") return;
+  for (const [questionId, answer] of Object.entries(answers as Record<string, unknown>)) {
+    if (answer === null || typeof answer !== "object") continue;
+    const answerObject = answer as Record<string, unknown>;
+    const selected = answerObject.selected;
+    if (Array.isArray(selected)) {
+      for (let i = 0; i < selected.length; i += 1) {
+        const value = selected[i];
+        if (typeof value !== "string" || byteLength(value) <= maxBytes) continue;
+        selected[i] = truncateToByteLimit(value, maxBytes);
+        addMutationCount(mutationCounts, recordIndex, 1);
+        summary.counts.user_query_answer_truncated =
+          (summary.counts.user_query_answer_truncated ?? 0) + 1;
+        if (summary.samples.length < maxSamples) {
+          summary.samples.push({
+            patternId: "user_query_answer_truncated",
+            location: `records[${recordIndex}].payload.answers.${questionId}.selected[${i}]`,
+            before: `${value.length} chars`,
+            after: `${(selected[i] as string).length} chars`,
+          });
+        }
+      }
+    }
+    const other = answerObject.other;
+    if (typeof other !== "string" || byteLength(other) <= maxBytes) continue;
+    answerObject.other = truncateToByteLimit(other, maxBytes);
+    addMutationCount(mutationCounts, recordIndex, 1);
+    summary.counts.user_query_answer_truncated =
+      (summary.counts.user_query_answer_truncated ?? 0) + 1;
+    if (summary.samples.length < maxSamples) {
+      summary.samples.push({
+        patternId: "user_query_answer_truncated",
+        location: `records[${recordIndex}].payload.answers.${questionId}.other`,
+        before: `${other.length} chars`,
+        after: `${(answerObject.other as string).length} chars`,
+      });
+    }
   }
 }
 
@@ -69,27 +134,35 @@ export function truncateOutputs(
   maxBytes: number,
   summary: RedactionSummary,
   maxSamples: number,
+  mutationCounts?: Map<number, number>,
+  originalOutputSizes?: ReadonlyMap<number, number>,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
-    if (value.type !== "tool_result") continue;
     const payload = value.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
-    truncateUserInputAnswersMeta(payload, index, maxBytes, summary, maxSamples);
-    const output = payload.output;
-    if (typeof output !== "string") continue;
-    if (byteLength(output) <= maxBytes) continue;
-    const original = output;
-    payload.output = truncateToByteLimit(output, maxBytes);
-    payload.truncated = true;
-    summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
-    if (summary.samples.length < maxSamples) {
-      summary.samples.push({
-        patternId: "output_truncated",
-        location: `records[${index}].payload.output`,
-        before: `${original.length} chars`,
-        after: `${(payload.output as string).length} chars`,
-      });
+    if (value.type === "tool_result") {
+      truncateToolResultOutput(
+        payload,
+        index,
+        maxBytes,
+        summary,
+        maxSamples,
+        mutationCounts,
+        originalOutputSizes,
+      );
+      continue;
+    }
+
+    if (value.type === "user_query_response") {
+      truncateUserQueryResponseAnswers(
+        payload,
+        index,
+        maxBytes,
+        summary,
+        maxSamples,
+        mutationCounts,
+      );
     }
   }
 }

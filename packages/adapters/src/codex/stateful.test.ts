@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Entry } from "@agent-trail/types";
 import { codexAdapter } from "./index.ts";
 import { parseCodexEntries } from "./kit.ts";
+import { codexUserQueryResponses } from "./reconcile-rules.ts";
 
 const FIXTURES = join(import.meta.dir, "../../tests/fixtures/codex");
 const entries = (fixture: string): Promise<Entry[]> =>
@@ -14,6 +15,31 @@ const thinkingTexts = (es: Entry[]): string[] =>
 const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
 
 describe("codex v2 stateful behaviors", () => {
+  test("user_query_response preserves linker-derived call_id", () => {
+    const out = codexUserQueryResponses(
+      [
+        {
+          type: "user_query",
+          id: "query-1",
+          ts: "2026-05-18T10:00:00.000Z",
+          payload: { questions: [{ id: "ship", question: "Ship?" }] },
+          meta: { linker: { call_id: "call-user-input" } },
+        },
+        {
+          type: "tool_result",
+          id: "result-1",
+          ts: "2026-05-18T10:00:01.000Z",
+          payload: { ok: true, output: '{"answers":{"ship":"yes"}}' },
+          meta: { linker: { call_id: "call-user-input" } },
+        },
+      ] as Entry[],
+      { agent: "codex-cli" },
+    );
+
+    expect(out[1]?.type).toBe("user_query_response");
+    expect(out[1]?.semantic).toEqual({ call_id: "call-user-input" });
+  });
+
   // The harness is a multiset, so un-deduped duplicates would pass as
   // non-blocking additions — assert the count + uniqueness directly, tied to v1.
   test("reasoning dedup: per-turn duplicates collapse (matches v1 count)", async () => {

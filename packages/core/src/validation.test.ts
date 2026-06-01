@@ -105,7 +105,6 @@ test("accepts standardized common tool kinds", async () => {
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
       '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"tool_search","args":{"query":"auth flow"}}}',
-      '{"type":"tool_call","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"tool":"user_input_request","args":{"question":"Which backend?","choices":["bun","node"]}}}',
       '{"type":"tool_call","id":"01HEVTA0000000000000000003","ts":"2026-05-17T14:00:03.000Z","payload":{"tool":"shell_input","args":{"input":"yes\\n","session_id":"123"}}}',
     ].join("\n"),
   );
@@ -175,32 +174,144 @@ test("rejects legacy task_plan tool calls", async () => {
   });
 });
 
-test("accepts structured user_input_request answers on tool_result meta", async () => {
+test("accepts structured user query events", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"user_input_request","args":{"question":"Ship?"}}}',
-      '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","ok":true,"output":"{\\"answers\\":{\\"ship\\":\\"yes\\"}}","meta":{"user_input_request":{"answers":{"ship":"yes"}}}}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"ship","header":"Ship","question":"Ship it?","multi_select":false,"is_secret":false,"allow_other":true,"options":[{"label":"yes","description":"Ship now"},{"label":"no"}]}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","parent_id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"ship":{"selected":["yes"],"other":"with changelog"}}}}',
     ].join("\n"),
   );
 
   expect(diagnostics).toEqual([]);
 });
 
-test("rejects unknown fields inside registered user_input_request result meta", async () => {
+test("accepts dismissed user query responses with empty answers", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-      '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"yes","meta":{"user_input_request":{"answers":"yes","extra":true}}}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"ship","question":"Ship it?"}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects the removed user_input_request tool kind", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"user_input_request","args":{"question":"Ship?"}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics.some((d) => d.path === "/payload/tool" && d.code === "enum")).toBe(true);
+});
+
+test("rejects user query questions without ids", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"question":"Ship it?"}]}}',
     ].join("\n"),
   );
 
   expect(diagnostics).toContainEqual({
     line: 2,
-    path: "/payload/meta/user_input_request/extra",
+    path: "/payload/questions/0/id",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'id'",
+  });
+});
+
+test("rejects user query responses without for_id", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"answers":{}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/for_id",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'for_id'",
+  });
+});
+
+test("rejects extra answer fields in user query responses", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"ship":{"selected":["yes"],"extra":true}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/answers/ship/extra",
     severity: "error",
     code: "additionalProperties",
     message: "must NOT have additional properties",
+  });
+});
+
+test("rejects user query responses whose for_id does not reference a user_query", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/for_id",
+    severity: "error",
+    code: "unknown_user_query_response_for_id",
+    message:
+      'user_query_response for_id "01HEVTA0000000000000000001" does not reference a user_query in this session',
+  });
+});
+
+test("rejects user query response answer keys outside the referenced query ids", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"ship","question":"Ship it?"}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"wrong":{"selected":["yes"]}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/answers/wrong",
+    severity: "error",
+    code: "unknown_user_query_answer_key",
+    message:
+      'user_query_response answer key "wrong" does not match a question id on user_query "01HEVTA0000000000000000001"',
+  });
+});
+
+test("rejects duplicate question ids within a user query", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"same","question":"First?"},{"id":"same","question":"Second?"}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"same":{"selected":["yes"]}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/questions/1/id",
+    severity: "error",
+    code: "duplicate_user_query_question_id",
+    message: 'user_query question id "same" is duplicated within this query',
   });
 });
 
