@@ -102,13 +102,45 @@ export function toolKindAndArgs(
       if (query !== undefined) return { tool: "web_search", args: { query } };
       break;
     }
+    case "ToolSearch": {
+      const query = stringValue(args.query) ?? stringValue(args.q);
+      if (query !== undefined) {
+        return {
+          tool: "tool_search",
+          args: {
+            query,
+            ...(maybeNumber(args.limit) !== undefined ? { limit: maybeNumber(args.limit) } : {}),
+          },
+        };
+      }
+      break;
+    }
+    case "AskUserQuestion": {
+      const question = stringValue(args.question);
+      const rawChoices = args.choices;
+      const choices = Array.isArray(rawChoices)
+        ? rawChoices.filter((choice): choice is string => typeof choice === "string")
+        : undefined;
+      return {
+        tool: "user_input_request",
+        args: {
+          ...(question !== undefined ? { question } : {}),
+          ...(choices !== undefined &&
+          Array.isArray(rawChoices) &&
+          choices.length === rawChoices.length
+            ? { choices }
+            : {}),
+        },
+      };
+    }
     case "TodoWrite": {
       return {
         tool: "task_plan",
         args: { ...(Array.isArray(args.todos) ? { items: args.todos.map(jsonString) } : {}) },
       };
     }
-    case "Task": {
+    case "Task":
+    case "Agent": {
       const task =
         stringValue(args.prompt) ?? stringValue(args.description) ?? stringValue(args.name);
       if (task !== undefined) {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
+import { toolKindAndArgs } from "./tools.ts";
 
 // Surface tests assert on the shape returned by parseSession. Entry ids are an
 // internal detail of the kit engine, so tests locate entries by type/content and
@@ -307,6 +308,168 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
   expect(bash).toBeDefined();
   expect(bash?.payload).toEqual({ tool: "shell_command", args: { command: "bun run check" } });
   expect(bash?.parent_id).toBe(read?.id);
+});
+
+test("toolKindAndArgs promotes common Claude tools out of other", () => {
+  expect(toolKindAndArgs("ToolSearch", { query: "auth flow" })).toEqual({
+    tool: "tool_search",
+    args: { query: "auth flow" },
+  });
+  expect(
+    toolKindAndArgs("AskUserQuestion", { question: "Which backend?", choices: ["bun"] }),
+  ).toEqual({
+    tool: "user_input_request",
+    args: { question: "Which backend?", choices: ["bun"] },
+  });
+  expect(toolKindAndArgs("Agent", { prompt: "Review this", subagent_type: "reviewer" })).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "Review this", agent_type: "reviewer" },
+  });
+  expect(toolKindAndArgs("Bash", { command: "bun test" })).toEqual({
+    tool: "shell_command",
+    args: { command: "bun test" },
+  });
+});
+
+test("AskUserQuestion result preserves answer under tool_result meta", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000100";
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question",
+              name: "AskUserQuestion",
+              input: { question: "Ship?", choices: ["yes", "no"] },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000100",
+        timestamp: "2026-05-17T16:00:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000100",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tooluse-question", content: "yes, ship it" },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000101",
+        timestamp: "2026-05-17T16:00:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const call = trail.entries.find(
+      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
+    );
+    const result = trail.entries.find(
+      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
+    );
+    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
+
+    expect(result.payload).toEqual({
+      for_id: call.id,
+      ok: true,
+      output: "yes, ship it",
+      meta: { user_input_request: { answers: "yes, ship it" } },
+    });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("AskUserQuestion result does not mirror oversized answers into meta", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-large-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000200";
+    const largeAnswer = "🙂".repeat(3_000);
+    expect(largeAnswer.length).toBeLessThan(10_240);
+    expect(new TextEncoder().encode(largeAnswer).byteLength).toBeGreaterThan(10_240);
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-large",
+              name: "AskUserQuestion",
+              input: { question: "Ship?", choices: ["yes", "no"] },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000200",
+        timestamp: "2026-05-17T16:10:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000200",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tooluse-question-large", content: largeAnswer },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000201",
+        timestamp: "2026-05-17T16:10:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const call = trail.entries.find(
+      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question-large",
+    );
+    const result = trail.entries.find(
+      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question-large",
+    );
+    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
+
+    expect(result.payload).toEqual({
+      for_id: call.id,
+      ok: true,
+      output: largeAnswer,
+    });
+    expect(result.semantic?.tool_kind).toBe("user_input_request");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("parseSession() emits multiple tool_results with error state and semantic pairing", async () => {

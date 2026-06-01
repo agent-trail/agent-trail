@@ -127,9 +127,12 @@ export type ToolKind =
   | "file_search"
   | "shell_command"
   | "shell_output"
+  | "shell_input"
   | "mcp_call"
   | "web_fetch"
   | "web_search"
+  | "tool_search"
+  | "user_input_request"
   | "notebook_edit"
   | "task_plan"
   | "subagent_invoke"
@@ -353,6 +356,14 @@ export interface ToolResult {
         exit_code?: number | null;
         signal?: string | null;
         duration_ms?: number;
+        /**
+         * This interface was referenced by `undefined`'s JSON-Schema definition
+         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
+         */
+        [k: string]: unknown;
+      };
+      user_input_request?: {
+        answers?: unknown;
         /**
          * This interface was referenced by `undefined`'s JSON-Schema definition
          * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".

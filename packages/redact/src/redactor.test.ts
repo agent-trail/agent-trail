@@ -289,6 +289,42 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(summary.counts.output_truncated).toBe(1);
 });
 
+test("redactTrail truncates mirrored user_input_request answers in tool_result meta", () => {
+  const big = { answer: "X".repeat(20_000) };
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "evtcall",
+        ok: true,
+        output: "small display output",
+        meta: { user_input_request: { answers: big } },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    payload: {
+      output: string;
+      truncated?: boolean;
+      meta: { user_input_request: { answers: string } };
+    };
+  };
+  const answerBytes = new TextEncoder().encode(
+    value.payload.meta.user_input_request.answers,
+  ).byteLength;
+  expect(value.payload.output).toBe("small display output");
+  expect(answerBytes).toBeLessThanOrEqual(10_240);
+  expect(value.payload.meta.user_input_request.answers).toContain("[truncated]");
+  expect(value.payload.truncated).toBeUndefined();
+  expect(summary.counts.meta_truncated).toBe(1);
+});
+
 test("redactTrail does not mutate input records", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

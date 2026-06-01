@@ -1,6 +1,13 @@
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
-import type { AgentMessageUsage, Attachment, Entry } from "@agent-trail/types";
+import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trail/types";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
+
+const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
+const TEXT_ENCODER = new TextEncoder();
+
+function byteLength(value: string): number {
+  return TEXT_ENCODER.encode(value).byteLength;
+}
 
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
   const value = (entry.meta as Record<string, unknown> | undefined)?.[USAGE_CARRIER];
@@ -139,4 +146,60 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
     out.push(entry);
   }
   return out;
+};
+
+function userInputAnswersFromOutput(output: unknown): unknown {
+  if (typeof output !== "string") return undefined;
+  if (byteLength(output) > USER_INPUT_ANSWERS_META_MAX_BYTES) return undefined;
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (parsed !== null && typeof parsed === "object" && "answers" in parsed) {
+      return (parsed as { answers?: unknown }).answers;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function withUserInputAnswersMeta(entry: Entry, answers: unknown, kind: ToolKind): Entry {
+  const payload = entry.payload as Record<string, unknown>;
+  const meta =
+    payload.meta !== null && typeof payload.meta === "object"
+      ? (payload.meta as Record<string, unknown>)
+      : {};
+  return {
+    ...entry,
+    semantic: { ...entry.semantic, tool_kind: kind },
+    payload: {
+      ...payload,
+      meta: {
+        ...meta,
+        user_input_request: { ...(meta.user_input_request as object | undefined), answers },
+      },
+    },
+  } as Entry;
+}
+
+export const codexUserInputAnswersMeta: ReconcilerRule = (entries) => {
+  const kindByCallEntryId = new Map<string, ToolKind>();
+  for (const entry of entries) {
+    if (entry.type !== "tool_call") continue;
+    const kind = entry.semantic?.tool_kind;
+    if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+  }
+  return entries.map((entry) => {
+    if (entry.type !== "tool_result") return entry;
+    const forId = (entry.payload as { for_id?: unknown }).for_id;
+    if (typeof forId !== "string") return entry;
+    const kind = kindByCallEntryId.get(forId);
+    if (kind === undefined) return entry;
+    if (kind !== "user_input_request") {
+      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    }
+    const answers = userInputAnswersFromOutput((entry.payload as { output?: unknown }).output);
+    if (answers === undefined)
+      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    return withUserInputAnswersMeta(entry, answers, kind);
+  });
 };

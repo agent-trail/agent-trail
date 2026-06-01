@@ -3,7 +3,11 @@ import type { Entry } from "@agent-trail/types";
 import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { codexMappings } from "./mappings.ts";
 import { type CodexState, codexOverrides, initialCodexState } from "./overrides.ts";
-import { codexImageRollup, codexTokenRollup } from "./reconcile-rules.ts";
+import {
+  codexImageRollup,
+  codexTokenRollup,
+  codexUserInputAnswersMeta,
+} from "./reconcile-rules.ts";
 import { stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
@@ -37,7 +41,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
     toolLinking: true,
     parentChain: false, // Codex is linear and emits no parent_id
     cumulativeTokens: false, // usage carries native cumulative via token_count rollup
-    custom: [codexTokenRollup, codexImageRollup],
+    custom: [codexTokenRollup, codexImageRollup, codexUserInputAnswersMeta],
   },
 });
 

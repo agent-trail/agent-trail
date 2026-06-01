@@ -19,12 +19,12 @@ async function dirExists(path: string): Promise<boolean> {
   }
 }
 
-// 16 KiB comfortably covers the `session_meta` first record across every
-// observed Codex originator (codex-tui 0.128.x ~600 B; Codex Desktop
-// 0.133.x-alpha ~900 B; codex_sdk_ts 0.98.x ~700 B). If a future shape
-// pushes the header past 16 KiB, `readJsonLinesHead` will return a
-// truncated tail and the wrappers below will skip the partial last line.
-const HEAD_SCAN_BYTES = 16_384;
+// 64 KiB covers observed Codex 0.128 session_meta records that embed
+// base_instructions (~22 KiB), while still keeping discovery/metadata reads
+// bounded. If a future shape pushes the first record past this cap,
+// `readJsonLinesHead` will return a truncated tail and the wrappers below will
+// skip the partial last line.
+const HEAD_SCAN_BYTES = 65_536;
 
 type JsonLineHead = {
   lines: string[];
