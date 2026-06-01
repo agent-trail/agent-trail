@@ -625,11 +625,11 @@ When `usage` is present, writers MUST emit at least one of (`input_tokens`, `inp
 
 Cache token semantics match Anthropic and OpenAI Responses API: `input_tokens` counts non-cached input only; `cache_read_tokens` and `cache_creation_tokens` are independent billing categories. Total billed input = `input_tokens + cache_read_tokens + cache_creation_tokens`. They are additive, not a subset of `input_tokens`.
 
-Model identification for cost reporting uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
+Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 
 When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first `agent_message` derived from that envelope and MUST NOT repeat it on later derived entries. Tool calls and thinking blocks within the same envelope do not carry `usage`.
 
-Latency and wall-clock cost fields are deferred to a future minor version; sources rarely expose them. Vendor extensions may use reverse-domain keys on the entry's `meta` field (§8.0.3) until standardized.
+Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
 #### `tool_call`
 
