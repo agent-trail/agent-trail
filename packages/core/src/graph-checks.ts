@@ -338,6 +338,89 @@ export function agentMessageUsageWarnings(entries: JsonlRecord[]): Diagnostic[] 
   return diagnostics;
 }
 
+// Spec §9.4: `user_query_response.payload.for_id` links to a prior
+// `user_query` entry, and each `answers` key names one of that query's
+// `questions[].id` values. The JSON Schema validates the per-record shape;
+// this graph check validates the cross-record contract.
+export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] {
+  type Query = { questionIds: Set<string> };
+
+  const diagnostics: Diagnostic[] = [];
+  const queryById = new Map<string, Query>();
+
+  for (const entry of entries) {
+    if (entry.value.type !== "user_query") continue;
+    const id = entry.value.id;
+    const payload = entry.value.payload;
+    if (typeof id !== "string" || typeof payload !== "object" || payload === null) continue;
+    const questions = (payload as { questions?: unknown }).questions;
+    const questionIds = new Set<string>();
+    if (Array.isArray(questions)) {
+      for (const [index, question] of questions.entries()) {
+        if (typeof question !== "object" || question === null) continue;
+        const questionId = (question as { id?: unknown }).id;
+        if (typeof questionId === "string") {
+          if (questionIds.has(questionId)) {
+            diagnostics.push(
+              createDiagnostic({
+                line: entry.line,
+                path: `/payload/questions/${index}/id`,
+                severity: "error",
+                code: "duplicate_user_query_question_id",
+                message: `user_query question id "${questionId}" is duplicated within this query`,
+              }),
+            );
+          }
+          questionIds.add(questionId);
+        }
+      }
+    }
+    queryById.set(id, { questionIds });
+  }
+
+  for (const entry of entries) {
+    if (entry.value.type !== "user_query_response") continue;
+    const payload = entry.value.payload;
+    if (typeof payload !== "object" || payload === null) continue;
+    const forId = (payload as { for_id?: unknown }).for_id;
+    if (typeof forId !== "string") continue;
+    const query = queryById.get(forId);
+    if (query === undefined) {
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: "/payload/for_id",
+          severity: "error",
+          code: "unknown_user_query_response_for_id",
+          message: `user_query_response for_id "${forId}" does not reference a user_query in this session`,
+        }),
+      );
+      continue;
+    }
+
+    const answers = (payload as { answers?: unknown }).answers;
+    if (typeof answers !== "object" || answers === null || Array.isArray(answers)) continue;
+    for (const questionId of Object.keys(answers)) {
+      if (query.questionIds.has(questionId)) continue;
+      diagnostics.push(
+        createDiagnostic({
+          line: entry.line,
+          path: `/payload/answers/${escapeJsonPointer(questionId)}`,
+          severity: "error",
+          code: "unknown_user_query_answer_key",
+          message: `user_query_response answer key "${questionId}" does not match a question id on user_query "${forId}"`,
+        }),
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+function escapeJsonPointer(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
 // Validates the optional envelope `sessions` manifest against the actual
 // session groups in the file (spec §8.0.4, §8.6). The manifest, when present,
 // must list one entry per group in file order. Manifest drift (wrong length,

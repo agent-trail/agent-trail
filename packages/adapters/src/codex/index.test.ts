@@ -709,7 +709,7 @@ test("request_user_input emits structured user query and response events", async
               header: "Ship",
               question: "Ship it?",
               is_secret: false,
-              is_other: true,
+              allowOther: true,
               options: [
                 { label: "yes", description: "Ship now" },
                 { label: "no", description: "Hold" },
@@ -725,7 +725,8 @@ test("request_user_input emits structured user query and response events", async
       payload: {
         type: "function_call_output",
         call_id: "call-user-input",
-        output: '{"answers":{"ship":{"answers":["yes"]}}}',
+        output:
+          '{"answers":{"ship":{"answers":["yes"],"other":"with changelog"},"unknown":{"answers":["drop me"]}}}',
       },
     },
   ];
@@ -760,7 +761,7 @@ test("request_user_input emits structured user query and response events", async
   });
   expect(response?.payload).toEqual({
     for_id: query?.id,
-    answers: { ship: { selected: ["yes"] } },
+    answers: { ship: { selected: ["yes"], other: "with changelog" } },
   });
   expect(
     trail.entries.some((e) => e.type === "tool_call" && e.semantic?.call_id === "call-user-input"),

@@ -289,6 +289,42 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(summary.counts.output_truncated).toBe(1);
 });
 
+test("redactTrail truncates user_query_response answer strings exceeding outputMaxBytes", () => {
+  const bigSelected = "S".repeat(20_000);
+  const bigOther = "O".repeat(20_000);
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "query1",
+        answers: {
+          token: { selected: [bigSelected], other: bigOther },
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const response = out[1]?.value as {
+    payload: {
+      answers: {
+        token: { selected: string[]; other: string };
+      };
+    };
+  };
+  const selected = response.payload.answers.token.selected[0];
+  expect(selected).toBeDefined();
+  expect(selected!.length).toBeLessThanOrEqual(10_240);
+  expect(selected!.length).toBeLessThan(bigSelected.length);
+  expect(response.payload.answers.token.other.length).toBeLessThanOrEqual(10_240);
+  expect(response.payload.answers.token.other.length).toBeLessThan(bigOther.length);
+  expect(summary.counts.user_query_answer_truncated).toBe(2);
+});
+
 test("redactTrail redacts user_query strings and strips secret answers", () => {
   const records: JsonlRecord[] = [
     header(),
@@ -305,7 +341,7 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
             options: [{ label: "hunter2.special", description: "temporary token" }],
           },
           {
-            id: "contact",
+            id: "alice@example.com",
             question: "Contact alice@example.com?",
             options: [{ label: "alice@example.com" }],
           },
@@ -320,7 +356,15 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
         for_id: "query1",
         answers: {
           token: { selected: ["hunter2.special"], other: "secret freeform" },
-          contact: { selected: ["alice@example.com"] },
+          "alice@example.com": { selected: ["alice@example.com"] },
+        },
+      },
+      source: {
+        raw: {
+          block: {
+            content:
+              'User has answered your questions: "Paste token"="secret freeform". You can now continue...',
+          },
         },
       },
     }),
@@ -342,18 +386,25 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
     payload: {
       answers: {
         token: { selected: string[]; other?: string };
-        contact: { selected: string[] };
+        "[EMAIL]": { selected: string[] };
       };
     };
+    source: { raw: unknown };
   };
   expect(query.payload.questions[0]?.options[0]?.label).toBe("[USER_SECRET]");
   expect(query.payload.questions[1]?.question).toBe("Contact [EMAIL]?");
   expect(query.payload.questions[1]?.options[0]?.label).toBe("[EMAIL]");
   expect(response.payload.answers.token).toEqual({ selected: [] });
-  expect(response.payload.answers.contact).toEqual({ selected: ["[EMAIL]"] });
+  expect(response.payload.answers["[EMAIL]"]).toEqual({ selected: ["[EMAIL]"] });
+  expect(response.payload.answers).not.toHaveProperty("alice@example.com");
+  expect(JSON.stringify(response.source.raw)).not.toContain("secret freeform");
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED secret user_query_response source.raw]",
+  });
   expect(summary.counts.user_secret).toBe(1);
   expect(summary.counts.email_pii).toBeGreaterThanOrEqual(2);
   expect(summary.counts.user_query_secret_answer).toBe(1);
+  expect(summary.counts.user_query_secret_source_raw).toBe(1);
 });
 
 test("redactTrail does not mutate input records", () => {

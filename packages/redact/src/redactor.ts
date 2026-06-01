@@ -262,6 +262,20 @@ function stripSecretUserQueryAnswers(
     if (payload.answers === null || typeof payload.answers !== "object") continue;
     const secretIds = secretByQueryId.get(payload.for_id);
     if (secretIds === undefined) continue;
+    const source = value.source as Record<string, unknown> | undefined;
+    if (source !== undefined && source.raw !== undefined) {
+      source.raw = { redacted: "[STRIPPED secret user_query_response source.raw]" };
+      summary.counts.user_query_secret_source_raw =
+        (summary.counts.user_query_secret_source_raw ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "user_query_secret_source_raw",
+          location: `records[${index}].source.raw`,
+          before: "[secret source raw]",
+          after: "[STRIPPED]",
+        });
+      }
+    }
     const answers = payload.answers as Record<string, unknown>;
     for (const questionId of secretIds) {
       const answer = answers[questionId];
@@ -327,6 +341,43 @@ function applyPattern(
   }
 }
 
+function redactVisit(
+  visit: Visit,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  for (const pattern of userPatterns) {
+    applyPattern(visit, pattern, summary, maxSamples);
+  }
+  for (const pattern of patterns) {
+    applyPattern(visit, pattern, summary, maxSamples);
+  }
+  const current = visit.get();
+  const pii = applyPii(current, visit.location, summary, maxSamples);
+  if (pii.text !== current) {
+    visit.set(pii.text);
+  }
+  for (const sample of pii.samples) {
+    if (summary.samples.length >= maxSamples) break;
+    summary.samples.push(sample);
+  }
+}
+
+function redactString(
+  value: string,
+  location: string,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): string {
+  const container: Record<string, unknown> = { value };
+  redactVisit(keyVisit(container, "value", location), userPatterns, patterns, summary, maxSamples);
+  return container.value as string;
+}
+
 function escapeRegex(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -355,6 +406,98 @@ function stripVcsRemoteUrl(
         after: "[STRIPPED]",
       });
     }
+  }
+}
+
+function uniqueKey(preferred: string, used: Set<string>): string {
+  if (!used.has(preferred)) return preferred;
+  let suffix = 2;
+  let candidate = `${preferred}_${suffix}`;
+  while (used.has(candidate)) {
+    suffix += 1;
+    candidate = `${preferred}_${suffix}`;
+  }
+  return candidate;
+}
+
+function redactUserQueryQuestionIds(
+  records: JsonlRecord[],
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): Map<string, Map<string, string>> {
+  const idMaps = new Map<string, Map<string, string>>();
+
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query" || typeof value.id !== "string") continue;
+    const payload = value.payload as { questions?: unknown } | undefined;
+    if (!Array.isArray(payload?.questions)) continue;
+
+    const used = new Set<string>();
+    const idMap = new Map<string, string>();
+    for (let i = 0; i < payload.questions.length; i += 1) {
+      const question = payload.questions[i];
+      if (question === null || typeof question !== "object") continue;
+      const questionObject = question as Record<string, unknown>;
+      const before = questionObject.id;
+      if (typeof before !== "string") continue;
+      const redacted = redactString(
+        before,
+        `records[${index}].payload.questions[${i}].id`,
+        userPatterns,
+        patterns,
+        summary,
+        maxSamples,
+      );
+      const after = redacted !== before ? uniqueKey(redacted, used) : redacted;
+      questionObject.id = after;
+      used.add(after);
+      if (after !== before) idMap.set(before, after);
+    }
+    if (idMap.size > 0) idMaps.set(value.id, idMap);
+  }
+
+  return idMaps;
+}
+
+function redactUserQueryAnswerKeys(
+  records: JsonlRecord[],
+  queryIdMaps: Map<string, Map<string, string>>,
+  userPatterns: RedactionPattern[],
+  patterns: readonly RedactionPattern[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query_response") continue;
+    const payload = value.payload as { for_id?: unknown; answers?: unknown } | undefined;
+    if (typeof payload?.for_id !== "string") continue;
+    if (payload.answers === null || typeof payload.answers !== "object") continue;
+
+    const answers = payload.answers as Record<string, unknown>;
+    const idMap = queryIdMaps.get(payload.for_id);
+    const rewritten: Record<string, unknown> = {};
+    const used = new Set<string>();
+    let changed = false;
+    for (const [before, answer] of Object.entries(answers)) {
+      const redacted = redactString(
+        before,
+        `records[${index}].payload.answers.${before}`,
+        userPatterns,
+        patterns,
+        summary,
+        maxSamples,
+      );
+      const mapped = idMap?.get(before) ?? redacted;
+      const after = uniqueKey(mapped, used);
+      used.add(after);
+      rewritten[after] = answer;
+      if (after !== before) changed = true;
+    }
+    if (changed) payload.answers = rewritten;
   }
 }
 
@@ -397,24 +540,19 @@ export function redactTrail(
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
   }
 
+  const queryIdMaps = redactUserQueryQuestionIds(
+    out,
+    userPatterns,
+    patterns,
+    rawSummary,
+    maxSamples,
+  );
+  redactUserQueryAnswerKeys(out, queryIdMaps, userPatterns, patterns, rawSummary, maxSamples);
+
   stripSecretUserQueryAnswers(out, rawSummary, maxSamples);
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
-    for (const pattern of userPatterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
-    }
-    for (const pattern of patterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
-    }
-    const current = visit.get();
-    const pii = applyPii(current, visit.location, rawSummary, maxSamples);
-    if (pii.text !== current) {
-      visit.set(pii.text);
-    }
-    for (const sample of pii.samples) {
-      if (rawSummary.samples.length >= maxSamples) break;
-      rawSummary.samples.push(sample);
-    }
+    redactVisit(visit, userPatterns, patterns, rawSummary, maxSamples);
   }
 
   truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);

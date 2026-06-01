@@ -198,6 +198,61 @@ test("rejects extra answer fields in user query responses", async () => {
   });
 });
 
+test("rejects user query responses whose for_id does not reference a user_query", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/for_id",
+    severity: "error",
+    code: "unknown_user_query_response_for_id",
+    message:
+      'user_query_response for_id "01HEVTA0000000000000000001" does not reference a user_query in this session',
+  });
+});
+
+test("rejects user query response answer keys outside the referenced query ids", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"ship","question":"Ship it?"}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"wrong":{"selected":["yes"]}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/answers/wrong",
+    severity: "error",
+    code: "unknown_user_query_answer_key",
+    message:
+      'user_query_response answer key "wrong" does not match a question id on user_query "01HEVTA0000000000000000001"',
+  });
+});
+
+test("rejects duplicate question ids within a user query", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"user_query","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"questions":[{"id":"same","question":"First?"},{"id":"same","question":"Second?"}]}}',
+      '{"type":"user_query_response","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","answers":{"same":{"selected":["yes"]}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/questions/1/id",
+    severity: "error",
+    code: "duplicate_user_query_question_id",
+    message: 'user_query question id "same" is duplicated within this query',
+  });
+});
+
 test("converts JSONL parse failures into writer-strict diagnostics", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [

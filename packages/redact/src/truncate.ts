@@ -39,23 +39,65 @@ export function truncateOutputs(
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
-    if (value.type !== "tool_result") continue;
     const payload = value.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
-    const output = payload.output;
-    if (typeof output !== "string") continue;
-    if (byteLength(output) <= maxBytes) continue;
-    const original = output;
-    payload.output = truncateToByteLimit(output, maxBytes);
-    payload.truncated = true;
-    summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
-    if (summary.samples.length < maxSamples) {
-      summary.samples.push({
-        patternId: "output_truncated",
-        location: `records[${index}].payload.output`,
-        before: `${original.length} chars`,
-        after: `${(payload.output as string).length} chars`,
-      });
+
+    if (value.type === "tool_result") {
+      const output = payload.output;
+      if (typeof output !== "string") continue;
+      if (byteLength(output) <= maxBytes) continue;
+      const original = output;
+      payload.output = truncateToByteLimit(output, maxBytes);
+      payload.truncated = true;
+      summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "output_truncated",
+          location: `records[${index}].payload.output`,
+          before: `${original.length} chars`,
+          after: `${(payload.output as string).length} chars`,
+        });
+      }
+      continue;
+    }
+
+    if (value.type !== "user_query_response") continue;
+    const answers = payload.answers;
+    if (answers === null || typeof answers !== "object") continue;
+    for (const [questionId, answer] of Object.entries(answers as Record<string, unknown>)) {
+      if (answer === null || typeof answer !== "object") continue;
+      const answerObject = answer as Record<string, unknown>;
+      const selected = answerObject.selected;
+      if (Array.isArray(selected)) {
+        for (let i = 0; i < selected.length; i += 1) {
+          const value = selected[i];
+          if (typeof value !== "string" || byteLength(value) <= maxBytes) continue;
+          selected[i] = truncateToByteLimit(value, maxBytes);
+          summary.counts.user_query_answer_truncated =
+            (summary.counts.user_query_answer_truncated ?? 0) + 1;
+          if (summary.samples.length < maxSamples) {
+            summary.samples.push({
+              patternId: "user_query_answer_truncated",
+              location: `records[${index}].payload.answers.${questionId}.selected[${i}]`,
+              before: `${value.length} chars`,
+              after: `${(selected[i] as string).length} chars`,
+            });
+          }
+        }
+      }
+      const other = answerObject.other;
+      if (typeof other !== "string" || byteLength(other) <= maxBytes) continue;
+      answerObject.other = truncateToByteLimit(other, maxBytes);
+      summary.counts.user_query_answer_truncated =
+        (summary.counts.user_query_answer_truncated ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "user_query_answer_truncated",
+          location: `records[${index}].payload.answers.${questionId}.other`,
+          before: `${other.length} chars`,
+          after: `${(answerObject.other as string).length} chars`,
+        });
+      }
     }
   }
 }

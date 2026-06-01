@@ -46,8 +46,9 @@ function meta(
   };
 }
 
-function questionId(question: string): string {
-  return `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
+function questionId(question: string, occurrence: number): string {
+  const base = `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
+  return occurrence === 0 ? base : `${base}_${occurrence + 1}`;
 }
 
 function booleanValue(value: unknown): boolean | undefined {
@@ -69,11 +70,14 @@ function optionObjects(value: unknown): UserQueryOption[] | undefined {
   return options.length === value.length ? options : undefined;
 }
 
-function userQueryQuestion(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+function userQueryQuestion(
+  raw: Record<string, unknown>,
+  fallbackOccurrence: number,
+): Record<string, unknown> | undefined {
   const question = stringValue(raw.question);
   if (question === undefined) return undefined;
   const out: Record<string, unknown> = {
-    id: stringValue(raw.id) ?? questionId(question),
+    id: stringValue(raw.id) ?? questionId(question, fallbackOccurrence),
     question,
   };
   const header = stringValue(raw.header);
@@ -94,16 +98,22 @@ function userQueryPayload(input: unknown): { questions: Record<string, unknown>[
   const args =
     input !== null && typeof input === "object" ? (input as Record<string, unknown>) : {};
   if (Array.isArray(args.questions)) {
+    const occurrences = new Map<string, number>();
     const questions = args.questions
       .filter(
         (question): question is Record<string, unknown> =>
           question !== null && typeof question === "object",
       )
-      .map(userQueryQuestion)
+      .map((question) => {
+        const text = stringValue(question.question);
+        const occurrence = text === undefined ? 0 : (occurrences.get(text) ?? 0);
+        if (text !== undefined) occurrences.set(text, occurrence + 1);
+        return userQueryQuestion(question, occurrence);
+      })
       .filter((question): question is Record<string, unknown> => question !== undefined);
     if (questions.length > 0) return { questions };
   }
-  const question = userQueryQuestion(args);
+  const question = userQueryQuestion(args, 0);
   return question !== undefined ? { questions: [question] } : undefined;
 }
 

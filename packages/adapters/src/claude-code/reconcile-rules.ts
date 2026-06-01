@@ -126,14 +126,24 @@ function queryQuestions(entry: Entry): Record<string, unknown>[] {
     : [];
 }
 
+function unescapeQuoted(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+}
+
 function parseSerializedAnswers(output: unknown): Map<string, string> {
   const answers = new Map<string, string>();
   if (typeof output !== "string" || output.length === 0) return answers;
-  const pairPattern = /"([^"]+)"="([^"]*)"/g;
+  const pairPattern = /"((?:\\.|[^"\\])*)"="((?:\\.|[^"\\])*)"/g;
   for (const match of output.matchAll(pairPattern)) {
     const question = match[1];
     const answer = match[2];
-    if (question !== undefined && answer !== undefined) answers.set(question, answer);
+    if (question !== undefined && answer !== undefined) {
+      answers.set(unescapeQuoted(question), unescapeQuoted(answer));
+    }
   }
   if (answers.size === 0) answers.set("", output);
   return answers;
@@ -171,13 +181,20 @@ function answersForQuery(query: Entry, output: unknown): Record<string, unknown>
   const serialized = parseSerializedAnswers(output);
   if (serialized.size === 0) return {};
   const questions = queryQuestions(query);
+  const fallback = questions.length === 1 && serialized.has("") ? serialized.get("") : undefined;
+  const textCounts = new Map<string, number>();
+  for (const question of questions) {
+    const text = typeof question.question === "string" ? question.question : undefined;
+    if (text !== undefined) textCounts.set(text, (textCounts.get(text) ?? 0) + 1);
+  }
   const out: Record<string, unknown> = {};
   for (const question of questions) {
     const id = typeof question.id === "string" ? question.id : undefined;
     const text = typeof question.question === "string" ? question.question : undefined;
     if (id === undefined) continue;
     const answerText =
-      (text !== undefined ? serialized.get(text) : undefined) ?? serialized.get("");
+      (text !== undefined && textCounts.get(text) === 1 ? serialized.get(text) : undefined) ??
+      fallback;
     if (answerText !== undefined) out[id] = selectedFor(question, answerText);
   }
   return out;

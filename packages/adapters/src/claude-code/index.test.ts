@@ -438,6 +438,163 @@ test("AskUserQuestion emits structured user query and response events", async ()
   }
 });
 
+test("AskUserQuestion parses escaped quoted answers", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-quoted-answer-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000150";
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-quoted",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    question: 'Use "prod"?',
+                    options: [{ label: "yes" }, { label: "no" }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000150",
+        timestamp: "2026-05-17T16:05:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000150",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question-quoted",
+              content: String.raw`User has answered your questions: "Use \"prod\"?"="yes". You can now continue...`,
+            },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000151",
+        timestamp: "2026-05-17T16:05:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-quoted",
+    );
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-quoted",
+    );
+    const [question] = (query?.payload as { questions: Array<{ id: string }> }).questions;
+    if (question === undefined) throw new Error("expected query question");
+
+    expect(response?.payload).toEqual({
+      for_id: query?.id,
+      answers: { [question.id]: { selected: ["yes"] } },
+    });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("AskUserQuestion uses unique fallback ids and does not fan out duplicate-text answers", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-duplicate-question-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const sessionId = "00000000-0000-0000-0000-ccccc0000160";
+    const lines = [
+      {
+        parentUuid: null,
+        isSidechain: false,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tooluse-question-duplicate",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  { question: "Repeat?", options: [{ label: "yes" }, { label: "no" }] },
+                  { question: "Repeat?", options: [{ label: "yes" }, { label: "no" }] },
+                ],
+              },
+            },
+          ],
+        },
+        type: "assistant",
+        uuid: "00000000-0000-0000-0000-000000000160",
+        timestamp: "2026-05-17T16:06:01.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-000000000160",
+        isSidechain: false,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question-duplicate",
+              content: '"Repeat?"="yes"',
+            },
+          ],
+        },
+        type: "user",
+        uuid: "00000000-0000-0000-0000-000000000161",
+        timestamp: "2026-05-17T16:06:02.000Z",
+        sessionId,
+        version: "1.0.0-synthetic",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: sessionId,
+      adapter: "claude-code",
+      path,
+    });
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-duplicate",
+    );
+    const response = trail.entries.find(
+      (e) =>
+        e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-duplicate",
+    );
+    const questions = (query?.payload as { questions: Array<{ id: string }> }).questions;
+
+    expect(questions.map((question) => question.id)).toHaveLength(2);
+    expect(new Set(questions.map((question) => question.id)).size).toBe(2);
+    expect(response?.payload).toEqual({ for_id: query?.id, answers: {} });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("AskUserQuestion dismissed response emits empty answers", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-large-"));
   const path = join(tmp, "session.jsonl");

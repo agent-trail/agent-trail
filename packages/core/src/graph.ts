@@ -8,6 +8,7 @@ import {
   outOfOrderSessionHeadersWarnings,
   streamConsistencyWarnings,
   unmatchedToolCallWarnings,
+  userQueryResponseWarnings,
   vcsRevisionDivergenceWarnings,
 } from "./graph-checks.ts";
 import { verifyContentHash, verifyTrailEnvelopeContentHash } from "./hash.ts";
@@ -207,6 +208,7 @@ export function validateTrailGraph(
     diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));
     diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
     diagnostics.push(...agentMessageUsageWarnings(group.entries));
+    diagnostics.push(...userQueryResponseWarnings(group.entries));
   }
   // File-scoped cross-group warnings compare among valid-header groups only.
   // A malformed header in one group does not silence comparisons among its

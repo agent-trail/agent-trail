@@ -86,7 +86,10 @@ function userQueryQuestion(raw: Raw, fallbackIndex: number): Record<string, unkn
   const isSecret = booleanValue(raw.is_secret) ?? booleanValue(raw.isSecret);
   if (isSecret !== undefined) out.is_secret = isSecret;
   const allowOther =
-    booleanValue(raw.allow_other) ?? booleanValue(raw.is_other) ?? booleanValue(raw.isOther);
+    booleanValue(raw.allow_other) ??
+    booleanValue(raw.allowOther) ??
+    booleanValue(raw.is_other) ??
+    booleanValue(raw.isOther);
   if (allowOther !== undefined) out.allow_other = allowOther;
   const options = optionObjects(raw.options) ?? optionObjects(raw.choices);
   if (options !== undefined) out.options = options;

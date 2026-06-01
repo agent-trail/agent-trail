@@ -180,6 +180,14 @@ function selectedValues(answer: unknown): string[] {
   return [];
 }
 
+function otherValue(answer: unknown): string | undefined {
+  if (answer !== null && typeof answer === "object") {
+    const other = (answer as { other?: unknown }).other;
+    return typeof other === "string" ? other : undefined;
+  }
+  return undefined;
+}
+
 function queryQuestions(entry: Entry): Record<string, unknown>[] {
   const questions = (entry.payload as { questions?: unknown }).questions;
   return Array.isArray(questions)
@@ -199,6 +207,7 @@ function normalizeAnswers(
   const out: Record<string, unknown> = {};
   for (const [questionId, rawAnswer] of Object.entries(rawAnswers)) {
     const question = byId.get(questionId);
+    if (question === undefined) continue;
     const selected = selectedValues(rawAnswer);
     const optionLabels = new Set(
       (Array.isArray(question?.options) ? question.options : [])
@@ -215,7 +224,11 @@ function normalizeAnswers(
     const unknown =
       optionLabels.size > 0 ? selected.filter((value) => !optionLabels.has(value)) : [];
     const answer: Record<string, unknown> = { selected: allowOther ? known : selected };
-    if (allowOther && unknown.length > 0) answer.other = unknown.join(", ");
+    const other = otherValue(rawAnswer);
+    if (allowOther) {
+      const otherParts = [...(other !== undefined && other.length > 0 ? [other] : []), ...unknown];
+      if (otherParts.length > 0) answer.other = otherParts.join(", ");
+    }
     out[questionId] = answer;
   }
   return out;
