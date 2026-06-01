@@ -222,6 +222,13 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
   });
+  expect(
+    (agentMsg?.source?.raw as { envelope?: { message?: { usage?: unknown } } })?.envelope?.message
+      ?.usage,
+  ).toMatchObject({
+    totalTokens: 1801,
+    cost: 0.0123,
+  });
 });
 
 test("parseSession() omits payload.usage on agent_message when Pi envelope has no usage", async () => {
