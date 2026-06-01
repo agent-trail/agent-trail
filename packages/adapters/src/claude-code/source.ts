@@ -20,6 +20,7 @@ export type CcEnvelope = {
   operation?: string;
   content?: unknown;
   data?: unknown;
+  attachment?: unknown;
   toolUseID?: string;
   toolUseId?: string;
   tool_use_id?: string;
