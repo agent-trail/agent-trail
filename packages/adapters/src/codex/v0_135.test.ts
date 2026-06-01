@@ -11,6 +11,8 @@ const FIXTURES = join(import.meta.dir, "../../tests/fixtures/codex");
 const PNG_SHA256 = "sha256:02a3e298f1533f62558c58e4c70edcab9af5a50d62d925fd5390942020fb0fb8";
 const entries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "v0_135-events.jsonl"), "unit-test");
+const capabilityEntries = (): Promise<Entry[]> =>
+  parseCodexEntries(join(FIXTURES, "capability-changes.jsonl"), "unit-test");
 
 function expectWriterStrict(entries: Entry[]): void {
   for (const [index, entry] of entries.entries()) {
@@ -83,6 +85,61 @@ describe("codex v0.135 new event subtypes", () => {
     const compacts = all.filter((e) => e.type === "context_compact");
     expect(compacts).toHaveLength(1);
     expect((compacts[0]?.payload as { summary?: string }).summary).toBe("summary of earlier turns");
+  });
+});
+
+describe("codex capability registry events", () => {
+  test("session dynamic_tools emits a tool snapshot without schemas", async () => {
+    const all = await capabilityEntries();
+    expectWriterStrict(all);
+    const snapshot = all.find(
+      (entry) =>
+        entry.type === "capability_change" &&
+        (entry.payload as { scope?: string; reason?: string }).scope === "tool" &&
+        (entry.payload as { scope?: string; reason?: string }).reason === "loaded",
+    );
+    expect(snapshot?.payload).toEqual({
+      scope: "tool",
+      reason: "loaded",
+      snapshot: [
+        {
+          name: "search_web",
+          metadata: {
+            namespace: "web",
+            description: "Search the web",
+            defer_loading: true,
+          },
+        },
+        {
+          name: "request_user_input",
+          metadata: {
+            description: "Ask the user",
+          },
+        },
+      ],
+    });
+  });
+
+  test("mcp startup update and complete emit mcp_server capability changes", async () => {
+    const all = await capabilityEntries();
+    const changes = all
+      .filter(
+        (entry) =>
+          entry.type === "capability_change" &&
+          (entry.payload as { scope?: string }).scope === "mcp_server",
+      )
+      .map((entry) => entry.payload);
+    expect(changes).toEqual([
+      { scope: "mcp_server", reason: "loaded", added: [{ name: "linear" }] },
+      { scope: "mcp_server", reason: "connected", added: [{ name: "linear" }] },
+      { scope: "mcp_server", reason: "connected", added: [{ name: "linear" }] },
+      {
+        scope: "mcp_server",
+        reason: "error",
+        changed: [{ name: "github", field: "error", to: "auth failed" }],
+      },
+      { scope: "mcp_server", reason: "disconnected", removed: [{ name: "context7" }] },
+    ]);
   });
 });
 

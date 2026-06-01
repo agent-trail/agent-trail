@@ -118,6 +118,7 @@ export type Entry = EntryBase &
     | SessionTerminated
     | SessionEnd
     | CommandInvoke
+    | CapabilityChange
     | Unknown
   );
 export type ToolKind =
@@ -538,6 +539,39 @@ export interface CommandInvoke {
       | `x-${string}/${string}`
       | null;
   };
+  [k: string]: unknown;
+}
+export interface CapabilityChange {
+  type?: "capability_change";
+  payload?:
+    | {
+        /**
+         * @minItems 1
+         */
+        added: [unknown, ...unknown[]];
+        [k: string]: unknown;
+      }
+    | {
+        /**
+         * @minItems 1
+         */
+        removed: [unknown, ...unknown[]];
+        [k: string]: unknown;
+      }
+    | {
+        /**
+         * @minItems 1
+         */
+        changed: [unknown, ...unknown[]];
+        [k: string]: unknown;
+      }
+    | {
+        /**
+         * @minItems 1
+         */
+        snapshot: [unknown, ...unknown[]];
+        [k: string]: unknown;
+      };
   [k: string]: unknown;
 }
 /**

@@ -862,6 +862,46 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
+#### `capability_change`
+
+A change in the set of capabilities available to the agent at a point in the session. Use this for tool, skill, plugin, MCP server, and MCP tool registry snapshots/deltas. This records availability changes, not tool invocations; calls still use `tool_call` / `tool_result`.
+
+```jsonc
+{
+  "type": "capability_change",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "scope": "tool",
+    "reason": "registered",
+    "added": [{ "name": "ToolSearch", "metadata": { "namespace": "claude-code" } }]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+| --- | --- | --- | --- |
+| `scope` | yes | string enum | `tool` \| `skill` \| `mcp_server` \| `mcp_tool` \| `plugin` |
+| `reason` | yes | string enum | `registered` \| `deregistered` \| `connected` \| `disconnected` \| `loaded` \| `unloaded` \| `error` \| `instructions_updated` |
+| `added` | no | array | Non-empty array of `{ name, metadata? }`. |
+| `removed` | no | array | Non-empty array of `{ name }`. |
+| `changed` | no | array | Non-empty array of `{ name, field, from?, to? }`. |
+| `snapshot` | no | array | Non-empty array of `{ name, metadata? }`; replaces accumulated state for this `scope` at this point. |
+
+Writer-strict validation requires at least one of `added`, `removed`, `changed`, or `snapshot`.
+
+##### Cross-agent mapping
+
+| Source | `scope` | `reason` | Delta shape |
+| --- | --- | --- | --- |
+| Claude Code `attachment.deferred_tools_delta` | `tool` | `registered` / `deregistered` | `added` / `removed` |
+| Claude Code `attachment.skill_listing` | `skill` | `loaded` | `snapshot`, or `changed` when only listing text is available |
+| Claude Code `attachment.mcp_instructions_delta` | `mcp_server` | `instructions_updated` | `changed` |
+| Codex `SessionMeta.dynamic_tools` | `tool` | `loaded` | `snapshot` |
+| Codex `McpStartupUpdate` / `McpStartupComplete` | `mcp_server` | `loaded` / `connected` / `disconnected` / `error` | `added`, `removed`, or `changed` |
+
+Out of scope: full tool input/output schemas; they are static registry data and can be large or sensitive. Adapters should keep only compact identifying metadata in `metadata`.
+
 #### `command_invoke`
 
 A named capability invoked with optional arguments: a user-typed slash command, a built-in CLI affordance, a skill activation, a user-defined prompt template, or a plugin command. These surfaces share the "named capability invoked" semantic but vary along two orthogonal axes — `kind` records *what* was invoked, `via` records *how* it reached the agent. Without this event they leak as `user_message.text="/foo"`, `tool_call.tool=other` with `args.name="Skill"`, or get dropped.

@@ -770,6 +770,58 @@ test("toolKindAndArgs falls back to 'other' for non-built-in tool names (e.g., M
   });
 });
 
+test("Pi extension-like tool calls do not synthesize capability_change events", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pi-capability-noop-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const lines = [
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-000000000128",
+        timestamp: "2026-06-01T02:00:00.000Z",
+        cwd: "/tmp/synthetic-project",
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-000000128001",
+        parentId: null,
+        timestamp: "2026-06-01T02:00:01.000Z",
+        message: {
+          role: "assistant",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          stopReason: "toolUse",
+          content: [
+            {
+              type: "toolCall",
+              id: "00000000-0000-0000-0000-000000128002",
+              name: "custom_mcp_tool",
+              arguments: { foo: "bar" },
+            },
+          ],
+        },
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+    const trail = await piAdapter.parseSession({
+      id: "00000000-0000-0000-0000-000000000128",
+      adapter: "pi",
+      path,
+    });
+    expect(trail.entries.some((entry) => entry.type === "capability_change")).toBe(false);
+    const call = trail.entries.find((entry) => entry.type === "tool_call");
+    expect(call?.payload).toEqual({
+      tool: "other",
+      args: { name: "custom_mcp_tool", args: { foo: "bar" } },
+    });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // Issue #19: tree branch semantics (spec §12.1-12.3, §9.3 branch_summary)
 
 // TDD step 1: fixture loads and validates end-to-end

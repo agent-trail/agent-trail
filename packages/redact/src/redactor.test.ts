@@ -916,6 +916,36 @@ test("redactTrail walks payload of unknown / forward-compatible event types", ()
   expect(summary.counts.openai_api_key).toBe(2);
 });
 
+test("redactTrail walks capability_change payload metadata", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "capability_change",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        scope: "tool",
+        reason: "registered",
+        added: [{ name: "dynamic_tool", metadata: { description: `uses ${key}` } }],
+        changed: [{ name: "dynamic_tool", field: "instructions", to: key }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    payload: {
+      added: Array<{ metadata: { description: string } }>;
+      changed: Array<{ to: string }>;
+    };
+  };
+  expect(value.payload.added[0]?.metadata.description).toContain("[OPENAI_KEY]");
+  expect(value.payload.changed[0]?.to).toBe("[OPENAI_KEY]");
+  expect(summary.counts.openai_api_key).toBe(2);
+});
+
 test("redactTrail keeps URI scheme when redacting Slack webhooks in attachments", () => {
   const records: JsonlRecord[] = [
     header(),

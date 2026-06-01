@@ -46,6 +46,7 @@ export const implementedEventTypes = [
   // session_end signals a normal finish, session_terminated an abnormal one.
   "session_end",
   "command_invoke",
+  "capability_change",
 ] as const;
 
 const eventValidators = new Map<string, ValidateFunction<unknown>>(

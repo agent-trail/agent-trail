@@ -78,6 +78,8 @@
             "agent_reasoning",
             "agent_reasoning_raw_content",
             "exec_command_end",
+            "mcp_startup_complete",
+            "mcp_startup_update",
             "mcp_tool_call_end",
             "patch_apply_end",
             "task_complete",
