@@ -230,6 +230,10 @@ export interface EntryBase {
   semantic?: SemanticMetadata;
   source?: SourceMetadata;
   meta?: {
+    /**
+     * Number of redactor mutations applied to this event entry.
+     */
+    redaction_count?: number;
     [k: string]: unknown;
   };
 }

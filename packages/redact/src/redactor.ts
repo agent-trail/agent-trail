@@ -246,10 +246,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
 const SAMPLE_HEAD = 4;
 const SAMPLE_TAIL = 4;
+const TEXT_ENCODER = new TextEncoder();
 // Show head+tail only when both can be revealed without overlap and still
 // elide at least one character from the middle. Otherwise, hide the entire
 // match to avoid leaking short secrets verbatim in samples.
 const SAMPLE_MIN_REVEAL = SAMPLE_HEAD + SAMPLE_TAIL + 1;
+
+function byteLength(s: string): number {
+  return TEXT_ENCODER.encode(s).byteLength;
+}
 
 function maskSample(secret: string): string {
   if (secret.length === 0) return secret;
@@ -342,6 +347,19 @@ function addMutationCount(counts: Map<number, number>, recordIndex: number, coun
   counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
 }
 
+function snapshotToolResultOutputSizes(records: JsonlRecord[]): Map<number, number> {
+  const sizes = new Map<number, number>();
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "tool_result") continue;
+    const payload = value.payload as Record<string, unknown> | undefined;
+    if (typeof payload?.output === "string") {
+      sizes.set(index, byteLength(payload.output));
+    }
+  }
+  return sizes;
+}
+
 function applyRedactionCounts(records: JsonlRecord[], counts: ReadonlyMap<number, number>): void {
   for (const [index, count] of counts) {
     const value = records[index]?.value as Record<string, unknown> | undefined;
@@ -350,7 +368,12 @@ function applyRedactionCounts(records: JsonlRecord[], counts: ReadonlyMap<number
       value.meta !== null && typeof value.meta === "object"
         ? (value.meta as Record<string, unknown>)
         : {};
-    const previous = typeof meta.redaction_count === "number" ? meta.redaction_count : 0;
+    const previous =
+      typeof meta.redaction_count === "number" &&
+      Number.isInteger(meta.redaction_count) &&
+      meta.redaction_count >= 0
+        ? meta.redaction_count
+        : 0;
     value.meta = { ...meta, redaction_count: previous + count };
   }
 }
@@ -369,6 +392,7 @@ export function redactTrail(
   const maxSamples = options.maxSamples ?? 20;
   const keepRemoteUrl = options.keepRemoteUrl ?? false;
   const out = records.map((record) => structuredClone(record));
+  const originalToolResultOutputSizes = snapshotToolResultOutputSizes(out);
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
   const redactionCounts = new Map<number, number>();
 
@@ -403,7 +427,14 @@ export function redactTrail(
     }
   }
 
-  truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples, redactionCounts);
+  truncateOutputs(
+    out,
+    outputMaxBytes,
+    rawSummary,
+    maxSamples,
+    redactionCounts,
+    originalToolResultOutputSizes,
+  );
   applyRedactionCounts(out, redactionCounts);
 
   // Redacted bytes differ from the input artifact, so any finalized

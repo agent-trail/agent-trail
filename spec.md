@@ -1186,7 +1186,7 @@ Implementations and vendors can add custom data via the `meta` field on the trai
 
 Readers may preserve, ignore, or render `meta` fields. They must not abort on unknown keys.
 
-`entry.meta.redaction_count` is a standard optional integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
+`entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
 
 The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` (§14.1) instead. See §8.0.3 for the full convention.
 
@@ -1295,7 +1295,7 @@ Adapters and share tools should:
 
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
 
-Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is the number of redactor mutations applied to that entry, including secret/PII/path replacements and output or structured-meta truncation. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
+Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry, including secret/PII/path replacements and output or structured-meta truncation. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 
 Token-usage objects (`agent_message.payload.usage`, §9.2) are preserved in redacted artifacts by default — they carry no PII and are needed for downstream cost reporting. Share tools that need to strip usage can do so via a future metadata-strip flag.
 

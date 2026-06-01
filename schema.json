@@ -424,7 +424,16 @@
         "payload": { "type": "object" },
         "semantic": { "$ref": "#/$defs/semanticMetadata" },
         "source": { "$ref": "#/$defs/sourceMetadata" },
-        "meta": { "type": "object" }
+        "meta": {
+          "type": "object",
+          "properties": {
+            "redaction_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of redactor mutations applied to this event entry."
+            }
+          }
+        }
       },
       "additionalProperties": false
     },

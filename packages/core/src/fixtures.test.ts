@@ -264,6 +264,13 @@ test("valid/tool-result-output-size-truncated.trail.jsonl validates clean", asyn
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/redaction-count-meta.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/redaction-count-meta.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl reports required output_size", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl"),
@@ -274,6 +281,19 @@ test("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl repor
     severity: "error",
     code: "required",
     message: "must have required property 'output_size'",
+  });
+});
+
+test("invalid-schema/redaction-count-non-integer.trail.jsonl reports type error", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/redaction-count-non-integer.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/meta/redaction_count",
+    severity: "error",
+    code: "type",
+    message: "must be integer",
   });
 });
 

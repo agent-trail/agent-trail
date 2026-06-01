@@ -331,6 +331,108 @@ test("redactTrail truncates mirrored user_input_request answers in tool_result m
   expect(summary.counts.meta_truncated).toBe(1);
 });
 
+test("redactTrail output_size uses original output bytes before secret redaction", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const originalOutput = `${key}\n${"X".repeat(20_000)}`;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "evtcall",
+        ok: true,
+        output: originalOutput,
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { output: string; output_size?: number; truncated?: boolean };
+  };
+  expect(value.payload.output).not.toContain(key);
+  expect(value.payload.truncated).toBe(true);
+  expect(value.payload.output_size).toBe(new TextEncoder().encode(originalOutput).byteLength);
+  expect(value.meta?.redaction_count).toBe(2);
+  expect(summary.counts.openai_api_key).toBe(1);
+  expect(summary.counts.output_truncated).toBe(1);
+});
+
+test("redactTrail repairs missing output_size on already-truncated output below maxBytes", () => {
+  const originalOutput = "short redacted output";
+  const records: JsonlRecord[] = [
+    header({ content_hash: "a".repeat(64) }),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "evtcall",
+        ok: true,
+        output: originalOutput,
+        truncated: true,
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const headerValue = out[0]?.value as { content_hash?: string };
+  const value = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { output_size?: number; truncated?: boolean };
+  };
+  expect(headerValue.content_hash).toBe("<pending>");
+  expect(value.payload.truncated).toBe(true);
+  expect(value.payload.output_size).toBe(new TextEncoder().encode(originalOutput).byteLength);
+  expect(value.meta?.redaction_count).toBe(1);
+  expect(summary.counts.output_size_repaired).toBe(1);
+});
+
+test("redactTrail preserves existing output_size and sums multiple mutations on one entry", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "evtcall",
+        ok: true,
+        output: `${key}\n${"X".repeat(20_000)}`,
+        truncated: true,
+        output_size: 50_000,
+        meta: { user_input_request: { answers: { answer: "Y".repeat(20_000) } } },
+      },
+      meta: { redaction_count: 5 },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    meta: { redaction_count: number };
+    payload: {
+      output: string;
+      output_size: number;
+      meta: { user_input_request: { answers: string } };
+    };
+  };
+  expect(value.payload.output).not.toContain(key);
+  expect(value.payload.output.length).toBeLessThan(20_000);
+  expect(value.payload.output_size).toBe(50_000);
+  expect(value.payload.meta.user_input_request.answers).toContain("[truncated]");
+  expect(value.meta.redaction_count).toBe(8);
+  expect(summary.counts.openai_api_key).toBe(1);
+  expect(summary.counts.output_truncated).toBe(1);
+  expect(summary.counts.meta_truncated).toBe(1);
+});
+
 test("redactTrail does not mutate input records", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
@@ -374,6 +476,24 @@ test("redactTrail preserves existing redaction_count and adds new entry mutation
 
   expect((out[1]?.value as { meta: { redaction_count: number } }).meta.redaction_count).toBe(7);
   expect((out[2]?.value as { meta: { redaction_count: number } }).meta.redaction_count).toBe(3);
+});
+
+test("redactTrail ignores invalid existing redaction_count when adding new entry mutations", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `secret ${key}` },
+      meta: { redaction_count: -1 },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+
+  expect((out[1]?.value as { meta: { redaction_count: number } }).meta.redaction_count).toBe(1);
 });
 
 test("redactTrail redacts secrets across tool_call.args, tool_result.output, and tool_result.error", () => {
