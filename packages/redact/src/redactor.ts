@@ -10,13 +10,20 @@ import type {
 } from "./types.ts";
 
 type Visit = {
+  recordIndex: number;
   location: string;
   get: () => string;
   set: (next: string) => void;
 };
 
-function arrayVisit(container: unknown[], index: number, location: string): Visit {
+function arrayVisit(
+  container: unknown[],
+  index: number,
+  recordIndex: number,
+  location: string,
+): Visit {
   return {
+    recordIndex,
     location,
     get: () => container[index] as string,
     set: (next) => {
@@ -25,8 +32,14 @@ function arrayVisit(container: unknown[], index: number, location: string): Visi
   };
 }
 
-function keyVisit(container: Record<string, unknown>, key: string, location: string): Visit {
+function keyVisit(
+  container: Record<string, unknown>,
+  key: string,
+  recordIndex: number,
+  location: string,
+): Visit {
   return {
+    recordIndex,
     location,
     get: () => container[key] as string,
     set: (next) => {
@@ -37,6 +50,7 @@ function keyVisit(container: Record<string, unknown>, key: string, location: str
 
 function* walkContainer(
   container: Record<string, unknown> | unknown[],
+  recordIndex: number,
   prefix: string,
 ): Generator<Visit> {
   if (Array.isArray(container)) {
@@ -44,9 +58,9 @@ function* walkContainer(
       const child = container[i];
       const path = `${prefix}[${i}]`;
       if (typeof child === "string") {
-        yield arrayVisit(container, i, path);
+        yield arrayVisit(container, i, recordIndex, path);
       } else if (child !== null && typeof child === "object") {
-        yield* walkContainer(child as Record<string, unknown> | unknown[], path);
+        yield* walkContainer(child as Record<string, unknown> | unknown[], recordIndex, path);
       }
     }
     return;
@@ -55,9 +69,9 @@ function* walkContainer(
     const child = container[key];
     const path = `${prefix}.${key}`;
     if (typeof child === "string") {
-      yield keyVisit(container, key, path);
+      yield keyVisit(container, key, recordIndex, path);
     } else if (child !== null && typeof child === "object") {
-      yield* walkContainer(child as Record<string, unknown> | unknown[], path);
+      yield* walkContainer(child as Record<string, unknown> | unknown[], recordIndex, path);
     }
   }
 }
@@ -92,7 +106,7 @@ function* visitAttachments(payload: Record<string, unknown>, index: number): Gen
     if (a === null || typeof a !== "object") continue;
     const obj = a as Record<string, unknown>;
     if (typeof obj.uri === "string") {
-      yield keyVisit(obj, "uri", `records[${index}].payload.attachments[${i}].uri`);
+      yield keyVisit(obj, "uri", index, `records[${index}].payload.attachments[${i}].uri`);
     }
   }
 }
@@ -105,15 +119,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (type === "session") {
       if (typeof value.cwd === "string") {
-        yield keyVisit(value, "cwd", `records[${index}].cwd`);
+        yield keyVisit(value, "cwd", index, `records[${index}].cwd`);
       }
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
+        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
       }
       const headerSource = value.source as Record<string, unknown> | undefined;
       if (headerSource && typeof headerSource.path === "string") {
-        yield keyVisit(headerSource, "path", `records[${index}].source.path`);
+        yield keyVisit(headerSource, "path", index, `records[${index}].source.path`);
       }
     }
 
@@ -121,7 +135,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", `records[${index}].vcs.revision`);
+        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
       }
     }
 
@@ -134,15 +148,15 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
         type === "system_event") &&
       typeof payload.text === "string"
     ) {
-      yield keyVisit(payload, "text", `records[${index}].payload.text`);
+      yield keyVisit(payload, "text", index, `records[${index}].payload.text`);
     }
 
     if (payload && type === "user_interrupt" && typeof payload.reason === "string") {
-      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+      yield keyVisit(payload, "reason", index, `records[${index}].payload.reason`);
     }
 
     if (payload && type === "branch_point" && typeof payload.reason === "string") {
-      yield keyVisit(payload, "reason", `records[${index}].payload.reason`);
+      yield keyVisit(payload, "reason", index, `records[${index}].payload.reason`);
     }
 
     if (
@@ -150,7 +164,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       (type === "context_compact" || type === "branch_summary") &&
       typeof payload.summary === "string"
     ) {
-      yield keyVisit(payload, "summary", `records[${index}].payload.summary`);
+      yield keyVisit(payload, "summary", index, `records[${index}].payload.summary`);
     }
 
     if (payload && (type === "user_message" || type === "agent_message")) {
@@ -162,6 +176,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (data !== null && typeof data === "object") {
         yield* walkContainer(
           data as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.data`,
         );
       }
@@ -172,6 +187,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (args !== null && typeof args === "object") {
         yield* walkContainer(
           args as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.args`,
         );
       }
@@ -179,16 +195,17 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
 
     if (payload && type === "tool_result") {
       if (typeof payload.output === "string") {
-        yield keyVisit(payload, "output", `records[${index}].payload.output`);
+        yield keyVisit(payload, "output", index, `records[${index}].payload.output`);
       }
       if (typeof payload.error === "string") {
-        yield keyVisit(payload, "error", `records[${index}].payload.error`);
+        yield keyVisit(payload, "error", index, `records[${index}].payload.error`);
       }
       yield* visitAttachments(payload, index);
       const resultMeta = payload.meta;
       if (resultMeta !== null && typeof resultMeta === "object") {
         yield* walkContainer(
           resultMeta as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].payload.meta`,
         );
       }
@@ -199,12 +216,16 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     // already handled above, walk payload generically so unknown adapters
     // and vendor events do not bypass redaction.
     if (payload && typeof type === "string" && !HANDLED_EVENT_TYPES.has(type)) {
-      yield* walkContainer(payload, `records[${index}].payload`);
+      yield* walkContainer(payload, index, `records[${index}].payload`);
     }
 
     const meta = value.meta;
     if (meta !== null && typeof meta === "object") {
-      yield* walkContainer(meta as Record<string, unknown> | unknown[], `records[${index}].meta`);
+      yield* walkContainer(
+        meta as Record<string, unknown> | unknown[],
+        index,
+        `records[${index}].meta`,
+      );
     }
 
     if (includeSourceRaw && type !== "session") {
@@ -213,10 +234,11 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       if (raw !== undefined && raw !== null && typeof raw === "object") {
         yield* walkContainer(
           raw as Record<string, unknown> | unknown[],
+          index,
           `records[${index}].source.raw`,
         );
       } else if (typeof raw === "string" && source) {
-        yield keyVisit(source, "raw", `records[${index}].source.raw`);
+        yield keyVisit(source, "raw", index, `records[${index}].source.raw`);
       }
     }
   }
@@ -244,12 +266,12 @@ function applyPattern(
   pattern: RedactionPattern,
   summary: RedactionSummary,
   maxSamples: number,
-): void {
+): number {
   const current = visit.get();
   const regex = ensureGlobal(pattern.regex);
   regex.lastIndex = 0;
   const matches = Array.from(current.matchAll(regex));
-  if (matches.length === 0) return;
+  if (matches.length === 0) return 0;
   regex.lastIndex = 0;
   visit.set(current.replace(regex, pattern.placeholder));
   summary.counts[pattern.id] = (summary.counts[pattern.id] ?? 0) + matches.length;
@@ -262,6 +284,7 @@ function applyPattern(
       after: pattern.placeholder,
     });
   }
+  return matches.length;
 }
 
 function escapeRegex(literal: string): string {
@@ -314,6 +337,24 @@ function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
   );
 }
 
+function addMutationCount(counts: Map<number, number>, recordIndex: number, count: number): void {
+  if (count <= 0) return;
+  counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
+}
+
+function applyRedactionCounts(records: JsonlRecord[], counts: ReadonlyMap<number, number>): void {
+  for (const [index, count] of counts) {
+    const value = records[index]?.value as Record<string, unknown> | undefined;
+    if (value === undefined || value.type === "session" || value.type === "trail") continue;
+    const meta =
+      value.meta !== null && typeof value.meta === "object"
+        ? (value.meta as Record<string, unknown>)
+        : {};
+    const previous = typeof meta.redaction_count === "number" ? meta.redaction_count : 0;
+    value.meta = { ...meta, redaction_count: previous + count };
+  }
+}
+
 export function redactTrail(
   records: JsonlRecord[],
   options: RedactTrailOptions = {},
@@ -329,6 +370,7 @@ export function redactTrail(
   const keepRemoteUrl = options.keepRemoteUrl ?? false;
   const out = records.map((record) => structuredClone(record));
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
+  const redactionCounts = new Map<number, number>();
 
   if (!keepRemoteUrl) {
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
@@ -336,15 +378,24 @@ export function redactTrail(
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
+      addMutationCount(
+        redactionCounts,
+        visit.recordIndex,
+        applyPattern(visit, pattern, rawSummary, maxSamples),
+      );
     }
     for (const pattern of patterns) {
-      applyPattern(visit, pattern, rawSummary, maxSamples);
+      addMutationCount(
+        redactionCounts,
+        visit.recordIndex,
+        applyPattern(visit, pattern, rawSummary, maxSamples),
+      );
     }
     const current = visit.get();
     const pii = applyPii(current, visit.location, rawSummary, maxSamples);
     if (pii.text !== current) {
       visit.set(pii.text);
+      addMutationCount(redactionCounts, visit.recordIndex, pii.count);
     }
     for (const sample of pii.samples) {
       if (rawSummary.samples.length >= maxSamples) break;
@@ -352,7 +403,8 @@ export function redactTrail(
     }
   }
 
-  truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples);
+  truncateOutputs(out, outputMaxBytes, rawSummary, maxSamples, redactionCounts);
+  applyRedactionCounts(out, redactionCounts);
 
   // Redacted bytes differ from the input artifact, so any finalized
   // content_hash carried on the input is now stale. Reset to the

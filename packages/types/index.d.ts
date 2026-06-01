@@ -313,6 +313,10 @@ export interface ToolResult {
     ok: boolean;
     output?: string;
     truncated?: boolean;
+    /**
+     * UTF-8 byte length of the original output before truncation. Required when truncated is true.
+     */
+    output_size?: number;
     overflow_ref?: string | null;
     error?: string | null;
     attachments?: Attachment[];

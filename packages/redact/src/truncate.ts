@@ -35,12 +35,22 @@ function serializedByteLength(value: unknown): number {
   return byteLength(typeof value === "string" ? value : JSON.stringify(value));
 }
 
+function addMutationCount(
+  counts: Map<number, number> | undefined,
+  recordIndex: number,
+  count: number,
+): void {
+  if (counts === undefined || count <= 0) return;
+  counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
+}
+
 function truncateUserInputAnswersMeta(
   payload: Record<string, unknown>,
   recordIndex: number,
   maxBytes: number,
   summary: RedactionSummary,
   maxSamples: number,
+  mutationCounts?: Map<number, number>,
 ): void {
   const meta = payload.meta;
   if (meta === null || typeof meta !== "object") return;
@@ -53,6 +63,7 @@ function truncateUserInputAnswersMeta(
   if (serializedByteLength(answers) <= maxBytes) return;
   const serialized = typeof answers === "string" ? answers : JSON.stringify(answers);
   answerMeta.answers = truncateToByteLimit(serialized, maxBytes);
+  addMutationCount(mutationCounts, recordIndex, 1);
   summary.counts.meta_truncated = (summary.counts.meta_truncated ?? 0) + 1;
   if (summary.samples.length < maxSamples) {
     summary.samples.push({
@@ -69,19 +80,22 @@ export function truncateOutputs(
   maxBytes: number,
   summary: RedactionSummary,
   maxSamples: number,
+  mutationCounts?: Map<number, number>,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
     if (value.type !== "tool_result") continue;
     const payload = value.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
-    truncateUserInputAnswersMeta(payload, index, maxBytes, summary, maxSamples);
+    truncateUserInputAnswersMeta(payload, index, maxBytes, summary, maxSamples, mutationCounts);
     const output = payload.output;
     if (typeof output !== "string") continue;
     if (byteLength(output) <= maxBytes) continue;
     const original = output;
+    payload.output_size = byteLength(original);
     payload.output = truncateToByteLimit(output, maxBytes);
     payload.truncated = true;
+    addMutationCount(mutationCounts, index, 1);
     summary.counts.output_truncated = (summary.counts.output_truncated ?? 0) + 1;
     if (summary.samples.length < maxSamples) {
       summary.samples.push({

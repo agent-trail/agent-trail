@@ -257,6 +257,26 @@ test("valid/tool-result-meta-shell-command.trail.jsonl validates clean", async (
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-result-output-size-truncated.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-result-output-size-truncated.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl reports required output_size", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/output_size",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'output_size'",
+  });
+});
+
 test("valid/command-invoke-minimal.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/command-invoke-minimal.trail.jsonl"),
