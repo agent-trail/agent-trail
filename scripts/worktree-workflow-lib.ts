@@ -301,6 +301,11 @@ export function githubRepoFromRemoteUrl(url: string): string | undefined {
   return httpsMatch?.[1];
 }
 
+export function normalizeWorktreePath(path: string): string {
+  const normalized = resolve(path).replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
 async function githubRepoFromOrigin(cwd: string): Promise<string | undefined> {
   const result = await git(cwd, ["remote", "get-url", "origin"], true);
   if (result.code !== 0) {
@@ -310,38 +315,42 @@ async function githubRepoFromOrigin(cwd: string): Promise<string | undefined> {
 }
 
 async function defaultResolvePr(branch: string, cwd: string): Promise<PrStatus | undefined> {
-  const repo = await githubRepoFromOrigin(cwd);
-  const result = await runCommand(
-    "gh",
-    [
-      "pr",
-      "view",
+  try {
+    const repo = await githubRepoFromOrigin(cwd);
+    const result = await runCommand(
+      "gh",
+      [
+        "pr",
+        "view",
+        branch,
+        "--json",
+        "number,state,mergeStateStatus,url",
+        ...(repo === undefined ? [] : ["--repo", repo]),
+      ],
+      {
+        cwd,
+        allowFailure: true,
+      },
+    );
+    if (result.code !== 0) {
+      return undefined;
+    }
+    const parsed = JSON.parse(result.stdout) as {
+      number?: number;
+      state?: "OPEN" | "MERGED" | "CLOSED";
+      mergeStateStatus?: string;
+      url?: string;
+    };
+    return {
       branch,
-      "--json",
-      "number,state,mergeStateStatus,url",
-      ...(repo === undefined ? [] : ["--repo", repo]),
-    ],
-    {
-      cwd,
-      allowFailure: true,
-    },
-  );
-  if (result.code !== 0) {
+      mergeStateStatus: parsed.mergeStateStatus,
+      number: parsed.number,
+      state: parsed.state ?? "UNKNOWN",
+      url: parsed.url,
+    };
+  } catch {
     return undefined;
   }
-  const parsed = JSON.parse(result.stdout) as {
-    number?: number;
-    state?: "OPEN" | "MERGED" | "CLOSED";
-    mergeStateStatus?: string;
-    url?: string;
-  };
-  return {
-    branch,
-    mergeStateStatus: parsed.mergeStateStatus,
-    number: parsed.number,
-    state: parsed.state ?? "UNKNOWN",
-    url: parsed.url,
-  };
 }
 
 export async function doctorWorktreeWorkflow(
@@ -421,8 +430,10 @@ export async function doctorWorktreeWorkflow(
   }
 
   for (const entry of worktrees) {
-    if (entry.prunable === true || !(await pathExists(entry.path))) {
+    const entryExists = await pathExists(entry.path);
+    if (entry.prunable === true || !entryExists) {
       messages.push({ level: "warn", message: `Stale worktree entry: ${entry.path}.` });
+      continue;
     }
     if (entry.branch !== undefined && entry.branch !== "main") {
       const resolver = options.resolvePr ?? defaultResolvePr;
@@ -474,14 +485,17 @@ export async function cleanupWorktrees(
 ): Promise<CleanupResult> {
   const root = await repoRoot(cwd);
   const worktrees = await listWorktrees(root);
-  const current = await repoRoot(process.cwd()).catch(() => undefined);
+  const current = await repoRoot(cwd).catch(() => undefined);
   const actions: CleanupAction[] = [];
   const resolver = options.resolvePr ?? defaultResolvePr;
+  const normalizedRoot = normalizeWorktreePath(root);
+  const normalizedCurrent = current === undefined ? undefined : normalizeWorktreePath(current);
 
   for (const entry of worktrees) {
+    const normalizedEntryPath = normalizeWorktreePath(entry.path);
     if (
-      entry.path === root ||
-      entry.path === current ||
+      normalizedEntryPath === normalizedRoot ||
+      normalizedEntryPath === normalizedCurrent ||
       entry.branch === "main" ||
       entry.branch === undefined
     ) {

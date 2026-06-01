@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   cleanupWorktrees,
@@ -7,6 +7,7 @@ import {
   doctorWorktreeWorkflow,
   git,
   githubRepoFromRemoteUrl,
+  normalizeWorktreePath,
   type PrStatus,
   removeTempDir,
   setupWorktreeWorkflow,
@@ -62,6 +63,10 @@ test("githubRepoFromRemoteUrl parses GitHub origin URLs", () => {
   expect(
     githubRepoFromRemoteUrl("https://example.com/agent-trail/agent-trail.git"),
   ).toBeUndefined();
+});
+
+test("normalizeWorktreePath standardizes separators", () => {
+  expect(normalizeWorktreePath("some\\managed\\worktree")).not.toContain("\\");
 });
 
 test("setup configures normal main worktree", async () => {
@@ -127,6 +132,28 @@ test("doctor warns when shared hooks contain managed worktree paths", async () =
       result.messages.some(
         (message) => message.level === "warn" && message.message.includes("managed-worktree"),
       ),
+    ).toBe(true);
+  });
+});
+
+test("doctor skips PR lookup for stale worktree entries", async () => {
+  await withTempDir(async (tempDir) => {
+    const repo = await initRepo(tempDir);
+    await setupWorktreeWorkflow(repo);
+    const linked = join(tempDir, "stale-worktree");
+    await git(repo, ["worktree", "add", "-b", "feature/stale", linked]);
+    await rm(linked, { force: true, recursive: true });
+
+    const result = await doctorWorktreeWorkflow(repo, {
+      checkRemote: false,
+      resolvePr: async () => {
+        throw new Error("PR resolver should not be called for stale worktrees");
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      result.messages.some((message) => message.message.includes("Stale worktree entry")),
     ).toBe(true);
   });
 });
