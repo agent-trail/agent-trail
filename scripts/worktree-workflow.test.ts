@@ -136,6 +136,29 @@ test("doctor warns when shared hooks contain managed worktree paths", async () =
   });
 });
 
+test("doctor warns when shared hooks contain Windows managed worktree paths", async () => {
+  await withTempDir(async (tempDir) => {
+    const repo = await initRepo(tempDir);
+    await setupWorktreeWorkflow(repo);
+    await writeFile(
+      join(repo, ".git", "hooks", "pre-push"),
+      "#!/bin/sh\nC:\\managed\\worktrees\\c929\\agent-trail\\node_modules\\.bin\\lefthook\n",
+    );
+
+    const result = await doctorWorktreeWorkflow(repo, {
+      checkRemote: false,
+      resolvePr: prResolver({}),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(
+      result.messages.some(
+        (message) => message.level === "warn" && message.message.includes("managed-worktree"),
+      ),
+    ).toBe(true);
+  });
+});
+
 test("doctor skips PR lookup for stale worktree entries", async () => {
   await withTempDir(async (tempDir) => {
     const repo = await initRepo(tempDir);
@@ -154,6 +177,31 @@ test("doctor skips PR lookup for stale worktree entries", async () => {
     expect(result.ok).toBe(true);
     expect(
       result.messages.some((message) => message.message.includes("Stale worktree entry")),
+    ).toBe(true);
+  });
+});
+
+test("cleanup skips stale worktree entries before PR lookup", async () => {
+  await withTempDir(async (tempDir) => {
+    const repo = await initRepo(tempDir);
+    const linked = join(tempDir, "stale-cleanup-worktree");
+    await git(repo, ["worktree", "add", "-b", "feature/stale-cleanup", linked]);
+    await rm(linked, { force: true, recursive: true });
+
+    const result = await cleanupWorktrees(repo, {
+      prune: false,
+      resolvePr: async () => {
+        throw new Error("PR resolver should not be called for stale worktrees");
+      },
+    });
+
+    expect(
+      result.actions.some(
+        (action) =>
+          action.action === "skip" &&
+          action.branch === "feature/stale-cleanup" &&
+          action.reason === "stale worktree entry",
+      ),
     ).toBe(true);
   });
 });
@@ -190,6 +238,23 @@ test("cleanup apply removes merged clean PR worktree", async () => {
       resolvePr: prResolver({ "feature/merged": { branch: "feature/merged", state: "MERGED" } }),
     });
 
+    expect((await git(repo, ["worktree", "list", "--porcelain"])).stdout).not.toContain(linked);
+  });
+});
+
+test("cleanup apply tolerates origin prune failure", async () => {
+  await withTempDir(async (tempDir) => {
+    const repo = await initRepo(tempDir);
+    const linked = join(tempDir, "merged-worktree");
+    await git(repo, ["worktree", "add", "-b", "feature/merged", linked]);
+
+    const result = await cleanupWorktrees(repo, {
+      apply: true,
+      resolvePr: prResolver({ "feature/merged": { branch: "feature/merged", state: "MERGED" } }),
+    });
+
+    expect(result.applied).toBe(true);
+    expect(result.actions.some((action) => action.action === "prune-origin")).toBe(true);
     expect((await git(repo, ["worktree", "list", "--porcelain"])).stdout).not.toContain(linked);
   });
 });

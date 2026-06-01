@@ -281,7 +281,7 @@ async function sharedHookWarnings(root: string): Promise<CheckMessage[]> {
       continue;
     }
     const content = await readFile(hookPath, "utf8");
-    if (content.includes("/worktrees/")) {
+    if (/[/\\]worktrees[/\\]/.test(content)) {
       messages.push({
         level: "warn",
         message: `${hookPath} contains an absolute managed-worktree path; per-worktree .githooks should make it inert.`,
@@ -492,6 +492,17 @@ export async function cleanupWorktrees(
   const normalizedCurrent = current === undefined ? undefined : normalizeWorktreePath(current);
 
   for (const entry of worktrees) {
+    const entryExists = await pathExists(entry.path);
+    if (entry.prunable === true || !entryExists) {
+      actions.push({
+        action: "skip",
+        branch: entry.branch,
+        path: entry.path,
+        reason: "stale worktree entry",
+      });
+      continue;
+    }
+
     const normalizedEntryPath = normalizeWorktreePath(entry.path);
     if (
       normalizedEntryPath === normalizedRoot ||
@@ -553,7 +564,7 @@ export async function cleanupWorktrees(
       reason: options.apply === true ? "fetch --prune" : "dry-run",
     });
     if (options.apply === true) {
-      await git(root, ["fetch", "origin", "--prune"]);
+      await git(root, ["fetch", "origin", "--prune"], true);
     } else {
       await git(root, ["remote", "prune", "--dry-run", "origin"], true);
     }
