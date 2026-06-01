@@ -1,0 +1,30 @@
+version = 1
+name = "agent-trail"
+
+[setup]
+script = "bun install --frozen-lockfile"
+
+[[actions]]
+name = "Check"
+icon = "check"
+command = "bun run check"
+
+[[actions]]
+name = "Typecheck"
+icon = "tool"
+command = "bun run typecheck"
+
+[[actions]]
+name = "Test"
+icon = "test"
+command = "bun run test"
+
+[[actions]]
+name = "Lint"
+icon = "search"
+command = "bun run lint"
+
+[[actions]]
+name = "Schema"
+icon = "document"
+command = "bun run check:schema && bun run check:types && bun run check:source-types"
