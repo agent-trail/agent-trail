@@ -213,7 +213,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     }
 
     if (payload && type === "capability_change") {
-      yield* walkContainer(payload, `records[${index}].payload`);
+      yield* walkContainer(payload, index, `records[${index}].payload`);
     }
 
     // Forward-compat fallback: schema permits future event types whose
