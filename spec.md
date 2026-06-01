@@ -631,6 +631,65 @@ When a single source envelope fans out to multiple entries (text blocks, tool ca
 
 Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
+#### `task_plan_update`
+
+The agent emitted a checklist or plan snapshot. This is the canonical representation for planning tools such as Claude Code `TodoWrite` and Codex `update_plan`. Writers MUST NOT represent these snapshots as `tool_call.payload.tool:"task_plan"`.
+
+```jsonc
+{
+  "type": "task_plan_update",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "explanation": "optional note",
+    "items": [
+      {
+        "id": "item-1",
+        "content": "Write failing test",
+        "status": "in_progress",
+        "active_form": "Writing failing test"
+      }
+    ],
+    "deltas": [
+      {
+        "kind": "status_changed",
+        "item_id": "item-1",
+        "from_status": "pending",
+        "to_status": "in_progress"
+      }
+    ]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `explanation` | no | string | source-provided explanation for this plan update, when present |
+| `items` | yes | array | full current snapshot of plan items |
+| `deltas` | no | array | best-effort differences from the previous `task_plan_update` in the same source session |
+
+Each `items[]` entry has:
+
+| Item field | Required | Type | Notes |
+|---|---|---|---|
+| `id` | yes | string | upstream item id if present; otherwise a deterministic adapter-synthesized id |
+| `content` | yes | string | human-readable task text |
+| `status` | yes | string | one of `pending`, `in_progress`, `completed`, `cancelled`, `blocked` |
+| `active_form` | no | string | source-provided active/progressive wording, such as Claude Code `activeForm` |
+
+When the upstream source does not provide item ids, adapters SHOULD synthesize deterministic ids per source session from item position plus normalized content. With synthesized ids, status deltas are reliable when content remains stable; content changes are best-effort because the source did not provide stable identity.
+
+`deltas[]` entries are optional. When present, each has `kind` and `item_id` plus fields determined by `kind`:
+
+| Delta kind | Required fields |
+|---|---|
+| `added` | `to_content`, `to_status` |
+| `removed` | `from_content`, `from_status` |
+| `status_changed` | `from_status`, `to_status` |
+| `content_changed` | `from_content`, `to_content` |
+
+`added` may include `to_active_form`; `removed` may include `from_active_form`. Sources that only report plan-completed notifications with no item status snapshot should preserve them as `system_event` records instead of inventing checklist state.
+
 #### `tool_call`
 
 The agent invoked a tool. Tool kinds use the taxonomy in §10.
@@ -1127,9 +1186,10 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `tool_search` | `{ query, limit? }` | Tool-discovery searches such as Claude Code `ToolSearch` and Codex `tool_search_call` |
 | `user_input_request` | `{ question?, choices?, questions? }` | Agent request for user input, such as Claude Code `AskUserQuestion` or Codex `request_user_input` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` | Notebook cell edits |
-| `task_plan` | `{ text?, items? }` | Todo/planning tools such as `TodoWrite` |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` | Claude Code `Task`, Cursor background agent |
 | `other` | `{ name, args }` | Anything not covered above |
+
+Checklist and plan snapshots use `task_plan_update` (§9) rather than `tool_call`.
 
 ### 10.1 `file_edit`
 
@@ -1438,6 +1498,7 @@ Initial public draft. v0.1.0 defines:
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
+- During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 
 ---
 

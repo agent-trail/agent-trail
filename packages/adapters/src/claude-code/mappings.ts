@@ -1,6 +1,7 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
+import { isTaskPlanStatus, type TaskPlanItem, taskPlanItemId } from "../task-plan.ts";
 import { sourceFor } from "./entry-metadata.ts";
 import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
 import {
@@ -9,6 +10,8 @@ import {
   type CcEnvelope,
   isContinuationPreamble,
   isInterruptMarker,
+  isObject,
+  jsonObjectValue,
   jsonString,
   stringValue,
   textFromToolResultContent,
@@ -61,6 +64,26 @@ function gate(record: CcEnvelope, allowNoUuid = false): boolean {
   if (typeof record.timestamp !== "string") return false;
   if (!allowNoUuid && typeof record.uuid !== "string") return false;
   return true;
+}
+
+function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined {
+  const args = jsonObjectValue(input) ?? {};
+  if (!Array.isArray(args.todos)) return undefined;
+  const items: TaskPlanItem[] = [];
+  for (const [index, rawTodo] of args.todos.entries()) {
+    if (!isObject(rawTodo)) return undefined;
+    const content = stringValue(rawTodo.content);
+    const status = rawTodo.status;
+    if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    const activeForm = stringValue(rawTodo.activeForm) ?? stringValue(rawTodo.active_form);
+    items.push({
+      id: taskPlanItemId(rawTodo.id, index, content),
+      content,
+      status,
+      ...(activeForm !== undefined ? { active_form: activeForm } : {}),
+    });
+  }
+  return items;
 }
 
 const userMessage = defineMapping<Raw>({
@@ -205,7 +228,23 @@ const assistantMessage = defineMapping<Raw>({
       }
       if (block.type === "tool_use") {
         const callId = stringValue(block.id);
-        const mapped = toolKindAndArgs(stringValue(block.name), block.input);
+        const toolName = stringValue(block.name);
+        const taskPlanItems =
+          toolName === "TodoWrite" ? taskPlanItemsFromTodoWrite(block.input) : undefined;
+        if (taskPlanItems !== undefined) {
+          return [
+            {
+              type: "task_plan_update",
+              payload: { items: taskPlanItems },
+              semantic: {
+                ...(callId !== undefined ? { call_id: callId } : {}),
+              },
+              source,
+              meta: meta(record, { model, callId }),
+            } as TrailEntryDraft,
+          ];
+        }
+        const mapped = toolKindAndArgs(toolName, block.input);
         return [
           {
             type: "tool_call",

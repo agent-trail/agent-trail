@@ -141,6 +141,7 @@ function seedSession(opts: {
   ts?: string;
   cliVersion?: string;
   extraPayload?: Record<string, unknown>;
+  extraRecords?: Record<string, unknown>[];
 }): string {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
@@ -162,7 +163,8 @@ function seedSession(opts: {
       ...opts.extraPayload,
     },
   };
-  writeFileSync(path, `${JSON.stringify(sessionMeta)}\n`);
+  const records = [sessionMeta, ...(opts.extraRecords ?? [])];
+  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   return path;
 }
 
@@ -255,6 +257,120 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect((result?.payload as { output: string }).output).toBe("hi\n");
   expect((result?.payload as { for_id?: string }).for_id).toBe(call?.id);
   expect(result?.semantic?.call_id).toBe("call-abc");
+});
+
+test("update_plan function calls emit task_plan_update and drop matching ack outputs", async () => {
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id: "019d8a00-1310-7000-a000-000000000131",
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-plan-1",
+          name: "update_plan",
+          arguments: JSON.stringify({
+            explanation: "checking the plan",
+            plan: [
+              { step: "Write failing test", status: "pending" },
+              { step: "Implement change", status: "pending" },
+            ],
+          }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-plan-1",
+          output: "{}",
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-plan-2",
+          name: "update_plan",
+          arguments: JSON.stringify({
+            plan: [
+              { step: "Write failing test", status: "completed" },
+              { step: "Implement change", status: "in_progress" },
+            ],
+          }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-plan-2",
+          output: "{}",
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({
+    id: "019d8a00-1310-7000-a000-000000000131",
+    adapter: "codex",
+    path,
+  });
+
+  const plans = trail.entries.filter((entry) => entry.type === "task_plan_update");
+  expect(plans).toHaveLength(2);
+  expect(
+    trail.entries.some(
+      (entry) =>
+        entry.type === "tool_call" &&
+        (entry.payload as { args?: { name?: unknown } }).args?.name === "update_plan",
+    ),
+  ).toBe(false);
+  expect(trail.entries.some((entry) => entry.type === "tool_result")).toBe(false);
+
+  const firstPayload = plans[0]?.payload as {
+    explanation?: string;
+    items: Array<{ id: string; content: string; status: string }>;
+    deltas: Array<Record<string, unknown>>;
+  };
+  const secondPayload = plans[1]?.payload as {
+    items: Array<{ id: string; content: string; status: string }>;
+    deltas: Array<Record<string, unknown>>;
+  };
+  const firstItemId = firstPayload.items[0]?.id;
+  const secondItemId = firstPayload.items[1]?.id;
+  if (firstItemId === undefined || secondItemId === undefined) {
+    throw new Error("expected two task plan item ids");
+  }
+  expect(firstPayload.explanation).toBe("checking the plan");
+  expect(firstPayload.items).toEqual([
+    { id: firstItemId, content: "Write failing test", status: "pending" },
+    { id: secondItemId, content: "Implement change", status: "pending" },
+  ]);
+  expect(firstPayload.deltas.map((delta) => delta.kind)).toEqual(["added", "added"]);
+  expect(secondPayload.items.map((item) => item.id)).toEqual(
+    firstPayload.items.map((item) => item.id),
+  );
+  expect(secondPayload.deltas).toContainEqual({
+    kind: "status_changed",
+    item_id: firstItemId,
+    from_status: "pending",
+    to_status: "completed",
+  });
+  expect(secondPayload.deltas).toContainEqual({
+    kind: "status_changed",
+    item_id: secondItemId,
+    from_status: "pending",
+    to_status: "in_progress",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("exec_command function_call maps to shell_command with workdir as cwd", async () => {

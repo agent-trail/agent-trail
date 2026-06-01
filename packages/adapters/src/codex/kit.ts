@@ -4,7 +4,9 @@ import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { codexMappings } from "./mappings.ts";
 import { type CodexState, codexOverrides, initialCodexState } from "./overrides.ts";
 import {
+  codexDropTaskPlanResults,
   codexImageRollup,
+  codexTaskPlanDeltas,
   codexTokenRollup,
   codexUserInputAnswersMeta,
 } from "./reconcile-rules.ts";
@@ -41,7 +43,13 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
     toolLinking: true,
     parentChain: false, // Codex is linear and emits no parent_id
     cumulativeTokens: false, // usage carries native cumulative via token_count rollup
-    custom: [codexTokenRollup, codexImageRollup, codexUserInputAnswersMeta],
+    custom: [
+      codexTokenRollup,
+      codexImageRollup,
+      codexTaskPlanDeltas,
+      codexDropTaskPlanResults,
+      codexUserInputAnswersMeta,
+    ],
   },
 });
 

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { isTaskPlanStatus, type TaskPlanItem, taskPlanItemId } from "../task-plan.ts";
 import {
   AGENT_NAME,
   buildExecCommandEndData,
@@ -53,6 +54,23 @@ function meta(rawType: string, callId?: string): Record<string, unknown> {
   };
 }
 
+function taskPlanItemsFromUpdatePlan(args: Record<string, unknown>): TaskPlanItem[] | undefined {
+  if (!Array.isArray(args.plan)) return undefined;
+  const items: TaskPlanItem[] = [];
+  for (const [index, rawItem] of args.plan.entries()) {
+    if (!isObject(rawItem)) return undefined;
+    const content = stringValue(rawItem.step);
+    const status = rawItem.status;
+    if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    items.push({
+      id: taskPlanItemId(rawItem.id, index, content),
+      content,
+      status,
+    });
+  }
+  return items;
+}
+
 function message(payloadType: "user_message" | "agent_message"): MappingDef<Raw> {
   const rawType = `event_msg.${payloadType}`;
   return defineMapping<Raw>({
@@ -81,9 +99,29 @@ const functionCall = defineMapping<Raw>({
     const p = payloadOf(record);
     const callId = stringValue(p.call_id);
     const parsed = parseFunctionArguments(p.arguments);
-    const mapping = mapTool(stringValue(p.name), parsed.args);
+    const name = stringValue(p.name);
     const raw =
       parsed.rawUnparseable !== undefined ? { arguments: parsed.rawUnparseable } : undefined;
+    const taskPlanItems =
+      name === "update_plan" ? taskPlanItemsFromUpdatePlan(parsed.args) : undefined;
+    if (taskPlanItems !== undefined) {
+      const explanation = stringValue(parsed.args.explanation);
+      return [
+        {
+          type: "task_plan_update",
+          payload: {
+            ...(explanation !== undefined ? { explanation } : {}),
+            items: taskPlanItems,
+          },
+          semantic: {
+            ...(callId !== undefined ? { call_id: callId } : {}),
+          },
+          source: source("response_item.function_call", raw),
+          meta: meta("response_item.function_call", callId),
+        } as TrailEntryDraft,
+      ];
+    }
+    const mapping = mapTool(name, parsed.args);
     return [
       {
         type: "tool_call",
@@ -422,10 +460,10 @@ const turnAborted = defineMapping<Raw>({
 });
 
 // Codex 0.135 `item_completed` wraps a completed turn item. Observed real
-// sessions carry `item.type: "Plan"` (the agent's task plan) — a signal with no
-// other representation in the rollout, so preserve the whole item under
-// `data.item` (a dedicated task_plan event is tracked in #131). Other item
-// types reuse this generic capture.
+// sessions carry `item.type: "Plan"` (the agent's task plan) with no item
+// statuses. Preserve the whole item under `data.item`; status-bearing
+// `update_plan` function calls map separately to `task_plan_update`.
+// Other item types reuse this generic capture.
 const itemCompleted = lifecycle("item_completed", (p) => {
   const data: Raw = {};
   if (isObject(p.item)) data.item = p.item;

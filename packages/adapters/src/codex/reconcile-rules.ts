@@ -1,5 +1,6 @@
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
 const USER_INPUT_ANSWERS_META_MAX_BYTES = 10_240;
@@ -147,6 +148,11 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
   }
   return out;
 };
+
+export const codexTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(entries);
+
+export const codexDropTaskPlanResults: ReconcilerRule = (entries) =>
+  dropTaskPlanAckResults(entries);
 
 function userInputAnswersFromOutput(output: unknown): unknown {
   if (typeof output !== "string") return undefined;

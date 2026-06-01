@@ -119,9 +119,76 @@
         "tool_search",
         "user_input_request",
         "notebook_edit",
-        "task_plan",
         "subagent_invoke",
         "other"
+      ]
+    },
+
+    "taskPlanStatus": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "completed", "cancelled", "blocked"]
+    },
+
+    "taskPlanItem": {
+      "type": "object",
+      "required": ["id", "content", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "content": { "type": "string" },
+        "status": { "$ref": "#/$defs/taskPlanStatus" },
+        "active_form": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "taskPlanDelta": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "item_id", "to_content", "to_status"],
+          "properties": {
+            "kind": { "const": "added" },
+            "item_id": { "type": "string", "minLength": 1 },
+            "to_content": { "type": "string" },
+            "to_status": { "$ref": "#/$defs/taskPlanStatus" },
+            "to_active_form": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "item_id", "from_content", "from_status"],
+          "properties": {
+            "kind": { "const": "removed" },
+            "item_id": { "type": "string", "minLength": 1 },
+            "from_content": { "type": "string" },
+            "from_status": { "$ref": "#/$defs/taskPlanStatus" },
+            "from_active_form": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "item_id", "from_status", "to_status"],
+          "properties": {
+            "kind": { "const": "status_changed" },
+            "item_id": { "type": "string", "minLength": 1 },
+            "from_status": { "$ref": "#/$defs/taskPlanStatus" },
+            "to_status": { "$ref": "#/$defs/taskPlanStatus" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "item_id", "from_content", "to_content"],
+          "properties": {
+            "kind": { "const": "content_changed" },
+            "item_id": { "type": "string", "minLength": 1 },
+            "from_content": { "type": "string" },
+            "to_content": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
       ]
     },
 
@@ -436,6 +503,7 @@
           "oneOf": [
             { "$ref": "#/$defs/events/user_message" },
             { "$ref": "#/$defs/events/agent_message" },
+            { "$ref": "#/$defs/events/task_plan_update" },
             { "$ref": "#/$defs/events/tool_call" },
             { "$ref": "#/$defs/events/tool_result" },
             { "$ref": "#/$defs/events/session_summary" },
@@ -491,6 +559,29 @@
               "attachments": {
                 "type": "array",
                 "items": { "$ref": "#/$defs/attachment" }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "task_plan_update": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "task_plan_update" },
+          "payload": {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+              "explanation": { "type": "string" },
+              "items": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/taskPlanItem" }
+              },
+              "deltas": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/taskPlanDelta" }
               }
             },
             "additionalProperties": false
@@ -742,24 +833,6 @@
                         "cell_id": { "type": "string" },
                         "diff": { "type": "string" },
                         "content": { "type": "string" }
-                      },
-                      "additionalProperties": false
-                    }
-                  }
-                }
-              },
-              {
-                "if": { "properties": { "tool": { "const": "task_plan" } } },
-                "then": {
-                  "properties": {
-                    "args": {
-                      "type": "object",
-                      "properties": {
-                        "text": { "type": "string" },
-                        "items": {
-                          "type": "array",
-                          "items": { "type": "string" }
-                        }
                       },
                       "additionalProperties": false
                     }
@@ -1182,6 +1255,7 @@
                 "session",
                 "user_message",
                 "agent_message",
+                "task_plan_update",
                 "tool_call",
                 "tool_result",
                 "session_summary",

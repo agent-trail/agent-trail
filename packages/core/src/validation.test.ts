@@ -113,6 +113,68 @@ test("accepts standardized common tool kinds", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("accepts task_plan_update snapshots with optional deltas", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"task_plan_update","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"explanation":"checking the plan","items":[{"id":"item-1","content":"Write failing test","status":"completed","active_form":"Writing failing test"},{"id":"item-2","content":"Implement change","status":"in_progress"}],"deltas":[{"kind":"added","item_id":"item-1","to_content":"Write failing test","to_status":"pending"},{"kind":"status_changed","item_id":"item-1","from_status":"pending","to_status":"completed"},{"kind":"content_changed","item_id":"item-2","from_content":"Implement changes","to_content":"Implement change"}]}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects task_plan_update items with unknown statuses", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"task_plan_update","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"items":[{"id":"item-1","content":"Write failing test","status":"paused"}]}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/items/0/status",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("rejects malformed task_plan_update deltas", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"task_plan_update","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"items":[{"id":"item-1","content":"Write failing test","status":"completed"}],"deltas":[{"kind":"status_changed","item_id":"item-1","from_status":"pending"}]}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/deltas/0/to_status",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'to_status'",
+  });
+});
+
+test("rejects legacy task_plan tool calls", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"task_plan","args":{"items":["Write failing test"]}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/tool",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
 test("accepts structured user_input_request answers on tool_result meta", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [

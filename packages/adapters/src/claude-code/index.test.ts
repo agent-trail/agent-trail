@@ -167,6 +167,21 @@ async function parsePermissionModeFixture() {
   });
 }
 
+async function parseClaudeCodeJsonl(records: Record<string, unknown>[]) {
+  const dir = mkdtempSync(join(tmpdir(), "cc-adapter-jsonl-"));
+  try {
+    const path = join(dir, "session.jsonl");
+    writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+    return await claudeCodeAdapter.parseSession({
+      id: "todo-write",
+      adapter: "claude-code",
+      path,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 test("parseSession() builds a header from sessionId, first ts, version, and cwd", async () => {
   const trail = await parseFixture();
   const { session_uid, ...header } = trail.header;
@@ -229,6 +244,155 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
     output: "file-a\nfile-b",
   });
   expect(toolResult?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
+});
+
+test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matching acks", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000131",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1301",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "please keep a plan" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1301",
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-cccccccc1302",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-write-1",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                {
+                  content: "Write failing test",
+                  status: "pending",
+                  activeForm: "Writing failing test",
+                },
+                { content: "Implement change", status: "pending" },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1302",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1303",
+      timestamp: "2026-05-17T14:00:07.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "todo-write-1", content: "ok" }],
+      },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1303",
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-cccccccc1304",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-write-2",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                {
+                  content: "Write failing test",
+                  status: "completed",
+                  activeForm: "Writing failing test",
+                },
+                { content: "Implement change", status: "in_progress" },
+              ],
+            },
+          },
+        ],
+      },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1304",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1305",
+      timestamp: "2026-05-17T14:00:09.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "todo-write-2", content: "ok" }],
+      },
+    },
+  ]);
+
+  const plans = trail.entries.filter((entry) => entry.type === "task_plan_update");
+  expect(plans).toHaveLength(2);
+  expect(trail.entries.some((entry) => entry.type === "tool_result")).toBe(false);
+  expect(
+    trail.entries.some(
+      (entry) =>
+        entry.type === "tool_call" && (entry.payload as { tool?: unknown }).tool === "task_plan",
+    ),
+  ).toBe(false);
+
+  const firstPayload = plans[0]?.payload as {
+    items: Array<{ id: string; content: string; status: string; active_form?: string }>;
+    deltas: Array<Record<string, unknown>>;
+  };
+  const secondPayload = plans[1]?.payload as {
+    items: Array<{ id: string; content: string; status: string; active_form?: string }>;
+    deltas: Array<Record<string, unknown>>;
+  };
+  const firstItemId = firstPayload.items[0]?.id;
+  const secondItemId = firstPayload.items[1]?.id;
+  if (firstItemId === undefined || secondItemId === undefined) {
+    throw new Error("expected two task plan item ids");
+  }
+  expect(firstPayload.items).toEqual([
+    {
+      id: firstItemId,
+      content: "Write failing test",
+      status: "pending",
+      active_form: "Writing failing test",
+    },
+    { id: secondItemId, content: "Implement change", status: "pending" },
+  ]);
+  expect(firstPayload.deltas.map((delta) => delta.kind)).toEqual(["added", "added"]);
+  expect(secondPayload.items.map((item) => item.id)).toEqual(
+    firstPayload.items.map((item) => item.id),
+  );
+  expect(secondPayload.deltas).toContainEqual({
+    kind: "status_changed",
+    item_id: firstItemId,
+    from_status: "pending",
+    to_status: "completed",
+  });
+  expect(secondPayload.deltas).toContainEqual({
+    kind: "status_changed",
+    item_id: secondItemId,
+    from_status: "pending",
+    to_status: "in_progress",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
