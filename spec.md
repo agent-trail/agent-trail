@@ -262,7 +262,7 @@ The trail envelope (§8.0), the session header (§8), and every event entry (§9
 
 For verbatim source-event preservation, use `source.raw` (§9.6, §14.1) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
-No reserved keys ship in this draft. Standard keys may be promoted in later minor bumps based on observed usage.
+This draft defines one standard event-entry `meta` key: `redaction_count` (§15). Other standard keys may be promoted in later minor bumps based on observed usage.
 
 ### 8.0.4 The `sessions` manifest
 
@@ -669,6 +669,7 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
     "ok": true,
     "output": "<truncated-or-full>",
     "truncated": false,
+    "output_size": 12345,
     "overflow_ref": null,
     "error": null
   },
@@ -685,6 +686,7 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 | `ok` | yes | boolean | did the call succeed |
 | `output` | no | string | textual output |
 | `truncated` | no | boolean | true if `output` was truncated |
+| `output_size` | no | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
 | `overflow_ref` | no | string | reference to full output |
 | `error` | no | string | error message if `ok` is false |
 | `attachments` | no | array | non-MCP image / multi-part tool output by reference (e.g. a screenshot or plot tool returning an image that `output` flattens); same object shape as `user_message.payload.attachments` |
@@ -1292,6 +1294,8 @@ Implementations and vendors can add custom data via the `meta` field on the trai
 
 Readers may preserve, ignore, or render `meta` fields. They must not abort on unknown keys.
 
+`entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
+
 The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` (§14.1) instead. See §8.0.3 for the full convention.
 
 ---
@@ -1345,11 +1349,12 @@ New agents may be added by amending this spec. Until registered, adapters may us
 
 ## 14. Truncation, overflow, and raw source size
 
-Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with two fields on `tool_result.payload`:
+Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with three fields on `tool_result.payload`:
 
 | Field | Type | Notes |
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
+| `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
 | `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
@@ -1397,6 +1402,8 @@ Adapters and share tools should:
 - Strip or normalize `vcs.remote_url` (§8.2) in redacted artifacts unless the user opts in. The field reveals repository identity, including private repositories.
 
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
+
+Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry, including secret/PII/path replacements and output or structured-meta truncation. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 
 Token-usage objects (`agent_message.payload.usage`, §9.2) are preserved in redacted artifacts by default — they carry no PII and are needed for downstream cost reporting. Share tools that need to strip usage can do so via a future metadata-strip flag.
 

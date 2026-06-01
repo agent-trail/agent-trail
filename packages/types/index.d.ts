@@ -232,6 +232,10 @@ export interface EntryBase {
   semantic?: SemanticMetadata;
   source?: SourceMetadata;
   meta?: {
+    /**
+     * Number of redactor mutations applied to this event entry.
+     */
+    redaction_count?: number;
     [k: string]: unknown;
   };
 }
@@ -315,6 +319,10 @@ export interface ToolResult {
     ok: boolean;
     output?: string;
     truncated?: boolean;
+    /**
+     * UTF-8 byte length of the original output before truncation. Required when truncated is true.
+     */
+    output_size?: number;
     overflow_ref?: string | null;
     error?: string | null;
     attachments?: Attachment[];

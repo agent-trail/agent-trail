@@ -13,6 +13,39 @@ const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 // Userinfo with explicit password component (user:pass@host). url-encoded
 // passwords stay caught because the ":" stays literal in the userinfo.
 const EMBEDDED_CREDENTIALS_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]+@/i;
+const GIT_LOCAL_ENV_VARS = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+]);
+
+type Env = Record<string, string | undefined>;
+
+function isGitLocalEnvVar(key: string): boolean {
+  return GIT_LOCAL_ENV_VARS.has(key) || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key);
+}
+
+export function cleanGitEnv(env: Env = process.env): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined && !isGitLocalEnvVar(key)) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
 
 export function hasEmbeddedCredentials(raw: string): boolean {
   return EMBEDDED_CREDENTIALS_PATTERN.test(raw);
@@ -103,7 +136,12 @@ export async function readGitVcs(cwd: string): Promise<HeaderVcs | undefined> {
 
 async function runGit(args: string[], cwd: string): Promise<string | undefined> {
   try {
-    const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "ignore" });
+    const proc = Bun.spawn(["git", ...args], {
+      cwd,
+      env: cleanGitEnv(),
+      stdout: "pipe",
+      stderr: "ignore",
+    });
     const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
     if (code !== 0) return undefined;
     const trimmed = stdout.trim();
