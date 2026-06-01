@@ -13,9 +13,9 @@ function hintOf(entry: Entry): CcHint | undefined {
 }
 
 function linkerCallId(entry: Entry): string | undefined {
-  const linker = (entry.meta as { linker?: unknown } | undefined)?.linker;
+  const linker = entry.meta?.linker;
   if (linker === null || typeof linker !== "object") return undefined;
-  const callId = (linker as { call_id?: unknown }).call_id;
+  const callId = (linker as Record<string, unknown>).call_id;
   return typeof callId === "string" ? callId : undefined;
 }
 
@@ -139,11 +139,9 @@ function parseSerializedAnswers(output: unknown): Map<string, string> {
   if (typeof output !== "string" || output.length === 0) return answers;
   const pairPattern = /"((?:\\.|[^"\\])*)"="((?:\\.|[^"\\])*)"/g;
   for (const match of output.matchAll(pairPattern)) {
-    const question = match[1];
-    const answer = match[2];
-    if (question !== undefined && answer !== undefined) {
-      answers.set(unescapeQuoted(question), unescapeQuoted(answer));
-    }
+    const question = match[1] as string;
+    const answer = match[2] as string;
+    answers.set(unescapeQuoted(question), unescapeQuoted(answer));
   }
   if (answers.size === 0) answers.set("", output);
   return answers;
