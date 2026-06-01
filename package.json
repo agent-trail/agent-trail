@@ -27,9 +27,13 @@
     "sync:schema": "bun run scripts/check-schema-sync.ts",
     "lint": "biome check",
     "lint:fix": "biome check --write",
-    "prepare": "lefthook install",
+    "prepare": "bun run worktree:setup",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "worktree:cleanup": "bun run scripts/worktree-workflow.ts cleanup",
+    "worktree:doctor": "bun run scripts/worktree-workflow.ts doctor",
+    "worktree:setup": "bun run scripts/worktree-workflow.ts setup",
+    "worktree:sync-main": "bun run scripts/worktree-workflow.ts sync-main"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",

@@ -72,6 +72,13 @@ Run the strongest relevant check for the change:
 
 "Done" means exit code 0. Not "I think it works."
 
+## Worktrees
+
+Use the repo worktree workflow in [`docs/worktree-workflow.md`](./docs/worktree-workflow.md):
+keep `main` clean, do implementation work in branch worktrees, run
+`bun run worktree:doctor` at start/end, and use `bun run worktree:cleanup -- --apply`
+after PR merge. Do not run `lefthook install` manually in worktrees.
+
 ## Where things live
 
 | You need | Look at |
