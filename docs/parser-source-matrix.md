@@ -308,6 +308,15 @@ Lifecycle-vocabulary `system_event` emissions:
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
 - `event_msg.thread_goal_updated` → `system_event{kind:"x-codex/thread_goal_updated"}`.
   `data` carries `thread_id`, `turn_id`, `goal`.
+- `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
+  (for example, `"interrupted"`).
+- `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`
+  carries `turn_id` and the completed `item` (currently observed for task-plan `Plan`
+  items; a dedicated task-plan event is tracked separately).
+- `response_item.message` — text-only records are suppressed as duplicates of
+  `event_msg.user_message` / `event_msg.agent_message`. Image-bearing records fold
+  reference-only attachments (`sha256:` for inline `data:` images) onto the nearest matching
+  event-message echo, with a standalone message fallback when no echo is present.
 
 `dev.codex.raw_type` audit-tag values stamped by the adapter:
 
@@ -328,25 +337,22 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
   `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
 - `event_msg.thread_goal_updated` — goal change marker.
+- `event_msg.turn_aborted` — user interrupt marker.
+- `event_msg.item_completed` — completed turn item marker.
+- `response_item.message` — image-bearing message carrier.
 
 Deferred shapes (hardening follow-ups beyond the current verified slice):
 
-- `user_interrupt` / `event_msg.turn_aborted` — no real interrupt signal observed in any
-  session on the verifying contributor's machine across `codex-tui` 0.128.x, `Codex Desktop`
-  0.133.x-alpha, and `codex_sdk_ts` 0.98.x (the full corpus was scanned, including a 2320-line
-  Codex Desktop session). Acceptance criterion's matrix-absence path applies; no fixture
-  committed. The mapping lands when a real signal surfaces, with the fixture derived from the
-  real record shape (synthetic ids only).
 - `event_msg.token_count.payload.rate_limits` — Codex carries API rate-limit snapshots
   (window utilization, reset window) on the same record as token usage. The Agent Trail spec
   has no `agentMessageUsage` slot for rate-limit state, so this field is dropped during the
   usage rollup. A future pass may emit these as standalone `system_event` records under an
   `x-codex/rate_limit_snapshot` kind; deferred until the emission frequency and dedupe policy
   (rate_limits fire on every token_count, often unchanged) can be designed in its own review.
-- Cross-channel dedupe between `event_msg.user_message` / `event_msg.agent_message` and the
-  `response_item.message` channel (the adapter currently picks event_msg only). Folding
-  response_item.message back in when no event_msg surface fires would cover legacy / partial
-  sessions.
+- Text-only `response_item.message` reconstruction when no `event_msg.user_message` /
+  `event_msg.agent_message` echo fires. The verified v0.135 corpus duplicates text across both
+  channels, so text-only response items are suppressed today; image-bearing response items keep
+  their attachment signal through the rollup/fallback path above.
 - Encrypted reasoning recovery — `response_item.reasoning` with `encrypted_content` carries
   no plaintext and stays skipped until a key surfaces.
 - Subagent header `fork_from` lineage via `agent_role` / `source.subagent.parent_thread_id`

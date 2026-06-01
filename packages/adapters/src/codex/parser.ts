@@ -2,12 +2,10 @@
 //
 // Scope: mapping for `user_message`, `agent_message`, `tool_call`,
 // `tool_result`, `agent_thinking`, `context_compact`, `model_change`, and
-// lifecycle / enrichment `system_event` records. See
-// `docs/parser-source-matrix.md` for the full mapping table and the list
-// of deferred shapes. `user_interrupt` synthesis stays deferred until a
-// real interrupt signal surfaces — no real Codex session observed on the
-// verifying contributor's machine (codex-tui 0.128.x / Codex Desktop
-// 0.133.x-alpha / codex_sdk_ts 0.98.x) emits a native interrupt envelope.
+// lifecycle / enrichment `system_event` records. Codex 0.135
+// `event_msg.turn_aborted` maps to `user_interrupt`, and image-bearing
+// `response_item.message` records fold into message attachments. See
+// `docs/parser-source-matrix.md` for the full mapping table and deferred shapes.
 //
 // Idempotence: entry ids derive deterministically from
 // (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
@@ -63,8 +61,9 @@ export function buildHeader(first: Record<string, unknown>): Header {
 // Codex Desktop 0.133-alpha). Text lives in `payload.message`. The parallel
 // `response_item.message` channel carries the same content one record later
 // but also includes synthetic `role:"developer"` AGENTS.md preambles that
-// shouldn't appear as user input — the adapter currently picks event_msg
-// only; cross-channel dedupe is deferred to a later hardening pass.
+// shouldn't appear as user input. Text-only response messages are suppressed;
+// image-bearing response messages are folded into the matching event message
+// by the kit reconciler.
 export type ToolMapping = {
   tool: "shell_command" | "file_read" | "file_edit" | "other";
   args: Record<string, unknown>;

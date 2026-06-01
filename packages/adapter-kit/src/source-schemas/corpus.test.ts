@@ -36,6 +36,9 @@ const DRIFT_FIXTURES = new Set(["pi/quarantine.jsonl"]);
 const FIXTURE_VERSION_OVERRIDE = new Map([
   ["codex/v0_135-events.jsonl", "v0.135"],
   ["codex/image-message.jsonl", "v0.135"],
+  ["codex/image-message-repeated-text.jsonl", "v0.135"],
+  ["codex/image-message-source-data.jsonl", "v0.135"],
+  ["codex/image-message-unmatched.jsonl", "v0.135"],
 ]);
 
 for (const { agent, version } of corpus) {

@@ -8,6 +8,14 @@ function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
 }
 
 type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
+type MessageType = "user_message" | "agent_message";
+type Carrier = CarriedImages & {
+  entry: Entry;
+  index: number;
+  type: MessageType;
+  used: boolean;
+};
+type MessageCandidate = { index: number; type: MessageType; text: string; used: boolean };
 
 function imageCarrier(entry: Entry): CarriedImages | undefined {
   const value = (entry.meta as Record<string, unknown> | undefined)?.[IMAGE_CARRIER];
@@ -15,6 +23,26 @@ function imageCarrier(entry: Entry): CarriedImages | undefined {
 }
 
 const normalizeText = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+function withoutImageCarrierMeta(entry: Entry): Entry["meta"] | undefined {
+  const meta = entry.meta as Record<string, unknown> | undefined;
+  if (meta === undefined) return undefined;
+  const out = { ...meta };
+  delete out[IMAGE_CARRIER];
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function fallbackFromCarrier(carrier: Carrier): Entry {
+  const fallback = {
+    ...carrier.entry,
+    type: carrier.type,
+    payload: { text: carrier.text, attachments: carrier.attachments },
+  } as Entry;
+  const meta = withoutImageCarrierMeta(carrier.entry);
+  if (meta === undefined) delete (fallback as { meta?: unknown }).meta;
+  else fallback.meta = meta;
+  return fallback;
+}
 
 /**
  * Fold the images from each image-bearing `response_item.message` (carried as a
@@ -26,39 +54,59 @@ const normalizeText = (text: string): string => text.replace(/\s+/g, " ").trim()
  */
 export const codexImageRollup: ReconcilerRule = (entries) => {
   const carriers = entries
-    .map(imageCarrier)
-    .filter((c): c is CarriedImages => c !== undefined)
-    .map((c) => ({
-      type: c.role === "assistant" ? ("agent_message" as const) : ("user_message" as const),
-      text: normalizeText(c.text),
-      attachments: c.attachments,
+    .map((entry, index) => ({ entry, index, carried: imageCarrier(entry) }))
+    .filter(
+      (c): c is { entry: Entry; index: number; carried: CarriedImages } => c.carried !== undefined,
+    )
+    .map(
+      (c): Carrier => ({
+        ...c.carried,
+        entry: c.entry,
+        index: c.index,
+        type: c.carried.role === "assistant" ? "agent_message" : "user_message",
+        text: normalizeText(c.carried.text),
+        attachments: c.carried.attachments,
+        used: false,
+      }),
+    );
+  const messages: MessageCandidate[] = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      (candidate): candidate is { entry: Entry & { type: MessageType }; index: number } =>
+        candidate.entry.type === "user_message" || candidate.entry.type === "agent_message",
+    )
+    .map(({ entry, index }) => ({
+      index,
+      type: entry.type,
+      text: normalizeText(String((entry.payload as { text?: unknown }).text ?? "")),
       used: false,
     }));
+  const assignments = new Map<number, Carrier>();
 
-  const out: Entry[] = [];
-  for (const entry of entries) {
-    if (imageCarrier(entry) !== undefined) continue; // drop the carrier
-    if (entry.type === "user_message" || entry.type === "agent_message") {
-      const text = normalizeText(String((entry.payload as { text?: unknown }).text ?? ""));
-      const match = carriers.find((c) => !c.used && c.type === entry.type && c.text === text);
-      if (match !== undefined) {
-        match.used = true;
-        out.push({ ...entry, payload: { ...entry.payload, attachments: match.attachments } });
-        continue;
-      }
+  for (const carrier of carriers) {
+    const match = messages
+      .filter((m) => !m.used && m.type === carrier.type && m.text === carrier.text)
+      .sort((a, b) => Math.abs(a.index - carrier.index) - Math.abs(b.index - carrier.index))[0];
+    if (match !== undefined) {
+      match.used = true;
+      carrier.used = true;
+      assignments.set(match.index, carrier);
     }
-    out.push(entry);
   }
 
-  // Safety net: a carrier that matched no message still surfaces, so the image is
-  // never dropped silently (text-required payload, so use the carried text).
-  for (const c of carriers) {
-    if (c.used) continue;
-    out.push({
-      type: c.type,
-      payload: { text: c.text, attachments: c.attachments },
-      source: { agent: "codex-cli", original_type: "response_item.message" },
-    } as Entry);
+  const out: Entry[] = [];
+  for (const [index, entry] of entries.entries()) {
+    if (imageCarrier(entry) !== undefined) {
+      const carrier = carriers.find((c) => c.index === index);
+      if (carrier !== undefined && !carrier.used) out.push(fallbackFromCarrier(carrier));
+      continue; // matched carriers are folded into their target message
+    }
+    const carrier = assignments.get(index);
+    if (carrier !== undefined) {
+      out.push({ ...entry, payload: { ...entry.payload, attachments: carrier.attachments } });
+      continue;
+    }
+    out.push(entry);
   }
   return out;
 };

@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
@@ -417,13 +419,65 @@ const itemCompleted = lifecycle("item_completed", (p) => {
 // `codexImageRollup` folds the attachments into the matching user/agent message
 // (whose text is the duplicate `event_msg` echo) and drops the carrier.
 export const IMAGE_CARRIER = "x-codex/_images";
+export const INLINE_IMAGE_MAX_DECODED_BYTES = 1024 * 1024;
 
 type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
 
-// Pull the media type out of a `data:<media-type>;base64,...` URI.
-function dataUriMediaType(uri: string): string | undefined {
-  const match = /^data:([^;,]+)[;,]/.exec(uri);
-  return match?.[1];
+type ParsedDataUri = { mediaType?: string; bytes?: Buffer; oversized?: true };
+
+function parseBase64Image(mediaType: string | undefined, data: string): ParsedDataUri {
+  const compact = data.replace(/\s+/g, "");
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  const decodedBytes = Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+  if (decodedBytes > INLINE_IMAGE_MAX_DECODED_BYTES) {
+    return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+  }
+  return {
+    ...(mediaType !== undefined ? { mediaType } : {}),
+    bytes: Buffer.from(compact, "base64"),
+  };
+}
+
+// Pull bytes + media type out of a `data:<media-type>;base64,...` URI.
+function parseDataUri(uri: string): ParsedDataUri | undefined {
+  const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/s.exec(uri);
+  if (match === null) return undefined;
+  const [, mediaType, parameters = "", data = ""] = match;
+  if (parameters.split(";").includes("base64")) {
+    return parseBase64Image(mediaType, data);
+  }
+  if (data.length > INLINE_IMAGE_MAX_DECODED_BYTES * 3) {
+    return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+  }
+  try {
+    const decoded = decodeURIComponent(data);
+    if (Buffer.byteLength(decoded, "utf8") > INLINE_IMAGE_MAX_DECODED_BYTES) {
+      return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+    }
+    return {
+      ...(mediaType !== undefined ? { mediaType } : {}),
+      bytes: Buffer.from(decoded, "utf8"),
+    };
+  } catch {
+    if (Buffer.byteLength(data, "utf8") > INLINE_IMAGE_MAX_DECODED_BYTES) {
+      return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+    }
+    return { ...(mediaType !== undefined ? { mediaType } : {}), bytes: Buffer.from(data, "utf8") };
+  }
+}
+
+function sha256Ref(bytes: Buffer): string {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function attachmentRef(uri: string): { mediaType?: string; uri?: string } | undefined {
+  if (/^(https:|file:|sha256:)/.test(uri)) return { uri };
+  const parsed = parseDataUri(uri);
+  if (parsed === undefined) return undefined;
+  return {
+    ...(parsed.mediaType !== undefined ? { mediaType: parsed.mediaType } : {}),
+    ...(parsed.bytes !== undefined ? { uri: sha256Ref(parsed.bytes) } : {}),
+  };
 }
 
 // Build spec `attachments[]` from a response_item.message content array. Codex
@@ -437,17 +491,21 @@ function imageAttachments(content: unknown): Attachment[] {
     const type = stringValue(block.type);
     if (type !== "input_image" && type !== "image") continue;
     const src = isObject(block.source) ? block.source : undefined;
-    let uri = stringValue(block.image_url) ?? stringValue(src?.url);
-    let mediaType = uri !== undefined ? dataUriMediaType(uri) : undefined;
-    if (uri === undefined && src !== undefined) {
-      const mt = stringValue(src.media_type);
+    const uri = stringValue(block.image_url) ?? stringValue(src?.url);
+    let ref = uri !== undefined ? attachmentRef(uri) : undefined;
+    let mediaType = ref?.mediaType ?? stringValue(src?.media_type);
+    if (ref === undefined && src !== undefined) {
+      const mt = mediaType;
       const data = stringValue(src.data);
-      if (mt !== undefined && data !== undefined) uri = `data:${mt};base64,${data}`;
-      if (mt !== undefined) mediaType = mt;
+      const parsed = data !== undefined ? parseBase64Image(mt, data) : undefined;
+      if (parsed !== undefined) {
+        ref = parsed.bytes !== undefined ? { uri: sha256Ref(parsed.bytes) } : {};
+        if (parsed.mediaType !== undefined) mediaType = parsed.mediaType;
+      }
     }
     const attachment: Attachment = { kind: "image" };
     if (mediaType !== undefined) attachment.media_type = mediaType;
-    if (uri !== undefined) attachment.uri = uri;
+    if (ref?.uri !== undefined) attachment.uri = ref.uri;
     out.push(attachment);
   }
   return out;
