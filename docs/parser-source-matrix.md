@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, user_interrupt, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -59,11 +59,18 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   threading, and EOF `session_terminated` synthesis (the kit's general `branchReconciliation` is
   deferred — Pi carries its own rule).
 - **Codex** — linear (`parentChain`), explicit `call_id`s (`toolLinking`), no per-entry
-  `source.schema_version` → static mappings (18 pure). Stateful behaviors split per the kit's grain:
+  `source.schema_version` → static mappings. Stateful behaviors split per the kit's grain:
   **pass-1 overrides** for synthesized `model_change` + per-turn reasoning dedup (reset on `turn_id`),
   and a **custom reconciler rule** for the `token_count` → preceding-`agent_message` usage rollup.
-  Override-ratio ≈ 0.18. The emitted `source.agent` is `codex-cli` while the schema registers under
-  `codex`, so `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
+  The emitted `source.agent` is `codex-cli` while the schema registers under `codex`, so
+  `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
+  Two source-schema versions: `codex/v0.128` (`>=0.128.0 <0.129.0`) and `codex/v0.135` (`>=0.129.0`,
+  a superset adding the subtypes 0.135 introduced). The 0.135 additions are handled as:
+  `event_msg.turn_aborted` → `user_interrupt`; `event_msg.item_completed` (wraps the agent's `Plan`)
+  → `system_event` preserving the item (a dedicated task-plan event is **#131**); and
+  `response_item.message` + `event_msg.context_compacted` are **recognized but intentionally
+  suppressed** — they duplicate the `event_msg` messages and the top-level `compacted` record the
+  adapter already emits, so they neither quarantine nor double-count.
 - **Claude Code** — linear (`parentChain`); every record carries `version` → per-record
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eight pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,

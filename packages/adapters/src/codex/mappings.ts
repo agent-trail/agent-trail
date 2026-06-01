@@ -380,6 +380,42 @@ const webSearchEnd = lifecycle("web_search_end", (p) => {
   return { kind: "x-codex/web_search_end", rawType: "event_msg.web_search_end", data };
 });
 
+// Codex 0.135 `turn_aborted` reports an interrupted/cancelled turn — the same
+// signal Pi/Claude Code surface as `user_interrupt`. `reason` is observed as
+// "interrupted" in real sessions; pass it through.
+const turnAborted = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "turn_aborted" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const reason = stringValue(payloadOf(record).reason);
+    return [
+      {
+        type: "user_interrupt",
+        payload: reason !== undefined ? { reason } : {},
+        source: source("event_msg.turn_aborted"),
+        meta: meta("event_msg.turn_aborted"),
+      },
+    ];
+  },
+});
+
+// Codex 0.135 `item_completed` wraps a completed turn item. Observed real
+// sessions carry `item.type: "Plan"` (the agent's task plan) — a signal with no
+// other representation in the rollout, so preserve the whole item under
+// `data.item` (a dedicated task_plan event is tracked in #131). Other item
+// types reuse this generic capture.
+const itemCompleted = lifecycle("item_completed", (p) => {
+  const data: Raw = {};
+  if (isObject(p.item)) data.item = p.item;
+  const turnId = stringValue(p.turn_id);
+  if (turnId !== undefined) data.turn_id = turnId;
+  return { kind: "x-codex/item_completed", rawType: "event_msg.item_completed", data };
+});
+
+// Intentionally NOT mapped (recognized by the codex/v0.135 schema so they are not
+// quarantined, and dropped because they duplicate already-captured records):
+//   - response_item.message — duplicates event_msg.{user,agent}_message.
+//   - event_msg.context_compacted — duplicates the top-level `compacted` record.
 export const codexMappings: MappingDef<Raw>[] = [
   message("user_message"),
   message("agent_message"),
@@ -399,4 +435,6 @@ export const codexMappings: MappingDef<Raw>[] = [
   mcpToolCallEnd,
   threadGoalUpdated,
   webSearchEnd,
+  turnAborted,
+  itemCompleted,
 ];

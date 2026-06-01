@@ -27,7 +27,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
   schemaAgent: "codex",
   idNamespace: CODEX_ENTRY_ID_NAMESPACE,
   quarantineNamespace: "codex",
-  sourceFormatVersions: ["v0.128"],
+  sourceFormatVersions: ["v0.128", "v0.135"],
   reader: new JsonlReader({ versionFrom: (first) => cliVersionOf(first as Raw) }),
   tsFrom: (record) => timestampToIso((record as Raw).timestamp) ?? "",
   mappings: codexMappings,
