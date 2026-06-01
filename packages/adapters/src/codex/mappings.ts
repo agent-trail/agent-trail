@@ -4,6 +4,7 @@ import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
 import {
+  isNonEmptyString,
   isTaskPlanStatus,
   normalizeTaskPlanContent,
   type TaskPlanItem,
@@ -115,6 +116,7 @@ const functionCall = defineMapping<Raw>({
       name === "update_plan" ? taskPlanItemsFromUpdatePlan(parsed.args) : undefined;
     if (taskPlanItems !== undefined) {
       const explanation = stringValue(parsed.args.explanation);
+      const taskPlanCallId = isNonEmptyString(callId) ? callId : undefined;
       return [
         {
           type: "task_plan_update",
@@ -122,11 +124,9 @@ const functionCall = defineMapping<Raw>({
             ...(explanation !== undefined ? { explanation } : {}),
             items: taskPlanItems,
           },
-          semantic: {
-            ...(callId !== undefined ? { call_id: callId } : {}),
-          },
+          ...(taskPlanCallId !== undefined ? { semantic: { call_id: taskPlanCallId } } : {}),
           source: source("response_item.function_call", raw),
-          meta: meta("response_item.function_call", callId),
+          meta: meta("response_item.function_call", taskPlanCallId),
         } as TrailEntryDraft,
       ];
     }

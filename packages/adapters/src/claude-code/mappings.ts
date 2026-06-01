@@ -2,6 +2,7 @@ import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import {
+  isNonEmptyString,
   isTaskPlanStatus,
   normalizeTaskPlanContent,
   type TaskPlanItem,
@@ -241,15 +242,14 @@ const assistantMessage = defineMapping<Raw>({
         const taskPlanItems =
           toolName === "TodoWrite" ? taskPlanItemsFromTodoWrite(block.input) : undefined;
         if (taskPlanItems !== undefined) {
+          const taskPlanCallId = isNonEmptyString(callId) ? callId : undefined;
           return [
             {
               type: "task_plan_update",
               payload: { items: taskPlanItems },
-              semantic: {
-                ...(callId !== undefined ? { call_id: callId } : {}),
-              },
+              ...(taskPlanCallId !== undefined ? { semantic: { call_id: taskPlanCallId } } : {}),
               source,
-              meta: meta(record, { model, callId }),
+              meta: meta(record, { model, callId: taskPlanCallId }),
             } as TrailEntryDraft,
           ];
         }

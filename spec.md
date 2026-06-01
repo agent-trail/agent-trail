@@ -677,7 +677,7 @@ Each `items[]` entry has:
 | `status` | yes | string | one of `pending`, `in_progress`, `completed`, `cancelled`, `blocked` |
 | `active_form` | no | string | source-provided active/progressive wording, such as Claude Code `activeForm` |
 
-When the upstream source does not provide item ids, adapters SHOULD synthesize deterministic ids per source session from normalized content plus that content's duplicate occurrence position in the snapshot. With synthesized ids, status deltas are reliable when normalized content remains stable; content changes are best-effort because the source did not provide stable identity.
+When the upstream source does not provide item ids, adapters SHOULD synthesize deterministic ids. The synthesized id is derived per source session from normalized content plus that content's duplicate occurrence position in the snapshot. With synthesized ids, status deltas are reliable when normalized content remains stable; content changes are best-effort because the source did not provide stable identity.
 
 `deltas[]` entries are optional. When present, each has `kind` and `item_id` plus fields determined by `kind`:
 

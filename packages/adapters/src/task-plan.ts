@@ -15,6 +15,10 @@ export function isTaskPlanStatus(value: unknown): value is TaskPlanStatus {
   return typeof value === "string" && TASK_PLAN_STATUSES.has(value as TaskPlanStatus);
 }
 
+export function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 export function normalizeTaskPlanContent(content: string): string {
   return content.replace(/\s+/g, " ").trim();
 }
@@ -29,7 +33,7 @@ export function synthesizeTaskPlanItemId(occurrence: number, content: string): s
 }
 
 export function taskPlanItemId(rawId: unknown, occurrence: number, content: string): string {
-  if (typeof rawId === "string" && rawId.length > 0) return rawId;
+  if (isNonEmptyString(rawId)) return rawId;
   return synthesizeTaskPlanItemId(occurrence, content);
 }
 
@@ -37,10 +41,12 @@ export function withTaskPlanDeltas(entries: Entry[]): Entry[] {
   let previous = new Map<string, TaskPlanItem>();
   return entries.map((entry) => {
     if (entry.type !== "task_plan_update") return entry;
-    const payload = entry.payload as { items?: unknown; deltas?: unknown };
-    if (!Array.isArray(payload.items)) return entry;
-    const items = payload.items.filter(isTaskPlanItem);
-    if (items.length !== payload.items.length) return entry;
+    const payload = entry.payload;
+    if (payload === undefined) return entry;
+    const rawItems = payload.items;
+    if (!Array.isArray(rawItems)) return entry;
+    const items = rawItems.filter(isTaskPlanItem);
+    if (items.length !== rawItems.length) return entry;
     const current = new Map(items.map((item) => [item.id, item]));
     const deltas = taskPlanDeltas(previous, current);
     previous = current;
@@ -70,7 +76,7 @@ export function dropTaskPlanAckResults(
   for (const entry of entries) {
     if (entry.type !== "task_plan_update") continue;
     const callId = entry.semantic?.call_id;
-    if (callId !== undefined) taskPlanCallIds.add(callId);
+    if (isNonEmptyString(callId)) taskPlanCallIds.add(callId);
   }
   if (taskPlanCallIds.size === 0) return entries;
 
@@ -106,7 +112,7 @@ export function dropTaskPlanAckResults(
 function isDroppableTaskPlanAckResult(entry: Entry, taskPlanCallIds: Set<string>): boolean {
   if (entry.type !== "tool_result") return false;
   const callId = entry.semantic?.call_id;
-  if (callId === undefined || !taskPlanCallIds.has(callId)) return false;
+  if (!isNonEmptyString(callId) || !taskPlanCallIds.has(callId)) return false;
 
   const payload = entry.payload as { for_id?: unknown; ok?: unknown; output?: unknown };
   if (typeof payload.for_id === "string") return false;
@@ -209,9 +215,9 @@ function taskPlanDeltas(
 
 function isTaskPlanItem(value: unknown): value is TaskPlanItem {
   if (typeof value !== "object" || value === null) return false;
-  const item = value as TaskPlanItem;
+  const item = value as Record<string, unknown>;
   return (
-    typeof item.id === "string" &&
+    isNonEmptyString(item.id) &&
     typeof item.content === "string" &&
     isTaskPlanStatus(item.status) &&
     (item.active_form === undefined || typeof item.active_form === "string")
