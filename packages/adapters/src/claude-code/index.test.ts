@@ -386,9 +386,10 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
     const result = trail.entries.find(
       (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
     );
+    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
 
-    expect(result?.payload).toEqual({
-      for_id: call?.id,
+    expect(result.payload).toEqual({
+      for_id: call.id,
       ok: true,
       output: "yes, ship it",
       meta: { user_input_request: { answers: "yes, ship it" } },
@@ -405,7 +406,9 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
   const path = join(tmp, "session.jsonl");
   try {
     const sessionId = "00000000-0000-0000-0000-ccccc0000200";
-    const largeAnswer = "X".repeat(11_000);
+    const largeAnswer = "🙂".repeat(3_000);
+    expect(largeAnswer.length).toBeLessThan(10_240);
+    expect(new TextEncoder().encode(largeAnswer).byteLength).toBeGreaterThan(10_240);
     const lines = [
       {
         parentUuid: null,
@@ -456,13 +459,14 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
     const result = trail.entries.find(
       (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question-large",
     );
+    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
 
-    expect(result?.payload).toEqual({
-      for_id: call?.id,
+    expect(result.payload).toEqual({
+      for_id: call.id,
       ok: true,
       output: largeAnswer,
     });
-    expect(result?.semantic?.tool_kind).toBe("user_input_request");
+    expect(result.semantic?.tool_kind).toBe("user_input_request");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

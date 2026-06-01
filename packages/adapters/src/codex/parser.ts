@@ -178,16 +178,30 @@ function mcpToolFromArgs(
   return undefined;
 }
 
+function redactedHeaders(headers: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.keys(headers).map((key) => [key, "[REDACTED_HEADER]"]));
+}
+
 export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
   const args = isObject(rawArgs) ? rawArgs : {};
   const mcp = mcpToolFromArgs(rawName, args);
   if (mcp !== undefined) {
     const toolArgs = { ...args };
+    const headers = isObject(toolArgs.headers) ? redactedHeaders(toolArgs.headers) : undefined;
+    delete toolArgs.headers;
     if (mcp.selectorKey !== undefined) {
       delete toolArgs.namespace;
       delete toolArgs[mcp.selectorKey];
     }
-    return { tool: "mcp_call", args: { server: mcp.server, tool: mcp.tool, args: toolArgs } };
+    return {
+      tool: "mcp_call",
+      args: {
+        server: mcp.server,
+        tool: mcp.tool,
+        args: toolArgs,
+        ...(headers !== undefined ? { headers } : {}),
+      },
+    };
   }
   // `exec_command` is the canonical interactive-shell tool in real Codex
   // rollouts (codex-tui 0.128+, Codex Desktop 0.133+). Args carry `cmd`
@@ -213,16 +227,22 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   }
   if (rawName === "write_stdin") {
     const input = stringValue(args.chars);
-    const commandId = idString(args.command_id) ?? idString(args.session_id);
+    const commandId = idString(args.command_id);
+    const sessionId = idString(args.session_id);
     if (input !== undefined && input.length > 0) {
       return {
         tool: "shell_input",
-        args: { input, ...(commandId !== undefined ? { session_id: commandId } : {}) },
+        args: {
+          input,
+          ...(commandId !== undefined ? { command_id: commandId } : {}),
+          ...(sessionId !== undefined ? { session_id: sessionId } : {}),
+        },
       };
     }
+    const outputCommandId = commandId ?? sessionId;
     return {
       tool: "shell_output",
-      args: { ...(commandId !== undefined ? { command_id: commandId } : {}) },
+      args: { ...(outputCommandId !== undefined ? { command_id: outputCommandId } : {}) },
     };
   }
   if (rawName === "tool_search") {

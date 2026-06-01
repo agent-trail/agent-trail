@@ -278,9 +278,21 @@ test("mapTool promotes common Codex function calls out of other", () => {
     tool: "shell_input",
     args: { input: "yes\n", session_id: "42" },
   });
+  expect(mapTool("write_stdin", { chars: "yes\n", command_id: "cmd-1" })).toEqual({
+    tool: "shell_input",
+    args: { input: "yes\n", command_id: "cmd-1" },
+  });
+  expect(mapTool("write_stdin", { chars: "yes\n", command_id: "cmd-1", session_id: 42 })).toEqual({
+    tool: "shell_input",
+    args: { input: "yes\n", command_id: "cmd-1", session_id: "42" },
+  });
   expect(mapTool("write_stdin", { chars: "", session_id: 42 })).toEqual({
     tool: "shell_output",
     args: { command_id: "42" },
+  });
+  expect(mapTool("write_stdin", { chars: "", command_id: "cmd-1", session_id: 42 })).toEqual({
+    tool: "shell_output",
+    args: { command_id: "cmd-1" },
   });
   expect(mapTool("request_user_input", { questions: [{ question: "Ship?", id: "ship" }] })).toEqual(
     {
@@ -292,6 +304,20 @@ test("mapTool promotes common Codex function calls out of other", () => {
     tool: "mcp_call",
     args: { server: "computer_use", tool: "click", args: { x: 10 } },
   });
+  expect(
+    mapTool("mcp__computer_use__click", {
+      headers: { Authorization: "Bearer abcdefABCDEF0123456789xyzXYZ" },
+      x: 10,
+    }),
+  ).toEqual({
+    tool: "mcp_call",
+    args: {
+      server: "computer_use",
+      tool: "click",
+      args: { x: 10 },
+      headers: { Authorization: "[REDACTED_HEADER]" },
+    },
+  });
   expect(mapTool("mcp__demo__lookup", { name: "alice", tool: "hammer", other: 1 })).toEqual({
     tool: "mcp_call",
     args: { server: "demo", tool: "lookup", args: { name: "alice", tool: "hammer", other: 1 } },
@@ -299,6 +325,34 @@ test("mapTool promotes common Codex function calls out of other", () => {
   expect(mapTool("connector", { namespace: "mcp__computer_use", name: "click", x: 10 })).toEqual({
     tool: "mcp_call",
     args: { server: "computer_use", tool: "click", args: { x: 10 } },
+  });
+  expect(
+    mapTool("connector", {
+      namespace: "mcp__computer_use",
+      name: "click",
+      headers: {
+        Authorization: "Bearer abcdefABCDEF0123456789xyzXYZ",
+        Cookie: "sid=opaque",
+        "X-Session-Token": "opaque",
+      },
+      x: 10,
+    }),
+  ).toEqual({
+    tool: "mcp_call",
+    args: {
+      server: "computer_use",
+      tool: "click",
+      args: { x: 10 },
+      headers: {
+        Authorization: "[REDACTED_HEADER]",
+        Cookie: "[REDACTED_HEADER]",
+        "X-Session-Token": "[REDACTED_HEADER]",
+      },
+    },
+  });
+  expect(mapTool("mcp__demo__lookup", { headers: "Cookie: sid=opaque", x: 10 })).toEqual({
+    tool: "mcp_call",
+    args: { server: "demo", tool: "lookup", args: { x: 10 } },
   });
   expect(mapTool("tool_search", { q: "auth flow", top_k: 3 })).toEqual({
     tool: "tool_search",
