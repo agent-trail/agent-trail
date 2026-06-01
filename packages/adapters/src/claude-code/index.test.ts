@@ -315,12 +315,6 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     tool: "tool_search",
     args: { query: "auth flow" },
   });
-  expect(
-    toolKindAndArgs("AskUserQuestion", { question: "Which backend?", choices: ["bun"] }),
-  ).toEqual({
-    tool: "user_input_request",
-    args: { question: "Which backend?", choices: ["bun"] },
-  });
   expect(toolKindAndArgs("Agent", { prompt: "Review this", subagent_type: "reviewer" })).toEqual({
     tool: "subagent_invoke",
     args: { task: "Review this", agent_type: "reviewer" },
@@ -331,7 +325,7 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
   });
 });
 
-test("AskUserQuestion result preserves answer under tool_result meta", async () => {
+test("AskUserQuestion emits structured user query and response events", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-"));
   const path = join(tmp, "session.jsonl");
   try {
@@ -347,7 +341,19 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
               type: "tool_use",
               id: "tooluse-question",
               name: "AskUserQuestion",
-              input: { question: "Ship?", choices: ["yes", "no"] },
+              input: {
+                questions: [
+                  {
+                    question: "Ship it?",
+                    header: "Ship",
+                    multiSelect: false,
+                    options: [
+                      { label: "yes", description: "Ship now" },
+                      { label: "no", description: "Hold" },
+                    ],
+                  },
+                ],
+              },
             },
           ],
         },
@@ -363,7 +369,12 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
         message: {
           role: "user",
           content: [
-            { type: "tool_result", tool_use_id: "tooluse-question", content: "yes, ship it" },
+            {
+              type: "tool_result",
+              tool_use_id: "tooluse-question",
+              content:
+                'User has answered your questions: "Ship it?"="yes". You can now continue...',
+            },
           ],
         },
         type: "user",
@@ -380,20 +391,46 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
       adapter: "claude-code",
       path,
     });
-    const call = trail.entries.find(
-      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question",
     );
-    const result = trail.entries.find(
-      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question",
     );
-    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
+    if (query === undefined || response === undefined) {
+      throw new Error("expected paired query entries");
+    }
+    const [question] = (query.payload as { questions: Array<{ id: string }> }).questions;
+    if (question === undefined) throw new Error("expected query question");
 
-    expect(result.payload).toEqual({
-      for_id: call.id,
-      ok: true,
-      output: "yes, ship it",
-      meta: { user_input_request: { answers: "yes, ship it" } },
+    expect(query.payload).toEqual({
+      questions: [
+        {
+          id: question.id,
+          header: "Ship",
+          question: "Ship it?",
+          multi_select: false,
+          options: [
+            { label: "yes", description: "Ship now" },
+            { label: "no", description: "Hold" },
+          ],
+        },
+      ],
     });
+    expect(response.payload).toEqual({
+      for_id: query.id,
+      answers: { [question.id]: { selected: ["yes"] } },
+    });
+    expect(
+      trail.entries.some(
+        (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
+      ),
+    ).toBe(false);
+    expect(
+      trail.entries.some(
+        (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
+      ),
+    ).toBe(false);
     const diagnostics = await validateAdapterTrail(trail);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   } finally {
@@ -401,14 +438,11 @@ test("AskUserQuestion result preserves answer under tool_result meta", async () 
   }
 });
 
-test("AskUserQuestion result does not mirror oversized answers into meta", async () => {
+test("AskUserQuestion dismissed response emits empty answers", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-user-input-answer-large-"));
   const path = join(tmp, "session.jsonl");
   try {
     const sessionId = "00000000-0000-0000-0000-ccccc0000200";
-    const largeAnswer = "🙂".repeat(3_000);
-    expect(largeAnswer.length).toBeLessThan(10_240);
-    expect(new TextEncoder().encode(largeAnswer).byteLength).toBeGreaterThan(10_240);
     const lines = [
       {
         parentUuid: null,
@@ -435,9 +469,7 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
         isSidechain: false,
         message: {
           role: "user",
-          content: [
-            { type: "tool_result", tool_use_id: "tooluse-question-large", content: largeAnswer },
-          ],
+          content: [{ type: "tool_result", tool_use_id: "tooluse-question-large", content: "" }],
         },
         type: "user",
         uuid: "00000000-0000-0000-0000-000000000201",
@@ -453,20 +485,16 @@ test("AskUserQuestion result does not mirror oversized answers into meta", async
       adapter: "claude-code",
       path,
     });
-    const call = trail.entries.find(
-      (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question-large",
+    const query = trail.entries.find(
+      (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-large",
     );
-    const result = trail.entries.find(
-      (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question-large",
+    const response = trail.entries.find(
+      (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-large",
     );
-    if (call === undefined || result === undefined) throw new Error("expected paired tool entries");
 
-    expect(result.payload).toEqual({
-      for_id: call.id,
-      ok: true,
-      output: largeAnswer,
-    });
-    expect(result.semantic?.tool_kind).toBe("user_input_request");
+    expect(response?.payload).toEqual({ for_id: query?.id, answers: {} });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

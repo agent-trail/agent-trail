@@ -289,40 +289,71 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(summary.counts.output_truncated).toBe(1);
 });
 
-test("redactTrail truncates mirrored user_input_request answers in tool_result meta", () => {
-  const big = { answer: "X".repeat(20_000) };
+test("redactTrail redacts user_query strings and strips secret answers", () => {
   const records: JsonlRecord[] = [
     header(),
     record(2, {
-      type: "tool_result",
-      id: "evt1",
+      type: "user_query",
+      id: "query1",
       ts: "2026-05-22T00:00:01.000Z",
       payload: {
-        for_id: "evtcall",
-        ok: true,
-        output: "small display output",
-        meta: { user_input_request: { answers: big } },
+        questions: [
+          {
+            id: "token",
+            question: "Paste token",
+            is_secret: true,
+            options: [{ label: "hunter2.special", description: "temporary token" }],
+          },
+          {
+            id: "contact",
+            question: "Contact alice@example.com?",
+            options: [{ label: "alice@example.com" }],
+          },
+        ],
+      },
+    }),
+    record(3, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "query1",
+        answers: {
+          token: { selected: ["hunter2.special"], other: "secret freeform" },
+          contact: { selected: ["alice@example.com"] },
+        },
       },
     }),
   ];
 
-  const { records: out, summary } = redactTrail(records);
+  const { records: out, summary } = redactTrail(records, {
+    userSecrets: ["hunter2.special"],
+  });
 
-  const value = out[1]?.value as {
+  const query = out[1]?.value as {
     payload: {
-      output: string;
-      truncated?: boolean;
-      meta: { user_input_request: { answers: string } };
+      questions: Array<{
+        question: string;
+        options: Array<{ label: string; description?: string }>;
+      }>;
     };
   };
-  const answerBytes = new TextEncoder().encode(
-    value.payload.meta.user_input_request.answers,
-  ).byteLength;
-  expect(value.payload.output).toBe("small display output");
-  expect(answerBytes).toBeLessThanOrEqual(10_240);
-  expect(value.payload.meta.user_input_request.answers).toContain("[truncated]");
-  expect(value.payload.truncated).toBeUndefined();
-  expect(summary.counts.meta_truncated).toBe(1);
+  const response = out[2]?.value as {
+    payload: {
+      answers: {
+        token: { selected: string[]; other?: string };
+        contact: { selected: string[] };
+      };
+    };
+  };
+  expect(query.payload.questions[0]?.options[0]?.label).toBe("[USER_SECRET]");
+  expect(query.payload.questions[1]?.question).toBe("Contact [EMAIL]?");
+  expect(query.payload.questions[1]?.options[0]?.label).toBe("[EMAIL]");
+  expect(response.payload.answers.token).toEqual({ selected: [] });
+  expect(response.payload.answers.contact).toEqual({ selected: ["[EMAIL]"] });
+  expect(summary.counts.user_secret).toBe(1);
+  expect(summary.counts.email_pii).toBeGreaterThanOrEqual(2);
+  expect(summary.counts.user_query_secret_answer).toBe(1);
 });
 
 test("redactTrail does not mutate input records", () => {

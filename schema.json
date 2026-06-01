@@ -117,7 +117,6 @@
         "web_fetch",
         "web_search",
         "tool_search",
-        "user_input_request",
         "notebook_edit",
         "task_plan",
         "subagent_invoke",
@@ -438,6 +437,8 @@
             { "$ref": "#/$defs/events/agent_message" },
             { "$ref": "#/$defs/events/tool_call" },
             { "$ref": "#/$defs/events/tool_result" },
+            { "$ref": "#/$defs/events/user_query" },
+            { "$ref": "#/$defs/events/user_query_response" },
             { "$ref": "#/$defs/events/session_summary" },
             { "$ref": "#/$defs/events/system_event" },
             { "$ref": "#/$defs/events/agent_thinking" },
@@ -696,41 +697,6 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "user_input_request" } } },
-                "then": {
-                  "properties": {
-                    "args": {
-                      "type": "object",
-                      "properties": {
-                        "question": { "type": "string" },
-                        "choices": {
-                          "type": "array",
-                          "items": { "type": "string" }
-                        },
-                        "questions": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "required": ["question"],
-                            "properties": {
-                              "question": { "type": "string" },
-                              "header": { "type": "string" },
-                              "id": { "type": "string" },
-                              "choices": {
-                                "type": "array",
-                                "items": { "type": "string" }
-                              }
-                            },
-                            "additionalProperties": false
-                          }
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  }
-                }
-              },
-              {
                 "if": { "properties": { "tool": { "const": "notebook_edit" } } },
                 "then": {
                   "properties": {
@@ -894,19 +860,82 @@
                       "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
                     },
                     "additionalProperties": false
-                  },
-                  "user_input_request": {
-                    "type": "object",
-                    "properties": {
-                      "answers": {}
-                    },
-                    "patternProperties": {
-                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
-                    },
-                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": { "type": "object" }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "user_query": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_query" },
+          "payload": {
+            "type": "object",
+            "required": ["questions"],
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "question"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "question": { "type": "string" },
+                    "header": { "type": "string" },
+                    "multi_select": { "type": "boolean" },
+                    "is_secret": { "type": "boolean" },
+                    "allow_other": { "type": "boolean" },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["label"],
+                        "properties": {
+                          "label": { "type": "string" },
+                          "description": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "user_query_response": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "user_query_response" },
+          "payload": {
+            "type": "object",
+            "required": ["for_id", "answers"],
+            "properties": {
+              "for_id": { "$ref": "#/$defs/id" },
+              "answers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": ["selected"],
+                  "properties": {
+                    "selected": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "other": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
               }
             },
             "additionalProperties": false
@@ -1182,10 +1211,12 @@
                 "session",
                 "user_message",
                 "agent_message",
-                "tool_call",
-                "tool_result",
-                "session_summary",
-                "system_event",
+          "tool_call",
+          "tool_result",
+          "user_query",
+          "user_query_response",
+          "session_summary",
+          "system_event",
                 "agent_thinking",
                 "user_interrupt",
                 "context_compact",

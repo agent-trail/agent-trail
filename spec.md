@@ -546,7 +546,7 @@ Every event entry has this base shape:
 
 ### 9.2 Mandatory event types
 
-Every adapter must be able to emit these five when the source data contains the corresponding semantics. Readers must support them.
+Every adapter must be able to emit these when the source data contains the corresponding semantics. Readers must support them.
 
 #### `user_message`
 
@@ -704,7 +704,7 @@ extend a registered tool kind by adding sibling keys to its object that match th
 pattern (e.g. `meta.mcp_call.x-acme/cache_hit`). Unregistered and future tool kinds are accepted as
 opaque objects, so new kinds can be standardized in a later minor version without a schema migration.
 
-The v0.1 registry covers four tool kinds:
+The v0.1 registry covers three tool kinds:
 
 `meta.mcp_call` — preserves MCP content-block structure that `output` flattens.
 
@@ -736,14 +736,83 @@ The v0.1 registry covers four tool kinds:
 top-level `exit_code` on `tool_result`, because the concept does not apply to kinds like `mcp_call`
 or `web_fetch`.
 
-`meta.user_input_request` — parsed answers to an agent request for user input.
-
-| Sub-field | Required | Type | Notes |
-|---|---|---|---|
-| `answers` | no | any JSON value | Parsed answer payload when the source exposes one. Codex commonly returns an object under `answers`; Claude Code question results are plain strings. Raw display text remains in `payload.output`. |
-
 Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
 redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
+
+#### `user_query`
+
+The agent asks the user one or more structured questions and yields control until the user answers or dismisses the prompt. This is not a `tool_call`: no external tool executes.
+
+```jsonc
+{
+  "type": "user_query",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "questions": [
+      {
+        "id": "ship",
+        "header": "Ship",
+        "question": "Ship it?",
+        "multi_select": false,
+        "is_secret": false,
+        "allow_other": true,
+        "options": [
+          { "label": "yes", "description": "Ship now" },
+          { "label": "no" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `questions` | yes | array | One or more structured questions. |
+
+| Question field | Required | Type | Notes |
+|---|---|---|---|
+| `id` | yes | string | Stable within this `user_query`; responses key answers by this value. |
+| `question` | yes | string | Full prompt shown to the user. |
+| `header` | no | string | Short label/chip. |
+| `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
+| `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
+| `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
+| `options` | no | array | Option objects with required `label` and optional `description`. |
+
+#### `user_query_response`
+
+The user's response to a `user_query`. `payload.for_id` links to the query entry id. A dismissed prompt emits a response with an empty `answers` object.
+
+```jsonc
+{
+  "type": "user_query_response",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "for_id": "<user-query-id>",
+    "answers": {
+      "ship": {
+        "selected": ["yes"],
+        "other": "with changelog"
+      }
+    }
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `for_id` | yes | string | Entry id of the `user_query`. |
+| `answers` | yes | object | Keys are `questions[].id`. May be empty for dismissed/unanswered prompts. |
+
+| Answer field | Required | Type | Notes |
+|---|---|---|---|
+| `selected` | yes | string[] | Selected option labels. Use one value for single-select answers. |
+| `other` | no | string | Free-form answer when `allow_other` was used. |
+
+Privacy: share-time redaction MUST strip answers for questions whose `is_secret` is true, regardless of pattern matching.
 
 #### `session_summary`
 
@@ -1125,7 +1194,6 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `web_fetch` | `{ url, method?, headers? }` | Claude Code `WebFetch`, Pi web tool |
 | `web_search` | `{ query }` | Web search tools distinct from fetching a known URL |
 | `tool_search` | `{ query, limit? }` | Tool-discovery searches such as Claude Code `ToolSearch` and Codex `tool_search_call` |
-| `user_input_request` | `{ question?, choices?, questions? }` | Agent request for user input, such as Claude Code `AskUserQuestion` or Codex `request_user_input` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` | Notebook cell edits |
 | `task_plan` | `{ text?, items? }` | Todo/planning tools such as `TodoWrite` |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` | Claude Code `Task`, Cursor background agent |

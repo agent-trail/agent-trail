@@ -78,6 +78,8 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "branch_summary",
   "tool_call",
   "tool_result",
+  "user_query",
+  "user_query_response",
 ]);
 
 // Attachment references (image/file uris) appear on user_message, agent_message,
@@ -157,6 +159,10 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       yield* visitAttachments(payload, index);
     }
 
+    if (payload && (type === "user_query" || type === "user_query_response")) {
+      yield* walkContainer(payload, `records[${index}].payload`);
+    }
+
     if (payload && type === "system_event") {
       const data = payload.data;
       if (data !== null && typeof data === "object") {
@@ -217,6 +223,63 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
         );
       } else if (typeof raw === "string" && source) {
         yield keyVisit(source, "raw", `records[${index}].source.raw`);
+      }
+    }
+  }
+}
+
+function secretQuestionIdsByQueryId(records: JsonlRecord[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const record of records) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query") continue;
+    const entryId = value.id;
+    const payload = value.payload as { questions?: unknown } | undefined;
+    if (typeof entryId !== "string" || !Array.isArray(payload?.questions)) continue;
+    const secretIds = new Set<string>();
+    for (const question of payload.questions) {
+      if (question === null || typeof question !== "object") continue;
+      const q = question as { id?: unknown; is_secret?: unknown };
+      if (typeof q.id === "string" && q.is_secret === true) secretIds.add(q.id);
+    }
+    if (secretIds.size > 0) out.set(entryId, secretIds);
+  }
+  return out;
+}
+
+function stripSecretUserQueryAnswers(
+  records: JsonlRecord[],
+  summary: RedactionSummary,
+  maxSamples: number,
+): void {
+  const secretByQueryId = secretQuestionIdsByQueryId(records);
+  if (secretByQueryId.size === 0) return;
+  for (const [index, record] of records.entries()) {
+    const value = record.value as Record<string, unknown>;
+    if (value.type !== "user_query_response") continue;
+    const payload = value.payload as { for_id?: unknown; answers?: unknown } | undefined;
+    if (typeof payload?.for_id !== "string") continue;
+    if (payload.answers === null || typeof payload.answers !== "object") continue;
+    const secretIds = secretByQueryId.get(payload.for_id);
+    if (secretIds === undefined) continue;
+    const answers = payload.answers as Record<string, unknown>;
+    for (const questionId of secretIds) {
+      const answer = answers[questionId];
+      if (answer === null || typeof answer !== "object") continue;
+      const answerObject = answer as Record<string, unknown>;
+      const hadSelected = Array.isArray(answerObject.selected) && answerObject.selected.length > 0;
+      const hadOther = typeof answerObject.other === "string" && answerObject.other.length > 0;
+      if (!hadSelected && !hadOther) continue;
+      answerObject.selected = [];
+      delete answerObject.other;
+      summary.counts.user_query_secret_answer = (summary.counts.user_query_secret_answer ?? 0) + 1;
+      if (summary.samples.length < maxSamples) {
+        summary.samples.push({
+          patternId: "user_query_secret_answer",
+          location: `records[${index}].payload.answers.${questionId}`,
+          before: "[secret answer]",
+          after: "[STRIPPED]",
+        });
       }
     }
   }
@@ -333,6 +396,8 @@ export function redactTrail(
   if (!keepRemoteUrl) {
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
   }
+
+  stripSecretUserQueryAnswers(out, rawSummary, maxSamples);
 
   for (const visit of visitStrings(out, includeSourceRaw)) {
     for (const pattern of userPatterns) {

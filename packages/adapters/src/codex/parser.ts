@@ -106,48 +106,6 @@ function toolSearchArgs(args: Record<string, unknown>): Record<string, unknown> 
   return out;
 }
 
-function userInputRequestArgs(args: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const question = stringValue(args.question);
-  if (question !== undefined) out.question = question;
-  const rawChoices = args.choices;
-  const choices = Array.isArray(rawChoices)
-    ? rawChoices.filter((choice): choice is string => typeof choice === "string")
-    : undefined;
-  if (choices !== undefined && Array.isArray(rawChoices) && choices.length === rawChoices.length) {
-    out.choices = choices;
-  }
-  if (Array.isArray(args.questions)) {
-    const questions = args.questions
-      .filter(isObject)
-      .map((q) => {
-        const question = stringValue(q.question);
-        if (question === undefined) return undefined;
-        const item: Record<string, unknown> = { question };
-        const header = stringValue(q.header);
-        if (header !== undefined) item.header = header;
-        const id = stringValue(q.id);
-        if (id !== undefined) item.id = id;
-        if (Array.isArray(q.choices)) {
-          const qChoices = q.choices.filter(
-            (choice): choice is string => typeof choice === "string",
-          );
-          if (qChoices.length === q.choices.length) item.choices = qChoices;
-        } else if (Array.isArray(q.options)) {
-          const optionLabels = q.options
-            .filter(isObject)
-            .map((option) => stringValue(option.label))
-            .filter((label): label is string => label !== undefined);
-          if (optionLabels.length === q.options.length) item.choices = optionLabels;
-        }
-        return item;
-      })
-      .filter((q): q is Record<string, unknown> => q !== undefined);
-    if (questions.length > 0) out.questions = questions;
-  }
-  return out;
-}
-
 function mcpToolFromName(rawName: string): { server: string; tool: string } | undefined {
   if (!rawName.startsWith("mcp__")) return undefined;
   const [, server, ...toolParts] = rawName.split("__");
@@ -248,9 +206,6 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   if (rawName === "tool_search") {
     const searchArgs = toolSearchArgs(args);
     if (searchArgs !== undefined) return { tool: "tool_search", args: searchArgs };
-  }
-  if (rawName === "request_user_input") {
-    return { tool: "user_input_request", args: userInputRequestArgs(args) };
   }
   if (rawName === "read") {
     const path = stringValue(args.path);

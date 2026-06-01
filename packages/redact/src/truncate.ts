@@ -31,39 +31,6 @@ function truncateRawToByteLimit(text: string, budget: number): string {
   return text.slice(0, lo);
 }
 
-function serializedByteLength(value: unknown): number {
-  return byteLength(typeof value === "string" ? value : JSON.stringify(value));
-}
-
-function truncateUserInputAnswersMeta(
-  payload: Record<string, unknown>,
-  recordIndex: number,
-  maxBytes: number,
-  summary: RedactionSummary,
-  maxSamples: number,
-): void {
-  const meta = payload.meta;
-  if (meta === null || typeof meta !== "object") return;
-  const userInput = (meta as Record<string, unknown>).user_input_request;
-  if (userInput === null || typeof userInput !== "object") return;
-  const answerMeta = userInput as Record<string, unknown>;
-  if (!("answers" in answerMeta)) return;
-  const answers = answerMeta.answers;
-  if (answers === undefined) return;
-  if (serializedByteLength(answers) <= maxBytes) return;
-  const serialized = typeof answers === "string" ? answers : JSON.stringify(answers);
-  answerMeta.answers = truncateToByteLimit(serialized, maxBytes);
-  summary.counts.meta_truncated = (summary.counts.meta_truncated ?? 0) + 1;
-  if (summary.samples.length < maxSamples) {
-    summary.samples.push({
-      patternId: "meta_truncated",
-      location: `records[${recordIndex}].payload.meta.user_input_request.answers`,
-      before: `${serialized.length} chars`,
-      after: `${(answerMeta.answers as string).length} chars`,
-    });
-  }
-}
-
 export function truncateOutputs(
   records: JsonlRecord[],
   maxBytes: number,
@@ -75,7 +42,6 @@ export function truncateOutputs(
     if (value.type !== "tool_result") continue;
     const payload = value.payload as Record<string, unknown> | undefined;
     if (!payload) continue;
-    truncateUserInputAnswersMeta(payload, index, maxBytes, summary, maxSamples);
     const output = payload.output;
     if (typeof output !== "string") continue;
     if (byteLength(output) <= maxBytes) continue;

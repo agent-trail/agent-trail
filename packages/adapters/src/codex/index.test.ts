@@ -294,12 +294,6 @@ test("mapTool promotes common Codex function calls out of other", () => {
     tool: "shell_output",
     args: { command_id: "cmd-1" },
   });
-  expect(mapTool("request_user_input", { questions: [{ question: "Ship?", id: "ship" }] })).toEqual(
-    {
-      tool: "user_input_request",
-      args: { questions: [{ question: "Ship?", id: "ship" }] },
-    },
-  );
   expect(mapTool("mcp__computer_use__click", { x: 10 })).toEqual({
     tool: "mcp_call",
     args: { server: "computer_use", tool: "click", args: { x: 10 } },
@@ -684,7 +678,7 @@ test("response_item tool_search_call and open_page map to canonical tool kinds",
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
-test("request_user_input result preserves structured answers under tool_result meta", async () => {
+test("request_user_input emits structured user query and response events", async () => {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
   const dayDir = join(sessionsDir, "2026", "05", "28");
@@ -708,7 +702,21 @@ test("request_user_input result preserves structured answers under tool_result m
         type: "function_call",
         name: "request_user_input",
         call_id: "call-user-input",
-        arguments: '{"question":"Ship?","choices":["yes","no"]}',
+        arguments: JSON.stringify({
+          questions: [
+            {
+              id: "ship",
+              header: "Ship",
+              question: "Ship it?",
+              is_secret: false,
+              is_other: true,
+              options: [
+                { label: "yes", description: "Ship now" },
+                { label: "no", description: "Hold" },
+              ],
+            },
+          ],
+        }),
       },
     },
     {
@@ -717,7 +725,7 @@ test("request_user_input result preserves structured answers under tool_result m
       payload: {
         type: "function_call_output",
         call_id: "call-user-input",
-        output: '{"answers":{"ship":"yes"}}',
+        output: '{"answers":{"ship":{"answers":["yes"]}}}',
       },
     },
   ];
@@ -728,27 +736,50 @@ test("request_user_input result preserves structured answers under tool_result m
     adapter: "codex",
     path,
   });
-  const result = trail.entries.find(
-    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input",
+  const query = trail.entries.find(
+    (e) => e.type === "user_query" && e.semantic?.call_id === "call-user-input",
+  );
+  const response = trail.entries.find(
+    (e) => e.type === "user_query_response" && e.semantic?.call_id === "call-user-input",
   );
 
-  expect(result?.payload).toEqual({
-    for_id: trail.entries.find((e) => e.semantic?.call_id === "call-user-input")?.id,
-    ok: true,
-    output: '{"answers":{"ship":"yes"}}',
-    meta: { user_input_request: { answers: { ship: "yes" } } },
+  expect(query?.payload).toEqual({
+    questions: [
+      {
+        id: "ship",
+        header: "Ship",
+        question: "Ship it?",
+        is_secret: false,
+        allow_other: true,
+        options: [
+          { label: "yes", description: "Ship now" },
+          { label: "no", description: "Hold" },
+        ],
+      },
+    ],
   });
+  expect(response?.payload).toEqual({
+    for_id: query?.id,
+    answers: { ship: { selected: ["yes"] } },
+  });
+  expect(
+    trail.entries.some((e) => e.type === "tool_call" && e.semantic?.call_id === "call-user-input"),
+  ).toBe(false);
+  expect(
+    trail.entries.some(
+      (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input",
+    ),
+  ).toBe(false);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
-test("request_user_input result does not mirror oversized answers into meta", async () => {
+test("request_user_input dismissed response emits empty answers", async () => {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
   const dayDir = join(sessionsDir, "2026", "05", "28");
   mkdirSync(dayDir, { recursive: true });
-  const path = join(dayDir, "rollout-oversized-user-input-answer.jsonl");
-  const output = JSON.stringify({ answers: { ship: "X".repeat(11_000) } });
+  const path = join(dayDir, "rollout-dismissed-user-input-answer.jsonl");
   const lines = [
     {
       timestamp: "2026-05-28T12:30:00.000Z",
@@ -767,7 +798,7 @@ test("request_user_input result does not mirror oversized answers into meta", as
         type: "function_call",
         name: "request_user_input",
         call_id: "call-user-input-large",
-        arguments: '{"question":"Ship?"}',
+        arguments: '{"questions":[{"id":"ship","question":"Ship?"}]}',
       },
     },
     {
@@ -776,7 +807,7 @@ test("request_user_input result does not mirror oversized answers into meta", as
       payload: {
         type: "function_call_output",
         call_id: "call-user-input-large",
-        output,
+        output: '{"answers":{}}',
       },
     },
   ];
@@ -787,16 +818,16 @@ test("request_user_input result does not mirror oversized answers into meta", as
     adapter: "codex",
     path,
   });
-  const result = trail.entries.find(
-    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input-large",
+  const query = trail.entries.find(
+    (e) => e.type === "user_query" && e.semantic?.call_id === "call-user-input-large",
+  );
+  const response = trail.entries.find(
+    (e) => e.type === "user_query_response" && e.semantic?.call_id === "call-user-input-large",
   );
 
-  expect(result?.payload).toEqual({
-    for_id: trail.entries.find((e) => e.semantic?.call_id === "call-user-input-large")?.id,
-    ok: true,
-    output,
-  });
-  expect(result?.semantic?.tool_kind).toBe("user_input_request");
+  expect(response?.payload).toEqual({ for_id: query?.id, answers: {} });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("custom_tool_call_output emits tool_result paired by call_id", async () => {

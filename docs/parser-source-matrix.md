@@ -225,7 +225,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
     (same helper Pi uses) so the canonical `args.command` is always a single string.
   - `write_stdin` with non-empty `chars` → `shell_input{input, session_id?}`; numeric
     `session_id` is stringified. Empty or missing `chars` → `shell_output{command_id?}`.
-  - `request_user_input` → `user_input_request`.
+  - `request_user_input` → `user_query`.
   - `tool_search` → `tool_search`.
   - MCP-shaped names (`mcp__<server>__<tool>`) or args with `namespace:"mcp__<server>"`
     → `mcp_call{server, tool, args}`.
@@ -238,8 +238,8 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   spinner-strip cleaned: trailing TUI decorations (a `\n` followed by `·` and a space) are
   removed when the trim region contains an unambiguous spinner glyph (`·`, `•`); natural
   trailing whitespace such as a shell command's `\n` is preserved. For paired
-  `user_input_request` calls, Codex's JSON `{"answers": ...}` output is also exposed under
-  `tool_result.payload.meta.user_input_request.answers`.
+  `request_user_input` calls, Codex's JSON `{"answers": ...}` output is converted to
+  `user_query_response`.
 - `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
   string `input` (not a JSON `arguments` string). Dispatch:
   - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /
@@ -372,9 +372,8 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
 - 12s `event_msg` ↔ `response_fallback` dedupe — no `response_fallback` records observed in
   the corpus; defer until evidence.
 - `request_user_input` Q&A reconstruction is verified from local real sessions: the request is a
-  `function_call`, and the answer arrives as paired `function_call_output` JSON with an `answers`
-  key. The adapter exposes that parsed value at
-  `tool_result.payload.meta.user_input_request.answers`.
+  `function_call` mapped to `user_query`, and the answer arrives as paired
+  `function_call_output` JSON with an `answers` key mapped to `user_query_response`.
 
 Opt-in real-session test hook: `packages/adapters/src/codex/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_CODEX_SESSION` (absolute path to a real Codex JSONL session) and skips when
@@ -386,9 +385,8 @@ real summary and compact-summary records, meaningful system/progress/queue recor
 markers (both `[Request interrupted by user]` and `[Request interrupted by user for tool use]`
 variants observed in real sessions), and in-session model switches (emitted as synthetic
 `model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
-`AskUserQuestion` results arrive as user-side `tool_result` blocks linked by `tool_use_id`; the
-adapter keeps the raw answer in `tool_result.payload.output` and mirrors it under
-`tool_result.payload.meta.user_input_request.answers`.
+`AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
+`tool_use_id` are converted to `user_query_response`.
 Deferred shapes include image attachments, server-tool result blocks, cross-file subagent merging,
 and overflow blob storage.
 
