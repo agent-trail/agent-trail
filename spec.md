@@ -67,7 +67,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
 | **Active leaf** | In a tree session, the last event in the file; the "current" position. |
-| **Canonical event** | One of the five mandatory event types in §9. |
+| **Canonical event** | One of the seven mandatory event types in §9. |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism such as gist. |
@@ -546,7 +546,7 @@ Every event entry has this base shape:
 
 ### 9.2 Mandatory event types
 
-Every adapter must be able to emit these five when the source data contains the corresponding semantics. Readers must support them.
+Every adapter must be able to emit these when the source data contains the corresponding semantics. Readers must support them.
 
 #### `user_message`
 
@@ -706,7 +706,7 @@ extend a registered tool kind by adding sibling keys to its object that match th
 pattern (e.g. `meta.mcp_call.x-acme/cache_hit`). Unregistered and future tool kinds are accepted as
 opaque objects, so new kinds can be standardized in a later minor version without a schema migration.
 
-The v0.1 registry covers four tool kinds:
+The v0.1 registry covers three tool kinds:
 
 `meta.mcp_call` — preserves MCP content-block structure that `output` flattens.
 
@@ -738,14 +738,83 @@ The v0.1 registry covers four tool kinds:
 top-level `exit_code` on `tool_result`, because the concept does not apply to kinds like `mcp_call`
 or `web_fetch`.
 
-`meta.user_input_request` — parsed answers to an agent request for user input.
-
-| Sub-field | Required | Type | Notes |
-|---|---|---|---|
-| `answers` | no | any JSON value | Parsed answer payload when the source exposes one. Codex commonly returns an object under `answers`; Claude Code question results are plain strings. Raw display text remains in `payload.output`. |
-
 Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
 redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
+
+#### `user_query`
+
+The agent asks the user one or more structured questions and yields control until the user answers or dismisses the prompt. This is not a `tool_call`: no external tool executes.
+
+```jsonc
+{
+  "type": "user_query",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "questions": [
+      {
+        "id": "ship",
+        "header": "Ship",
+        "question": "Ship it?",
+        "multi_select": false,
+        "is_secret": false,
+        "allow_other": true,
+        "options": [
+          { "label": "yes", "description": "Ship now" },
+          { "label": "no" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `questions` | yes | array | One or more structured questions. |
+
+| Question field | Required | Type | Notes |
+|---|---|---|---|
+| `id` | yes | string | Stable within this `user_query`; responses key answers by this value. |
+| `question` | yes | string | Full prompt shown to the user. |
+| `header` | no | string | Short label/chip. |
+| `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
+| `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
+| `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
+| `options` | no | array | Option objects with required `label` and optional `description`. |
+
+#### `user_query_response`
+
+The user's response to a `user_query`. `payload.for_id` links to the query entry id. A dismissed prompt emits a response with an empty `answers` object.
+
+```jsonc
+{
+  "type": "user_query_response",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "for_id": "<user-query-id>",
+    "answers": {
+      "ship": {
+        "selected": ["yes"],
+        "other": "with changelog"
+      }
+    }
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `for_id` | yes | string | Entry id of the `user_query`. |
+| `answers` | yes | object | Keys are `questions[].id`. May be empty for dismissed/unanswered prompts. |
+
+| Answer field | Required | Type | Notes |
+|---|---|---|---|
+| `selected` | yes | string[] | Selected option labels. Use one value for single-select answers. |
+| `other` | no | string | Free-form answer when `allow_other` was used. |
+
+Privacy: share-time redaction MUST strip answers for questions whose `is_secret` is true, regardless of pattern matching.
 
 #### `session_summary`
 
@@ -1167,7 +1236,6 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `web_fetch` | `{ url, method?, headers? }` | Claude Code `WebFetch`, Pi web tool |
 | `web_search` | `{ query }` | Web search tools distinct from fetching a known URL |
 | `tool_search` | `{ query, limit? }` | Tool-discovery searches such as Claude Code `ToolSearch` and Codex `tool_search_call` |
-| `user_input_request` | `{ question?, choices?, questions? }` | Agent request for user input, such as Claude Code `AskUserQuestion` or Codex `request_user_input` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` | Notebook cell edits |
 | `task_plan` | `{ text?, items? }` | Todo/planning tools such as `TodoWrite` |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` | Claude Code `Task`, Cursor background agent |
@@ -1479,7 +1547,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 Initial public draft. v0.1.0 defines:
 
-- JSONL file layout, session header, core event envelope, five mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
+- JSONL file layout, session header, core event envelope, seven mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
@@ -1512,7 +1580,7 @@ An envelope at line 1 followed by a session header at line 2 is valid. Events ar
 - **JSONL over JSON:** streamable, append-friendly, line-grep-able, no parser-bomb risk.
 - **Optional `parent_id`:** most agents produce linear sessions; tree complexity should be paid only by sessions that need it.
 - **`source.raw` escape hatch:** lets adapters preserve everything the canonical model loses; enables lossless round-trip for source-aware tools.
-- **Five mandatory event types:** minimum semantic surface for a useful viewer; everything else is optional.
+- **Seven mandatory event types:** minimum semantic surface for a useful viewer; everything else is optional.
 - **Fixed tool taxonomy:** cross-agent search and rendering depend on shared tool names.
 - **No runtime fields:** active leaf pointers, in-memory caches, etc. are reader concerns and not in the file.
 - **Header outside the event graph:** the header is metadata about the file, not a participant in the conversation.

@@ -33,6 +33,8 @@ export const implementedEventTypes = [
   "agent_message",
   "tool_call",
   "tool_result",
+  "user_query",
+  "user_query_response",
   "session_summary",
   "system_event",
   "agent_thinking",

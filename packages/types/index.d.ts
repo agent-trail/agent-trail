@@ -107,6 +107,8 @@ export type Entry = EntryBase &
     | AgentMessage
     | ToolCall
     | ToolResult
+    | UserQuery
+    | UserQueryResponse
     | SessionSummary
     | SystemEvent
     | AgentThinking
@@ -133,7 +135,6 @@ export type ToolKind =
   | "web_fetch"
   | "web_search"
   | "tool_search"
-  | "user_input_request"
   | "notebook_edit"
   | "task_plan"
   | "subagent_invoke"
@@ -371,16 +372,59 @@ export interface ToolResult {
          */
         [k: string]: unknown;
       };
-      user_input_request?: {
-        answers?: unknown;
-        /**
-         * This interface was referenced by `undefined`'s JSON-Schema definition
-         * via the `patternProperty` "^x-[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9_-]*$".
-         */
-        [k: string]: unknown;
-      };
       [k: string]: {
         [k: string]: unknown;
+      };
+    };
+  };
+  [k: string]: unknown;
+}
+export interface UserQuery {
+  type?: "user_query";
+  payload?: {
+    /**
+     * @minItems 1
+     */
+    questions: [
+      {
+        id: string;
+        question: string;
+        header?: string;
+        multi_select?: boolean;
+        is_secret?: boolean;
+        allow_other?: boolean;
+        options?: {
+          label: string;
+          description?: string;
+        }[];
+      },
+      ...{
+        id: string;
+        question: string;
+        header?: string;
+        multi_select?: boolean;
+        is_secret?: boolean;
+        allow_other?: boolean;
+        options?: {
+          label: string;
+          description?: string;
+        }[];
+      }[],
+    ];
+  };
+  [k: string]: unknown;
+}
+export interface UserQueryResponse {
+  type?: "user_query_response";
+  payload?: {
+    /**
+     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     */
+    for_id: string;
+    answers: {
+      [k: string]: {
+        selected: string[];
+        other?: string;
       };
     };
   };

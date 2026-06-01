@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
@@ -17,6 +18,7 @@ import {
 import { toolKindAndArgs } from "./tools.ts";
 
 type Raw = Record<string, unknown>;
+type UserQueryOption = { label: string; description?: string };
 
 /**
  * Transient hint stashed on `meta`: source uuid (`sid`, for multi-block
@@ -43,6 +45,77 @@ function meta(
     ...(opts?.callId !== undefined ? { linker: { call_id: opts.callId } } : {}),
     [HINT]: hint,
   };
+}
+
+function questionId(question: string, occurrence: number): string {
+  const base = `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
+  return occurrence === 0 ? base : `${base}_${occurrence + 1}`;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function optionObjects(value: unknown): UserQueryOption[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string") return { label: option };
+      if (option === null || typeof option !== "object") return undefined;
+      const label = stringValue((option as { label?: unknown }).label);
+      if (label === undefined) return undefined;
+      const description = stringValue((option as { description?: unknown }).description);
+      return { label, ...(description !== undefined ? { description } : {}) };
+    })
+    .filter((option): option is UserQueryOption => option !== undefined);
+  return options.length === value.length ? options : undefined;
+}
+
+function userQueryQuestion(
+  raw: Record<string, unknown>,
+  fallbackOccurrence: number,
+): Record<string, unknown> | undefined {
+  const question = stringValue(raw.question);
+  if (question === undefined) return undefined;
+  const out: Record<string, unknown> = {
+    id: stringValue(raw.id) ?? questionId(question, fallbackOccurrence),
+    question,
+  };
+  const header = stringValue(raw.header);
+  if (header !== undefined) out.header = header;
+  const multiSelect = booleanValue(raw.multi_select) ?? booleanValue(raw.multiSelect);
+  if (multiSelect !== undefined) out.multi_select = multiSelect;
+  const isSecret = booleanValue(raw.is_secret) ?? booleanValue(raw.isSecret);
+  if (isSecret !== undefined) out.is_secret = isSecret;
+  const allowOther =
+    booleanValue(raw.allow_other) ?? booleanValue(raw.allowOther) ?? booleanValue(raw.is_other);
+  if (allowOther !== undefined) out.allow_other = allowOther;
+  const options = optionObjects(raw.options) ?? optionObjects(raw.choices);
+  if (options !== undefined) out.options = options;
+  return out;
+}
+
+function userQueryPayload(input: unknown): { questions: Record<string, unknown>[] } | undefined {
+  const args =
+    input !== null && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  if (Array.isArray(args.questions)) {
+    const occurrences = new Map<string, number>();
+    const questions = args.questions
+      .filter(
+        (question): question is Record<string, unknown> =>
+          question !== null && typeof question === "object",
+      )
+      .map((question) => {
+        const text = stringValue(question.question);
+        const occurrence = text === undefined ? 0 : (occurrences.get(text) ?? 0);
+        if (text !== undefined) occurrences.set(text, occurrence + 1);
+        return userQueryQuestion(question, occurrence);
+      })
+      .filter((question): question is Record<string, unknown> => question !== undefined);
+    if (questions.length > 0) return { questions };
+  }
+  const question = userQueryQuestion(args, 0);
+  return question !== undefined ? { questions: [question] } : undefined;
 }
 
 function src(
@@ -206,6 +279,20 @@ const assistantMessage = defineMapping<Raw>({
       }
       if (block.type === "tool_use") {
         const callId = stringValue(block.id);
+        if (stringValue(block.name) === "AskUserQuestion") {
+          const payload = userQueryPayload(block.input);
+          if (payload !== undefined) {
+            return [
+              {
+                type: "user_query",
+                payload,
+                semantic: { ...(callId !== undefined ? { call_id: callId } : {}) },
+                source,
+                meta: meta(record, { model, callId }),
+              },
+            ];
+          }
+        }
         const mapped = toolKindAndArgs(stringValue(block.name), block.input);
         return [
           {
