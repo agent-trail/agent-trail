@@ -408,7 +408,7 @@ The wire format leaves `source.raw` size limits to writer policy (spec §14.1). 
 
 The wire format leaves tool-output truncation thresholds to writer policy (spec §14). The reference share-time redactor in `@agent-trail/redact` uses:
 
-- Default inline cap: 10240 bytes (`outputMaxBytes` option on `redactTrail`). Above this, shorten `output` to fit within the cap (the truncation notice `\n…[truncated]` is included in the budget) and set `tool_result.payload.truncated: true`.
+- Default inline cap: 10240 bytes (`outputMaxBytes` option on `redactTrail`). Above this, shorten `output` to fit within the cap (the truncation notice `\n…[truncated]` is included in the budget), set `tool_result.payload.truncated: true`, and set `tool_result.payload.output_size` to the original UTF-8 byte length before truncation. `output_size` is required whenever `truncated` is true.
 - `overflow_ref` (optional): when the writer colocates an overflow blob, set it to a content-addressed reference such as `sha256:<hex>`. Storage is the writer's choice; convention is to colocate the blob with the JSONL artifact.
 
 **Out of scope for v1:** Amp, Cline, ChatGPT, Copilot variants, Crush, Kimi, Qwen, Factory, Vibe, OpenClaw, Clawdbot. Community contributions welcomed via PR after spec is stable.
