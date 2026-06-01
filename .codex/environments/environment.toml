@@ -2,7 +2,7 @@ version = 1
 name = "agent-trail"
 
 [setup]
-script = "bun install --frozen-lockfile"
+script = "bun install --frozen-lockfile --ignore-scripts && bun run worktree:setup"
 
 [[actions]]
 name = "Check"
@@ -28,3 +28,8 @@ command = "bun run lint"
 name = "Schema"
 icon = "file-json"
 command = "bun run check:schema && bun run check:types && bun run check:source-types"
+
+[[actions]]
+name = "Worktree Doctor"
+icon = "stethoscope"
+command = "bun run worktree:doctor"

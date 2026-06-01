@@ -1,0 +1,2 @@
+#!/bin/sh
+exec bunx --bun lefthook run pre-push "$@"
