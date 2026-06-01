@@ -13,6 +13,7 @@ type Carrier = CarriedImages & {
   entry: Entry;
   index: number;
   type: MessageType;
+  matchText: string;
   used: boolean;
 };
 type MessageCandidate = { index: number; type: MessageType; text: string; used: boolean };
@@ -64,7 +65,8 @@ export const codexImageRollup: ReconcilerRule = (entries) => {
         entry: c.entry,
         index: c.index,
         type: c.carried.role === "assistant" ? "agent_message" : "user_message",
-        text: normalizeText(c.carried.text),
+        text: c.carried.text,
+        matchText: normalizeText(c.carried.text),
         attachments: c.carried.attachments,
         used: false,
       }),
@@ -85,7 +87,7 @@ export const codexImageRollup: ReconcilerRule = (entries) => {
 
   for (const carrier of carriers) {
     const match = messages
-      .filter((m) => !m.used && m.type === carrier.type && m.text === carrier.text)
+      .filter((m) => !m.used && m.type === carrier.type && m.text === carrier.matchText)
       .sort((a, b) => Math.abs(a.index - carrier.index) - Math.abs(b.index - carrier.index))[0];
     if (match !== undefined) {
       match.used = true;

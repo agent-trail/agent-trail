@@ -34,6 +34,12 @@ describe("codex v0.135 new event subtypes", () => {
     expect(interrupts).toHaveLength(1);
     expect(interrupts[0]?.payload).toEqual({ reason: "interrupted" });
     expect(interrupts[0]?.source?.original_type).toBe("event_msg.turn_aborted");
+    expect(interrupts[0]?.meta).toMatchObject({
+      "dev.codex.raw_type": "event_msg.turn_aborted",
+      completed_at: 1717236008000,
+      duration_ms: 5000,
+      turn_id: "turn-1",
+    });
   });
 
   test("item_completed (Plan) → system_event preserving the item", async () => {
@@ -44,8 +50,14 @@ describe("codex v0.135 new event subtypes", () => {
         (e.payload as { kind?: string }).kind === "x-codex/item_completed",
     );
     expect(planEvents).toHaveLength(1);
-    const data = (planEvents[0]?.payload as { data?: { item?: { type?: string } } }).data;
+    const data = (
+      planEvents[0]?.payload as {
+        data?: { completed_at_ms?: number; item?: { type?: string }; thread_id?: string };
+      }
+    ).data;
     expect(data?.item?.type).toBe("Plan");
+    expect(data?.thread_id).toBe("thread-1");
+    expect(data?.completed_at_ms).toBe(1717236003000);
   });
 
   test("response_item.message is suppressed (duplicates event_msg messages, not quarantined)", async () => {
@@ -108,7 +120,7 @@ describe("codex v0.135 image-bearing response_item.message", () => {
     expectWriterStrict(all);
     expect(all).toHaveLength(2);
     expect(all[0]?.type).toBe("user_message");
-    expect((all[0]?.payload as { text?: string }).text).toBe("orphan image");
+    expect((all[0]?.payload as { text?: string }).text).toBe("orphan\n  image");
     expect((all[0]?.payload as { attachments?: unknown }).attachments).toEqual([
       {
         kind: "image",

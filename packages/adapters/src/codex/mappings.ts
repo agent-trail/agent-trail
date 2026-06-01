@@ -389,13 +389,21 @@ const turnAborted = defineMapping<Raw>({
   match: { type: "event_msg", payload: { type: "turn_aborted" } },
   emit: (record) => {
     if (!emittable(record)) return [];
-    const reason = stringValue(payloadOf(record).reason);
+    const p = payloadOf(record);
+    const reason = stringValue(p.reason);
+    const metadata = meta("event_msg.turn_aborted");
+    const turnId = stringValue(p.turn_id);
+    if (turnId !== undefined) metadata.turn_id = turnId;
+    const durationMs = numericValue(p.duration_ms);
+    if (durationMs !== undefined) metadata.duration_ms = Math.trunc(durationMs);
+    const completedAt = numericValue(p.completed_at);
+    if (completedAt !== undefined) metadata.completed_at = Math.trunc(completedAt);
     return [
       {
         type: "user_interrupt",
         payload: reason !== undefined ? { reason } : {},
         source: source("event_msg.turn_aborted"),
-        meta: meta("event_msg.turn_aborted"),
+        meta: metadata,
       },
     ];
   },
@@ -411,6 +419,10 @@ const itemCompleted = lifecycle("item_completed", (p) => {
   if (isObject(p.item)) data.item = p.item;
   const turnId = stringValue(p.turn_id);
   if (turnId !== undefined) data.turn_id = turnId;
+  const threadId = stringValue(p.thread_id);
+  if (threadId !== undefined) data.thread_id = threadId;
+  const completedAtMs = numericValue(p.completed_at_ms);
+  if (completedAtMs !== undefined) data.completed_at_ms = Math.trunc(completedAtMs);
   return { kind: "x-codex/item_completed", rawType: "event_msg.item_completed", data };
 });
 

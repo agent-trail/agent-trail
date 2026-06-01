@@ -12,7 +12,7 @@ describe("selectSchemaVersion", () => {
   });
 
   test("out-of-range version falls back to meta.fallback", () => {
-    expect(selectSchemaVersion("codex", "0.99.0")).toBe("v0.135");
+    expect(selectSchemaVersion("codex", "0.127.9")).toBe("v0.135");
   });
 
   test("missing version resolves to undefined", () => {
