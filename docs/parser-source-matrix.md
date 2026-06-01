@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-05-28 | codex-tui 0.128.0 (also verified against Codex Desktop 0.133.0-alpha.1 and codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, agent_thinking, context_compact, model_change, user_interrupt, system_event | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -59,11 +59,21 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   threading, and EOF `session_terminated` synthesis (the kit's general `branchReconciliation` is
   deferred — Pi carries its own rule).
 - **Codex** — linear (`parentChain`), explicit `call_id`s (`toolLinking`), no per-entry
-  `source.schema_version` → static mappings (18 pure). Stateful behaviors split per the kit's grain:
+  `source.schema_version` → static mappings. Stateful behaviors split per the kit's grain:
   **pass-1 overrides** for synthesized `model_change` + per-turn reasoning dedup (reset on `turn_id`),
   and a **custom reconciler rule** for the `token_count` → preceding-`agent_message` usage rollup.
-  Override-ratio ≈ 0.18. The emitted `source.agent` is `codex-cli` while the schema registers under
-  `codex`, so `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
+  The emitted `source.agent` is `codex-cli` while the schema registers under `codex`, so
+  `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
+  Two source-schema versions: `codex/v0.128` (`>=0.128.0 <0.129.0`) and `codex/v0.135` (`>=0.129.0`,
+  a superset adding the subtypes 0.135 introduced). The 0.135 additions are handled as:
+  `event_msg.turn_aborted` → `user_interrupt`; `event_msg.item_completed` (wraps the agent's `Plan`)
+  → `system_event` preserving the item (a dedicated task-plan event is **#131**);
+  `event_msg.context_compacted` is **recognized but intentionally suppressed** (duplicate of the
+  top-level `compacted` record). `response_item.message` is text-only-suppressed (its text duplicates
+  the `event_msg` echo) **except** when it carries `input_image` content: those images map to the
+  spec `attachments[]` field and are folded onto the matching `user_message`/`agent_message` by a
+  transient-carrier reconciler (`codexImageRollup`), so codex user images are captured without
+  duplicating the message (#114 attachments).
 - **Claude Code** — linear (`parentChain`); every record carries `version` → per-record
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eight pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
@@ -298,6 +308,15 @@ Lifecycle-vocabulary `system_event` emissions:
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
 - `event_msg.thread_goal_updated` → `system_event{kind:"x-codex/thread_goal_updated"}`.
   `data` carries `thread_id`, `turn_id`, `goal`.
+- `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
+  (for example, `"interrupted"`).
+- `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`
+  carries `turn_id` and the completed `item` (currently observed for task-plan `Plan`
+  items; a dedicated task-plan event is tracked separately).
+- `response_item.message` — text-only records are suppressed as duplicates of
+  `event_msg.user_message` / `event_msg.agent_message`. Image-bearing records fold
+  reference-only attachments (`sha256:` for inline `data:` images) onto the nearest matching
+  event-message echo, with a standalone message fallback when no echo is present.
 
 `dev.codex.raw_type` audit-tag values stamped by the adapter:
 
@@ -318,25 +337,22 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
   `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
 - `event_msg.thread_goal_updated` — goal change marker.
+- `event_msg.turn_aborted` — user interrupt marker.
+- `event_msg.item_completed` — completed turn item marker.
+- `response_item.message` — image-bearing message carrier.
 
 Deferred shapes (hardening follow-ups beyond the current verified slice):
 
-- `user_interrupt` / `event_msg.turn_aborted` — no real interrupt signal observed in any
-  session on the verifying contributor's machine across `codex-tui` 0.128.x, `Codex Desktop`
-  0.133.x-alpha, and `codex_sdk_ts` 0.98.x (the full corpus was scanned, including a 2320-line
-  Codex Desktop session). Acceptance criterion's matrix-absence path applies; no fixture
-  committed. The mapping lands when a real signal surfaces, with the fixture derived from the
-  real record shape (synthetic ids only).
 - `event_msg.token_count.payload.rate_limits` — Codex carries API rate-limit snapshots
   (window utilization, reset window) on the same record as token usage. The Agent Trail spec
   has no `agentMessageUsage` slot for rate-limit state, so this field is dropped during the
   usage rollup. A future pass may emit these as standalone `system_event` records under an
   `x-codex/rate_limit_snapshot` kind; deferred until the emission frequency and dedupe policy
   (rate_limits fire on every token_count, often unchanged) can be designed in its own review.
-- Cross-channel dedupe between `event_msg.user_message` / `event_msg.agent_message` and the
-  `response_item.message` channel (the adapter currently picks event_msg only). Folding
-  response_item.message back in when no event_msg surface fires would cover legacy / partial
-  sessions.
+- Text-only `response_item.message` reconstruction when no `event_msg.user_message` /
+  `event_msg.agent_message` echo fires. The verified v0.135 corpus duplicates text across both
+  channels, so text-only response items are suppressed today; image-bearing response items keep
+  their attachment signal through the rollup/fallback path above.
 - Encrypted reasoning recovery — `response_item.reasoning` with `encrypted_content` carries
   no plaintext and stays skipped until a key surfaces.
 - Subagent header `fork_from` lineage via `agent_role` / `source.subagent.parent_thread_id`

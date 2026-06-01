@@ -31,20 +31,33 @@ const corpus: { agent: string; version: string }[] = [
 // that at least one record fails validation, so the drift coverage stays real.
 const DRIFT_FIXTURES = new Set(["pi/quarantine.jsonl"]);
 
+// Fixtures whose records belong to a newer source-schema than the agent's
+// corpus default. Keyed `${agent}/${file}` → schema version to validate against.
+const FIXTURE_VERSION_OVERRIDE = new Map([
+  ["codex/v0_135-events.jsonl", "v0.135"],
+  ["codex/image-message.jsonl", "v0.135"],
+  ["codex/image-message-repeated-text.jsonl", "v0.135"],
+  ["codex/image-message-source-data.jsonl", "v0.135"],
+  ["codex/image-message-unmatched.jsonl", "v0.135"],
+]);
+
 for (const { agent, version } of corpus) {
   describe(`${agent} ${version} source schema corpus`, () => {
     for (const { file, records } of readFixtureRecords(agent)) {
       const isDriftFixture = DRIFT_FIXTURES.has(`${agent}/${file}`);
+      const schemaVersion = FIXTURE_VERSION_OVERRIDE.get(`${agent}/${file}`) ?? version;
       test(`${file} ${isDriftFixture ? "carries the expected drift" : "validates clean"}`, () => {
         const invalid = records.filter(
-          (record) => validateSourceRecord(agent, version, record).length > 0,
+          (record) => validateSourceRecord(agent, schemaVersion, record).length > 0,
         );
         if (isDriftFixture) {
           expect(invalid.length).toBeGreaterThan(0);
           return;
         }
         for (const record of records) {
-          expect(formatDiagnosticsText(validateSourceRecord(agent, version, record))).toBe("");
+          expect(formatDiagnosticsText(validateSourceRecord(agent, schemaVersion, record))).toBe(
+            "",
+          );
         }
       });
     }

@@ -3,7 +3,7 @@ import type { Entry } from "@agent-trail/types";
 import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { codexMappings } from "./mappings.ts";
 import { type CodexState, codexOverrides, initialCodexState } from "./overrides.ts";
-import { codexTokenRollup } from "./reconcile-rules.ts";
+import { codexImageRollup, codexTokenRollup } from "./reconcile-rules.ts";
 import { stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
@@ -27,7 +27,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
   schemaAgent: "codex",
   idNamespace: CODEX_ENTRY_ID_NAMESPACE,
   quarantineNamespace: "codex",
-  sourceFormatVersions: ["v0.128"],
+  sourceFormatVersions: ["v0.128", "v0.135"],
   reader: new JsonlReader({ versionFrom: (first) => cliVersionOf(first as Raw) }),
   tsFrom: (record) => timestampToIso((record as Raw).timestamp) ?? "",
   mappings: codexMappings,
@@ -37,7 +37,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
     toolLinking: true,
     parentChain: false, // Codex is linear and emits no parent_id
     cumulativeTokens: false, // usage carries native cumulative via token_count rollup
-    custom: [codexTokenRollup],
+    custom: [codexTokenRollup, codexImageRollup],
   },
 });
 

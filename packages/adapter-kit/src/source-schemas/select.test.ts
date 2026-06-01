@@ -6,8 +6,13 @@ describe("selectSchemaVersion", () => {
     expect(selectSchemaVersion("codex", "0.128.4")).toBe("v0.128");
   });
 
+  test("codex 0.129+ resolves to v0.135", () => {
+    expect(selectSchemaVersion("codex", "0.135.0-alpha.1")).toBe("v0.135");
+    expect(selectSchemaVersion("codex", "0.200.0")).toBe("v0.135");
+  });
+
   test("out-of-range version falls back to meta.fallback", () => {
-    expect(selectSchemaVersion("codex", "0.99.0")).toBe("v0.128");
+    expect(selectSchemaVersion("codex", "0.127.9")).toBe("v0.135");
   });
 
   test("missing version resolves to undefined", () => {

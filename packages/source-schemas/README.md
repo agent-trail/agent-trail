@@ -15,6 +15,8 @@ codex/
   meta.json       — agent metadata + version → schema mapping
   v0.128.json     — JSON Schema (draft 2020-12) for v0.128.x records
   v0.128.d.ts     — generated TypeScript types (do not edit)
+  v0.135.json     — JSON Schema (draft 2020-12) for v0.129+ records
+  v0.135.d.ts     — generated TypeScript types (do not edit)
 pi/
   meta.json
   v1.json
@@ -36,9 +38,10 @@ fails validation and is quarantined.
   "agent": "codex",
   "upstream": "openai/codex",
   "version_ranges": [
-    { "schemaVersion": "v0.128", "range": ">=0.128.0 <0.129.0" }
+    { "schemaVersion": "v0.128", "range": ">=0.128.0 <0.129.0" },
+    { "schemaVersion": "v0.135", "range": ">=0.129.0" }
   ],
-  "fallback": "v0.128"
+  "fallback": "v0.135"
 }
 ```
 

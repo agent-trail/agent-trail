@@ -4,7 +4,7 @@
  */
 
 /**
- * Codex rollout JSONL record (codex-tui / Codex Desktop / codex_sdk_ts). Every line is {timestamp, type, payload}. Drift is caught at record-type granularity: unknown top-level type or unknown event_msg/response_item payload type fails validation and is quarantined. Payload fields are intentionally lenient to avoid false quarantine on additive field drift.
+ * Codex rollout JSONL record (codex-tui / Codex Desktop / codex_sdk_ts). Every line is {timestamp, type, payload}. Drift is caught at record-type granularity: unknown top-level type or unknown event_msg/response_item payload type fails validation and is quarantined. response_item.message duplicates event_msg messages and is recognized (suppressed by the adapter, not quarantined). Payload fields are intentionally lenient to avoid false quarantine on additive field drift.
  */
 export type CodexV0_128Record = {
   [k: string]: unknown;

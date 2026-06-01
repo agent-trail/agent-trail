@@ -1,0 +1,4 @@
+{"timestamp":"2026-06-01T11:00:00.000Z","type":"session_meta","payload":{"id":"019d8900-cccc-7000-e000-0000000000bb","cli_version":"0.135.0"}}
+{"timestamp":"2026-06-01T11:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"describe this screenshot"}}
+{"timestamp":"2026-06-01T11:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"describe this screenshot"},{"type":"input_image","detail":"auto","image_url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=="}]}}
+{"timestamp":"2026-06-01T11:00:03.000Z","type":"event_msg","payload":{"type":"agent_message","message":"it shows a bar chart"}}

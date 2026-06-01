@@ -1,6 +1,8 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
-import type { Entry, ToolKind } from "@agent-trail/types";
+import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
 import {
   AGENT_NAME,
   buildExecCommandEndData,
@@ -380,9 +382,192 @@ const webSearchEnd = lifecycle("web_search_end", (p) => {
   return { kind: "x-codex/web_search_end", rawType: "event_msg.web_search_end", data };
 });
 
+// Codex 0.135 `turn_aborted` reports an interrupted/cancelled turn — the same
+// signal Pi/Claude Code surface as `user_interrupt`. `reason` is observed as
+// "interrupted" in real sessions; pass it through.
+const turnAborted = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "turn_aborted" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const reason = stringValue(p.reason);
+    const metadata = meta("event_msg.turn_aborted");
+    const turnId = stringValue(p.turn_id);
+    if (turnId !== undefined) metadata.turn_id = turnId;
+    const durationMs = numericValue(p.duration_ms);
+    if (durationMs !== undefined) metadata.duration_ms = Math.trunc(durationMs);
+    const completedAt = numericValue(p.completed_at);
+    if (completedAt !== undefined) metadata.completed_at = Math.trunc(completedAt);
+    return [
+      {
+        type: "user_interrupt",
+        payload: reason !== undefined ? { reason } : {},
+        source: source("event_msg.turn_aborted"),
+        meta: metadata,
+      },
+    ];
+  },
+});
+
+// Codex 0.135 `item_completed` wraps a completed turn item. Observed real
+// sessions carry `item.type: "Plan"` (the agent's task plan) — a signal with no
+// other representation in the rollout, so preserve the whole item under
+// `data.item` (a dedicated task_plan event is tracked in #131). Other item
+// types reuse this generic capture.
+const itemCompleted = lifecycle("item_completed", (p) => {
+  const data: Raw = {};
+  if (isObject(p.item)) data.item = p.item;
+  const turnId = stringValue(p.turn_id);
+  if (turnId !== undefined) data.turn_id = turnId;
+  const threadId = stringValue(p.thread_id);
+  if (threadId !== undefined) data.thread_id = threadId;
+  const completedAtMs = numericValue(p.completed_at_ms);
+  if (completedAtMs !== undefined) data.completed_at_ms = Math.trunc(completedAtMs);
+  return { kind: "x-codex/item_completed", rawType: "event_msg.item_completed", data };
+});
+
+// Transient carrier: an image-bearing `response_item.message` maps to a carrier
+// system_event holding the attachments + text + role under this meta key.
+// `codexImageRollup` folds the attachments into the matching user/agent message
+// (whose text is the duplicate `event_msg` echo) and drops the carrier.
+export const IMAGE_CARRIER = "x-codex/_images";
+export const INLINE_IMAGE_MAX_DECODED_BYTES = 1024 * 1024;
+
+type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
+
+type ParsedDataUri = { mediaType?: string; bytes?: Buffer; oversized?: true };
+
+function parseBase64Image(mediaType: string | undefined, data: string): ParsedDataUri {
+  const compact = data.replace(/\s+/g, "");
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  const decodedBytes = Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+  if (decodedBytes > INLINE_IMAGE_MAX_DECODED_BYTES) {
+    return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+  }
+  return {
+    ...(mediaType !== undefined ? { mediaType } : {}),
+    bytes: Buffer.from(compact, "base64"),
+  };
+}
+
+// Pull bytes + media type out of a `data:<media-type>;base64,...` URI.
+function parseDataUri(uri: string): ParsedDataUri | undefined {
+  const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/s.exec(uri);
+  if (match === null) return undefined;
+  const [, mediaType, parameters = "", data = ""] = match;
+  if (parameters.split(";").includes("base64")) {
+    return parseBase64Image(mediaType, data);
+  }
+  if (data.length > INLINE_IMAGE_MAX_DECODED_BYTES * 3) {
+    return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+  }
+  try {
+    const decoded = decodeURIComponent(data);
+    if (Buffer.byteLength(decoded, "utf8") > INLINE_IMAGE_MAX_DECODED_BYTES) {
+      return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+    }
+    return {
+      ...(mediaType !== undefined ? { mediaType } : {}),
+      bytes: Buffer.from(decoded, "utf8"),
+    };
+  } catch {
+    if (Buffer.byteLength(data, "utf8") > INLINE_IMAGE_MAX_DECODED_BYTES) {
+      return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
+    }
+    return { ...(mediaType !== undefined ? { mediaType } : {}), bytes: Buffer.from(data, "utf8") };
+  }
+}
+
+function sha256Ref(bytes: Buffer): string {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function attachmentRef(uri: string): { mediaType?: string; uri?: string } | undefined {
+  if (/^(https:|file:|sha256:)/.test(uri)) return { uri };
+  const parsed = parseDataUri(uri);
+  if (parsed === undefined) return undefined;
+  return {
+    ...(parsed.mediaType !== undefined ? { mediaType: parsed.mediaType } : {}),
+    ...(parsed.bytes !== undefined ? { uri: sha256Ref(parsed.bytes) } : {}),
+  };
+}
+
+// Build spec `attachments[]` from a response_item.message content array. Codex
+// images appear as `input_image` (Responses API, `image_url` is a data: URI) or
+// `image` (`{ source: { media_type, data } }`). Non-image blocks are ignored.
+function imageAttachments(content: unknown): Attachment[] {
+  if (!Array.isArray(content)) return [];
+  const out: Attachment[] = [];
+  for (const block of content) {
+    if (!isObject(block)) continue;
+    const type = stringValue(block.type);
+    if (type !== "input_image" && type !== "image") continue;
+    const src = isObject(block.source) ? block.source : undefined;
+    const uri = stringValue(block.image_url) ?? stringValue(src?.url);
+    let ref = uri !== undefined ? attachmentRef(uri) : undefined;
+    let mediaType = ref?.mediaType ?? stringValue(src?.media_type);
+    if (ref === undefined && src !== undefined) {
+      const mt = mediaType;
+      const data = stringValue(src.data);
+      const parsed = data !== undefined ? parseBase64Image(mt, data) : undefined;
+      if (parsed !== undefined) {
+        ref = parsed.bytes !== undefined ? { uri: sha256Ref(parsed.bytes) } : {};
+        if (parsed.mediaType !== undefined) mediaType = parsed.mediaType;
+      }
+    }
+    const attachment: Attachment = { kind: "image" };
+    if (mediaType !== undefined) attachment.media_type = mediaType;
+    if (ref?.uri !== undefined) attachment.uri = ref.uri;
+    out.push(attachment);
+  }
+  return out;
+}
+
+function textFromMessageContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(isObject)
+    .map((b) => (/text/.test(String(b.type)) ? (stringValue(b.text) ?? "") : ""))
+    .join("");
+}
+
+// `response_item.message` is the Responses-API conversation item. Its text
+// duplicates the `event_msg.{user,agent}_message` the adapter already emits, so
+// text-only ones are suppressed. Image-bearing ones carry content that is NOT in
+// the (text-only) event_msg echo, so they map to a transient IMAGE_CARRIER whose
+// attachments `codexImageRollup` folds into the matching message.
+const responseItemMessage = defineMapping<Raw>({
+  match: { type: "response_item", payload: { type: "message" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const attachments = imageAttachments(p.content);
+    if (attachments.length === 0) return []; // text-only → suppress (duplicate)
+    const carried: CarriedImages = {
+      attachments,
+      text: textFromMessageContent(p.content),
+      ...(stringValue(p.role) !== undefined ? { role: stringValue(p.role) } : {}),
+    };
+    return [
+      {
+        type: "system_event",
+        payload: { kind: IMAGE_CARRIER, text: "" },
+        source: source("response_item.message"),
+        meta: { [RAW_TYPE]: "response_item.message", [IMAGE_CARRIER]: carried },
+      },
+    ];
+  },
+});
+
+// Intentionally NOT mapped (recognized by the codex/v0.135 schema so they are not
+// quarantined, and dropped because they duplicate already-captured records):
+//   - response_item.message (text-only) — duplicates event_msg.{user,agent}_message.
+//   - event_msg.context_compacted — duplicates the top-level `compacted` record.
 export const codexMappings: MappingDef<Raw>[] = [
   message("user_message"),
   message("agent_message"),
+  responseItemMessage,
   functionCall,
   toolResult("function_call_output"),
   customToolCall,
@@ -399,4 +584,6 @@ export const codexMappings: MappingDef<Raw>[] = [
   mcpToolCallEnd,
   threadGoalUpdated,
   webSearchEnd,
+  turnAborted,
+  itemCompleted,
 ];
