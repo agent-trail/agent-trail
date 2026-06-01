@@ -92,6 +92,7 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "branch_summary",
   "tool_call",
   "tool_result",
+  "capability_change",
 ]);
 
 // Attachment references (image/file uris) appear on user_message, agent_message,
@@ -209,6 +210,10 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
           `records[${index}].payload.meta`,
         );
       }
+    }
+
+    if (payload && type === "capability_change") {
+      yield* walkContainer(payload, `records[${index}].payload`);
     }
 
     // Forward-compat fallback: schema permits future event types whose

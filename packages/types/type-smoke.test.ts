@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentTrailV010, Header, SystemEvent } from "@agent-trail/types";
+import type { AgentTrailV010, CapabilityChange, Header, SystemEvent } from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
   const header = {
@@ -37,4 +37,25 @@ test("SystemEvent.payload.kind accepts reserved + x-<adapter>/<name> extensions"
   expect(reserved.payload?.kind).toBe("heartbeat");
   expect(extension.payload?.kind).toBe("x-claudecode/diag");
   expect(another.payload?.kind).toBe("x-pi/custom_message");
+});
+
+test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
+  const change = {
+    type: "capability_change",
+    payload: {
+      scope: "tool",
+      reason: "loaded",
+      snapshot: [
+        {
+          name: "search_web",
+          metadata: { namespace: "web" },
+        },
+      ],
+      changed: [{ name: "search_web", field: "description", to: "Search" }],
+    },
+  } satisfies CapabilityChange;
+
+  expect(change.payload.scope).toBe("tool");
+  expect(change.payload.snapshot[0]?.metadata?.namespace).toBe("web");
+  expect(change.payload.changed[0]?.field).toBe("description");
 });

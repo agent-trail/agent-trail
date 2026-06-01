@@ -458,6 +458,7 @@
             { "$ref": "#/$defs/events/session_terminated" },
             { "$ref": "#/$defs/events/session_end" },
             { "$ref": "#/$defs/events/command_invoke" },
+            { "$ref": "#/$defs/events/capability_change" },
             { "$ref": "#/$defs/events/unknown" }
           ]
         }
@@ -1204,6 +1205,193 @@
         }
       },
 
+      "capability_change": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "capability_change" },
+          "payload": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": ["scope", "reason", "added"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "removed"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "changed"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["scope", "reason", "snapshot"],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "registered",
+                      "deregistered",
+                      "connected",
+                      "disconnected",
+                      "loaded",
+                      "unloaded",
+                      "error",
+                      "instructions_updated"
+                    ]
+                  },
+                  "added": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  },
+                  "removed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
+                  },
+                  "changed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
+                  },
+                  "snapshot": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+
       "unknown": {
         "type": "object",
         "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
@@ -1227,13 +1415,45 @@
                 "model_change",
                 "session_terminated",
                 "session_end",
-                "command_invoke"
+                "command_invoke",
+                "capability_change"
               ]
             }
           },
           "payload": { "type": "object" }
         }
       }
+    },
+
+    "capabilityAddedItem": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+
+    "capabilityRemovedItem": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "capabilityChangedItem": {
+      "type": "object",
+      "required": ["name", "field"],
+      "properties": {
+        "name": { "type": "string" },
+        "field": { "type": "string" },
+        "from": {},
+        "to": {}
+      },
+      "additionalProperties": false
     }
   }
 }

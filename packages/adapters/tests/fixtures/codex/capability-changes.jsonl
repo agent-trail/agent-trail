@@ -1,0 +1,9 @@
+{"timestamp":"2026-06-01T01:00:00.000Z","type":"session_meta","payload":{"id":"019d9200-bbbb-7000-f000-000000000128","timestamp":"2026-06-01T01:00:00.000Z","cwd":"/proj/codex-capabilities","originator":"codex-tui","cli_version":"0.135.0","source":"interactive","model_provider":"openai","dynamic_tools":[{"namespace":"web","name":"search_web","description":"Search the web","inputSchema":{"type":"object","properties":{"query":{"type":"string"}}},"deferLoading":true},{"name":"request_user_input","description":"Ask the user","inputSchema":{"type":"object"}}]}}
+{"timestamp":"2026-06-01T01:00:01.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"linear","status":{"state":"starting"}}}
+{"timestamp":"2026-06-01T01:00:02.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"linear","status":{"state":"ready"}}}
+{"timestamp":"2026-06-01T01:00:03.000Z","type":"event_msg","payload":{"type":"mcp_startup_complete","ready":["linear"],"failed":[{"server":"github","error":"auth failed"}],"cancelled":["context7"]}}
+{"timestamp":"2026-06-01T01:00:04.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"playwright","status":"starting"}}
+{"timestamp":"2026-06-01T01:00:05.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"filesystem","status":"ready"}}
+{"timestamp":"2026-06-01T01:00:06.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"notion","status":"failed"}}
+{"timestamp":"2026-06-01T01:00:07.000Z","type":"event_msg","payload":{"type":"mcp_startup_update","server":"context7-string","status":"cancelled"}}
+{"timestamp":"2026-06-01T01:00:08.000Z","type":"event_msg","payload":{"type":"user_message","message":"check capabilities"}}
