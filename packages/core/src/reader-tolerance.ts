@@ -82,18 +82,20 @@ function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {
     return [];
   }
 
-  return (validateEvent.errors as ErrorObject[])
-    .filter(isPayloadAdditionalPropertyError)
-    .map((error) => {
-      const field = error.params.additionalProperty;
-      return createDiagnostic({
-        line: record.line,
-        path: appendJsonPointerSegment(error.instancePath, field),
-        severity: "warning",
-        code: "reader_tolerant_unknown_payload_field",
-        message: `Unknown payload field "${field}" preserved for reader-tolerant parsing`,
-      });
-    });
+  return dedupeDiagnostics(
+    (validateEvent.errors as ErrorObject[])
+      .filter(isPayloadAdditionalPropertyError)
+      .map((error) => {
+        const field = error.params.additionalProperty;
+        return createDiagnostic({
+          line: record.line,
+          path: appendJsonPointerSegment(error.instancePath, field),
+          severity: "warning",
+          code: "reader_tolerant_unknown_payload_field",
+          message: `Unknown payload field "${field}" preserved for reader-tolerant parsing`,
+        });
+      }),
+  );
 }
 
 function readerTolerantUnknownRecordWarning(record: JsonlRecord): Diagnostic | undefined {
@@ -135,7 +137,52 @@ function hasOnlyReaderTolerantPayloadFieldAdditions(
     return false;
   }
 
-  return (validateEvent.errors as ErrorObject[]).every(isPayloadAdditionalPropertyError);
+  const stripped = stripReaderTolerantPayloadFields(record.value, tolerantWarnings);
+  return validateEvent(stripped);
+}
+
+function dedupeDiagnostics(diagnostics: Diagnostic[]): Diagnostic[] {
+  const seen = new Set<string>();
+  return diagnostics.filter((diagnostic) => {
+    const key = `${diagnostic.line}\0${diagnostic.path}\0${diagnostic.code}\0${diagnostic.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function stripReaderTolerantPayloadFields(
+  value: Record<string, unknown>,
+  tolerantWarnings: Diagnostic[],
+): Record<string, unknown> {
+  const stripped = structuredClone(value);
+  for (const warning of tolerantWarnings) {
+    deleteJsonPointer(stripped, warning.path);
+  }
+  return stripped;
+}
+
+function deleteJsonPointer(value: unknown, pointer: string): void {
+  const segments = pointer
+    .split("/")
+    .slice(1)
+    .map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+  const property = segments.pop();
+  if (property === undefined) return;
+  let target: unknown = value;
+  for (const segment of segments) {
+    if (Array.isArray(target)) {
+      const index = Number(segment);
+      target = Number.isInteger(index) ? target[index] : undefined;
+    } else if (typeof target === "object" && target !== null) {
+      target = (target as Record<string, unknown>)[segment];
+    } else {
+      return;
+    }
+  }
+  if (typeof target === "object" && target !== null && !Array.isArray(target)) {
+    delete (target as Record<string, unknown>)[property];
+  }
 }
 
 function isPayloadAdditionalPropertyError(

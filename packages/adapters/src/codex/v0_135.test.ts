@@ -13,6 +13,8 @@ const entries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "v0_135-events.jsonl"), "unit-test");
 const capabilityEntries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "capability-changes.jsonl"), "unit-test");
+const capabilityV0_128Entries = (): Promise<Entry[]> =>
+  parseCodexEntries(join(FIXTURES, "capability-changes-v0_128.jsonl"), "unit-test");
 
 function expectWriterStrict(entries: Entry[]): void {
   for (const [index, entry] of entries.entries()) {
@@ -139,6 +141,26 @@ describe("codex capability registry events", () => {
         changed: [{ name: "github", field: "error", to: "auth failed" }],
       },
       { scope: "mcp_server", reason: "disconnected", removed: [{ name: "context7" }] },
+      { scope: "mcp_server", reason: "loaded", added: [{ name: "playwright" }] },
+      { scope: "mcp_server", reason: "connected", added: [{ name: "filesystem" }] },
+      {
+        scope: "mcp_server",
+        reason: "error",
+        changed: [{ name: "notion", field: "error", to: "failed" }],
+      },
+      {
+        scope: "mcp_server",
+        reason: "disconnected",
+        removed: [{ name: "context7-string" }],
+      },
+    ]);
+  });
+
+  test("mcp startup records are recognized under the v0.128 source schema", async () => {
+    const all = await capabilityV0_128Entries();
+    expectWriterStrict(all);
+    expect(all.map((entry) => entry.payload)).toEqual([
+      { scope: "mcp_server", reason: "connected", added: [{ name: "linear" }] },
     ]);
   });
 });

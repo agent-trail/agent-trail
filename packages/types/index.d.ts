@@ -545,34 +545,133 @@ export interface CapabilityChange {
   type?: "capability_change";
   payload?:
     | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
         /**
          * @minItems 1
          */
-        added: [unknown, ...unknown[]];
-        [k: string]: unknown;
+        added: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
         /**
          * @minItems 1
          */
-        removed: [unknown, ...unknown[]];
-        [k: string]: unknown;
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
         /**
          * @minItems 1
          */
-        changed: [unknown, ...unknown[]];
-        [k: string]: unknown;
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
         /**
          * @minItems 1
          */
-        snapshot: [unknown, ...unknown[]];
-        [k: string]: unknown;
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       };
   [k: string]: unknown;
+}
+export interface CapabilityAddedItem {
+  name: string;
+  metadata?: {
+    [k: string]: unknown;
+  };
+}
+export interface CapabilityRemovedItem {
+  name: string;
+}
+export interface CapabilityChangedItem {
+  name: string;
+  field: string;
+  from?: unknown;
+  to?: unknown;
 }
 /**
  * Catch-all for unrecognized event types. Readers must tolerate these.

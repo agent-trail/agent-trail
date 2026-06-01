@@ -318,9 +318,9 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function withoutName(value: Record<string, unknown>): Record<string, unknown> | undefined {
-  const { name: _name, ...metadata } = value;
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
+function skillMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const description = stringValue(value.description);
+  return description === undefined ? undefined : { description };
 }
 
 function skillItems(attachment: Record<string, unknown>): CapabilityItem[] {
@@ -331,7 +331,7 @@ function skillItems(attachment: Record<string, unknown>): CapabilityItem[] {
       if (!isObject(skill)) return [];
       const name = stringValue(skill.name);
       if (name === undefined) return [];
-      const metadata = withoutName(skill);
+      const metadata = skillMetadata(skill);
       return [{ name, ...(metadata !== undefined ? { metadata } : {}) }];
     });
   }

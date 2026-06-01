@@ -306,6 +306,17 @@ test("parseSession() maps Claude Code capability attachment deltas", async () =>
       ],
     },
     {
+      scope: "skill",
+      reason: "loaded",
+      changed: [
+        {
+          name: "skill_listing",
+          field: "listing",
+          to: "Available skills: tdd, code-review",
+        },
+      ],
+    },
+    {
       scope: "mcp_server",
       reason: "instructions_updated",
       changed: [
