@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
+import { mapTool } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
 const DESKTOP_FIXTURE_PATH = fileURLToPath(
@@ -139,6 +140,7 @@ function seedSession(opts: {
   cwd: string;
   ts?: string;
   cliVersion?: string;
+  extraPayload?: Record<string, unknown>;
 }): string {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
@@ -157,6 +159,7 @@ function seedSession(opts: {
       cli_version: opts.cliVersion ?? "0.128.0",
       source: "interactive",
       model_provider: "openai",
+      ...opts.extraPayload,
     },
   };
   writeFileSync(path, `${JSON.stringify(sessionMeta)}\n`);
@@ -264,6 +267,31 @@ test("exec_command function_call maps to shell_command with workdir as cwd", asy
   const args = (exec?.payload as { args: { command: string; cwd?: string } }).args;
   expect(args.command).toBe("ls -la");
   expect(args.cwd).toBe("/proj/codex-fixture");
+});
+
+test("mapTool promotes common Codex function calls out of other", () => {
+  expect(mapTool("shell_command", { command: "pwd", cwd: "/repo" })).toEqual({
+    tool: "shell_command",
+    args: { command: "pwd", cwd: "/repo" },
+  });
+  expect(mapTool("write_stdin", { chars: "yes\n", session_id: 42 })).toEqual({
+    tool: "shell_input",
+    args: { input: "yes\n", session_id: "42" },
+  });
+  expect(mapTool("write_stdin", { chars: "", session_id: 42 })).toEqual({
+    tool: "shell_output",
+    args: { command_id: "42" },
+  });
+  expect(mapTool("request_user_input", { questions: [{ question: "Ship?", id: "ship" }] })).toEqual(
+    {
+      tool: "user_input_request",
+      args: { questions: [{ question: "Ship?", id: "ship" }] },
+    },
+  );
+  expect(mapTool("mcp__computer_use__click", { x: 10 })).toEqual({
+    tool: "mcp_call",
+    args: { server: "computer_use", tool: "click", args: { x: 10 } },
+  });
 });
 
 test("compact fixture emits context_compact from top-level compacted record", async () => {
@@ -531,6 +559,123 @@ test("web_search_call with action.type='search' maps to tool_call{tool:'web_sear
   expect(errors).toEqual([]);
 });
 
+test("response_item tool_search_call and open_page map to canonical tool kinds", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-common-tools.jsonl");
+  const lines = [
+    {
+      timestamp: "2026-05-28T11:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8a00-bbbb-7000-f000-00000000000b",
+        timestamp: "2026-05-28T11:00:00.000Z",
+        cwd: process.cwd(),
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T11:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "tool_search_call",
+        call_id: "call-tool-search",
+        arguments: '{"query":"auth flow","limit":3}',
+      },
+    },
+    {
+      timestamp: "2026-05-28T11:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "web_search_call",
+        action: { type: "open_page", url: "https://example.com/docs" },
+      },
+    },
+  ];
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+  const trail = await codexAdapter.parseSession({
+    id: "019d8a00-bbbb-7000-f000-00000000000b",
+    adapter: "codex",
+    path,
+  });
+
+  const toolSearch = trail.entries.find((e) => e.semantic?.call_id === "call-tool-search");
+  expect(toolSearch?.payload).toEqual({
+    tool: "tool_search",
+    args: { query: "auth flow", limit: 3 },
+  });
+  const webFetch = trail.entries.find(
+    (e) => e.type === "tool_call" && (e.payload as { tool?: string }).tool === "web_fetch",
+  );
+  expect(webFetch?.payload).toEqual({
+    tool: "web_fetch",
+    args: { url: "https://example.com/docs" },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("request_user_input result preserves structured answers under tool_result meta", async () => {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  const dayDir = join(sessionsDir, "2026", "05", "28");
+  mkdirSync(dayDir, { recursive: true });
+  const path = join(dayDir, "rollout-user-input-answer.jsonl");
+  const lines = [
+    {
+      timestamp: "2026-05-28T12:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: "019d8b00-cccc-7000-a000-00000000000c",
+        timestamp: "2026-05-28T12:00:00.000Z",
+        cwd: process.cwd(),
+        cli_version: "0.128.0",
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "request_user_input",
+        call_id: "call-user-input",
+        arguments: '{"question":"Ship?","choices":["yes","no"]}',
+      },
+    },
+    {
+      timestamp: "2026-05-28T12:00:02.000Z",
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call-user-input",
+        output: '{"answers":{"ship":"yes"}}',
+      },
+    },
+  ];
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+  const trail = await codexAdapter.parseSession({
+    id: "019d8b00-cccc-7000-a000-00000000000c",
+    adapter: "codex",
+    path,
+  });
+  const result = trail.entries.find(
+    (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input",
+  );
+
+  expect(result?.payload).toEqual({
+    for_id: trail.entries.find((e) => e.semantic?.call_id === "call-user-input")?.id,
+    ok: true,
+    output: '{"answers":{"ship":"yes"}}',
+    meta: { user_input_request: { answers: { ship: "yes" } } },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("custom_tool_call_output emits tool_result paired by call_id", async () => {
   const trail = await parseApplyPatchFixture();
   const singleCall = trail.entries.find(
@@ -613,6 +758,25 @@ test('buildSessionRef sets headerStatus="header" for healthy sessions', async ()
   });
   const refs = await codexAdapter.detectSessions();
   expect(refs[0]?.headerStatus).toBe("header");
+});
+
+test("detectSessions() and parseSession() tolerate large session_meta records", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraPayload: { base_instructions: "x".repeat(22_000) },
+  });
+  const refs = await codexAdapter.detectSessions();
+  expect(refs).toHaveLength(1);
+  const [ref] = refs;
+  expect(ref?.id).toBe(id);
+  expect(ref?.cwd).toBe(process.cwd());
+  expect(ref?.headerStatus).toBe("header");
+  if (ref === undefined) throw new Error("expected ref");
+  const trail = await codexAdapter.parseSession(ref);
+  expect(trail.header.id).toBe(id);
 });
 
 test('buildSessionRef sets headerStatus="filename-fallback" when header is unreadable', async () => {

@@ -112,9 +112,12 @@
         "file_search",
         "shell_command",
         "shell_output",
+        "shell_input",
         "mcp_call",
         "web_fetch",
         "web_search",
+        "tool_search",
+        "user_input_request",
         "notebook_edit",
         "task_plan",
         "subagent_invoke",
@@ -610,6 +613,23 @@
                 }
               },
               {
+                "if": { "properties": { "tool": { "const": "shell_input" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["input"],
+                      "properties": {
+                        "input": { "type": "string" },
+                        "session_id": { "type": "string" },
+                        "command_id": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
                 "if": { "properties": { "tool": { "const": "mcp_call" } } },
                 "then": {
                   "properties": {
@@ -653,6 +673,57 @@
                       "required": ["query"],
                       "properties": {
                         "query": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "tool_search" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["query"],
+                      "properties": {
+                        "query": { "type": "string" },
+                        "limit": { "type": "integer" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "user_input_request" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "properties": {
+                        "question": { "type": "string" },
+                        "choices": {
+                          "type": "array",
+                          "items": { "type": "string" }
+                        },
+                        "questions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["question"],
+                            "properties": {
+                              "question": { "type": "string" },
+                              "header": { "type": "string" },
+                              "id": { "type": "string" },
+                              "choices": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        }
                       },
                       "additionalProperties": false
                     }
@@ -818,6 +889,16 @@
                         "oneOf": [{ "type": "string" }, { "type": "null" }]
                       },
                       "duration_ms": { "type": "integer", "minimum": 0 }
+                    },
+                    "patternProperties": {
+                      "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "user_input_request": {
+                    "type": "object",
+                    "properties": {
+                      "answers": {}
                     },
                     "patternProperties": {
                       "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$": {}

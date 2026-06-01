@@ -170,6 +170,9 @@ const webSearchCall = defineMapping<Raw>({
     if (actionType === "search" && query !== undefined) {
       tool = "web_search";
       payload = { tool, args: { query } };
+    } else if (actionType === "open_page" && stringValue(action.url) !== undefined) {
+      tool = "web_fetch";
+      payload = { tool, args: { url: stringValue(action.url) } };
     } else {
       tool = "other";
       payload = { tool, args: { name: "web_search_call", args: { action } } };
@@ -193,13 +196,22 @@ const toolSearchCall = defineMapping<Raw>({
     const p = payloadOf(record);
     const callId = stringValue(p.call_id);
     const parsed = parseFunctionArguments(p.arguments);
+    const query = stringValue(parsed.args.query) ?? stringValue(parsed.args.q);
+    const limit = numericValue(parsed.args.limit) ?? numericValue(parsed.args.top_k);
     const raw =
       parsed.rawUnparseable !== undefined ? { arguments: parsed.rawUnparseable } : undefined;
+    const args: Raw = query !== undefined ? { query } : {};
+    if (limit !== undefined) args.limit = Math.trunc(limit);
+    const payload =
+      query !== undefined
+        ? { tool: "tool_search", args }
+        : { tool: "other", args: { name: "tool_search", args: parsed.args } };
+    const tool: ToolKind = query !== undefined ? "tool_search" : "other";
     return [
       {
         type: "tool_call",
-        payload: { tool: "other", args: { name: "tool_search", args: parsed.args } },
-        semantic: { tool_kind: "other" },
+        payload,
+        semantic: { tool_kind: tool },
         source: source("response_item.tool_search_call", raw),
         meta: meta("response_item.tool_search_call", callId),
       },

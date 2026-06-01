@@ -15,7 +15,7 @@ import {
   mapAgentMessageUsage,
   quoteShellArg,
 } from "@agent-trail/adapter-kit";
-import type { Header } from "@agent-trail/types";
+import type { Header, ToolKind } from "@agent-trail/types";
 import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
 
@@ -65,7 +65,7 @@ export function buildHeader(first: Record<string, unknown>): Header {
 // image-bearing response messages are folded into the matching event message
 // by the kit reconciler.
 export type ToolMapping = {
-  tool: "shell_command" | "file_read" | "file_edit" | "other";
+  tool: ToolKind;
   args: Record<string, unknown>;
 };
 
@@ -91,8 +91,94 @@ export function shellCommandFromArgs(args: Record<string, unknown>): string | un
   return undefined;
 }
 
+function idString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function toolSearchArgs(args: Record<string, unknown>): Record<string, unknown> | undefined {
+  const query = stringValue(args.query) ?? stringValue(args.q);
+  if (query === undefined) return undefined;
+  const out: Record<string, unknown> = { query };
+  const limit = numericValue(args.limit) ?? numericValue(args.top_k);
+  if (limit !== undefined) out.limit = Math.trunc(limit);
+  return out;
+}
+
+function userInputRequestArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const question = stringValue(args.question);
+  if (question !== undefined) out.question = question;
+  const rawChoices = args.choices;
+  const choices = Array.isArray(rawChoices)
+    ? rawChoices.filter((choice): choice is string => typeof choice === "string")
+    : undefined;
+  if (choices !== undefined && Array.isArray(rawChoices) && choices.length === rawChoices.length) {
+    out.choices = choices;
+  }
+  if (Array.isArray(args.questions)) {
+    const questions = args.questions
+      .filter(isObject)
+      .map((q) => {
+        const question = stringValue(q.question);
+        if (question === undefined) return undefined;
+        const item: Record<string, unknown> = { question };
+        const header = stringValue(q.header);
+        if (header !== undefined) item.header = header;
+        const id = stringValue(q.id);
+        if (id !== undefined) item.id = id;
+        if (Array.isArray(q.choices)) {
+          const qChoices = q.choices.filter(
+            (choice): choice is string => typeof choice === "string",
+          );
+          if (qChoices.length === q.choices.length) item.choices = qChoices;
+        } else if (Array.isArray(q.options)) {
+          const optionLabels = q.options
+            .filter(isObject)
+            .map((option) => stringValue(option.label))
+            .filter((label): label is string => label !== undefined);
+          if (optionLabels.length === q.options.length) item.choices = optionLabels;
+        }
+        return item;
+      })
+      .filter((q): q is Record<string, unknown> => q !== undefined);
+    if (questions.length > 0) out.questions = questions;
+  }
+  return out;
+}
+
+function mcpToolFromName(rawName: string): { server: string; tool: string } | undefined {
+  if (!rawName.startsWith("mcp__")) return undefined;
+  const [, server, ...toolParts] = rawName.split("__");
+  if (server === undefined || toolParts.length === 0) return undefined;
+  return { server, tool: toolParts.join("__") };
+}
+
+function mcpToolFromArgs(
+  rawName: string | undefined,
+  args: Record<string, unknown>,
+): { server: string; tool: string } | undefined {
+  if (rawName !== undefined) {
+    const fromName = mcpToolFromName(rawName);
+    if (fromName !== undefined) return fromName;
+  }
+  const namespace = stringValue(args.namespace);
+  if (namespace?.startsWith("mcp__") === true) {
+    const server = namespace.slice("mcp__".length);
+    const tool = stringValue(args.name) ?? stringValue(args.tool);
+    if (server.length > 0 && tool !== undefined) return { server, tool };
+  }
+  return undefined;
+}
+
 export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapping {
   const args = isObject(rawArgs) ? rawArgs : {};
+  const mcp = mcpToolFromArgs(rawName, args);
+  if (mcp !== undefined) {
+    const { namespace: _namespace, name: _name, tool: _tool, ...toolArgs } = args;
+    return { tool: "mcp_call", args: { ...mcp, args: toolArgs } };
+  }
   // `exec_command` is the canonical interactive-shell tool in real Codex
   // rollouts (codex-tui 0.128+, Codex Desktop 0.133+). Args carry `cmd`
   // plus `workdir` and a forward-compat set of permission / timing fields
@@ -100,7 +186,12 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   // `sandbox_permissions`, `prefix_rule`, `login`, `tty`); ignore extras.
   // `shell` / `container.exec` are kept as defensive fallbacks for older
   // session shapes.
-  if (rawName === "exec_command" || rawName === "shell" || rawName === "container.exec") {
+  if (
+    rawName === "exec_command" ||
+    rawName === "shell_command" ||
+    rawName === "shell" ||
+    rawName === "container.exec"
+  ) {
     const cmdString = shellCommandFromArgs(args);
     if (cmdString !== undefined) {
       const shellArgs: Record<string, unknown> = { command: cmdString };
@@ -109,6 +200,27 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
       return { tool: "shell_command", args: shellArgs };
     }
     return { tool: "other", args: { name: rawName, args } };
+  }
+  if (rawName === "write_stdin") {
+    const input = stringValue(args.chars);
+    const commandId = idString(args.command_id) ?? idString(args.session_id);
+    if (input !== undefined && input.length > 0) {
+      return {
+        tool: "shell_input",
+        args: { input, ...(commandId !== undefined ? { session_id: commandId } : {}) },
+      };
+    }
+    return {
+      tool: "shell_output",
+      args: { ...(commandId !== undefined ? { command_id: commandId } : {}) },
+    };
+  }
+  if (rawName === "tool_search") {
+    const searchArgs = toolSearchArgs(args);
+    if (searchArgs !== undefined) return { tool: "tool_search", args: searchArgs };
+  }
+  if (rawName === "request_user_input") {
+    return { tool: "user_input_request", args: userInputRequestArgs(args) };
   }
   if (rawName === "read") {
     const path = stringValue(args.path);

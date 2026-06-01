@@ -212,7 +212,8 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   Same channel choice; the `response_item.message` (role:"assistant") channel echoes the same
   content one record later.
 - `response_item.payload.type == "function_call"` → `tool_call`. Canonical tool-kind dispatch:
-  - `exec_command` (the canonical interactive-shell tool in real Codex rollouts) with
+  - `exec_command` / `shell_command` (the canonical interactive-shell tools in real Codex
+    rollouts) with
     `arguments` JSON carrying `cmd` plus optional `workdir`, and the forward-compat permission /
     timing fields (`yield_time_ms`, `max_output_tokens`, `justification`,
     `sandbox_permissions`, `prefix_rule`, `login`, `tty`) → `shell_command` with
@@ -222,6 +223,12 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   - Shell arguments accept three shapes: `{cmd: "..."}`, `{command: "..."}`, and
     `{command: ["bash", "-lc", "..."]}` argv-form. Argv-form joins with POSIX-safe quoting
     (same helper Pi uses) so the canonical `args.command` is always a single string.
+  - `write_stdin` with non-empty `chars` → `shell_input{input, session_id?}`; numeric
+    `session_id` is stringified. Empty or missing `chars` → `shell_output{command_id?}`.
+  - `request_user_input` → `user_input_request`.
+  - `tool_search` → `tool_search`.
+  - MCP-shaped names (`mcp__<server>__<tool>`) or args with `namespace:"mcp__<server>"`
+    → `mcp_call{server, tool, args}`.
   - `read` with `{path}` → `file_read`.
   - Anything else → `other` with `args = {name, args:{...}}`. Vendor tool names are passed
     through unchanged; `tools.<name>` prefix is stripped per spec convention (defensive — no
@@ -230,7 +237,9 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   emitted `tool_call.id` (also surfaced under `semantic.call_id` on both records). `output` is
   spinner-strip cleaned: trailing TUI decorations (a `\n` followed by `·` and a space) are
   removed when the trim region contains an unambiguous spinner glyph (`·`, `•`); natural
-  trailing whitespace such as a shell command's `\n` is preserved.
+  trailing whitespace such as a shell command's `\n` is preserved. For paired
+  `user_input_request` calls, Codex's JSON `{"answers": ...}` output is also exposed under
+  `tool_result.payload.meta.user_input_request.answers`.
 - `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
   string `input` (not a JSON `arguments` string). Dispatch:
   - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /
@@ -244,10 +253,11 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `call_id`, same spinner-strip applied.
 - `response_item.payload.type == "web_search_call"` → `tool_call`. `action.type == "search"`
   with a `queries[0]` or `query` string → `tool_call{tool:"web_search", args:{query}}`.
-  Anything else (no URL recoverable for `web_fetch`) falls through to `other`.
+  `action.type == "open_page"` with `url` → `tool_call{tool:"web_fetch", args:{url}}`.
+  Anything else falls through to `other`.
 - `response_item.payload.type == "tool_search_call"` / `tool_search_output` →
-  `tool_call{tool:"other", args:{name:"tool_search", args:{query, limit}}}` + paired
-  `tool_result`. Output is the JSON-stringified `tools` array.
+  `tool_call{tool:"tool_search", args:{query, limit?}}` + paired `tool_result` when a query is
+  recoverable. Output is the JSON-stringified `tools` array.
 - `response_item.payload.type == "reasoning"` — Codex stores reasoning twice: an opaque
   `encrypted_content` blob (still ignored; no plaintext recoverable) and an optional
   plaintext `summary[]` array. When summary items carry `text`, they emit a deduped
@@ -361,8 +371,10 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
   is already canonical; profile file is redundant noise unless future sessions diverge.
 - 12s `event_msg` ↔ `response_fallback` dedupe — no `response_fallback` records observed in
   the corpus; defer until evidence.
-- `request_user_input` Q&A reconstruction — no `request_user_input` records observed in the
-  corpus; defer until evidence.
+- `request_user_input` Q&A reconstruction is verified from local real sessions: the request is a
+  `function_call`, and the answer arrives as paired `function_call_output` JSON with an `answers`
+  key. The adapter exposes that parsed value at
+  `tool_result.payload.meta.user_input_request.answers`.
 
 Opt-in real-session test hook: `packages/adapters/src/codex/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_CODEX_SESSION` (absolute path to a real Codex JSONL session) and skips when
@@ -374,6 +386,9 @@ real summary and compact-summary records, meaningful system/progress/queue recor
 markers (both `[Request interrupted by user]` and `[Request interrupted by user for tool use]`
 variants observed in real sessions), and in-session model switches (emitted as synthetic
 `model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
+`AskUserQuestion` results arrive as user-side `tool_result` blocks linked by `tool_use_id`; the
+adapter keeps the raw answer in `tool_result.payload.output` and mirrors it under
+`tool_result.payload.meta.user_input_request.answers`.
 Deferred shapes include image attachments, server-tool result blocks, cross-file subagent merging,
 and overflow blob storage.
 

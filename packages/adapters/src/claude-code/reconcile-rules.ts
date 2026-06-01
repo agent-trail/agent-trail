@@ -84,7 +84,30 @@ export const ccToolKindToResult: ReconcilerRule = (entries) => {
     if (typeof forId !== "string") return entry;
     const kind = kindByCallEntryId.get(forId);
     if (kind === undefined) return entry;
-    return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    if (kind !== "user_input_request") {
+      return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    }
+    const payload = entry.payload as Record<string, unknown>;
+    const output = typeof payload.output === "string" ? payload.output : undefined;
+    if (output === undefined) return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    const meta =
+      payload.meta !== null && typeof payload.meta === "object"
+        ? (payload.meta as Record<string, unknown>)
+        : {};
+    return {
+      ...entry,
+      semantic: { ...entry.semantic, tool_kind: kind },
+      payload: {
+        ...payload,
+        meta: {
+          ...meta,
+          user_input_request: {
+            ...(meta.user_input_request as object | undefined),
+            answers: output,
+          },
+        },
+      },
+    } as Entry;
   });
 };
 

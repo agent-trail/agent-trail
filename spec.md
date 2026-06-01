@@ -704,7 +704,7 @@ extend a registered tool kind by adding sibling keys to its object that match th
 pattern (e.g. `meta.mcp_call.x-acme/cache_hit`). Unregistered and future tool kinds are accepted as
 opaque objects, so new kinds can be standardized in a later minor version without a schema migration.
 
-The v0.1 registry covers three tool kinds:
+The v0.1 registry covers four tool kinds:
 
 `meta.mcp_call` — preserves MCP content-block structure that `output` flattens.
 
@@ -735,6 +735,12 @@ The v0.1 registry covers three tool kinds:
 `meta.shell_command.exit_code` is the canonical home for shell exit status; there is no generic
 top-level `exit_code` on `tool_result`, because the concept does not apply to kinds like `mcp_call`
 or `web_fetch`.
+
+`meta.user_input_request` — parsed answers to an agent request for user input.
+
+| Sub-field | Required | Type | Notes |
+|---|---|---|---|
+| `answers` | no | any JSON value | Parsed answer payload when the source exposes one. Codex commonly returns an object under `answers`; Claude Code question results are plain strings. Raw display text remains in `payload.output`. |
 
 Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
 redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
@@ -1114,9 +1120,12 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `file_search` | `{ query, path?, glob? }` | Claude Code `Grep`/`Glob`, ripgrep-like source search |
 | `shell_command` | `{ command, cwd?, timeout? }` | Claude Code `Bash`, Pi `bash` |
 | `shell_output` | `{ command_id? }` | Follow-up reads from a long-running shell command |
+| `shell_input` | `{ input, session_id?, command_id? }` | Stdin sent to a running shell session |
 | `mcp_call` | `{ server, tool, args, headers? }` | MCP invocations |
 | `web_fetch` | `{ url, method?, headers? }` | Claude Code `WebFetch`, Pi web tool |
 | `web_search` | `{ query }` | Web search tools distinct from fetching a known URL |
+| `tool_search` | `{ query, limit? }` | Tool-discovery searches such as Claude Code `ToolSearch` and Codex `tool_search_call` |
+| `user_input_request` | `{ question?, choices?, questions? }` | Agent request for user input, such as Claude Code `AskUserQuestion` or Codex `request_user_input` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` | Notebook cell edits |
 | `task_plan` | `{ text?, items? }` | Todo/planning tools such as `TodoWrite` |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` | Claude Code `Task`, Cursor background agent |

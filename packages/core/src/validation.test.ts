@@ -100,6 +100,48 @@ test("accepts a valid minimal trail through the schema JSONL string wrapper", as
   expect(diagnostics).toEqual([]);
 });
 
+test("accepts standardized common tool kinds", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"tool_search","args":{"query":"auth flow"}}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"tool":"user_input_request","args":{"question":"Which backend?","choices":["bun","node"]}}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000003","ts":"2026-05-17T14:00:03.000Z","payload":{"tool":"shell_input","args":{"input":"yes\\n","session_id":"123"}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("accepts structured user_input_request answers on tool_result meta", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"user_input_request","args":{"question":"Ship?"}}}',
+      '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTA0000000000000000001","ok":true,"output":"{\\"answers\\":{\\"ship\\":\\"yes\\"}}","meta":{"user_input_request":{"answers":{"ship":"yes"}}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects unknown fields inside registered user_input_request result meta", async () => {
+  const diagnostics = await validateWriterStrictSchemaJsonlString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"yes","meta":{"user_input_request":{"answers":"yes","extra":true}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/meta/user_input_request/extra",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+});
+
 test("converts JSONL parse failures into writer-strict diagnostics", async () => {
   const diagnostics = await validateWriterStrictSchemaJsonlString(
     [
