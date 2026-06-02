@@ -85,6 +85,22 @@ test("mapAgentMessageUsage: derives context input from canonical cache token ali
   });
 });
 
+test("mapAgentMessageUsage: preserves direct context usage fields", () => {
+  expect(
+    mapAgentMessageUsage({
+      input_tokens: 10,
+      cache_read_tokens: 8,
+      context_input_tokens: 42,
+      contextWindowTokens: 200000,
+    }),
+  ).toEqual({
+    input_tokens: 10,
+    cache_read_tokens: 8,
+    context_input_tokens: 42,
+    context_window_tokens: 200000,
+  });
+});
+
 test("mapAgentMessageUsage: maps cumulative + reasoning tokens", () => {
   expect(
     mapAgentMessageUsage({
