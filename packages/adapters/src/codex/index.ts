@@ -68,7 +68,7 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
     if (lastNewline < 0) return { lines: [], truncated: true };
     safeText = text.slice(0, lastNewline);
   }
-  const lines = safeText.split("\n").filter((line) => line.length > 0);
+  const lines = safeText.split(/\r?\n/).filter((line) => line.length > 0);
   return { lines, truncated };
 }
 
@@ -171,7 +171,7 @@ async function readSessionVersionFromHead(path: string): Promise<string | undefi
 
 function parseObjectRecords(text: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = [];
-  for (const raw of text.split("\n")) {
+  for (const raw of text.split(/\r?\n/)) {
     if (raw.length === 0) continue;
     try {
       const value: unknown = JSON.parse(raw);

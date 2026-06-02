@@ -35,7 +35,7 @@ export type PiEnvelope = {
 
 export function parseLines(text: string): PiEnvelope[] {
   const out: PiEnvelope[] = [];
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i] ?? "";
     if (raw.length === 0) continue;

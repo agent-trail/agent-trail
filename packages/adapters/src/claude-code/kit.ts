@@ -53,13 +53,13 @@ function withInheritedTimestamps(records: Raw[], includeSidechain: boolean): Raw
 
 function sourceVersionOf(records: Raw[], includeSidechain: boolean): string | undefined {
   const hasVersion = (r: Raw): boolean => stringValue(r.version) !== undefined;
-  const first = records.find(
-    (r) => isTracerEnvelope(r, { includeSidechain }) && r.timestamp !== undefined && hasVersion(r),
-  );
-  const firstSession = records.find(
-    (r) => isTracerEnvelope(r, { includeSidechain }) && r.sessionId !== undefined && hasVersion(r),
-  );
-  return stringValue(first?.version) ?? stringValue(firstSession?.version);
+  let firstSession: Raw | undefined;
+  for (const record of records) {
+    if (!isTracerEnvelope(record, { includeSidechain }) || !hasVersion(record)) continue;
+    if (record.timestamp !== undefined) return stringValue(record.version);
+    if (record.sessionId !== undefined && firstSession === undefined) firstSession = record;
+  }
+  return stringValue(firstSession?.version);
 }
 
 class ClaudeCodeJsonlReader implements SourceReader {

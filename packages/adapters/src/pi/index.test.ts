@@ -507,9 +507,13 @@ test("parseSession() rejects array JSONL records instead of quarantining them", 
 });
 
 test("parseLines() reports malformed JSONL with a line number", () => {
-  expect(() => parseLines('{"type":"session"}\n{"type":')).toThrow(
+  expect(() => parseLines('{"type":"session"}\r\n{"type":')).toThrow(
     /JsonlReader: failed to parse JSON on line 2:/,
   );
+});
+
+test("parseLines() tolerates CRLF blank lines", () => {
+  expect(parseLines('{"type":"session"}\r\n\r\n')).toEqual([{ type: "session" }]);
 });
 
 test("parseSession() stamps timestamp-less drift quarantine from the session header", async () => {
