@@ -10,6 +10,8 @@
 // Idempotence: entry ids derive deterministically from
 // (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
 // same JSONL produces stable ids and the reconciler can group segments.
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import {
   type AgentMessageUsage,
   mapAgentMessageUsage,
@@ -17,12 +19,61 @@ import {
 } from "@agent-trail/adapter-kit";
 import type { Header, ToolKind } from "@agent-trail/types";
 import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import { type HeaderVcs, normalizeRemoteUrl } from "../vcs.ts";
 import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
 
 export const AGENT_NAME = "codex-cli";
 // Source-schema package key + vendor kind namespace (short form; the trail
 // AgentName is "codex-cli").
 export const SOURCE_AGENT = "codex";
+
+// `SessionMetaLine.git { commit_hash, branch, repository_url }` (Codex
+// protocol.rs GitInfo) is the session's recorded VCS ground truth. When
+// present it is authoritative — correct for archived / replayed / shared
+// trails where the live working tree at `cwd` is stale, missing, or a
+// different checkout. `index.ts` only falls back to live `readGitVcs(cwd)`
+// when this returns undefined (no recorded `git` block). `repository_url`
+// routes through the shared `normalizeRemoteUrl` (strip credentials + `.git`).
+export function vcsFromGitInfo(git: unknown): HeaderVcs | undefined {
+  if (!isObject(git)) return undefined;
+  const revision = stringValue(git.commit_hash);
+  if (revision === undefined) return undefined;
+  const vcs: HeaderVcs = { type: "git", revision, head_commit: revision };
+  const branch = stringValue(git.branch);
+  if (branch !== undefined) vcs.branch = branch;
+  const remote = normalizeRemoteUrl(git.repository_url);
+  if (remote !== undefined) vcs.remote_url = remote;
+  return vcs;
+}
+
+// `base_instructions` (the session system prompt) is preserved verbatim under
+// `source.raw`, but that is elidable at share time. The fingerprint is a cheap
+// (~80 byte) curated signal that survives sharing and search: it flags whether
+// the prompt was customized (vs the shipped default) and gives a verifiable
+// identity, without paying KBs of mostly-boilerplate text in every header.
+function baseInstructionsFingerprint(value: unknown): Record<string, unknown> | undefined {
+  const text = isObject(value) ? stringValue(value.text) : stringValue(value);
+  if (text === undefined) return undefined;
+  return {
+    sha256: createHash("sha256").update(text, "utf8").digest("hex"),
+    bytes: Buffer.byteLength(text, "utf8"),
+  };
+}
+
+// `SessionMeta.{model_provider, base_instructions, memory_mode}` curated into
+// `header.meta` under the adapter's reverse-DNS namespace (matching the
+// `dev.codex.*` entry-meta convention). `dynamic_tools` is captured separately
+// as a `capability_change` entry, so it is not duplicated here.
+function sessionMetaExtras(payload: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const provider = stringValue(payload.model_provider);
+  if (provider !== undefined) out["dev.codex.model_provider"] = provider;
+  const fingerprint = baseInstructionsFingerprint(payload.base_instructions);
+  if (fingerprint !== undefined) out["dev.codex.base_instructions"] = fingerprint;
+  const memoryMode = stringValue(payload.memory_mode);
+  if (memoryMode !== undefined) out["dev.codex.memory_mode"] = memoryMode;
+  return out;
+}
 
 export function buildHeader(first: Record<string, unknown>): Header {
   if (first.type !== "session_meta") {
@@ -32,7 +83,10 @@ export function buildHeader(first: Record<string, unknown>): Header {
   }
   const payload = isObject(first.payload) ? first.payload : {};
   const id = stringValue(payload.id);
-  const ts = timestampToIso(payload.timestamp) ?? timestampToIso(first.timestamp);
+  // Canonical session time is the envelope `RolloutLine.timestamp`; the inner
+  // `payload.timestamp` is only a same-record fallback for shapes that omit the
+  // envelope stamp (drift-defense: no global inner-payload timestamp ladder).
+  const ts = timestampToIso(first.timestamp) ?? timestampToIso(payload.timestamp);
   if (id === undefined) throw new Error("Codex session_meta missing payload.id");
   if (ts === undefined) throw new Error("Codex session_meta missing timestamp");
   const cliVersion = stringValue(payload.cli_version);
@@ -49,6 +103,12 @@ export function buildHeader(first: Record<string, unknown>): Header {
     },
   };
   if (cwd !== undefined) header.cwd = cwd;
+  // `git` is a sibling of the flattened SessionMeta fields inside the
+  // session_meta payload (SessionMetaLine = flatten(SessionMeta) + git).
+  const vcs = vcsFromGitInfo(payload.git);
+  if (vcs !== undefined) header.vcs = vcs;
+  const extras = sessionMetaExtras(payload);
+  if (Object.keys(extras).length > 0) header.meta = extras;
   header.source = {
     agent: AGENT_NAME,
     ...(cliVersion !== undefined ? { format_version: cliVersion } : {}),
@@ -367,6 +427,12 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
   const data: Record<string, unknown> = {};
   const turnId = stringValue(payload.turn_id);
   if (turnId !== undefined) data.turn_id = turnId;
+  // Semantic finish time (ExecCommandEndEvent.completed_at_ms). The entry `ts`
+  // stays the envelope arrival time for stream ordering; this surfaces the true
+  // completion instant explicitly so duration/latency analysis never has to
+  // infer it from `ts` deltas (duration is already in `data.duration_ms`).
+  const completedAtMs = numericValue(payload.completed_at_ms);
+  if (completedAtMs !== undefined) data.completed_at_ms = Math.trunc(completedAtMs);
   const command = stringValue(payload.command);
   if (command !== undefined) data.command = command;
   const cwd = stringValue(payload.cwd);
@@ -384,6 +450,78 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
   const parsed = payload.parsed_cmd;
   if (Array.isArray(parsed)) data.parsed_cmd = parsed;
   return data;
+}
+
+// ── TurnContextItem policy capture (Codex protocol.rs TurnContextItem) ──
+// Policy context is recorded once per real turn. The initial tuple is
+// snapshotted into `header.meta["dev.codex.turn_context"]`; mid-session changes
+// emit system_events (overrides.ts) — the permission axis as the reserved
+// `permission_mode_change` kind, the flavor axis as `x-codex/turn_context`.
+// These pure helpers extract the shapes both call sites share.
+const PERMISSION_FIELDS = [
+  "approval_policy",
+  "sandbox_policy",
+  "network",
+  "file_system_sandbox_policy",
+  "permission_profile",
+  "active_permission_profile",
+] as const;
+
+const FLAVOR_FIELDS = ["personality", "collaboration_mode", "effort"] as const;
+
+function pickPresent(p: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = p[key];
+    if (value !== undefined && value !== null) out[key] = value;
+  }
+  return out;
+}
+
+// Full policy tuple for the header.meta snapshot, including the environment
+// fields (current_date / timezone) that get no change events of their own.
+export function turnContextSnapshot(p: Record<string, unknown>): Record<string, unknown> {
+  return pickPresent(p, [...PERMISSION_FIELDS, ...FLAVOR_FIELDS, "current_date", "timezone"]);
+}
+
+export function turnContextPermissionAxis(p: Record<string, unknown>): Record<string, unknown> {
+  return pickPresent(p, PERMISSION_FIELDS);
+}
+
+export function turnContextFlavorAxis(p: Record<string, unknown>): Record<string, unknown> {
+  return pickPresent(p, FLAVOR_FIELDS);
+}
+
+// Cross-adapter permission-mode label for `permission_mode_change.data.to`:
+// prefer the named preset (active_permission_profile / permission_profile), else
+// the raw approval policy. Object policies (e.g. granular approval) serialize.
+export function permissionModeLabel(p: Record<string, unknown>): string | undefined {
+  const preset = stringValue(p.active_permission_profile) ?? stringValue(p.permission_profile);
+  if (preset !== undefined) return preset;
+  const approval = p.approval_policy;
+  if (typeof approval === "string") return approval;
+  if (approval !== undefined && approval !== null) return JSON.stringify(approval);
+  return undefined;
+}
+
+// Recursively canonicalize a value to a key-order-independent form: objects
+// become sorted [key, value] pairs at every depth, arrays keep order. Avoids
+// false-positive change detection when a nested policy object (e.g. network
+// `{allowed_domains, denied_domains}`) is serialized with a different key order.
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => [k, canonicalize(v)]);
+  }
+  return value;
+}
+
+// Deterministic key over an axis object for change detection, stable across key
+// ordering at any nesting depth.
+export function stableAxisKey(axis: Record<string, unknown>): string {
+  return JSON.stringify(canonicalize(axis));
 }
 
 // Lifecycle-vocabulary system_event builder. `kind` is the reserved §9.3 token

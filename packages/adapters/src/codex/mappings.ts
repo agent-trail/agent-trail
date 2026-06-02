@@ -212,7 +212,9 @@ function message(payloadType: "user_message" | "agent_message"): MappingDef<Raw>
     emit: (record) => {
       if (!emittable(record)) return [];
       const p = payloadOf(record);
-      const text = stringValue(p.message) ?? stringValue(p.text);
+      // Canonical surface is `payload.message` (User/AgentMessageEvent.message);
+      // no `text` fallback (drift-defense: audited single source).
+      const text = stringValue(p.message);
       if (text === undefined || text.length === 0) return [];
       return [
         {
@@ -439,7 +441,10 @@ const compacted = defineMapping<Raw>({
   emit: (record) => {
     if (!emittable(record)) return [];
     const p = payloadOf(record);
-    const summary = stringValue(p.message) ?? stringValue(p.summary) ?? "";
+    // Canonical compaction summary is `payload.message` (CompactedItem.message);
+    // observed real values can be empty, so default to "" (drift-defense: no
+    // `summary` fallback).
+    const summary = stringValue(p.message) ?? "";
     const payload: Raw = { summary, trigger: "auto" };
     const tokensBefore = numericValue(p.tokens_before);
     if (tokensBefore !== undefined) payload.tokens_before = Math.trunc(tokensBefore);
