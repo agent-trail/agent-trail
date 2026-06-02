@@ -2823,6 +2823,51 @@ test("parsed fixture round-trips through validateAdapterTrail with zero error di
   expect(errors).toEqual([]);
 });
 
+test("recognizes last-prompt / mode / bridge-session as benign — no quarantine, no entry", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000a0",
+      parentUuid: null,
+      timestamp: "2026-05-18T10:00:00.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      message: { role: "user", content: "hi" },
+    },
+    {
+      type: "last-prompt",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      lastPrompt: "hi",
+      leafUuid: "00000000-0000-0000-0000-0000000000a0",
+    },
+    {
+      type: "mode",
+      mode: "normal",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+    },
+    {
+      type: "bridge-session",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      bridgeSessionId: "cse_synthetic",
+      lastSequenceNum: 0,
+    },
+  ]);
+  const entries = trail.groups[0]!.entries;
+  const quarantined = entries.filter(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
+  );
+  expect(quarantined).toEqual([]);
+  // The three benign records map to nothing; only the user_message survives.
+  expect(entries.map((e) => e.type)).toEqual(["user_message"]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession stamps timestamp-less drift quarantine from the nearest source timestamp", async () => {
   const tmp = mkdtempSync(join(tmpdir(), "cc-drift-ts-"));
   const path = join(tmp, "session.jsonl");
