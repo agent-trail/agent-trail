@@ -225,6 +225,71 @@ test("parseSession on the desktop tracer fixture emits a valid trail with codex-
   expect(errors).toEqual([]);
 });
 
+test("parseSession emits session_metadata_update name from session_index thread_name", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({
+      id,
+      thread_name: "Address TDD #125",
+      updated_at: "2026-06-02T04:51:00.000000Z",
+    })}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const update = trail.entries.find(
+    (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+  );
+
+  expect(update?.ts).toBe("2026-06-02T04:51:00.000Z");
+  expect(update?.payload).toEqual({
+    field: "name",
+    value: "Address TDD #125",
+    reason: "external",
+  });
+  expect(update?.source).toEqual({
+    agent: "codex-cli",
+    original_type: "session_index",
+    synthesized: true,
+    raw: {
+      id,
+      thread_name: "Address TDD #125",
+      updated_at: "2026-06-02T04:51:00.000000Z",
+    },
+  });
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
+test("parseSession skips session_index rows without usable thread_name", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({ id, thread_name: "", updated_at: "2026-06-02T04:51:00.000000Z" })}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  expect(
+    trail.entries.some(
+      (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+    ),
+  ).toBe(false);
+});
+
 test("desktop fixture emits user_message + agent_message entries from event_msg channel", async () => {
   const trail = await parseDesktopFixture();
   const userEntries = trail.entries.filter((e) => e.type === "user_message");

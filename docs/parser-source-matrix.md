@@ -30,7 +30,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -183,7 +183,7 @@ Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`a
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
 and enrichment `system_event` records (`task_started`, `task_completed`, `x-codex/exec_command_end`,
 `x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/web_search_end`),
-`session_metadata_update` from `thread_goal_updated`, custom-channel tool calls (`apply_patch` single/multi-file dispatch,
+`session_metadata_update` from `thread_goal_updated` and `session_index.thread_name`, custom-channel tool calls (`apply_patch` single/multi-file dispatch,
 `tool_search` round-trip), `web_search_call` mapping, argv-form shell argument quoting, and
 spinner-glyph stripping. `user_interrupt` synthesis remains deferred — see the deferred-shapes
 section below for why no real Codex session on the verifying contributor's machine emitted an
@@ -192,6 +192,8 @@ real Codex sessions live under a date-partitioned tree (`sessions/YYYY/MM/DD/rol
 with no per-cwd subdir, so `detectSessions` walks the full tree and filters by the cwd recorded in
 each file's header. The adapter `name` is `"codex"` (discovery handle); the trail header's
 `agent.name` is `"codex-cli"` (the reserved schema agent name).
+Codex also keeps session titles in a sidecar `session_index.jsonl` at the Codex home root; rows
+have `{id, thread_name, updated_at}` and join to rollout files by `id == session_meta.payload.id`.
 
 Format — single wrapped shape. The issue body's "Dual format dispatch (legacy CLI flat / desktop
 wrapped)" turned out not to reflect reality: every real session on the verifying contributor's
@@ -324,6 +326,9 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a non-empty
   string, it updates `description`; otherwise the raw goal object is preserved under
   `x-codex/thread_goal`.
+- `session_index.thread_name` → `session_metadata_update{field:"name", reason:"external"}`.
+  `updated_at` supplies the event timestamp. Rows without a non-empty `thread_name` or valid
+  timestamp are ignored.
 - `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
   (for example, `"interrupted"`).
 - `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`

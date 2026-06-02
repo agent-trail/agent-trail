@@ -1,12 +1,15 @@
-import { open, readdir, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Entry } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
 import { codexKitAdapter } from "./kit.ts";
-import { buildHeader } from "./parser.ts";
-import { codexSessionsDir } from "./paths.ts";
+import { AGENT_NAME, buildHeader } from "./parser.ts";
+import { codexHomeDir, codexSessionsDir } from "./paths.ts";
+import { isObject, stringValue, timestampToIso } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-codex/${pkg.version}`;
 
@@ -214,6 +217,72 @@ function deriveIdFromFilename(filePath: string): string | undefined {
   return match?.[1];
 }
 
+function codexSessionIndexPath(): string | undefined {
+  const home = codexHomeDir();
+  return home === undefined ? undefined : join(home, "session_index.jsonl");
+}
+
+async function readSessionIndexRow(
+  sessionId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const path = codexSessionIndexPath();
+  if (path === undefined) return undefined;
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  for (const line of text.split("\n")) {
+    if (line.length === 0) continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isObject(row)) continue;
+    if (stringValue(row.id) === sessionId) return row;
+  }
+  return undefined;
+}
+
+function sessionIndexNameUpdate(
+  row: Record<string, unknown> | undefined,
+  sessionUid: string,
+): Entry | undefined {
+  if (row === undefined) return undefined;
+  const threadName = stringValue(row.thread_name);
+  if (threadName === undefined || threadName.trim().length === 0) return undefined;
+  const ts = sessionIndexTimestampToIso(row.updated_at);
+  if (ts === undefined) return undefined;
+  return {
+    type: "session_metadata_update",
+    id: deriveSynthesizedEntryId(CODEX_ENTRY_ID_NAMESPACE, [
+      sessionUid,
+      "session_index",
+      "thread_name",
+      ts,
+    ]),
+    ts,
+    payload: { field: "name", value: threadName, reason: "external" },
+    source: {
+      agent: AGENT_NAME,
+      original_type: "session_index",
+      synthesized: true,
+      raw: row,
+    },
+  };
+}
+
+function sessionIndexTimestampToIso(value: unknown): string | undefined {
+  const raw = timestampToIso(value);
+  if (raw === undefined) return undefined;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
 export const codexAdapter: TrailAdapter = {
   name: "codex",
   async detectSessions(opts?: DetectOptions): Promise<SessionRef[]> {
@@ -240,6 +309,11 @@ export const codexAdapter: TrailAdapter = {
     }
     const sessionUid = header.session_uid ?? header.id;
     const entries = await codexKitAdapter.parse({ path: ref.path }, { sessionUid });
+    const sessionIndexUpdate = sessionIndexNameUpdate(
+      await readSessionIndexRow(header.id),
+      sessionUid,
+    );
+    if (sessionIndexUpdate !== undefined) entries.push(sessionIndexUpdate);
     const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
     return { envelope, header, entries };
   },
