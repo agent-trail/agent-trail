@@ -22,7 +22,13 @@ import {
   patchSingleFilePath,
   stripSpinner,
 } from "./parser.ts";
-import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
+import {
+  isObject,
+  numericValue,
+  sanitizeSourceRaw,
+  stringValue,
+  timestampToIso,
+} from "./source.ts";
 
 type Raw = Record<string, unknown>;
 type UserQueryOption = { label: string; description?: string };
@@ -41,15 +47,37 @@ function payloadOf(record: Raw): Raw {
   return isObject(record.payload) ? record.payload : {};
 }
 
+function elidedArrayMarker(value: unknown[]): Record<string, unknown> {
+  return {
+    elided: true,
+    size_bytes: Buffer.byteLength(JSON.stringify(value) ?? "", "utf8"),
+    item_count: value.length,
+  };
+}
+
+function compactedSourceRaw(record: Raw): Raw {
+  const payload = payloadOf(record);
+  const replacementHistory = payload.replacement_history;
+  if (!Array.isArray(replacementHistory)) return record;
+  return {
+    ...record,
+    payload: {
+      ...payload,
+      replacement_history: elidedArrayMarker(replacementHistory),
+    },
+  };
+}
+
 function emittable(record: Raw): boolean {
   return timestampToIso(record.timestamp) !== undefined;
 }
 
 function source(originalType: string, raw?: Raw, synthesized?: boolean): Entry["source"] {
+  const safeRaw = raw !== undefined ? sanitizeSourceRaw(raw) : undefined;
   return {
     agent: AGENT_NAME,
     original_type: originalType,
-    ...(raw !== undefined ? { raw } : {}),
+    ...(safeRaw !== undefined ? { raw: safeRaw } : {}),
     ...(synthesized === true ? { synthesized: true } : {}),
   };
 }
@@ -399,8 +427,7 @@ const compacted = defineMapping<Raw>({
   emit: (record) => {
     if (!emittable(record)) return [];
     const p = payloadOf(record);
-    const summary = stringValue(p.message) ?? stringValue(p.summary);
-    if (summary === undefined || summary.length === 0) return [];
+    const summary = stringValue(p.message) ?? stringValue(p.summary) ?? "";
     const payload: Raw = { summary, trigger: "auto" };
     const tokensBefore = numericValue(p.tokens_before);
     if (tokensBefore !== undefined) payload.tokens_before = Math.trunc(tokensBefore);
@@ -410,7 +437,7 @@ const compacted = defineMapping<Raw>({
       {
         type: "context_compact",
         payload,
-        source: source("compacted"),
+        source: source("compacted", compactedSourceRaw(record)),
         meta: meta("compacted"),
       },
     ];

@@ -187,6 +187,21 @@ const userMessage = defineMapping<Raw>({
   emit: (raw) => {
     const record = raw as CcEnvelope;
     if (!gate(record)) return [];
+    if (record.isCompactSummary === true) {
+      const text =
+        stringValue(record.summary) ??
+        stringValue(record.message?.content) ??
+        jsonString(record.message?.content);
+      if (text === undefined) return [];
+      return [
+        {
+          type: "context_compact",
+          payload: { summary: text, trigger: "auto" },
+          source: src(record, "user"),
+          meta: meta(record),
+        },
+      ];
+    }
     const content = record.message?.content;
     if (typeof content === "string") {
       const interrupt = isInterruptMarker(content);
@@ -382,6 +397,7 @@ const summary = defineMapping<Raw>({
       stringValue(record.summary) ??
       stringValue(record.message?.content) ??
       jsonString(record.message?.content);
+    if (text === undefined) return [];
     if (record.isCompactSummary === true) {
       return [
         {

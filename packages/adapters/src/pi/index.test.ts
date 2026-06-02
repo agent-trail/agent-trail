@@ -1063,15 +1063,144 @@ test("compaction-and-model-change fixture round-trips through validateAdapterTra
 
 test("compaction-and-model-change fixture emits context_compact and model_change with from_model from prior assistant", async () => {
   const trail = await parseCompactFixture();
-  const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
+  const entries = trail.groups[0]!.entries;
+  const compact = entries.find((e) => e.type === "context_compact");
+  const foldedUser = entries.find(
+    (e) => e.type === "user_message" && (e.payload as { text?: string }).text === "long ramble",
+  );
   expect(compact).toBeDefined();
+  expect(foldedUser).toBeDefined();
   expect((compact?.payload as { summary?: string }).summary).toContain("acknowledged");
   expect((compact?.payload as { trigger?: string }).trigger).toBe("auto");
-  const mc = trail.groups[0]!.entries.find((e) => e.type === "model_change");
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    foldedUser!.id,
+  ]);
+  const mc = entries.find((e) => e.type === "model_change");
   expect(mc?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
     to_model: "claude-opus-4-7",
   });
+});
+
+test("compaction provenance includes quarantined entries before firstKeptEntryId", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pi-compact-quarantine-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const lines = [
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-000000176101",
+        timestamp: "2026-06-01T02:00:00.000Z",
+        cwd: "/tmp/synthetic-project",
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-000000176102",
+        parentId: null,
+        timestamp: "2026-06-01T02:00:01.000Z",
+        message: { role: "user", content: "long prompt" },
+      },
+      {
+        type: "plugin_blob",
+        id: "00000000-0000-0000-0000-000000176103",
+        parentId: "00000000-0000-0000-0000-000000176102",
+        timestamp: "2026-06-01T02:00:02.000Z",
+        blob: { opaque: "data" },
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-000000176104",
+        parentId: "00000000-0000-0000-0000-000000176103",
+        timestamp: "2026-06-01T02:00:03.000Z",
+        message: {
+          role: "assistant",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          stopReason: "stop",
+          content: [{ type: "text", text: "kept answer" }],
+        },
+      },
+      {
+        type: "compaction",
+        id: "00000000-0000-0000-0000-000000176105",
+        parentId: "00000000-0000-0000-0000-000000176104",
+        timestamp: "2026-06-01T02:00:04.000Z",
+        summary: "Compacted prompt and plugin blob.",
+        firstKeptEntryId: "00000000-0000-0000-0000-000000176104",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+    const trail = await piAdapter.parseSession({
+      id: "00000000-0000-0000-0000-000000176101",
+      adapter: "pi",
+      path,
+    });
+
+    const entries = trail.groups[0]!.entries;
+    const compact = entries.find((e) => e.type === "context_compact");
+    const user = entries.find((e) => e.type === "user_message");
+    const quarantine = entries.find(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: string }).kind === "x-pi/unknown_record",
+    );
+    if (user === undefined) throw new Error("expected folded user entry");
+    if (quarantine === undefined) throw new Error("expected folded quarantine entry");
+    expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+      user.id,
+      quarantine.id,
+    ]);
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("compaction omits replaced_message_ids when firstKeptEntryId does not resolve", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "pi-compact-unresolved-"));
+  const path = join(tmp, "session.jsonl");
+  try {
+    const lines = [
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-000000176001",
+        timestamp: "2026-06-01T02:00:00.000Z",
+        cwd: "/tmp/synthetic-project",
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-000000176002",
+        parentId: null,
+        timestamp: "2026-06-01T02:00:01.000Z",
+        message: { role: "user", content: "long prompt" },
+      },
+      {
+        type: "compaction",
+        id: "00000000-0000-0000-0000-000000176003",
+        parentId: "00000000-0000-0000-0000-000000176002",
+        timestamp: "2026-06-01T02:00:02.000Z",
+        summary: "Compacted prompt.",
+        firstKeptEntryId: "00000000-0000-0000-0000-000000176999",
+      },
+    ];
+    writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+    const trail = await piAdapter.parseSession({
+      id: "00000000-0000-0000-0000-000000176001",
+      adapter: "pi",
+      path,
+    });
+    const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
+    expect(
+      (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+    ).toBeUndefined();
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git working tree with an origin remote", async () => {

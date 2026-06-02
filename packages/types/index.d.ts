@@ -550,6 +550,10 @@ export interface ContextCompact {
     trigger?: "manual" | "auto";
     tokens_before?: number;
     tokens_after?: number;
+    /**
+     * Agent Trail entry IDs folded or replaced by this compaction summary. Provenance-only; readers must not require same-file resolution.
+     */
+    replaced_message_ids?: string[];
   };
   [k: string]: unknown;
 }
