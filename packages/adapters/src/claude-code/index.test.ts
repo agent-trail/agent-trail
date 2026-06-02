@@ -221,11 +221,38 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
     ts: "2026-05-17T14:00:05.000Z",
     agent: { name: "claude-code", version: "1.0.0-synthetic" },
     cwd: "/tmp/synthetic-project",
+    meta: {
+      "dev.claudecode.entrypoint": "sdk-cli",
+      "dev.claudecode.user_type": "external",
+    },
     source: {
       agent: "claude-code",
       format_version: "1.0.0-synthetic",
     },
   });
+});
+
+test("parseSession() captures entrypoint and userType provenance into header.meta", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000c0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      entrypoint: "sdk-cli",
+      userType: "external",
+      message: { role: "user", content: "hi" },
+    },
+  ]);
+  const meta = trail.groups[0]!.header.meta;
+  expect(meta?.["dev.claudecode.entrypoint"]).toBe("sdk-cli");
+  expect(meta?.["dev.claudecode.user_type"]).toBe("external");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
