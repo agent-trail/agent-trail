@@ -183,7 +183,7 @@ Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`a
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
 and enrichment `system_event` records (`task_started`, `task_completed`, `x-codex/exec_command_end`,
 `x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/web_search_end`),
-permission request records from Codex approval gates,
+with unit-test coverage for permission request records from Codex approval gates,
 `session_metadata_update` from `thread_goal_updated` and `session_index.thread_name`, custom-channel tool calls (`apply_patch` single/multi-file dispatch,
 `tool_search` round-trip), `web_search_call` mapping, argv-form shell argument quoting, and
 spinner-glyph stripping. `user_interrupt` synthesis remains deferred — see the deferred-shapes

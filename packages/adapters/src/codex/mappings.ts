@@ -476,6 +476,11 @@ function copyObject(data: Raw, p: Raw, key: string, outKey = key): void {
   if (isObject(p[key])) data[outKey] = p[key];
 }
 
+function copyObjectOrArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (isObject(value) || Array.isArray(value)) data[outKey] = value;
+}
+
 function copyArray(data: Raw, p: Raw, key: string, outKey = key): void {
   if (Array.isArray(p[key])) data[outKey] = p[key];
 }
@@ -530,6 +535,10 @@ const execApprovalRequest = lifecycle("exec_approval_request", (p) => {
   copyString(data, p, "approval_id");
   copyArray(data, p, "command");
   copyString(data, p, "cwd");
+  copyObject(data, p, "network_approval_context");
+  copyObjectOrArray(data, p, "proposed_execpolicy_amendment");
+  copyArray(data, p, "proposed_network_policy_amendments");
+  copyObject(data, p, "additional_permissions");
   copyArray(data, p, "available_decisions");
   copyArray(data, p, "parsed_cmd");
   return {
@@ -584,7 +593,10 @@ const applyPatchApprovalRequest = lifecycle("apply_patch_approval_request", (p) 
 
 const elicitationRequest = lifecycle("elicitation_request", (p) => {
   const { data, callId } = permissionRequestBaseData(p);
-  copyString(data, p, "request_id");
+  const requestId = p.request_id ?? p.id;
+  if (typeof requestId === "string" || typeof requestId === "number") {
+    data.request_id = requestId;
+  }
   copyString(data, p, "server_name");
   copyString(data, p, "prompt");
   copyObject(data, p, "request");

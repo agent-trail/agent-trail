@@ -943,6 +943,62 @@ test("event_msg.exec_approval_request emits permission_request linked by call_id
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("event_msg.exec_approval_request preserves derived approval context without explicit decisions", async () => {
+  const id = "019d8900-cccd-7000-e000-00000000000c";
+  const networkApprovalContext = { host: "api.example.com", protocol: "https" };
+  const proposedNetworkPolicyAmendments = [{ host: "api.example.com", action: "allow" }];
+  const additionalPermissions = {
+    file_system: { writable_roots: ["/proj/codex-approval"] },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "exec_approval_request",
+          call_id: "call-exec-approval-context",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          command: ["bun", "test"],
+          cwd: "/proj/codex-approval",
+          network_approval_context: networkApprovalContext,
+          proposed_execpolicy_amendment: ["bun", "test"],
+          proposed_network_policy_amendments: proposedNetworkPolicyAmendments,
+          additional_permissions: additionalPermissions,
+          parsed_cmd: [{ type: "bun", cmd: "bun test" }],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-approval-context");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-exec-approval-context",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    command: ["bun", "test"],
+    cwd: "/proj/codex-approval",
+    network_approval_context: networkApprovalContext,
+    proposed_execpolicy_amendment: ["bun", "test"],
+    proposed_network_policy_amendments: proposedNetworkPolicyAmendments,
+    additional_permissions: additionalPermissions,
+    parsed_cmd: [{ type: "bun", cmd: "bun test" }],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("event_msg.request_permissions emits permission_request with requested permissions", async () => {
   const id = "019d8900-dddd-7000-e000-00000000000d";
   const permissions = {
@@ -1067,7 +1123,7 @@ test("event_msg.elicitation_request emits permission_request with request metada
         type: "event_msg",
         payload: {
           type: "elicitation_request",
-          request_id: "elicit-1",
+          id: "elicit-1",
           server_name: "linear",
           prompt: "Choose a Linear workspace",
           request,

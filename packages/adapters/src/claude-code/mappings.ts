@@ -555,8 +555,7 @@ function permissionDecision(value: unknown): "allow" | "deny" | undefined {
     normalized === "deny" ||
     normalized === "denied" ||
     normalized === "reject" ||
-    normalized === "rejected" ||
-    normalized === "abort"
+    normalized === "rejected"
   ) {
     return "deny";
   }
