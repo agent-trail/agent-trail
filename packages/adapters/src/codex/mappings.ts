@@ -472,6 +472,17 @@ function copyTruncatedNumber(data: Raw, p: Raw, key: string, outKey = key): void
   if (value !== undefined) data[outKey] = Math.trunc(value);
 }
 
+function copyNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = numericValue(p[key]);
+  if (value !== undefined) data[outKey] = value;
+}
+
+function copyBooleanOrNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (typeof value === "boolean") data[outKey] = value;
+  else copyNumber(data, p, key, outKey);
+}
+
 function copyObject(data: Raw, p: Raw, key: string, outKey = key): void {
   if (isObject(p[key])) data[outKey] = p[key];
 }
@@ -508,7 +519,24 @@ function sanitizedSchema(value: unknown): Raw | undefined {
   const out: Raw = {};
   copySchemaType(out, value);
   copyString(out, value, "format");
+  copyString(out, value, "$ref");
+  copyString(out, value, "pattern");
   copyStringArray(out, value, "required");
+  for (const key of [
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "minProperties",
+    "maxProperties",
+    "multipleOf",
+  ] as const) {
+    copyNumber(out, value, key);
+  }
+  copyBooleanOrNumber(out, value, "exclusiveMinimum");
+  copyBooleanOrNumber(out, value, "exclusiveMaximum");
 
   if (isObject(value.properties)) {
     const properties: Raw = {};
@@ -574,7 +602,8 @@ function sanitizedElicitationRequest(value: unknown): Raw | undefined {
 
 function permissionRequestBaseData(p: Raw): { data: Raw; callId?: string } {
   const data: Raw = {};
-  const callId = stringValue(p.call_id);
+  const rawCallId = stringValue(p.call_id);
+  const callId = isNonEmptyString(rawCallId) ? rawCallId : undefined;
   if (callId !== undefined) data.tool_call_id = callId;
   copyString(data, p, "turn_id");
   copyTruncatedNumber(data, p, "started_at_ms");

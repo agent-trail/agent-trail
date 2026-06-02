@@ -740,7 +740,7 @@ test("parseSession() maps hook_permission_decision attachments to permission_dec
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
-test("parseSession() does not coerce hook_permission_decision abort into deny", async () => {
+test("parseSession() treats blank hook_permission_decision tool_call_id as missing", async () => {
   const base = {
     isSidechain: false,
     sessionId: "00000000-0000-0000-0000-ccccc0000175",
@@ -761,6 +761,51 @@ test("parseSession() does not coerce hook_permission_decision abort into deny", 
       parentUuid: "00000000-0000-0000-0000-cccccccc1751",
       type: "attachment",
       uuid: "00000000-0000-0000-0000-cccccccc1752",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "hook_permission_decision",
+        decision: "deny",
+        tool_call_id: "   ",
+        hook_event: "PreToolUse",
+      },
+    },
+  ]);
+  const evt = trail.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_decision",
+  );
+
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    decision: "deny",
+    hook_event: "PreToolUse",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not coerce hook_permission_decision abort into deny", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000176",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1761",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1762",
       timestamp: "2026-05-17T14:00:06.000Z",
       attachment: {
         type: "hook_permission_decision",

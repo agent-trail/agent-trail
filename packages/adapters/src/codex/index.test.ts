@@ -1047,6 +1047,42 @@ test("event_msg.request_permissions emits permission_request with requested perm
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("event_msg.request_permissions treats blank call_id as missing", async () => {
+  const id = "019d8900-ddde-7000-e000-00000000000d";
+  const permissions = { network: { mode: "enabled" } };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "request_permissions",
+          call_id: "   ",
+          reason: "needs network",
+          permissions,
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    reason: "needs network",
+    permissions,
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.entries.find(
@@ -1253,12 +1289,24 @@ test("event_msg.elicitation_request strips form defaults and submitted values", 
                 apiKey: {
                   type: "string",
                   title: "API key",
+                  format: "password",
+                  minLength: 8,
+                  maxLength: 64,
+                  pattern: "^[A-Za-z0-9-]+$",
+                  enum: ["sk-live-secret"],
                   default: "sk-live-secret",
                   examples: ["sk-example-secret"],
                 },
                 region: {
                   type: "string",
                   default: "us-east-1",
+                },
+                replicas: {
+                  type: "number",
+                  minimum: 1,
+                  maximum: 5,
+                  multipleOf: 1,
+                  exclusiveMaximum: false,
                 },
               },
             },
@@ -1284,8 +1332,21 @@ test("event_msg.elicitation_request strips form defaults and submitted values", 
         type: "object",
         required: ["apiKey"],
         properties: {
-          apiKey: { type: "string" },
+          apiKey: {
+            type: "string",
+            format: "password",
+            pattern: "^[A-Za-z0-9-]+$",
+            minLength: 8,
+            maxLength: 64,
+          },
           region: { type: "string" },
+          replicas: {
+            type: "number",
+            minimum: 1,
+            maximum: 5,
+            multipleOf: 1,
+            exclusiveMaximum: false,
+          },
         },
       },
     },

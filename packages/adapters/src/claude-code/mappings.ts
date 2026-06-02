@@ -685,11 +685,12 @@ const capabilityAttachment = defineMapping<Raw>({
       const decision = permissionDecision(attachment.decision);
       if (decision === undefined) return [];
       const data: Record<string, unknown> = { decision };
-      const toolCallId =
+      const rawToolCallId =
         stringValue(attachment.tool_call_id) ??
         stringValue(attachment.toolCallId) ??
         stringValue(attachment.tool_use_id) ??
         stringValue(attachment.toolUseID);
+      const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
       if (toolCallId !== undefined) data.tool_call_id = toolCallId;
       const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
       if (hookEvent !== undefined) data.hook_event = hookEvent;
