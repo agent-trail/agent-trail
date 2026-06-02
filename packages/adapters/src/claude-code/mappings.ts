@@ -165,7 +165,8 @@ function hookFailureData(
     stringValue(raw.error) ??
     stringValue(raw.details) ??
     stringValue(raw.stderr);
-  const code = stringValue(raw.code);
+  const code =
+    stringValue(raw.code) ?? (typeof raw.code === "number" ? String(raw.code) : undefined);
   const blocking = booleanValue(raw.blocking) ?? fallbackBlocking;
   const data: Record<string, unknown> = { severity: "error" };
   if (blocking !== undefined) data.blocking = blocking;

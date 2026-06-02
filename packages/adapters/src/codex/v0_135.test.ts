@@ -292,6 +292,54 @@ describe("codex diagnostic event messages", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("stream_error omits details when no additional_details field is present", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-stream-error-"));
+    try {
+      const fixture = join(dir, "diagnostics.jsonl");
+      await writeFile(
+        fixture,
+        `${[
+          {
+            timestamp: "2026-06-01T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "019d9000-dddd-7000-e000-000000000175",
+              timestamp: "2026-06-01T12:00:00.000Z",
+              cwd: "/tmp/synthetic-project",
+              cli_version: "0.135.0",
+            },
+          },
+          {
+            timestamp: "2026-06-01T12:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "stream_error",
+              message: "stream disconnected",
+              codex_error_info: "transport_lost",
+            },
+          },
+        ]
+          .map((line) => JSON.stringify(line))
+          .join("\n")}\n`,
+      );
+
+      const all = await parseCodexEntries(fixture, "unit-test");
+      expectWriterStrict(all);
+      const event = all.find(
+        (entry) =>
+          entry.type === "system_event" &&
+          (entry.payload as { kind?: string }).kind === "stream_error",
+      );
+      expect(event?.payload).toEqual({
+        kind: "stream_error",
+        text: "stream disconnected",
+        data: { severity: "error", code: "transport_lost" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("codex v0.135 image-bearing response_item.message", () => {

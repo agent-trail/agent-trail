@@ -560,7 +560,8 @@ const streamError = defineMapping<Raw>({
     const data: Raw = { severity: "error" };
     const code = diagnosticCode(p);
     if (code !== undefined) data.code = code;
-    data.details = stringValue(p.additional_details) ?? text;
+    const details = stringValue(p.additional_details);
+    if (details !== undefined) data.details = details;
     return [diagnosticDraft("event_msg.stream_error", p, "stream_error", text, data)];
   },
 });

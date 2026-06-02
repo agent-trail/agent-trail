@@ -1145,6 +1145,7 @@ test("parseSession() emits hook_failed events from stop_hook_summary hookErrors"
         {
           hookName: "Stop:notify",
           stderr: "notification hook failed",
+          code: 2,
           blocking: false,
         },
       ],
@@ -1174,6 +1175,7 @@ test("parseSession() emits hook_failed events from stop_hook_summary hookErrors"
         severity: "error",
         blocking: false,
         hook_name: "Stop:notify",
+        code: "2",
         details: "notification hook failed",
       },
     },
