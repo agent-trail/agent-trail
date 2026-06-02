@@ -507,8 +507,6 @@ function sanitizedSchema(value: unknown): Raw | undefined {
   if (!isObject(value)) return undefined;
   const out: Raw = {};
   copySchemaType(out, value);
-  copyString(out, value, "title");
-  copyString(out, value, "description");
   copyString(out, value, "format");
   copyStringArray(out, value, "required");
 
@@ -554,10 +552,6 @@ function sanitizedElicitationRequest(value: unknown): Raw | undefined {
   copyString(out, value, "mode");
   copyString(out, value, "type");
   copyString(out, value, "action");
-  copyString(out, value, "title");
-  copyString(out, value, "displayName", "display_name");
-  copyString(out, value, "display_name");
-  copyString(out, value, "description");
 
   const elicitationId =
     stringValue(value.elicitation_id) ??

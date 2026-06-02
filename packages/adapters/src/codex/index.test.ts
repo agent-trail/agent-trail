@@ -1162,7 +1162,6 @@ test("event_msg.elicitation_request emits permission_request with request metada
         properties: {
           workspace: {
             type: "string",
-            description: "Workspace slug",
           },
         },
       },
@@ -1170,6 +1169,7 @@ test("event_msg.elicitation_request emits permission_request with request metada
     available_decisions: ["approve", "deny"],
   });
   expect(JSON.stringify(evt?.payload)).not.toContain("private-workspace");
+  expect(JSON.stringify(evt?.payload)).not.toContain("Workspace slug");
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -1213,8 +1213,6 @@ test("event_msg.elicitation_request sanitizes URL-mode request data", async () =
     prompt: "Sign in to GitHub",
     request: {
       mode: "url",
-      title: "Authorize GitHub",
-      description: "Complete account linking",
       elicitation_id: "oauth-flow-1",
       url_origin: "https://auth.example.com",
       url_host: "auth.example.com",
@@ -1224,6 +1222,8 @@ test("event_msg.elicitation_request sanitizes URL-mode request data", async () =
   expect(payloadJson).not.toContain("secret-state");
   expect(payloadJson).not.toContain("secret-token");
   expect(payloadJson).not.toContain("secret-fragment");
+  expect(payloadJson).not.toContain("Authorize GitHub");
+  expect(payloadJson).not.toContain("Complete account linking");
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -1284,7 +1284,7 @@ test("event_msg.elicitation_request strips form defaults and submitted values", 
         type: "object",
         required: ["apiKey"],
         properties: {
-          apiKey: { type: "string", title: "API key" },
+          apiKey: { type: "string" },
           region: { type: "string" },
         },
       },
@@ -1294,6 +1294,7 @@ test("event_msg.elicitation_request strips form defaults and submitted values", 
   expect(payloadJson).not.toContain("sk-live-secret");
   expect(payloadJson).not.toContain("sk-example-secret");
   expect(payloadJson).not.toContain("us-east-1");
+  expect(payloadJson).not.toContain("API key");
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
