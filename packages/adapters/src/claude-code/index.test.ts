@@ -1884,6 +1884,186 @@ test("parseSession() lets a later compact_boundary supersede stale pending prove
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps Claude Code api_error to the reserved diagnostic kind", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000175",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "system",
+      subtype: "api_error",
+      content: "rate limit exceeded",
+      uuid: "00000000-0000-0000-0000-cccccccc1751",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+  ]);
+
+  const event = trail.groups[0]!.entries.find((entry) => entry.type === "system_event");
+  expect(event?.payload).toEqual({
+    kind: "api_error",
+    text: "rate limit exceeded",
+    data: { severity: "error", details: "rate limit exceeded" },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() emits hook_failed events from stop_hook_summary hookErrors", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000176",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "system",
+      subtype: "stop_hook_summary",
+      content: "Stop hook summary",
+      hookErrors: [
+        {
+          hookName: "Stop:test",
+          message: "tests failed",
+          code: "exit_1",
+          blocking: true,
+        },
+        {
+          hookName: "Stop:notify",
+          stderr: "notification hook failed",
+          code: 2,
+          blocking: false,
+        },
+      ],
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+  ]);
+
+  const events = trail.groups[0]!.entries.filter((entry) => entry.type === "system_event");
+  expect(events.map((entry) => entry.payload)).toEqual([
+    { kind: "turn_end", text: "Stop hook summary" },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: Stop:test",
+      data: {
+        severity: "error",
+        blocking: true,
+        hook_name: "Stop:test",
+        code: "exit_1",
+        details: "tests failed",
+      },
+    },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: Stop:notify",
+      data: {
+        severity: "error",
+        blocking: false,
+        hook_name: "Stop:notify",
+        code: "2",
+        details: "notification hook failed",
+      },
+    },
+  ]);
+  const firstHookRaw = events[1]?.source?.raw as
+    | { envelope?: { subtype?: string }; block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  const secondHookRaw = events[2]?.source?.raw as
+    | { block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  expect(firstHookRaw?.envelope?.subtype).toBe("stop_hook_summary");
+  expect(firstHookRaw?.block?.hookName).toBe("Stop:test");
+  expect(firstHookRaw?.block_index).toBe(0);
+  expect(secondHookRaw?.block?.hookName).toBe("Stop:notify");
+  expect(secondHookRaw?.block_index).toBe(1);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps hook error attachments to hook_failed events", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000177",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      message: { role: "user", content: "run hooks" },
+      uuid: "00000000-0000-0000-0000-cccccccc1771",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1771",
+      type: "attachment",
+      attachment: {
+        type: "hook_blocking_error",
+        hookName: "PreToolUse:Bash",
+        message: "blocked command",
+        code: "exit_2",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1772",
+      timestamp: "2026-05-17T14:00:06.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1772",
+      type: "attachment",
+      attachment: {
+        type: "hook_non_blocking_error",
+        hookName: "PostToolUse:Bash",
+        message: "audit hook failed",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1773",
+      timestamp: "2026-05-17T14:00:07.000Z",
+    },
+  ]);
+
+  const events = trail.groups[0]!.entries.filter(
+    (entry) =>
+      entry.type === "system_event" && (entry.payload as { kind?: string }).kind === "hook_failed",
+  );
+  expect(events.map((entry) => entry.payload)).toEqual([
+    {
+      kind: "hook_failed",
+      text: "Hook failed: PreToolUse:Bash",
+      data: {
+        severity: "error",
+        blocking: true,
+        hook_name: "PreToolUse:Bash",
+        code: "exit_2",
+        details: "blocked command",
+      },
+    },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: PostToolUse:Bash",
+      data: {
+        severity: "error",
+        blocking: false,
+        hook_name: "PostToolUse:Bash",
+        details: "audit hook failed",
+      },
+    },
+  ]);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {
   const first = await parseFixture();
   const second = await parseFixture();
