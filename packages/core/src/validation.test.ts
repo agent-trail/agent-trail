@@ -385,6 +385,10 @@ test("implemented event validator list stays aligned with schema event refs", ()
   expect(actual).toEqual(schemaImplementedEventRefs().sort());
 });
 
+test("session_metadata_update is a registered event type, not only an unknown future record", () => {
+  expect(implementedEventTypes).toContain("session_metadata_update");
+});
+
 test("invalid validation profiles throw instead of changing validation behavior", async () => {
   const text = [
     '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',

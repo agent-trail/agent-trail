@@ -163,10 +163,12 @@ distinguishes built-in pi-mono envelope types from the plugin extension surface 
 `customType` is preserved verbatim under `payload.data.custom_type` so consumers can disambiguate
 without the adapter claiming to support every plugin shape.
 
+Pi `session_info` now maps to `session_metadata_update{field:"name", reason:"ai_generated"}`
+instead of a vendor `system_event`.
+
 Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
 
 - `x-pi/thinking_level_change` — pi-mono `thinking_level_change` envelope. `payload.data.thinking_level` carries `low | medium | high`. No reserved kind matches (model_change covers model id, not thinking level).
-- `x-pi/session_info` — pi-mono `session_info` envelope (auto-named session summary from pi-mono's session-namer hook). `payload.data.name` carries the generated name.
 - `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
 - `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`.
 
@@ -179,8 +181,8 @@ Real sessions stay out of git per the fixture policy below.
 Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`agent_thinking`,
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
 and enrichment `system_event` records (`task_started`, `task_completed`, `x-codex/exec_command_end`,
-`x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/thread_goal_updated`,
-`x-codex/web_search_end`), custom-channel tool calls (`apply_patch` single/multi-file dispatch,
+`x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/web_search_end`),
+`session_metadata_update` from `thread_goal_updated`, custom-channel tool calls (`apply_patch` single/multi-file dispatch,
 `tool_search` round-trip), `web_search_call` mapping, argv-form shell argument quoting, and
 spinner-glyph stripping. `user_interrupt` synthesis remains deferred — see the deferred-shapes
 section below for why no real Codex session on the verifying contributor's machine emitted an
@@ -318,8 +320,8 @@ Lifecycle-vocabulary `system_event` emissions:
   `args.query`. The source `ws_*` vendor id is preserved verbatim under `data.call_id` for
   audit fidelity, but is not surfaced as `semantic.call_id` because no `tool_call` was
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
-- `event_msg.thread_goal_updated` → `system_event{kind:"x-codex/thread_goal_updated"}`.
-  `data` carries `thread_id`, `turn_id`, `goal`.
+- `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a string,
+  it updates `description`; otherwise the raw goal object is preserved under `x-codex/thread_goal`.
 - `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
   (for example, `"interrupted"`).
 - `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`
@@ -443,15 +445,13 @@ Capability-registry attachments:
 - `attachment.mcp_instructions_delta` →
   `capability_change{scope:"mcp_server", reason:"instructions_updated"}`.
 
-Header / envelope enrichment from non-timeline envelopes:
+Session metadata from non-message envelopes:
 
-- `ai-title` and `agent-name` envelopes are NOT in `isTracerEnvelope` (they don't belong on the timeline). The parser extracts them and surfaces:
-  - `envelope.name` ← first non-empty of `aiTitle`, `agentName`.
-  - `envelope.meta["x-claudecode/ai_title"]` / `envelope.meta["x-claudecode/agent_name"]` preserve both raw values for traceability.
-- `worktree-state` envelopes are NOT in `isTracerEnvelope`. The parser extracts them and surfaces under `header.vcs`:
-  - `vcs.branch` ← `worktreeSession.worktreeBranch` (overrides the live `git symbolic-ref` value, which may differ).
-  - `vcs.worktree` ← `{ name, path, original_cwd?, original_branch?, original_head_commit? }`.
-  - When the live working tree is unreadable (e.g., paseo-style ephemeral worktrees), `vcs.revision` and `vcs.head_commit` fall back to `originalHeadCommit` from the envelope.
+- `ai-title` → `session_metadata_update{field:"name", reason:"ai_generated"}`.
+- `agent-name` → `session_metadata_update{field:"x-claudecode/agent_name", reason:"ai_generated"}`.
+- `worktree-state` → `session_metadata_update` for `vcs.branch` and `vcs.worktree`.
+  These records no longer mutate `envelope.name`, `envelope.meta`, or `header.vcs`; live git
+  discovery from `header.cwd` remains the source for session-start `header.vcs`.
 
 ## Fixture policy
 

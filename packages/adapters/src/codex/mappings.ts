@@ -531,14 +531,26 @@ const mcpToolCallEnd = lifecycle("mcp_tool_call_end", (p) => {
   };
 });
 
-const threadGoalUpdated = lifecycle("thread_goal_updated", (p) => {
-  const data: Raw = {};
-  const threadId = stringValue(p.threadId) ?? stringValue(p.thread_id);
-  if (threadId !== undefined) data.thread_id = threadId;
-  const turnId = stringValue(p.turnId) ?? stringValue(p.turn_id);
-  if (turnId !== undefined) data.turn_id = turnId;
-  if (isObject(p.goal)) data.goal = p.goal;
-  return { kind: "x-codex/thread_goal_updated", rawType: "event_msg.thread_goal_updated", data };
+const threadGoalUpdated = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "thread_goal_updated" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const goal = isObject(p.goal) ? p.goal : undefined;
+    if (goal === undefined) return [];
+    const summary = stringValue(goal.summary);
+    return [
+      {
+        type: "session_metadata_update",
+        payload:
+          summary !== undefined
+            ? { field: "description", value: summary, reason: "ai_generated" }
+            : { field: "x-codex/thread_goal", value: goal, reason: "ai_generated" },
+        source: source("event_msg.thread_goal_updated"),
+        meta: meta("event_msg.thread_goal_updated"),
+      },
+    ];
+  },
 });
 
 const webSearchEnd = lifecycle("web_search_end", (p) => {

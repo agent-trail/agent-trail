@@ -854,18 +854,26 @@ test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call
   expect(data?.result_ok).toBe(true);
 });
 
-test("event_msg.thread_goal_updated emits x-codex/thread_goal_updated system_event", async () => {
+test("event_msg.thread_goal_updated emits session_metadata_update description", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.entries.find(
     (e) =>
-      e.type === "system_event" &&
-      (e.payload as { kind: string }).kind === "x-codex/thread_goal_updated",
+      e.type === "session_metadata_update" &&
+      (e.payload as { field?: unknown }).field === "description",
   );
   expect(evt).toBeDefined();
-  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
-  expect(data?.thread_id).toBe("thread-1");
-  expect(data?.turn_id).toBe("turn-life");
-  expect(data?.goal).toEqual({ summary: "finish the task" });
+  expect(evt?.payload).toEqual({
+    field: "description",
+    value: "finish the task",
+    reason: "ai_generated",
+  });
+  expect(
+    trail.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
+    ),
+  ).toBe(false);
 });
 
 test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {

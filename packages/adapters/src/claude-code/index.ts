@@ -5,7 +5,7 @@ import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
 import { claudeCodeKitAdapter } from "./kit.ts";
-import { buildHeader, extractMetadataHints } from "./parser.ts";
+import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 import { parseLines } from "./source.ts";
 
@@ -129,37 +129,13 @@ export const claudeCodeAdapter: TrailAdapter = {
     const text = await Bun.file(ref.path).text();
     const envelopes = parseLines(text);
     const header = buildHeader(envelopes);
-    const hints = extractMetadataHints(envelopes);
     if (header.vcs === undefined && typeof header.cwd === "string") {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;
     }
-    // Fallback when the live working tree is unreadable (e.g. an ephemeral
-    // worktree directory has been cleaned up since the session). The
-    // worktree-state envelope itself carries enough information to populate a
-    // vcs block with `revision = original_head_commit`.
-    if (header.vcs === undefined && hints.worktree?.original_head_commit !== undefined) {
-      header.vcs = {
-        type: "git",
-        revision: hints.worktree.original_head_commit,
-        head_commit: hints.worktree.original_head_commit,
-      };
-    }
-    // Worktree-state envelope is authoritative for the session's branch + worktree
-    // context. Override `vcs.branch` (live git may report a different current branch)
-    // and attach the worktree subobject.
-    if (header.vcs !== undefined) {
-      if (hints.worktreeBranch !== undefined) header.vcs.branch = hints.worktreeBranch;
-      if (hints.worktree !== undefined) header.vcs.worktree = hints.worktree;
-    }
     const sessionUid = header.session_uid ?? header.id;
     const entries = await claudeCodeKitAdapter.parse({ path: ref.path }, { sessionUid });
-    const envelope = buildTrailEnvelope({
-      producer: PRODUCER,
-      header,
-      name: hints.envelopeName,
-      meta: hints.envelopeMeta,
-    });
+    const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
     return { envelope, header, entries };
   },
   async isAvailable(): Promise<boolean> {
