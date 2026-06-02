@@ -40,7 +40,7 @@ export function parseLines(text: string): PiEnvelope[] {
     const raw = lines[i] ?? "";
     if (raw.length === 0) continue;
     const value: unknown = JSON.parse(raw);
-    if (!isObject(value)) {
+    if (!isObject(value) || Array.isArray(value)) {
       throw new Error(`JsonlReader: expected JSON object on line ${i + 1}`);
     }
     out.push(value as PiEnvelope);

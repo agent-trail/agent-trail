@@ -133,8 +133,9 @@ export async function parseClaudeCodeSnapshotEntries(
   options: { includeSidechain?: boolean } = {},
 ): Promise<Entry[]> {
   const includeSidechain = options.includeSidechain === true;
-  const inherited = withInheritedTimestamps(records, includeSidechain);
+  let inherited = withInheritedTimestamps(records, includeSidechain);
   if (includeSidechain) {
+    inherited = inherited.map((record) => ({ ...record }));
     for (const record of inherited) {
       Object.defineProperty(record, INCLUDE_SIDECHAIN, { value: true });
     }

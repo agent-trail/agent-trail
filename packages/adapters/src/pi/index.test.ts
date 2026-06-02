@@ -486,6 +486,25 @@ test("parseSession() rejects non-object JSONL records instead of silently skippi
   ).rejects.toThrow(/expected JSON object on line 2/);
 });
 
+test("parseSession() rejects array JSONL records instead of quarantining them", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "array-record.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000101",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    })}\n[]\n`,
+  );
+
+  await expect(piAdapter.parseSession({ id: "array", adapter: "pi", path: file })).rejects.toThrow(
+    /expected JSON object on line 2/,
+  );
+});
+
 test("parseSession() stamps timestamp-less drift quarantine from the session header", async () => {
   const dir = createProjectDir();
   const file = join(dir, "timestamp-less-drift.jsonl");

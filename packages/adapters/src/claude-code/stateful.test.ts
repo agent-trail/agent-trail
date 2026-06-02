@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Entry } from "@agent-trail/types";
 import { claudeCodeAdapter } from "./index.ts";
-import { parseClaudeCodeEntries } from "./kit.ts";
+import { parseClaudeCodeEntries, parseClaudeCodeSnapshotEntries } from "./kit.ts";
+import { INCLUDE_SIDECHAIN } from "./mappings.ts";
 import { ccToolKindToResult } from "./reconcile-rules.ts";
 
 const FIXTURES = join(import.meta.dir, "../../tests/fixtures/claude-code");
@@ -163,6 +164,28 @@ describe("claude-code v2 stateful behaviors", () => {
     } finally {
       rmSync(dirname(path), { recursive: true, force: true });
     }
+  });
+
+  test("parseClaudeCodeSnapshotEntries does not mutate caller records with sidechain markers", async () => {
+    const records = [
+      {
+        type: "user",
+        uuid: "00000000-0000-0000-0000-00000000ee01",
+        parentUuid: null,
+        timestamp: "2026-05-18T10:00:00.000Z",
+        sessionId: "s",
+        version: "1.0.0-synthetic",
+        isSidechain: true,
+        message: { role: "user", content: "hi" },
+      },
+    ];
+
+    const all = await parseClaudeCodeSnapshotEntries(records, "unit-test", {
+      includeSidechain: true,
+    });
+
+    expect(all.some((entry) => entry.type === "user_message")).toBe(true);
+    expect(INCLUDE_SIDECHAIN in records[0]!).toBe(false);
   });
 
   test("parseSession wrapper emits session metadata update events", async () => {

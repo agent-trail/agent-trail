@@ -173,4 +173,50 @@ describe("defineAdapter().parse() end-to-end", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.payload).toEqual({ text: "from-snapshot" });
   });
+
+  test("parseSnapshot without sourceVersion maps leniently instead of quarantining", async () => {
+    const entries = await adapter.parseSnapshot(
+      {
+        records: [
+          {
+            type: "totally_unknown_record",
+            timestamp: "2026-05-21T14:00:05.000Z",
+            blob: { a: 1 },
+          },
+        ],
+      },
+      { sessionUid: "sess-no-version" },
+    );
+
+    expect(entries).toEqual([]);
+  });
+
+  test("parse and parseSnapshot emit identical entries for the same records and version", async () => {
+    const records = [
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-eeeee0000099",
+        timestamp: "2026-05-21T14:00:00.000Z",
+        cwd: "/tmp/p",
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-eeeeeeeeee11",
+        parentId: null,
+        timestamp: "2026-05-21T14:00:01.000Z",
+        message: { role: "user", content: "hi" },
+      },
+      { type: "totally_unknown_record", timestamp: "2026-05-21T14:00:05.000Z", blob: { a: 1 } },
+    ];
+    const path = fixture("equivalent.jsonl", records);
+
+    const viaParse = await adapter.parse({ path }, { sessionUid: "sess-equivalent" });
+    const viaSnapshot = await adapter.parseSnapshot(
+      { records, sourceVersion: "3.0.0" },
+      { sessionUid: "sess-equivalent" },
+    );
+
+    expect(viaSnapshot).toEqual(viaParse);
+  });
 });
