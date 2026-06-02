@@ -1854,6 +1854,8 @@ test("event_msg.exec_command_begin emits x-codex/exec_command_begin linked by ca
     cwd: "/proj/codex-lifecycle",
     parsed_cmd: [{ type: "ls", cmd: "ls" }],
     source: "agent",
+    has_interaction_input: true,
+    interaction_input_chars: 15,
   });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);

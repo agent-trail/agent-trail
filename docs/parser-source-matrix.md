@@ -352,7 +352,8 @@ Lifecycle-vocabulary `system_event` emissions:
   (`id`, event/scope/status/timing fields, and output entries).
 - `event_msg.exec_command_begin` → `system_event{kind:"x-codex/exec_command_begin"}` with
   `semantic.call_id`. `data` carries `call_id`, `turn_id`, `process_id`, `started_at_ms`,
-  `command`, `cwd`, `parsed_cmd`, source, and interaction input when present.
+  `command`, `cwd`, `parsed_cmd`, source, and bounded interaction-input presence/length
+  markers when present.
 - `event_msg.exec_command_end` → `system_event{kind:"x-codex/exec_command_end"}` with
   `semantic.call_id` linking to the originating `exec_command` tool_call. `data` carries
   `turn_id`, `command`, `cwd`, `exit_code`, `duration_ms`, truncated `stdout_excerpt` /

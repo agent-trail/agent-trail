@@ -1294,6 +1294,13 @@ test("parseSession() truncates hook_success stdout and stderr excerpts", async (
   expect((data?.stdout_excerpt as string).startsWith("o".repeat(2048))).toBe(true);
   expect((data?.stderr_excerpt as string).length).toBeLessThan(stderr.length);
   expect((data?.stderr_excerpt as string).startsWith("e".repeat(2048))).toBe(true);
+  const rawAttachment = evt?.source?.raw?.attachment as Record<string, unknown> | undefined;
+  expect(rawAttachment?.stdout).toBeUndefined();
+  expect(rawAttachment?.stderr).toBeUndefined();
+  expect(rawAttachment?.stdout_elided).toBe(true);
+  expect(rawAttachment?.stdout_chars).toBe(stdout.length);
+  expect(rawAttachment?.stderr_elided).toBe(true);
+  expect(rawAttachment?.stderr_chars).toBe(stderr.length);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

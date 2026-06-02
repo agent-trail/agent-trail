@@ -876,7 +876,11 @@ const execCommandBegin = lifecycle("exec_command_begin", (p) => {
   copyString(data, p, "cwd");
   copyArray(data, p, "parsed_cmd");
   copyString(data, p, "source");
-  copyString(data, p, "interaction_input");
+  const interactionInput = stringValue(p.interaction_input);
+  if (interactionInput !== undefined) {
+    data.has_interaction_input = true;
+    data.interaction_input_chars = interactionInput.length;
+  }
   return {
     kind: "x-codex/exec_command_begin",
     rawType: "event_msg.exec_command_begin",

@@ -684,6 +684,31 @@ function outputExcerpt(text: string | undefined): string | undefined {
   return `${text.slice(0, OUTPUT_EXCERPT_MAX_CHARS)}…`;
 }
 
+function hookSuccessSourceRecord(
+  record: CcEnvelope,
+  attachment: Record<string, unknown>,
+  isLegacyAttachment: boolean,
+): CcEnvelope {
+  const sanitizedAttachment = hookSuccessSourceAttachment(attachment);
+  if (isLegacyAttachment) return { ...record, attachment: sanitizedAttachment };
+  return { ...record, ...sanitizedAttachment };
+}
+
+function hookSuccessSourceAttachment(attachment: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...attachment };
+  summarizeHookOutput(out, "stdout");
+  summarizeHookOutput(out, "stderr");
+  return out;
+}
+
+function summarizeHookOutput(out: Record<string, unknown>, key: "stdout" | "stderr"): void {
+  const value = stringValue(out[key]);
+  if (value === undefined) return;
+  delete out[key];
+  out[`${key}_elided`] = true;
+  out[`${key}_chars`] = value.length;
+}
+
 function hookSuccessData(attachment: Record<string, unknown>): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
@@ -825,7 +850,7 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
           data: hookSuccessData(attachment),
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(record, originalType),
+        source: src(hookSuccessSourceRecord(record, attachment, isLegacyAttachment), originalType),
         meta: meta(record, { callId: toolCallId }),
       },
     ];
