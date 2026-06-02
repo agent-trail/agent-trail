@@ -122,27 +122,24 @@ test("detectSessions() returns empty when project dir is missing", async () => {
   expect(await claudeCodeAdapter.detectSessions()).toEqual([]);
 });
 
-const FIXTURE_PATH = new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url)
-  .pathname;
-const FIDELITY_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
-  import.meta.url,
-).pathname;
+const FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url),
+);
+const FIDELITY_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl", import.meta.url),
+);
 const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
 );
-const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
-  import.meta.url,
-).pathname;
-const PERMISSION_MODE_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/permission-mode.jsonl",
-  import.meta.url,
-).pathname;
-const CAPABILITY_CHANGES_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/capability-changes.jsonl",
-  import.meta.url,
-).pathname;
+const INTERRUPT_MODEL_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl", import.meta.url),
+);
+const PERMISSION_MODE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/permission-mode.jsonl", import.meta.url),
+);
+const CAPABILITY_CHANGES_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/capability-changes.jsonl", import.meta.url),
+);
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
