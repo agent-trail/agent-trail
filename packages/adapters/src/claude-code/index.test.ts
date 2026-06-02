@@ -326,6 +326,43 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   });
 });
 
+test("parseSession() records subagent attribution on a tool_result entry.meta", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000e0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "review it" },
+    },
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000e1",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000e0",
+      isSidechain: false,
+      sourceToolAssistantUUID: "asst-sub-1",
+      toolUseResult: { agentId: "agent-7", agentType: "reviewer" },
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tooluse-task", content: "looks good" }],
+      },
+    },
+  ]);
+  const tr = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  expect(tr).toBeDefined();
+  expect(tr?.meta?.["dev.claudecode.agent_id"]).toBe("agent-7");
+  expect(tr?.meta?.["dev.claudecode.agent_type"]).toBe("reviewer");
+  expect(tr?.meta?.["dev.claudecode.source_tool_assistant_uuid"]).toBe("asst-sub-1");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call", async () => {
   const trail = await parseFixture();
   const toolCall = trail.groups[0]!.entries.find((e) => e.type === "tool_call");

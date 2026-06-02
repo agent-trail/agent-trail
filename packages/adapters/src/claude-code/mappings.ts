@@ -49,16 +49,34 @@ export interface CcHint {
 
 function meta(
   record: CcEnvelope,
-  opts?: { model?: string; callId?: string },
+  opts?: { model?: string; callId?: string; extra?: Record<string, unknown> },
 ): Record<string, unknown> {
   const hint: CcHint = {
     ...(typeof record.uuid === "string" ? { sid: record.uuid } : {}),
     ...(opts?.model !== undefined ? { model: opts.model } : {}),
   };
   return {
+    // Real meta keys survive hint stripping (see ccEnvelopeRefBackfill); the
+    // HINT is transient.
+    ...(opts?.extra ?? {}),
     ...(opts?.callId !== undefined ? { linker: { call_id: opts.callId } } : {}),
     [HINT]: hint,
   };
+}
+
+// Subagent attribution carried on a parent-side user record: which subagent
+// produced this tool_result. Sidechain inner records are dropped, so this is
+// the only trace a subagent ran. Namespaced under entry.meta. See issue #126.
+function attributionMeta(record: CcEnvelope): Record<string, unknown> | undefined {
+  const tur = isObject(record.toolUseResult) ? record.toolUseResult : undefined;
+  const out: Record<string, unknown> = {};
+  const agentId = stringValue(record.agentId) ?? stringValue(tur?.agentId);
+  if (agentId !== undefined) out["dev.claudecode.agent_id"] = agentId;
+  const agentType = stringValue(tur?.agentType);
+  if (agentType !== undefined) out["dev.claudecode.agent_type"] = agentType;
+  const sourceUuid = stringValue(record.sourceToolAssistantUUID);
+  if (sourceUuid !== undefined) out["dev.claudecode.source_tool_assistant_uuid"] = sourceUuid;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function questionId(question: string, occurrence: number): string {
@@ -231,102 +249,107 @@ const userMessage = defineMapping<Raw>({
   emit: (raw) => {
     const record = raw as CcEnvelope;
     if (!gate(record)) return [];
-    if (record.isCompactSummary === true) {
-      const text =
-        stringValue(record.summary) ??
-        stringValue(record.message?.content) ??
-        jsonString(record.message?.content);
-      if (text === undefined) return [];
-      return [
-        {
-          type: "context_compact",
-          payload: { summary: text, trigger: "auto" },
-          source: src(record, "user"),
-          meta: meta(record),
-        },
-      ];
-    }
-    const content = record.message?.content;
-    if (typeof content === "string") {
-      const interrupt = isInterruptMarker(content);
-      if (interrupt !== undefined) {
+    const attribution = attributionMeta(record);
+    const drafts = ((): TrailEntryDraft[] => {
+      if (record.isCompactSummary === true) {
+        const text =
+          stringValue(record.summary) ??
+          stringValue(record.message?.content) ??
+          jsonString(record.message?.content);
+        if (text === undefined) return [];
         return [
           {
-            type: "user_interrupt",
-            payload: { reason: interrupt.reason },
+            type: "context_compact",
+            payload: { summary: text, trigger: "auto" },
             source: src(record, "user"),
             meta: meta(record),
           },
         ];
       }
-      if (isContinuationPreamble(content)) {
-        return [
-          {
-            type: "system_event",
-            payload: { kind: "session_start", text: content },
-            source: src(record, "user"),
-            meta: meta(record),
-          },
-        ];
-      }
-      return [
-        {
-          type: "user_message",
-          payload: { text: content },
-          source: src(record, "user"),
-          meta: meta(record),
-        },
-      ];
-    }
-    const blocks = asBlocks(content).filter((b) => b.type === "text" || b.type === "tool_result");
-    return blocks.flatMap((block, i): TrailEntryDraft[] => {
-      const envelopeRef = i > 0 ? "" : undefined;
-      const source = src(record, String(block.type), block, i, { envelopeRef });
-      if (block.type === "text" && typeof block.text === "string") {
-        const interrupt = isInterruptMarker(block.text);
+      const content = record.message?.content;
+      if (typeof content === "string") {
+        const interrupt = isInterruptMarker(content);
         if (interrupt !== undefined) {
           return [
             {
               type: "user_interrupt",
               payload: { reason: interrupt.reason },
-              source,
+              source: src(record, "user"),
               meta: meta(record),
             },
           ];
         }
-        if (isContinuationPreamble(block.text)) {
+        if (isContinuationPreamble(content)) {
           return [
             {
               type: "system_event",
-              payload: { kind: "x-claudecode/system", text: block.text },
-              source,
+              payload: { kind: "session_start", text: content },
+              source: src(record, "user"),
               meta: meta(record),
             },
           ];
         }
         return [
-          { type: "user_message", payload: { text: block.text }, source, meta: meta(record) },
-        ];
-      }
-      if (block.type === "tool_result") {
-        const callId = stringValue(block.tool_use_id);
-        const ok = block.is_error !== true;
-        const output = textFromToolResultContent(block.content);
-        return [
           {
-            type: "tool_result",
-            payload: {
-              ok,
-              ...(output.length > 0 ? { output } : {}),
-              ...(!ok && output.length > 0 ? { error: output } : {}),
-            },
-            source,
-            meta: meta(record, { callId }),
+            type: "user_message",
+            payload: { text: content },
+            source: src(record, "user"),
+            meta: meta(record),
           },
         ];
       }
-      return [];
-    });
+      const blocks = asBlocks(content).filter((b) => b.type === "text" || b.type === "tool_result");
+      return blocks.flatMap((block, i): TrailEntryDraft[] => {
+        const envelopeRef = i > 0 ? "" : undefined;
+        const source = src(record, String(block.type), block, i, { envelopeRef });
+        if (block.type === "text" && typeof block.text === "string") {
+          const interrupt = isInterruptMarker(block.text);
+          if (interrupt !== undefined) {
+            return [
+              {
+                type: "user_interrupt",
+                payload: { reason: interrupt.reason },
+                source,
+                meta: meta(record),
+              },
+            ];
+          }
+          if (isContinuationPreamble(block.text)) {
+            return [
+              {
+                type: "system_event",
+                payload: { kind: "x-claudecode/system", text: block.text },
+                source,
+                meta: meta(record),
+              },
+            ];
+          }
+          return [
+            { type: "user_message", payload: { text: block.text }, source, meta: meta(record) },
+          ];
+        }
+        if (block.type === "tool_result") {
+          const callId = stringValue(block.tool_use_id);
+          const ok = block.is_error !== true;
+          const output = textFromToolResultContent(block.content);
+          return [
+            {
+              type: "tool_result",
+              payload: {
+                ok,
+                ...(output.length > 0 ? { output } : {}),
+                ...(!ok && output.length > 0 ? { error: output } : {}),
+              },
+              source,
+              meta: meta(record, { callId }),
+            },
+          ];
+        }
+        return [];
+      });
+    })();
+    if (attribution === undefined) return drafts;
+    return drafts.map((d) => ({ ...d, meta: { ...attribution, ...(d.meta ?? {}) } }));
   },
 });
 
