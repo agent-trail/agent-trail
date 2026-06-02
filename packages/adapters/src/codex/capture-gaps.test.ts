@@ -346,6 +346,95 @@ describe("#124 — snapshot skips non-emittable baseline", () => {
   });
 });
 
+describe("#124 — reasoning dedup across both channels (bug #2)", () => {
+  test("a summary section duplicating an event_msg reasoning is folded; divergent sections survive", async () => {
+    const records = [
+      SESSION_META,
+      TURN_BASELINE,
+      {
+        timestamp: "2026-06-02T10:00:06.000Z",
+        type: "event_msg",
+        payload: { type: "agent_reasoning", text: "shared thought" },
+      },
+      {
+        timestamp: "2026-06-02T10:00:06.500Z",
+        type: "response_item",
+        payload: {
+          type: "reasoning",
+          summary: [{ text: "shared thought" }, { text: "unique section" }],
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-dedup"));
+    const thinking = all.filter((e) => e.type === "agent_thinking");
+    // "shared thought" emitted once (from the event_msg channel); the matching
+    // summary section is folded; the divergent "unique section" still emits.
+    expect(thinking.map((e) => (e.payload as { text?: string }).text)).toEqual([
+      "shared thought",
+      "unique section",
+    ]);
+  });
+});
+
+describe("#124 — permission mode label fallback", () => {
+  test("with no preset, permission_mode_change to/from use approval_policy", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: { turn_id: "t1", approval_policy: "on-request", sandbox_policy: "read-only" },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: { turn_id: "t2", approval_policy: "never", sandbox_policy: "read-only" },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-label"));
+    const perm = all.filter(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: string }).kind === "permission_mode_change",
+    );
+    expect(perm).toHaveLength(1);
+    expect((perm[0]?.payload as { data?: Record<string, unknown> }).data).toMatchObject({
+      to: "never",
+      from: "on-request",
+    });
+  });
+});
+
+describe("#124 — header.meta hygiene", () => {
+  test("base_instructions as a plain string is still fingerprinted", () => {
+    const header = buildHeader({
+      timestamp: "2026-06-02T10:00:00.000Z",
+      type: "session_meta",
+      payload: { id: SESSION_META.payload.id, base_instructions: "raw prompt" },
+    });
+    const fp = header.meta?.["dev.codex.base_instructions"] as { sha256?: string; bytes?: number };
+    expect(fp?.bytes).toBe(Buffer.byteLength("raw prompt", "utf8"));
+    expect(fp?.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("no SessionMeta extras → header.meta stays absent", () => {
+    const header = buildHeader({
+      timestamp: "2026-06-02T10:00:00.000Z",
+      type: "session_meta",
+      payload: { id: SESSION_META.payload.id },
+    });
+    expect(header.meta).toBeUndefined();
+  });
+
+  test("vcsFromGitInfo with only a commit hash yields a minimal git block", () => {
+    expect(vcsFromGitInfo({ commit_hash: "deadbeef" })).toEqual({
+      type: "git",
+      revision: "deadbeef",
+      head_commit: "deadbeef",
+    });
+  });
+});
+
 describe("#124 — all emitted entries are writer-strict valid", () => {
   test("entries validate", async () => {
     const all = await parseEntries();
