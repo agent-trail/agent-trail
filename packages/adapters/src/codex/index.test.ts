@@ -1398,7 +1398,7 @@ test("event_msg.exec_approval_request emits permission_request linked by call_id
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1455,7 +1455,7 @@ test("event_msg.exec_approval_request preserves derived approval context without
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1506,7 +1506,7 @@ test("event_msg.request_permissions emits permission_request with requested perm
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1548,7 +1548,7 @@ test("event_msg.request_permissions treats blank call_id as missing", async () =
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1601,7 +1601,7 @@ test("event_msg.apply_patch_approval_request emits permission_request linked by 
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1658,7 +1658,7 @@ test("event_msg.elicitation_request emits permission_request with request metada
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1717,7 +1717,7 @@ test("event_msg.elicitation_request sanitizes URL-mode request data", async () =
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );
@@ -1796,7 +1796,7 @@ test("event_msg.elicitation_request strips form defaults and submitted values", 
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
   );

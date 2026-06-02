@@ -1297,7 +1297,7 @@ test("parseSession() maps command_permissions attachments to permission_request"
       },
     },
   ]);
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (entry) =>
       entry.type === "system_event" &&
       (entry.payload as { kind?: string }).kind === "permission_request",
@@ -1344,7 +1344,7 @@ test("parseSession() maps hook_permission_decision attachments to permission_dec
       },
     },
   ]);
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (entry) =>
       entry.type === "system_event" &&
       (entry.payload as { kind?: string }).kind === "permission_decision",
@@ -1393,7 +1393,7 @@ test("parseSession() treats blank hook_permission_decision tool_call_id as missi
       },
     },
   ]);
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (entry) =>
       entry.type === "system_event" &&
       (entry.payload as { kind?: string }).kind === "permission_decision",
@@ -1438,7 +1438,7 @@ test("parseSession() does not coerce hook_permission_decision abort into deny", 
       },
     },
   ]);
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (entry) =>
       entry.type === "system_event" &&
       (entry.payload as { kind?: string }).kind === "permission_decision",
