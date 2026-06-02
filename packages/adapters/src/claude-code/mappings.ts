@@ -709,18 +709,22 @@ function summarizeHookOutput(out: Record<string, unknown>, key: "stdout" | "stde
   out[`${key}_chars`] = value.length;
 }
 
+function hookToolCallId(attachment: Record<string, unknown>): string | undefined {
+  const rawToolCallId =
+    stringValue(attachment.tool_call_id) ??
+    stringValue(attachment.toolCallId) ??
+    stringValue(attachment.tool_use_id) ??
+    stringValue(attachment.toolUseID);
+  return isNonEmptyString(rawToolCallId) ? rawToolCallId.trim() : undefined;
+}
+
 function hookSuccessData(attachment: Record<string, unknown>): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
   if (hookEvent !== undefined) data.hook_event = hookEvent;
   const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
   if (hookName !== undefined) data.hook_name = hookName;
-  const rawToolCallId =
-    stringValue(attachment.tool_call_id) ??
-    stringValue(attachment.toolCallId) ??
-    stringValue(attachment.tool_use_id) ??
-    stringValue(attachment.toolUseID);
-  const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId.trim() : undefined;
+  const toolCallId = hookToolCallId(attachment);
   if (toolCallId !== undefined) data.tool_call_id = toolCallId;
   const exitCode = numberValue(attachment.exit_code) ?? numberValue(attachment.exitCode);
   if (exitCode !== undefined) data.exit_code = Math.trunc(exitCode);
@@ -836,12 +840,7 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
   if (subtype === "hook_success") {
     const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
     const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
-    const rawToolCallId =
-      stringValue(attachment.tool_call_id) ??
-      stringValue(attachment.toolCallId) ??
-      stringValue(attachment.tool_use_id) ??
-      stringValue(attachment.toolUseID);
-    const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
+    const toolCallId = hookToolCallId(attachment);
     return [
       {
         type: "system_event",

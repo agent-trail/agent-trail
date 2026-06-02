@@ -1344,6 +1344,45 @@ test("parseSession() omits blank hook_success tool ids from data and semantic", 
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() uses normalized hook_success tool ids for semantic linkage", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000ae",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "run hook" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000af",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000ae",
+      attachment: {
+        type: "hook_success",
+        hookEvent: "PostToolUse",
+        hookName: "PostToolUse:Bash",
+        toolUseID: " tooluse-trimmed ",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" && entry.source?.original_type === "attachment.hook_success",
+  );
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+
+  expect(data?.tool_call_id).toBe("tooluse-trimmed");
+  expect(evt?.semantic?.call_id).toBe("tooluse-trimmed");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
   const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
