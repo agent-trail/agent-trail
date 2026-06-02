@@ -1,4 +1,4 @@
-{"timestamp":"2026-06-01T12:00:00.000Z","type":"session_meta","payload":{"id":"019d9000-aaaa-7000-e000-000000000175","timestamp":"2026-06-01T12:00:00.000Z","cwd":"/tmp/synthetic-project","cli_version":"0.135.0"}}
+{"timestamp":"2026-06-01T12:00:00.000Z","type":"session_meta","payload":{"id":"019d9000-bbbb-7000-e000-000000000175","timestamp":"2026-06-01T12:00:00.000Z","cwd":"/tmp/synthetic-project","cli_version":"0.128.0"}}
 {"timestamp":"2026-06-01T12:00:01.000Z","type":"event_msg","payload":{"type":"error","message":"agent failed to process submission","codex_error_info":{"internal_error":{"debug":"omitted"}}}}
 {"timestamp":"2026-06-01T12:00:02.000Z","type":"event_msg","payload":{"type":"warning","message":"agent recovered after retry"}}
 {"timestamp":"2026-06-01T12:00:03.000Z","type":"event_msg","payload":{"type":"guardian_warning","message":"guardian flagged approval"}}

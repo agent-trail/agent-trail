@@ -702,6 +702,88 @@ test("parseSession keeps nonzero command output successful when tool metadata sa
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession maps nested custom tool output status and body", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000134";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: "call-custom-nested-error",
+          name: "freeform_tool",
+          input: "fail",
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call-custom-nested-error",
+          output: { body: "custom tool failed", success: false },
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: "call-custom-nested-ok",
+          name: "freeform_tool",
+          input: "succeed",
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call-custom-nested-ok",
+          output: {
+            body: "Exit code: 2\nOutput:\ncustom command chose nonzero",
+            success: true,
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const failedCall = trail.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-error",
+  );
+  const failedResult = trail.entries.find(
+    (entry) =>
+      entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-error",
+  );
+  expect(failedResult?.payload).toEqual({
+    for_id: failedCall?.id,
+    ok: false,
+    output: "custom tool failed",
+    error: "custom tool failed",
+  });
+
+  const okCall = trail.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-ok",
+  );
+  const okResult = trail.entries.find(
+    (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-ok",
+  );
+  expect(okResult?.payload).toEqual({
+    for_id: okCall?.id,
+    ok: true,
+    output: "Exit code: 2\nOutput:\ncustom command chose nonzero",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("exec_command function_call maps to shell_command with workdir as cwd", async () => {
   const trail = await parseDesktopFixture();
   const exec = trail.entries.find(

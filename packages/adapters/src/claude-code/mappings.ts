@@ -182,13 +182,13 @@ function hookFailureDraft(
   record: CcEnvelope,
   originalType: string,
   raw: Record<string, unknown>,
-  fallbackBlocking?: boolean,
+  options?: { fallbackBlocking?: boolean; sourceBlock?: CcBlock; sourceBlockIndex?: number },
 ): TrailEntryDraft {
-  const { text, data } = hookFailureData(raw, fallbackBlocking);
+  const { text, data } = hookFailureData(raw, options?.fallbackBlocking);
   return {
     type: "system_event",
     payload: { kind: "hook_failed", text, data },
-    source: src(record, originalType),
+    source: src(record, originalType, options?.sourceBlock, options?.sourceBlockIndex),
     meta: meta(record),
   };
 }
@@ -555,9 +555,12 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
         Array.isArray(record.hookErrors)
       ) {
         drafts.push(
-          ...record.hookErrors
-            .filter(isObject)
-            .map((error) => hookFailureDraft(record, "system.stop_hook_summary.hook_error", error)),
+          ...record.hookErrors.filter(isObject).map((error, index) =>
+            hookFailureDraft(record, "system.stop_hook_summary.hook_error", error, {
+              sourceBlock: error,
+              sourceBlockIndex: index,
+            }),
+          ),
         );
       }
       return drafts;
@@ -635,12 +638,9 @@ const capabilityAttachment = defineMapping<Raw>({
 
     if (subtype === "hook_blocking_error" || subtype === "hook_non_blocking_error") {
       return [
-        hookFailureDraft(
-          record,
-          `attachment.${subtype}`,
-          attachment,
-          subtype === "hook_blocking_error",
-        ),
+        hookFailureDraft(record, `attachment.${subtype}`, attachment, {
+          fallbackBlocking: subtype === "hook_blocking_error",
+        }),
       ];
     }
 

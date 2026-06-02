@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -443,8 +444,19 @@ const tokenCount = defineMapping<Raw>({
 });
 
 function diagnosticCode(payload: Raw): string | undefined {
-  const info = isObject(payload.codex_error_info) ? payload.codex_error_info : undefined;
-  return stringValue(info?.code) ?? stringValue(info?.type) ?? stringValue(payload.code);
+  const info = payload.codex_error_info;
+  if (typeof info === "string") return info;
+  if (isObject(info)) {
+    const direct = stringValue(info.code) ?? stringValue(info.type);
+    if (direct !== undefined) return direct;
+    const variant = Object.keys(info).find((key) => key !== "code" && key !== "type");
+    if (variant !== undefined) return variant;
+  }
+  return stringValue(payload.code);
+}
+
+function diagnosticSourcePayload(payload: Raw): Raw {
+  return enforceSourceRawSize(redactValue(payload)).value as Raw;
 }
 
 function diagnosticMessageData(payload: Raw, severity: string): Raw {
@@ -468,7 +480,7 @@ function diagnosticDraft(
   return {
     type: "system_event",
     payload,
-    source: source(rawType, sourcePayload),
+    source: source(rawType, diagnosticSourcePayload(sourcePayload)),
     meta: meta(rawType),
   };
 }

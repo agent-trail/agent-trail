@@ -1142,6 +1142,11 @@ test("parseSession() emits hook_failed events from stop_hook_summary hookErrors"
           code: "exit_1",
           blocking: true,
         },
+        {
+          hookName: "Stop:notify",
+          stderr: "notification hook failed",
+          blocking: false,
+        },
       ],
       uuid: "00000000-0000-0000-0000-cccccccc1761",
       timestamp: "2026-05-17T14:00:05.000Z",
@@ -1162,7 +1167,28 @@ test("parseSession() emits hook_failed events from stop_hook_summary hookErrors"
         details: "tests failed",
       },
     },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: Stop:notify",
+      data: {
+        severity: "error",
+        blocking: false,
+        hook_name: "Stop:notify",
+        details: "notification hook failed",
+      },
+    },
   ]);
+  const firstHookRaw = events[1]?.source?.raw as
+    | { envelope?: { subtype?: string }; block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  const secondHookRaw = events[2]?.source?.raw as
+    | { block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  expect(firstHookRaw?.envelope?.subtype).toBe("stop_hook_summary");
+  expect(firstHookRaw?.block?.hookName).toBe("Stop:test");
+  expect(firstHookRaw?.block_index).toBe(0);
+  expect(secondHookRaw?.block?.hookName).toBe("Stop:notify");
+  expect(secondHookRaw?.block_index).toBe(1);
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
