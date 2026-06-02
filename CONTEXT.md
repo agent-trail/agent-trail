@@ -9,8 +9,20 @@ The open format and tooling ecosystem for portable coding-agent sessions.
 _Avoid_: AgentTrail, Trail product
 
 **Trail file**:
-A JSONL artifact that represents one coding-agent session in the Agent Trail format.
+A JSONL artifact in the Agent Trail format. It contains one or more session groups.
 _Avoid_: Session dump, transcript file, conversation export
+
+**Session group**:
+One `type:"session"` header plus the events that follow it until the next session header or EOF.
+_Avoid_: Embedded trail, nested session
+
+**Session bundle**:
+A trail file with one or more session groups. The bundle is a forest at session-group level; each group may itself be linear or tree-native.
+_Avoid_: Multi-transcript, merged session
+
+**Child session**:
+A separate session group or external session spawned or forked from another session, linked by the child header's `fork_from`.
+_Avoid_: Subtree, branch, sidechain when the source stores a separate transcript
 
 **Format contract**:
 The stable interoperability agreement that compliant writers and readers rely on.
@@ -77,7 +89,7 @@ SHA-256 of the canonical bytes covering the whole file with the trail envelope's
 _Avoid_: Session hash, transport hash
 
 **Sessions manifest**:
-Optional envelope field `sessions` declaring the sessions present in a trail file. The session header in the file is authoritative; the validator warns on drift.
+Optional envelope field `sessions` declaring the session groups present in a trail file. The session headers in the file are authoritative; the validator warns on drift.
 _Avoid_: Session index, session list
 
 **Session segment**:
@@ -91,6 +103,7 @@ _Avoid_: Session id (that's the per-artifact `id`), source id
 ## Relationships
 
 - A **Trail file** conforms to the **Format contract**.
+- A **Trail file** contains one or more **Session groups**; multiple groups form a **Session bundle**.
 - The **JSON Schema** is the canonical machine-readable part of the **Format contract**.
 - **Writer-strict validation** checks emitted **Trail files** before publication or storage.
 - **Reader-tolerant parsing** is for consumers reading potentially newer **Trail files**.
@@ -101,6 +114,7 @@ _Avoid_: Session id (that's the per-artifact `id`), source id
 - A **Finalized object** lives in the **Local store**; the **Index** points at it by `content_hash`.
 - A **Pending hash** keeps a trail file out of the **Local store** as a **Finalized object**.
 - A **Session segment** belongs to a logical source session identified by **Session UID**; the reconciler groups segments by that UID and merges them.
+- A **Child session** links to its parent with `header.fork_from`; intra-session branches use event `parent_id`.
 
 ## Example dialogue
 

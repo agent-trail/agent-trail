@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
@@ -65,7 +65,7 @@ test("claudeCodeAdapter parseSession emits a trail envelope", async () => {
   expect(trail.envelope?.producer).toMatch(/^@agent-trail\/adapters-claude-code\//);
   expect(typeof trail.envelope?.id).toBe("string");
   expect(typeof trail.envelope?.ts).toBe("string");
-  expect(trail.envelope?.id).not.toBe(trail.header.id);
+  expect(trail.envelope?.id).not.toBe(trail.groups[0]!.header.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -197,14 +197,14 @@ async function parseCapabilityChangesFixture() {
 
 test("parseSession() builds a header from sessionId, first ts, version, and cwd", async () => {
   const trail = await parseFixture();
-  const { session_uid, ...header } = trail.header;
+  const { session_uid, ...header } = trail.groups[0]!.header;
   expect(typeof session_uid).toBe("string");
   expect(session_uid).toMatch(
     /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/,
   );
   // session_uid is deterministic — re-parsing the same source yields the same uid.
   const reparsed = await parseFixture();
-  expect(reparsed.header.session_uid).toBe(session_uid);
+  expect(reparsed.groups[0]!.header.session_uid).toBe(session_uid);
   expect(header).toEqual({
     type: "session",
     schema_version: "0.1.0",
@@ -221,7 +221,7 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
 
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.type === "user_message");
+  const userMessage = trail.groups[0]!.entries.find((e) => e.type === "user_message");
   expect(userMessage).toBeDefined();
   expect(userMessage?.ts).toBe("2026-05-17T14:00:05.000Z");
   expect(userMessage?.payload).toEqual({ text: "please list the files" });
@@ -232,12 +232,12 @@ test("parseSession() emits a user_message for user text records, with no parent_
 
 test("parseSession() emits a tool_call for assistant tool_use blocks, with semantic.call_id preserving tool_use_id", async () => {
   const trail = await parseFixture();
-  const idx = trail.entries.findIndex((e) => e.type === "tool_call");
-  const toolCall = trail.entries[idx];
+  const idx = trail.groups[0]!.entries.findIndex((e) => e.type === "tool_call");
+  const toolCall = trail.groups[0]!.entries[idx];
   expect(toolCall).toBeDefined();
   // Claude Code is a linear sequential chain — each entry parents off the entry
   // emitted immediately before it (here, the interposing queue system_event).
-  expect(toolCall?.parent_id).toBe(trail.entries[idx - 1]?.id);
+  expect(toolCall?.parent_id).toBe(trail.groups[0]!.entries[idx - 1]?.id);
   expect(toolCall?.payload).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
@@ -247,8 +247,8 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.type === "tool_call");
-  const toolResult = trail.entries.find((e) => e.type === "tool_result");
+  const toolCall = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
+  const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
   expect(toolResult).toBeDefined();
   expect(toolResult?.parent_id).toBe(toolCall?.id);
   expect(toolResult?.payload).toEqual({
@@ -257,6 +257,629 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
     output: "file-a\nfile-b",
   });
   expect(toolResult?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
+});
+
+test("parseSession() bundles a direct Agent child session from subagents directory", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000001";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  const childPath = join(childDir, "agent-child-one.jsonl");
+
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "please delegate" },
+        uuid: "00000000-0000-0000-0000-aaaa00000011",
+        timestamp: "2026-05-17T14:00:05.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-aaaa00000011",
+        isSidechain: false,
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [
+            {
+              type: "tool_use",
+              id: "agent-tool-1",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+          ],
+          stop_reason: "tool_use",
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000012",
+        timestamp: "2026-05-17T14:00:06.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-aaaa00000012",
+        isSidechain: false,
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "agent-tool-1", content: "done" }],
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000013",
+        timestamp: "2026-05-17T14:00:07.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  writeFileSync(
+    childPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: true,
+        type: "user",
+        agentId: "child-one",
+        message: { role: "user", content: "inspect parser" },
+        uuid: "00000000-0000-0000-0000-bbbb00000011",
+        timestamp: "2026-05-17T14:00:08.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-bbbb00000011",
+        isSidechain: true,
+        type: "assistant",
+        agentId: "child-one",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "text", text: "child inspected parser" }],
+          stop_reason: "end_turn",
+        },
+        uuid: "00000000-0000-0000-0000-bbbb00000012",
+        timestamp: "2026-05-17T14:00:09.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(2);
+  const parent = trail.groups[0]!;
+  const child = trail.groups[1]!;
+  const invoke = parent.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke).toBeDefined();
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer", session_id: child.header.id },
+  });
+  expect(child.header.id).toMatch(ID_PATTERN);
+  expect(child.header.id).not.toBe(parent.header.id);
+  expect(child.header.fork_from).toEqual({ session_id: parent.header.id, entry_id: invoke?.id });
+  expect(child.entries.some((entry) => entry.type === "agent_message")).toBe(true);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  expect(diagnostics.some((d) => d.code.startsWith("child_session_"))).toBe(false);
+});
+
+test("parseSession() does not bundle a child file for duplicate Agent prompts", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000021";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "delegate twice" },
+        uuid: "00000000-0000-0000-0000-aaaa00000022",
+        timestamp: "2026-05-17T14:00:05.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-aaaa00000022",
+        isSidechain: false,
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [
+            {
+              type: "tool_use",
+              id: "agent-tool-1",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+            {
+              type: "tool_use",
+              id: "agent-tool-2",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+          ],
+          stop_reason: "tool_use",
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000023",
+        timestamp: "2026-05-17T14:00:06.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: true,
+        type: "user",
+        agentId: "child-one",
+        message: { role: "user", content: "inspect parser" },
+        uuid: "00000000-0000-0000-0000-bbbb00000021",
+        timestamp: "2026-05-17T14:00:08.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invokes = trail.groups[0]!.entries.filter(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invokes).toHaveLength(2);
+  expect(
+    invokes.every((entry) => {
+      const args = entry.payload.args as Record<string, unknown>;
+      return !("session_id" in args);
+    }),
+  ).toBe(true);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not use raw Claude sessionId as a child directory path", async () => {
+  const dir = createProjectDir();
+  const parentPath = join(dir, "safe-parent.jsonl");
+  const rawSessionId = "../escaped-parent";
+  const escapedChildDir = join(dir, "..", "escaped-parent", "subagents");
+  mkdirSync(escapedChildDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: false,
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [
+            {
+              type: "tool_use",
+              id: "agent-tool-1",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+          ],
+          stop_reason: "tool_use",
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000031",
+        timestamp: "2026-05-17T14:00:06.000Z",
+        sessionId: rawSessionId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  writeFileSync(
+    join(escapedChildDir, "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000031",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: rawSessionId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: "safe-parent",
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() requires Claude child files to be sidechain records for the parent session", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000041";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000042",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000041",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: "00000000-0000-0000-0000-cccc00000041",
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() refuses mixed Claude child files even when one record has matching sidechain provenance", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000061";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000062",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: true,
+        type: "user",
+        agentId: "child-one",
+        message: { role: "user", content: "inspect parser" },
+        uuid: "00000000-0000-0000-0000-bbbb00000061",
+        timestamp: "2026-05-17T14:00:08.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-bbbb00000061",
+        isSidechain: false,
+        type: "assistant",
+        agentId: "child-one",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "text", text: "untrusted mixed transcript" }],
+        },
+        uuid: "00000000-0000-0000-0000-bbbb00000062",
+        timestamp: "2026-05-17T14:00:09.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() skips malformed Claude child files instead of failing parent parse", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000051";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000052",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(join(childDir, "agent-child-one.jsonl"), "not-json\n");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() skips non-object Claude child records instead of failing parent parse", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000071";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000072",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(join(childDir, "agent-child-one.jsonl"), "null\n");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() does not follow a symlinked Claude subagents directory", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000081";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const outsideChildDir = mkdtempSync(join(tmpdir(), "cc-adapter-linked-child-dir-"));
+  symlinkSync(outsideChildDir, join(dir, parentId), "dir");
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000082",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  mkdirSync(join(outsideChildDir, "subagents"), { recursive: true });
+  writeFileSync(
+    join(outsideChildDir, "subagents", "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000081",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  rmSync(outsideChildDir, { recursive: true, force: true });
+});
+
+test("parseSession() does not follow symlinked Claude child files", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000091";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  const outsideChildDir = mkdtempSync(join(tmpdir(), "cc-adapter-linked-child-file-"));
+  const outsideChildFile = join(outsideChildDir, "agent-child-one.jsonl");
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000092",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    outsideChildFile,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000091",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  symlinkSync(outsideChildFile, join(childDir, "agent-child-one.jsonl"), "file");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  rmSync(outsideChildDir, { recursive: true, force: true });
 });
 
 test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matching acks", async () => {
@@ -355,11 +978,11 @@ test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matc
     },
   ]);
 
-  const plans = trail.entries.filter((entry) => entry.type === "task_plan_update");
+  const plans = trail.groups[0]!.entries.filter((entry) => entry.type === "task_plan_update");
   expect(plans).toHaveLength(2);
-  expect(trail.entries.some((entry) => entry.type === "tool_result")).toBe(false);
+  expect(trail.groups[0]!.entries.some((entry) => entry.type === "tool_result")).toBe(false);
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (entry) =>
         entry.type === "tool_call" && (entry.payload as { tool?: unknown }).tool === "task_plan",
     ),
@@ -465,7 +1088,7 @@ test("parseSession() keeps failed TodoWrite results instead of dropping them as 
     },
   ]);
 
-  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   expect(result?.semantic?.call_id).toBe("todo-write-failed");
   expect(result?.payload).toEqual({
     ok: false,
@@ -537,14 +1160,14 @@ test("parseSession() preserves source metadata and parentage when dropping first
   ]);
 
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "todo-write-ack-first",
     ),
   ).toBe(false);
-  const shellCall = trail.entries.find(
+  const shellCall = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "bash-after-plan",
   );
-  const shellResult = trail.entries.find(
+  const shellResult = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "bash-after-plan",
   );
   expect(shellResult?.parent_id).toBe(shellCall?.id);
@@ -558,8 +1181,8 @@ test("parseSession() preserves source metadata and parentage when dropping first
 
 test("parseSession() emits an agent_message for assistant text records with model", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.type === "tool_result");
-  const agentMsg = trail.entries.find((e) => e.type === "agent_message");
+  const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
   expect(agentMsg).toBeDefined();
   expect(agentMsg?.parent_id).toBe(toolResult?.id);
   expect(agentMsg?.payload).toEqual({
@@ -575,8 +1198,8 @@ test("parseSession() emits an agent_message for assistant text records with mode
 
 test("parseSession() emits a session_summary for summary records", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.type === "agent_message");
-  const summary = trail.entries.find((e) => e.type === "session_summary");
+  const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
+  const summary = trail.groups[0]!.entries.find((e) => e.type === "session_summary");
   expect(summary).toBeDefined();
   expect(summary?.parent_id).toBe(agentMsg?.id);
   expect(summary?.payload).toEqual({
@@ -589,8 +1212,8 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
   const trail = await parseFixture();
   // 5 message-derived entries + 1 system_event for the synthetic queue-operation
   // (issue #88 now emits queue-operation envelopes with synthesized ids).
-  expect(trail.entries).toHaveLength(6);
-  const ids = trail.entries.map((e) => e.id);
+  expect(trail.groups[0]!.entries).toHaveLength(6);
+  const ids = trail.groups[0]!.entries.map((e) => e.id);
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
   expect(ids).not.toContain("00000000-0000-0000-0000-cccccccceee1");
@@ -598,7 +1221,7 @@ test("parseSession() filters attachment, sidechain, and isMeta records", async (
 
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
-  const changes = trail.entries.filter((entry) => entry.type === "capability_change");
+  const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
   expect(changes.map((entry) => entry.payload)).toEqual([
     {
       scope: "tool",
@@ -650,7 +1273,7 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
   // Multi-block envelopes mint fresh UUIDs per block (see entry-metadata.ts);
   // assert source order + types instead of specific compound id strings. Block
   // call_ids preserved via semantic.call_id remain stable across runs.
-  const types = trail.entries.slice(0, 6).map((e) => e.type);
+  const types = trail.groups[0]!.entries.slice(0, 6).map((e) => e.type);
   expect(types).toEqual([
     "user_message",
     "agent_message",
@@ -660,23 +1283,23 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
     "tool_call",
   ]);
 
-  const text = trail.entries[1];
+  const text = trail.groups[0]!.entries[1];
   expect(text?.type).toBe("agent_message");
   // The first agent block chains off the leading user_message (entries[0]).
-  expect(text?.parent_id).toBe(trail.entries[0]?.id);
+  expect(text?.parent_id).toBe(trail.groups[0]!.entries[0]?.id);
 
-  const thinking = trail.entries[2];
+  const thinking = trail.groups[0]!.entries[2];
   expect(thinking?.type).toBe("agent_thinking");
   expect(thinking?.parent_id).toBe(text?.id);
 
-  const read = trail.entries.find(
+  const read = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-read",
   );
   expect(read).toBeDefined();
   expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
   expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
-  const bash = trail.entries.find(
+  const bash = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
   );
   expect(bash).toBeDefined();
@@ -765,10 +1388,10 @@ test("AskUserQuestion emits structured user query and response events", async ()
       adapter: "claude-code",
       path,
     });
-    const query = trail.entries.find(
+    const query = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question",
     );
-    const response = trail.entries.find(
+    const response = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question",
     );
     if (query === undefined || response === undefined) {
@@ -796,12 +1419,12 @@ test("AskUserQuestion emits structured user query and response events", async ()
       answers: { [question.id]: { selected: ["yes"] } },
     });
     expect(
-      trail.entries.some(
+      trail.groups[0]!.entries.some(
         (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-question",
       ),
     ).toBe(false);
     expect(
-      trail.entries.some(
+      trail.groups[0]!.entries.some(
         (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-question",
       ),
     ).toBe(false);
@@ -872,10 +1495,10 @@ test("AskUserQuestion parses escaped quoted answers", async () => {
       adapter: "claude-code",
       path,
     });
-    const query = trail.entries.find(
+    const query = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-quoted",
     );
-    const response = trail.entries.find(
+    const response = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-quoted",
     );
     const [question] = (query?.payload as { questions: Array<{ id: string }> }).questions;
@@ -950,10 +1573,10 @@ test("AskUserQuestion uses unique fallback ids and does not fan out duplicate-te
       adapter: "claude-code",
       path,
     });
-    const query = trail.entries.find(
+    const query = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-duplicate",
     );
-    const response = trail.entries.find(
+    const response = trail.groups[0]!.entries.find(
       (e) =>
         e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-duplicate",
     );
@@ -1016,10 +1639,10 @@ test("AskUserQuestion dismissed response emits empty answers", async () => {
       adapter: "claude-code",
       path,
     });
-    const query = trail.entries.find(
+    const query = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query" && e.semantic?.call_id === "tooluse-question-large",
     );
-    const response = trail.entries.find(
+    const response = trail.groups[0]!.entries.find(
       (e) => e.type === "user_query_response" && e.semantic?.call_id === "tooluse-question-large",
     );
 
@@ -1036,10 +1659,10 @@ test("parseSession() emits multiple tool_results with error state and semantic p
   // tool_call and tool_result block ids are fresh UUIDs at runtime, but the
   // tool_call's id is preserved as for_id on the paired tool_result. Pair by
   // semantic.call_id and verify the for_id linkage.
-  const readCall = trail.entries.find(
+  const readCall = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-read",
   );
-  const readResult = trail.entries.find(
+  const readResult = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-read",
   );
   expect(readCall).toBeDefined();
@@ -1051,10 +1674,10 @@ test("parseSession() emits multiple tool_results with error state and semantic p
   });
   expect(readResult?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
 
-  const bashCall = trail.entries.find(
+  const bashCall = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
   );
-  const bashResult = trail.entries.find(
+  const bashResult = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_result" && e.semantic?.call_id === "tooluse-bash",
   );
   expect(bashCall).toBeDefined();
@@ -1071,7 +1694,7 @@ test("parseSession() emits multiple tool_results with error state and semantic p
 test("parseSession() maps system, progress, queue, resume preamble, summary, and compact records", async () => {
   const trail = await parseFidelityFixture();
   const byKind = (kind: string) =>
-    trail.entries.find((e) => (e.payload as { kind?: string })?.kind === kind);
+    trail.groups[0]!.entries.find((e) => (e.payload as { kind?: string })?.kind === kind);
   expect(byKind("x-claudecode/local_command")?.payload).toEqual({
     kind: "x-claudecode/local_command",
     text: "<command-name>/model</command-name>",
@@ -1087,17 +1710,19 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   });
   // The resume preamble (continuation summary) maps to a session_start system_event.
   expect(byKind("session_start")?.type).toBe("system_event");
-  expect(trail.entries.some((e) => e.type === "session_summary")).toBe(true);
-  expect(trail.entries.some((e) => e.type === "context_compact")).toBe(true);
+  expect(trail.groups[0]!.entries.some((e) => e.type === "session_summary")).toBe(true);
+  expect(trail.groups[0]!.entries.some((e) => e.type === "context_compact")).toBe(true);
 });
 
 test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {
   const first = await parseFixture();
   const second = await parseFixture();
-  expect(first.entries.map((e) => e.id)).toEqual(second.entries.map((e) => e.id));
-  for (const entry of first.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(first.groups[0]!.entries.map((e) => e.id)).toEqual(
+    second.groups[0]!.entries.map((e) => e.id),
+  );
+  for (const entry of first.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
   expect(
-    first.entries.some(
+    first.groups[0]!.entries.some(
       (e) =>
         e.type === "system_event" && (e.payload as { kind?: string }).kind === "queue_operation",
     ),
@@ -1105,16 +1730,20 @@ test("parseSession() emits v0.1-shaped deterministic entry ids across synthesize
 
   const model = await parseInterruptModelFixture();
   const modelAgain = await parseInterruptModelFixture();
-  expect(model.entries.map((e) => e.id)).toEqual(modelAgain.entries.map((e) => e.id));
-  for (const entry of model.entries) expect(entry.id).toMatch(ID_PATTERN);
-  expect(model.entries.some((e) => e.type === "model_change")).toBe(true);
+  expect(model.groups[0]!.entries.map((e) => e.id)).toEqual(
+    modelAgain.groups[0]!.entries.map((e) => e.id),
+  );
+  for (const entry of model.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(model.groups[0]!.entries.some((e) => e.type === "model_change")).toBe(true);
 
   const permission = await parsePermissionModeFixture();
   const permissionAgain = await parsePermissionModeFixture();
-  expect(permission.entries.map((e) => e.id)).toEqual(permissionAgain.entries.map((e) => e.id));
-  for (const entry of permission.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(permission.groups[0]!.entries.map((e) => e.id)).toEqual(
+    permissionAgain.groups[0]!.entries.map((e) => e.id),
+  );
+  for (const entry of permission.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
   expect(
-    permission.entries.some(
+    permission.groups[0]!.entries.some(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: string }).kind === "permission_mode_change",
@@ -1124,7 +1753,7 @@ test("parseSession() emits v0.1-shaped deterministic entry ids across synthesize
 
 test("interrupt-and-model-change fixture: emits user_interrupt and synthetic model_change in expected sequence", async () => {
   const trail = await parseInterruptModelFixture();
-  const types = trail.entries.map((e) => e.type);
+  const types = trail.groups[0]!.entries.map((e) => e.type);
   expect(types).toEqual([
     "user_message",
     "agent_message",
@@ -1137,12 +1766,12 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
 
   // Indices follow the sequence asserted above; assert linkage via those entries'
   // own ids rather than reconstructing the kit's internal id scheme.
-  const interrupt = trail.entries[2];
+  const interrupt = trail.groups[0]!.entries[2];
   expect(interrupt?.type).toBe("user_interrupt");
   expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
-  expect(interrupt?.parent_id).toBe(trail.entries[1]?.id);
+  expect(interrupt?.parent_id).toBe(trail.groups[0]!.entries[1]?.id);
 
-  const modelChange = trail.entries.find((e) => e.type === "model_change");
+  const modelChange = trail.groups[0]!.entries.find((e) => e.type === "model_change");
   expect(modelChange?.type).toBe("model_change");
   expect(modelChange?.payload).toEqual({
     from_model: "claude-opus-4-7",
@@ -1151,13 +1780,13 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
   expect(modelChange?.source?.synthesized).toBe(true);
   // model_change is synthesized before the second user_message's agent reply;
   // its parent is the preceding user_message (entries[3]).
-  expect(modelChange?.parent_id).toBe(trail.entries[3]?.id);
+  expect(modelChange?.parent_id).toBe(trail.groups[0]!.entries[3]?.id);
 
-  const sonnetMsg = trail.entries[5];
+  const sonnetMsg = trail.groups[0]!.entries[5];
   expect(sonnetMsg?.type).toBe("agent_message");
   expect(sonnetMsg?.parent_id).toBe(modelChange?.id);
 
-  expect(trail.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
+  expect(trail.groups[0]!.entries.filter((e) => e.type === "model_change")).toHaveLength(1);
 });
 
 test("interrupt-and-model-change fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
@@ -1208,7 +1837,7 @@ test("parseSession stamps timestamp-less drift quarantine from the nearest sourc
       adapter: "claude-code",
       path,
     });
-    const quarantine = trail.entries.find(
+    const quarantine = trail.groups[0]!.entries.find(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
@@ -1223,7 +1852,7 @@ test("parseSession stamps timestamp-less drift quarantine from the nearest sourc
 
 test("every entry has source metadata: agent='claude-code', original_type populated, schema_version set, raw preserved", async () => {
   const trail = await parseFixture();
-  for (const entry of trail.entries) {
+  for (const entry of trail.groups[0]!.entries) {
     expect(entry.source?.agent).toBe("claude-code");
     expect(typeof entry.source?.original_type).toBe("string");
     expect(entry.source?.schema_version).toBe("1.0.0-synthetic");
@@ -1237,7 +1866,10 @@ test("fidelity-edge-cases trail output drops below 11 KB after envelope_ref dedu
   // documents the floor after dedup (~10.1 KB at writing) without locking the
   // exact byte count.
   const trail = await parseFidelityFixture();
-  const lines = [JSON.stringify(trail.header), ...trail.entries.map((e) => JSON.stringify(e))];
+  const lines = [
+    JSON.stringify(trail.groups[0]!.header),
+    ...trail.groups[0]!.entries.map((e) => JSON.stringify(e)),
+  ];
   const bytes = Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
   expect(bytes).toBeLessThan(13_000);
 });
@@ -1366,10 +1998,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.header.vcs).toBeDefined();
-    expect(trail.header.vcs?.type).toBe("git");
-    expect(trail.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
-    expect(trail.header.vcs?.remote_url).toBe("https://github.com/agent-trail/agent-trail");
+    expect(trail.groups[0]!.header.vcs).toBeDefined();
+    expect(trail.groups[0]!.header.vcs?.type).toBe("git");
+    expect(trail.groups[0]!.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
+    expect(trail.groups[0]!.header.vcs?.remote_url).toBe(
+      "https://github.com/agent-trail/agent-trail",
+    );
   } finally {
     rmSync(repoDir, { recursive: true, force: true });
   }
@@ -1377,7 +2011,7 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
 
 test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
   const trail = await parseFixture();
-  expect(trail.header.vcs).toBeUndefined();
+  expect(trail.groups[0]!.header.vcs).toBeUndefined();
 });
 
 // Issue #88: lifecycle vocabulary mapping. Each progress hookEvent routes to a
@@ -1415,7 +2049,9 @@ test("parseSession() maps ai-title and agent-name to session_metadata_update eve
     });
     expect(trail.envelope?.name).toBeUndefined();
     expect(trail.envelope?.meta).toBeUndefined();
-    const updates = trail.entries.filter((entry) => entry.type === "session_metadata_update");
+    const updates = trail.groups[0]!.entries.filter(
+      (entry) => entry.type === "session_metadata_update",
+    );
     expect(updates.map((entry) => entry.payload)).toEqual([
       { field: "name", value: "Wire ai-title plumbing", reason: "ai_generated" },
       {
@@ -1461,7 +2097,7 @@ test("parseSession() maps agent-name without ai-title to a vendor session_metada
     });
     expect(trail.envelope?.name).toBeUndefined();
     expect(trail.envelope?.meta).toBeUndefined();
-    const update = trail.entries.find(
+    const update = trail.groups[0]!.entries.find(
       (entry) =>
         entry.type === "session_metadata_update" &&
         entry.payload?.field === "x-claudecode/agent_name",
@@ -1515,10 +2151,10 @@ test("parseSession() maps worktree-state to session_metadata_update when cwd is 
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.header.vcs).toBeUndefined();
-    const updates = trail.entries
-      .filter((entry) => entry.type === "session_metadata_update")
-      .map((entry) => entry.payload);
+    expect(trail.groups[0]!.header.vcs).toBeUndefined();
+    const updates = trail.groups[0]!.entries.filter(
+      (entry) => entry.type === "session_metadata_update",
+    ).map((entry) => entry.payload);
     expect(updates).toEqual([
       { field: "vcs.branch", value: "feature/topic", reason: "runtime_inferred" },
       {
@@ -1582,7 +2218,7 @@ test("parseSession() emits permission_mode_change with inherited timestamp + fro
       adapter: "claude-code",
       path: fixturePath,
     });
-    const pmEvents = trail.entries.filter(
+    const pmEvents = trail.groups[0]!.entries.filter(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: string }).kind === "permission_mode_change",

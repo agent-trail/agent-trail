@@ -200,10 +200,10 @@ describe("claude-code v2 stateful behaviors", () => {
       });
       expect(trail.envelope?.name).toBeUndefined();
       expect(trail.envelope?.meta).toBeUndefined();
-      expect(trail.header.vcs).toBeUndefined();
-      const updates = trail.entries
-        .filter((entry) => entry.type === "session_metadata_update")
-        .map((entry) => entry.payload);
+      expect(trail.groups[0]!.header.vcs).toBeUndefined();
+      const updates = trail.groups[0]!.entries.filter(
+        (entry) => entry.type === "session_metadata_update",
+      ).map((entry) => entry.payload);
       expect(updates).toEqual([
         { field: "name", value: "Wire v2 metadata", reason: "ai_generated" },
         {

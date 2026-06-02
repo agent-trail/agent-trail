@@ -202,8 +202,6 @@ export interface TrailEnvelope {
      */
     id: string;
     agent: AgentName;
-    role?: string;
-    follows?: string;
   }[];
   /**
    * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.

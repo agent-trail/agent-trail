@@ -1,6 +1,7 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import {
   agentMessageUsageWarnings,
+  childSessionLinkWarnings,
   crossGroupForkFromWarnings,
   envelopeRefWarnings,
   envelopeSessionsManifestWarnings,
@@ -218,6 +219,7 @@ export function validateTrailGraph(
     diagnostics.push(...outOfOrderSessionHeadersWarnings(validGroups));
     diagnostics.push(...vcsRevisionDivergenceWarnings(validGroups));
     diagnostics.push(...crossGroupForkFromWarnings(validGroups));
+    diagnostics.push(...childSessionLinkWarnings(validGroups));
   }
 
   if (canonicalBytesComplete) {

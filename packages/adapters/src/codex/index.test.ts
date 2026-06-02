@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -213,13 +213,13 @@ test("parseSession on the desktop tracer fixture emits a valid trail with codex-
   expect(trail.envelope?.type).toBe("trail");
   expect(trail.envelope?.schema_version).toBe("0.1.0");
   expect(trail.envelope?.producer).toMatch(/^@agent-trail\/adapters-codex\//);
-  expect(trail.header.type).toBe("session");
-  expect(trail.header.schema_version).toBe("0.1.0");
-  expect(trail.header.id).toBe("019d7909-85dd-7881-aa12-95ffc8ca8ba1");
-  expect(trail.header.agent.name).toBe("codex-cli");
-  expect(trail.header.agent.version).toBe("0.128.0");
-  expect(trail.header.cwd).toBe("/proj/codex-fixture");
-  expect(typeof trail.header.session_uid).toBe("string");
+  expect(trail.groups[0]!.header.type).toBe("session");
+  expect(trail.groups[0]!.header.schema_version).toBe("0.1.0");
+  expect(trail.groups[0]!.header.id).toBe("019d7909-85dd-7881-aa12-95ffc8ca8ba1");
+  expect(trail.groups[0]!.header.agent.name).toBe("codex-cli");
+  expect(trail.groups[0]!.header.agent.version).toBe("0.128.0");
+  expect(trail.groups[0]!.header.cwd).toBe("/proj/codex-fixture");
+  expect(typeof trail.groups[0]!.header.session_uid).toBe("string");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
@@ -246,7 +246,7 @@ test("parseSession emits trimmed session_metadata_update name from CRLF session_
   );
 
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const update = trail.entries.find(
+  const update = trail.groups[0]!.entries.find(
     (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
   );
 
@@ -286,7 +286,7 @@ test("parseSession skips session_index rows without usable thread_name", async (
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
 
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
     ),
   ).toBe(false);
@@ -294,8 +294,8 @@ test("parseSession skips session_index rows without usable thread_name", async (
 
 test("desktop fixture emits user_message + agent_message entries from event_msg channel", async () => {
   const trail = await parseDesktopFixture();
-  const userEntries = trail.entries.filter((e) => e.type === "user_message");
-  const agentEntries = trail.entries.filter((e) => e.type === "agent_message");
+  const userEntries = trail.groups[0]!.entries.filter((e) => e.type === "user_message");
+  const agentEntries = trail.groups[0]!.entries.filter((e) => e.type === "agent_message");
   expect(userEntries).toHaveLength(1);
   expect(agentEntries).toHaveLength(1);
   expect((userEntries[0]?.payload as { text: string }).text).toBe("hello codex");
@@ -309,11 +309,11 @@ test("desktop fixture emits user_message + agent_message entries from event_msg 
 
 test("desktop fixture emits tool_call + tool_result with for_id linkage", async () => {
   const trail = await parseDesktopFixture();
-  const calls = trail.entries.filter((e) => e.type === "tool_call");
+  const calls = trail.groups[0]!.entries.filter((e) => e.type === "tool_call");
   // Desktop fixture emits two tool_calls (`call-abc` shell + `call-exec-1`
   // exec_command); guard against a regression that drops one of them.
   expect(calls.length).toBeGreaterThanOrEqual(2);
-  const result = trail.entries.find((e) => e.type === "tool_result");
+  const result = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
   const call = calls.find((c) => c.semantic?.call_id === "call-abc");
   expect(call).toBeDefined();
   expect(result).toBeDefined();
@@ -324,6 +324,485 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect((result?.payload as { output: string }).output).toBe("hi\n");
   expect((result?.payload as { for_id?: string }).for_id).toBe(call?.id);
   expect(result?.semantic?.call_id).toBe("call-abc");
+});
+
+test("parseSession bundles a direct spawn_agent child session", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000001";
+  const childId = "019d9000-bbbb-7000-a000-000000000002";
+  const childPath = seedSession({
+    date: { y: "2026", m: "05", d: "30" },
+    id: childId,
+    cwd: process.cwd(),
+    extraPayload: {
+      thread_source: "subagent",
+      source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+    },
+    extraRecords: [
+      {
+        timestamp: "2026-05-30T01:47:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "child result",
+        },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "30" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-30T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({
+            agent_type: "reviewer",
+            message: "inspect parser",
+            reasoning_effort: "high",
+          }),
+        },
+      },
+      {
+        timestamp: "2026-05-30T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(childPath).toContain(childId);
+  expect(trail.groups).toHaveLength(2);
+  const parent = trail.groups[0]!;
+  const child = trail.groups[1]!;
+  const invoke = parent.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke).toBeDefined();
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer", session_id: childId },
+  });
+  expect(child.header.id).toBe(childId);
+  expect(child.header.fork_from).toEqual({ session_id: parent.header.id, entry_id: invoke?.id });
+  expect(child.entries.some((entry) => entry.type === "agent_message")).toBe(true);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  expect(diagnostics.some((d) => d.code.startsWith("child_session_"))).toBe(false);
+});
+
+test("parseSession does not bundle a spawn_agent child without child-side provenance", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000011";
+  const childId = "019d9000-bbbb-7000-a000-000000000012";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "untrusted child" },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not bundle a spawn_agent child when provenance only appears on a later event", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000041";
+  const childId = "019d9000-bbbb-7000-a000-000000000042";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "spoofed child provenance",
+          thread_source: "subagent",
+          source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+        },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not scan ambient Codex sessions for arbitrary parent files", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000051";
+  const childId = "019d9000-bbbb-7000-a000-000000000052";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraPayload: {
+      thread_source: "subagent",
+      source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+    },
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "ambient child result" },
+      },
+    ],
+  });
+  const parentPath = join(tmpCwd, "outside-parent.jsonl");
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        timestamp: "2026-05-31T01:46:00.000Z",
+        type: "session_meta",
+        payload: {
+          id: parentId,
+          timestamp: "2026-05-31T01:46:00.000Z",
+          cwd: process.cwd(),
+          originator: "codex-tui",
+          cli_version: "0.128.0",
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not follow symlinked Codex session directories for children", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000061";
+  const childId = "019d9000-bbbb-7000-a000-000000000062";
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  mkdirSync(sessionsDir, { recursive: true });
+  const outsideDir = mkdtempSync(join(tmpdir(), "codex-adapter-linked-child-"));
+  const childPath = join(outsideDir, `rollout-2026-05-31T01-47-00-000Z-${childId}.jsonl`);
+  writeFileSync(
+    childPath,
+    `${[
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "session_meta",
+        payload: {
+          id: childId,
+          timestamp: "2026-05-31T01:47:00.000Z",
+          cwd: process.cwd(),
+          originator: "codex-tui",
+          cli_version: "0.128.0",
+          thread_source: "subagent",
+          source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:47:01.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "symlinked child result" },
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  symlinkSync(outsideDir, join(sessionsDir, "linked-child-dir"), "dir");
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+  rmSync(outsideDir, { recursive: true, force: true });
+});
+
+test("parseSession skips incompatible Codex child files instead of failing parent parse", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000031";
+  const childId = "019d9000-bbbb-7000-a000-000000000032";
+  const childPath = seedSession({
+    date: { y: "2026", m: "06", d: "02" },
+    id: childId,
+    cwd: process.cwd(),
+  });
+  writeFileSync(
+    childPath,
+    `${JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: childId,
+        cwd: process.cwd(),
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+        thread_source: "subagent",
+        source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+      },
+    })}\n`,
+  );
+  const parentPath = seedSession({
+    date: { y: "2026", m: "06", d: "02" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-06-02T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-06-02T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession dedupes repeated spawn_agent outputs for the same child", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000021";
+  const childId = "019d9000-bbbb-7000-a000-000000000022";
+  seedSession({
+    date: { y: "2026", m: "06", d: "01" },
+    id: childId,
+    cwd: process.cwd(),
+    extraPayload: {
+      thread_source: "subagent",
+      source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+    },
+    extraRecords: [
+      {
+        timestamp: "2026-06-01T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "child result" },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "06", d: "01" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-06-01T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-06-01T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+      {
+        timestamp: "2026-06-01T01:46:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups.map((group) => group.header.id)).toEqual([parentId, childId]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("update_plan function calls emit task_plan_update and drop matching ack outputs", async () => {
@@ -414,16 +893,16 @@ test("update_plan function calls emit task_plan_update and drop matching ack out
     path,
   });
 
-  const plans = trail.entries.filter((entry) => entry.type === "task_plan_update");
+  const plans = trail.groups[0]!.entries.filter((entry) => entry.type === "task_plan_update");
   expect(plans).toHaveLength(3);
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (entry) =>
         entry.type === "tool_call" &&
         (entry.payload as { args?: { name?: unknown } }).args?.name === "update_plan",
     ),
   ).toBe(false);
-  expect(trail.entries.some((entry) => entry.type === "tool_result")).toBe(false);
+  expect(trail.groups[0]!.entries.some((entry) => entry.type === "tool_result")).toBe(false);
 
   const firstPayload = plans[0]?.payload as {
     explanation?: string;
@@ -584,7 +1063,7 @@ test("update_plan ack dropping keeps failed outputs and colliding non-plan tool 
     path,
   });
 
-  const results = trail.entries.filter((entry) => entry.type === "tool_result");
+  const results = trail.groups[0]!.entries.filter((entry) => entry.type === "tool_result");
   expect(results.map((entry) => (entry.payload as { output?: string }).output).sort()).toEqual([
     "plan update rejected",
     "real output",
@@ -595,7 +1074,7 @@ test("update_plan ack dropping keeps failed outputs and colliding non-plan tool 
   );
   expect((failedPlanResult?.payload as { ok?: boolean }).ok).toBe(false);
   expect((failedPlanResult?.payload as { for_id?: string }).for_id).toBeUndefined();
-  const shellCall = trail.entries.find(
+  const shellCall = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-shared",
   );
   const shellResult = results.find(
@@ -609,7 +1088,7 @@ test("update_plan ack dropping keeps failed outputs and colliding non-plan tool 
 
 test("exec_command function_call maps to shell_command with workdir as cwd", async () => {
   const trail = await parseDesktopFixture();
-  const exec = trail.entries.find(
+  const exec = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-exec-1",
   );
   expect(exec).toBeDefined();
@@ -706,7 +1185,7 @@ test("mapTool promotes common Codex function calls out of other", () => {
 
 test("compact fixture emits context_compact from top-level compacted record", async () => {
   const trail = await parseCompactFixture();
-  const compact = trail.entries.find((e) => e.type === "context_compact");
+  const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
   expect(compact).toBeDefined();
   expect((compact?.payload as { summary: string }).summary).toBe(
     "Refactored auth module. Tests pass.",
@@ -724,7 +1203,7 @@ test("compact fixture emits context_compact from top-level compacted record", as
 
 test("compact fixture emits synthesized model_change at the in-session model switch", async () => {
   const trail = await parseCompactFixture();
-  const modelChanges = trail.entries.filter((e) => e.type === "model_change");
+  const modelChanges = trail.groups[0]!.entries.filter((e) => e.type === "model_change");
   expect(modelChanges).toHaveLength(1);
   const [mc] = modelChanges;
   expect((mc?.payload as { from_model?: string; to_model: string }).from_model).toBe("gpt-5-codex");
@@ -735,7 +1214,7 @@ test("compact fixture emits synthesized model_change at the in-session model swi
 
 test("reasoning fixture emits one agent_thinking per turn with dev.codex.raw_type audit tag", async () => {
   const trail = await parseReasoningFixture();
-  const thinking = trail.entries.filter((e) => e.type === "agent_thinking");
+  const thinking = trail.groups[0]!.entries.filter((e) => e.type === "agent_thinking");
   // Three entries: turn-1 event_msg.agent_reasoning, turn-2
   // event_msg.agent_reasoning_raw_content, turn-2
   // response_item.reasoning.summary (the dedupe key differs). Look up by
@@ -814,7 +1293,7 @@ test("parseSession stamps timestamp-less drift quarantine from the session heade
     adapter: "codex",
     path,
   });
-  const quarantine = trail.entries.find(
+  const quarantine = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" &&
       (e.payload as { kind?: string }).kind === "x-codex/unknown_record",
@@ -832,13 +1311,13 @@ test("CODEX_HOME whitespace-only override falls back to default", () => {
 test("parseSession produces deterministic entry ids across re-parses (spec §8.5)", async () => {
   const a = await parseDesktopFixture();
   const b = await parseDesktopFixture();
-  expect(a.header.session_uid).toBe(b.header.session_uid);
-  const idsA = a.entries.map((e) => e.id);
-  const idsB = b.entries.map((e) => e.id);
+  expect(a.groups[0]!.header.session_uid).toBe(b.groups[0]!.header.session_uid);
+  const idsA = a.groups[0]!.entries.map((e) => e.id);
+  const idsB = b.groups[0]!.entries.map((e) => e.id);
   expect(idsA).toEqual(idsB);
   // for_id linkage should also be stable.
-  const aResult = a.entries.find((e) => e.type === "tool_result");
-  const bResult = b.entries.find((e) => e.type === "tool_result");
+  const aResult = a.groups[0]!.entries.find((e) => e.type === "tool_result");
+  const bResult = b.groups[0]!.entries.find((e) => e.type === "tool_result");
   expect((aResult?.payload as { for_id?: string }).for_id).toBe(
     (bResult?.payload as { for_id?: string }).for_id,
   );
@@ -846,7 +1325,7 @@ test("parseSession produces deterministic entry ids across re-parses (spec §8.5
 
 test("event_msg.task_started emits system_event with reserved kind task_started", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) => e.type === "system_event" && (e.payload as { kind: string }).kind === "task_started",
   );
   expect(evt).toBeDefined();
@@ -862,7 +1341,7 @@ test("event_msg.task_started emits system_event with reserved kind task_started"
 
 test("event_msg.task_complete emits system_event with canonical task_completed kind", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) => e.type === "system_event" && (e.payload as { kind: string }).kind === "task_completed",
   );
   expect(evt).toBeDefined();
@@ -877,7 +1356,7 @@ test("event_msg.task_complete emits system_event with canonical task_completed k
 
 test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" &&
       (e.payload as { kind: string }).kind === "x-codex/exec_command_end",
@@ -894,7 +1373,7 @@ test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_i
 
 test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" &&
       (e.payload as { kind: string }).kind === "x-codex/patch_apply_end",
@@ -908,7 +1387,7 @@ test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id"
 
 test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" &&
       (e.payload as { kind: string }).kind === "x-codex/mcp_tool_call_end",
@@ -923,7 +1402,7 @@ test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call
 
 test("event_msg.thread_goal_updated emits session_metadata_update description", async () => {
   const trail = await parseLifecycleFixture();
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) => e.type === "session_metadata_update" && e.payload?.field === "description",
   );
   expect(evt).toBeDefined();
@@ -933,7 +1412,7 @@ test("event_msg.thread_goal_updated emits session_metadata_update description", 
     reason: "ai_generated",
   });
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
@@ -959,7 +1438,7 @@ test("event_msg.thread_goal_updated emits vendor session_metadata_update when su
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
-  const evt = trail.entries.find(
+  const evt = trail.groups[0]!.entries.find(
     (e) => e.type === "session_metadata_update" && e.payload?.field === "x-codex/thread_goal",
   );
 
@@ -969,7 +1448,7 @@ test("event_msg.thread_goal_updated emits vendor session_metadata_update when su
     reason: "ai_generated",
   });
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
@@ -979,7 +1458,7 @@ test("event_msg.thread_goal_updated emits vendor session_metadata_update when su
 
 test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {
   const trail = await parseWebSearchFixture();
-  const evt = trail.entries.find((e) => e.type === "system_event");
+  const evt = trail.groups[0]!.entries.find((e) => e.type === "system_event");
   expect(evt).toBeDefined();
   expect((evt?.payload as { kind: string }).kind).toBe("x-codex/web_search_end");
   // Pairing is query-based: tool_call.args.query matches data.query. The
@@ -990,7 +1469,7 @@ test("web_search_end emits x-codex/web_search_end system_event with query-based 
   const data = (evt?.payload as { data?: { query?: string; call_id?: string } }).data;
   expect(data?.query).toBe("site:example.com api docs");
   expect(data?.call_id).toBe("ws_abc123");
-  const call = trail.entries.find((e) => e.type === "tool_call");
+  const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   expect((call?.payload as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
@@ -999,7 +1478,7 @@ test("web_search_end emits x-codex/web_search_end system_event with query-based 
 
 test("web_search_call with action.type='search' maps to tool_call{tool:'web_search'}", async () => {
   const trail = await parseWebSearchFixture();
-  const call = trail.entries.find((e) => e.type === "tool_call");
+  const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   expect(call).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("web_search");
   expect((call?.payload as { args: { query: string } }).args.query).toBe(
@@ -1054,12 +1533,14 @@ test("response_item tool_search_call and open_page map to canonical tool kinds",
     path,
   });
 
-  const toolSearch = trail.entries.find((e) => e.semantic?.call_id === "call-tool-search");
+  const toolSearch = trail.groups[0]!.entries.find(
+    (e) => e.semantic?.call_id === "call-tool-search",
+  );
   expect(toolSearch?.payload).toEqual({
     tool: "tool_search",
     args: { query: "auth flow", limit: 3 },
   });
-  const webFetch = trail.entries.find(
+  const webFetch = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && (e.payload as { tool?: string }).tool === "web_fetch",
   );
   expect(webFetch?.payload).toEqual({
@@ -1129,10 +1610,10 @@ test("request_user_input emits structured user query and response events", async
     adapter: "codex",
     path,
   });
-  const query = trail.entries.find(
+  const query = trail.groups[0]!.entries.find(
     (e) => e.type === "user_query" && e.semantic?.call_id === "call-user-input",
   );
-  const response = trail.entries.find(
+  const response = trail.groups[0]!.entries.find(
     (e) => e.type === "user_query_response" && e.semantic?.call_id === "call-user-input",
   );
 
@@ -1156,10 +1637,12 @@ test("request_user_input emits structured user query and response events", async
     answers: { ship: { selected: ["yes"], other: "with changelog" } },
   });
   expect(
-    trail.entries.some((e) => e.type === "tool_call" && e.semantic?.call_id === "call-user-input"),
+    trail.groups[0]!.entries.some(
+      (e) => e.type === "tool_call" && e.semantic?.call_id === "call-user-input",
+    ),
   ).toBe(false);
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (e) => e.type === "tool_result" && e.semantic?.call_id === "call-user-input",
     ),
   ).toBe(false);
@@ -1211,10 +1694,10 @@ test("request_user_input dismissed response emits empty answers", async () => {
     adapter: "codex",
     path,
   });
-  const query = trail.entries.find(
+  const query = trail.groups[0]!.entries.find(
     (e) => e.type === "user_query" && e.semantic?.call_id === "call-user-input-large",
   );
-  const response = trail.entries.find(
+  const response = trail.groups[0]!.entries.find(
     (e) => e.type === "user_query_response" && e.semantic?.call_id === "call-user-input-large",
   );
 
@@ -1225,17 +1708,17 @@ test("request_user_input dismissed response emits empty answers", async () => {
 
 test("custom_tool_call_output emits tool_result paired by call_id", async () => {
   const trail = await parseApplyPatchFixture();
-  const singleCall = trail.entries.find(
+  const singleCall = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-single",
   );
-  const singleResult = trail.entries.find(
+  const singleResult = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_result" && e.semantic?.call_id === "call-patch-single",
   );
   expect(singleResult).toBeDefined();
   expect((singleResult?.payload as { for_id?: string }).for_id).toBe(singleCall?.id);
   expect((singleResult?.payload as { output: string }).output).toContain("M src/foo.ts");
   expect(singleResult?.meta?.["dev.codex.raw_type"]).toBe("response_item.custom_tool_call_output");
-  const multiResult = trail.entries.find(
+  const multiResult = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_result" && e.semantic?.call_id === "call-patch-multi",
   );
   expect(multiResult).toBeDefined();
@@ -1243,7 +1726,7 @@ test("custom_tool_call_output emits tool_result paired by call_id", async () => 
 
 test("custom_tool_call apply_patch with a multi-file patch falls back to other", async () => {
   const trail = await parseApplyPatchFixture();
-  const multi = trail.entries.find(
+  const multi = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-multi",
   );
   expect(multi).toBeDefined();
@@ -1256,7 +1739,7 @@ test("custom_tool_call apply_patch with a multi-file patch falls back to other",
 
 test("custom_tool_call apply_patch with a single-file patch maps to file_edit", async () => {
   const trail = await parseApplyPatchFixture();
-  const single = trail.entries.find(
+  const single = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-single",
   );
   expect(single).toBeDefined();
@@ -1323,7 +1806,7 @@ test("detectSessions() and parseSession() tolerate large session_meta records", 
   expect(ref?.headerStatus).toBe("header");
   if (ref === undefined) throw new Error("expected ref");
   const trail = await codexAdapter.parseSession(ref);
-  expect(trail.header.id).toBe(id);
+  expect(trail.groups[0]!.header.id).toBe(id);
 });
 
 test('buildSessionRef sets headerStatus="filename-fallback" when header is unreadable', async () => {
