@@ -301,15 +301,22 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   recoverable. Output is the JSON-stringified `tools` array.
 - `response_item.payload.type == "reasoning"` — Codex stores reasoning twice: an opaque
   `encrypted_content` blob (still ignored; no plaintext recoverable) and an optional
-  plaintext `summary[]` array. When summary items carry `text`, they emit a deduped
-  `agent_thinking` with `metadata["dev.codex.raw_type"] = "response_item.reasoning.summary"`.
+  plaintext `summary[]` array. Each `summary[]` element is a distinct reasoning section (the
+  boundaries the streaming `agent_reasoning_section_break` events delimit), so the adapter emits
+  **one deduped `agent_thinking` per section** (`metadata["dev.codex.raw_type"] =
+  "response_item.reasoning.summary"`) rather than joining sections with `\n` — section structure
+  is preserved and this matches how every other adapter records thinking blocks.
 - `event_msg.payload.type == "agent_reasoning"` and `event_msg.payload.type ==
-  "agent_reasoning_raw_content"` both → `agent_thinking`. Within a turn
-  (`turn_context.payload.turn_id`), normalised-text duplicates collapse to a single entry;
-  origin is recorded under `metadata["dev.codex.raw_type"]` (schema's `sourceMetadata` is
-  `additionalProperties: false`, so the audit tag lives under reverse-DNS entry metadata per
-  spec §11 — same precedent as Pi). The dedupe pool now covers the response-item summary path
-  too.
+  "agent_reasoning_raw_content"` both → `agent_thinking` (canonical text is `payload.text`, no
+  `message` fallback). Within a turn (`turn_context.payload.turn_id`), normalised-text duplicates
+  collapse to a single entry; origin is recorded under `metadata["dev.codex.raw_type"]` (schema's
+  `sourceMetadata` is `additionalProperties: false`, so the audit tag lives under reverse-DNS
+  entry metadata per spec §11 — same precedent as Pi). The per-section dedupe pool spans both the
+  streaming `event_msg` reasoning and the persisted `response_item.reasoning.summary[]` sections,
+  folding exact duplicates while letting divergent sections through.
+- `event_msg.payload.type == "agent_reasoning_section_break"` — recognized by the source schema
+  and intentionally dropped (a streaming-UI marker; the persisted `summary[]` already carries the
+  sections), so it is not quarantined.
 - Top-level `compacted` record → `context_compact`. The summary text lives at `payload.message`
   (real shape — not `payload.summary`), with `payload.replacement_history` carrying the folded
   message list. The adapter preserves an elision marker for `replacement_history` under
@@ -334,6 +341,23 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `turn_context.payload.model` values differ. `payload.from_model` is the last observed model;
   `payload.to_model` is the new value. `source.synthesized: true` and
   `metadata["dev.codex.raw_type"] = "turn_context.model_change"` flag the synthetic origin.
+- Recorded VCS: the `session_meta` payload's `git { commit_hash, branch, repository_url }`
+  (sibling of the flattened SessionMeta fields) populates `header.vcs` and is authoritative —
+  live `readGitVcs(cwd)` runs only as a fallback when no recorded `git` block exists (correct for
+  archived / replayed / shared trails). `repository_url` routes through `normalizeRemoteUrl`.
+- SessionMeta extras → `header.meta` (reverse-DNS `dev.codex.*`): `model_provider` →
+  `dev.codex.model_provider`; `memory_mode` → `dev.codex.memory_mode`; `base_instructions.text`
+  (the system prompt, kept verbatim under `source.raw`) → a `dev.codex.base_instructions`
+  fingerprint `{sha256, bytes}` that survives share-time elision and flags customization without
+  inlining KBs of boilerplate. `dynamic_tools` is captured separately as `capability_change`.
+- `turn_context` policy context: the initial tuple (`approval_policy`, `sandbox_policy`,
+  `network`, `file_system_sandbox_policy`, `permission_profile`, `active_permission_profile`,
+  `personality`, `collaboration_mode`, `effort`, `current_date`, `timezone`) snapshots into
+  `header.meta["dev.codex.turn_context"]`. Mid-session changes emit change-only system_events:
+  the permission axis → reserved `permission_mode_change` (`data.to`/`from` = the named preset
+  `active_permission_profile`/`permission_profile`, else `approval_policy`; sandbox/network ride
+  in `data`); the flavor axis (`personality`/`collaboration_mode`/`effort`) →
+  `x-codex/turn_context`. The first `turn_context` establishes the baseline silently.
 
 Diagnostic `system_event` emissions:
 
@@ -374,8 +398,10 @@ Lifecycle-vocabulary `system_event` emissions:
   markers when present.
 - `event_msg.exec_command_end` → `system_event{kind:"x-codex/exec_command_end"}` with
   `semantic.call_id` linking to the originating `exec_command` tool_call. `data` carries
-  `turn_id`, `command`, `cwd`, `exit_code`, `duration_ms`, truncated `stdout_excerpt` /
-  `stderr_excerpt` (capped to ~2KB per side), `status`, and the parsed-command structure.
+  `turn_id`, `completed_at_ms` (the true command-finish time; the entry `ts` stays the envelope
+  arrival time for stream order), `command`, `cwd`, `exit_code`, `duration_ms`, truncated
+  `stdout_excerpt` / `stderr_excerpt` (capped to ~2KB per side), `status`, and the parsed-command
+  structure.
 - `event_msg.exec_approval_request` / `event_msg.request_permissions` /
   `event_msg.apply_patch_approval_request` / `event_msg.elicitation_request` →
   `system_event{kind:"permission_request"}`. `semantic.call_id` links when the source carries a
