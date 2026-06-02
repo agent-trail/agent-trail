@@ -13,7 +13,7 @@ import type {
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
 import { parseCodexSnapshotEntries } from "./kit.ts";
-import { AGENT_NAME, buildHeader } from "./parser.ts";
+import { AGENT_NAME, buildHeader, turnContextSnapshot } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 import { isObject, sanitizeSourceRaw, stringValue, timestampToIso } from "./source.ts";
 
@@ -247,6 +247,21 @@ function deriveIdFromFilename(filePath: string): string | undefined {
 
 type ForkFrom = NonNullable<Header["fork_from"]>;
 
+// Scan for the first `turn_context` record and return its policy tuple for the
+// header.meta snapshot. Returns undefined when no turn_context carries any
+// policy fields.
+function firstTurnContextSnapshot(
+  records: Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  for (const record of records) {
+    if (record.type !== "turn_context") continue;
+    const payload = isObject(record.payload) ? record.payload : {};
+    const snapshot = turnContextSnapshot(payload);
+    return Object.keys(snapshot).length > 0 ? snapshot : undefined;
+  }
+  return undefined;
+}
+
 async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<TrailSessionGroup> {
   const records = parseObjectRecords(await readFile(path, "utf8"));
   const firstRecord = records[0];
@@ -255,9 +270,18 @@ async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<Trai
   }
   const header = buildHeader(firstRecord);
   if (forkFrom !== undefined) header.fork_from = forkFrom;
+  // Recorded git (session_meta.git) wins; live readGitVcs is the fallback only
+  // when buildHeader found no recorded VCS block.
   if (header.vcs === undefined && typeof header.cwd === "string") {
     const vcs = await readGitVcs(header.cwd);
     if (vcs !== undefined) header.vcs = vcs;
+  }
+  // Snapshot the initial turn_context policy tuple into header.meta so the
+  // starting policy is visible without scanning the event stream; mid-session
+  // changes surface as system_events (overrides.ts).
+  const snapshot = firstTurnContextSnapshot(records);
+  if (snapshot !== undefined) {
+    header.meta = { ...(header.meta ?? {}), "dev.codex.turn_context": snapshot };
   }
   const sessionUid = header.session_uid ?? header.id;
   const entries = await parseCodexSnapshotEntries(records, sessionUid);
