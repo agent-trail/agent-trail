@@ -1266,6 +1266,55 @@ test("compact fixture emits context_compact from top-level compacted record", as
   expect(errors).toEqual([]);
 });
 
+test("parseSession() emits context_compact for empty-message compacted records", async () => {
+  const id = "019d8a00-1760-7000-a000-000000000176";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T03:00:04.000Z",
+        type: "compacted",
+        payload: {
+          message: "",
+          replacement_history: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "folded prompt" }],
+            },
+          ],
+        },
+      },
+      {
+        timestamp: "2026-05-28T03:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          cwd: process.cwd(),
+          model: "gpt-5-codex",
+          turn_id: "turn-after-compact",
+          summary: "auto",
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
+  expect(compact).toBeDefined();
+  expect((compact?.payload as { summary?: string }).summary).toBe("");
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+  expect(
+    (compact?.source?.raw as { payload?: { replacement_history?: unknown } } | undefined)?.payload
+      ?.replacement_history,
+  ).toMatchObject({ elided: true, item_count: 1 });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("source raw policy elides oversized codex raw arguments", async () => {
   const id = "019d8a00-1760-7000-a000-000000000176";
   const hugeArguments = `not-json-${"x".repeat(40_000)}`;

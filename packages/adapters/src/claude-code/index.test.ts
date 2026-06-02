@@ -1752,6 +1752,68 @@ test("parseSession() maps compact_boundary provenance to the next compact summar
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps real user-shaped compact summaries after compact_boundary", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0001763",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1801",
+      timestamp: "2026-05-17T16:20:00.000Z",
+      message: { role: "user", content: "fold this real-shaped turn" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1801",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1802",
+      timestamp: "2026-05-17T16:20:01.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1802",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1803",
+      timestamp: "2026-05-17T16:20:02.000Z",
+      isCompactSummary: true,
+      message: { role: "user", content: "Recovered Claude compact summary." },
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const foldedUser = entries.find(
+    (e) =>
+      e.type === "user_message" &&
+      (e.payload as { text?: string }).text === "fold this real-shaped turn",
+  );
+  const compact = entries.find((e) => e.type === "context_compact");
+  if (foldedUser === undefined) throw new Error("expected folded user entry");
+  expect((compact?.payload as { summary?: string }).summary).toBe(
+    "Recovered Claude compact summary.",
+  );
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    foldedUser.id,
+  ]);
+  expect(
+    entries.some(
+      (e) =>
+        e.type === "user_message" &&
+        (e.payload as { text?: string }).text === "Recovered Claude compact summary.",
+    ),
+  ).toBe(false);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() lets a later compact_boundary supersede stale pending provenance", async () => {
   const base = {
     isSidechain: false,

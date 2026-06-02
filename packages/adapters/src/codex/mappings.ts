@@ -427,8 +427,7 @@ const compacted = defineMapping<Raw>({
   emit: (record) => {
     if (!emittable(record)) return [];
     const p = payloadOf(record);
-    const summary = stringValue(p.message) ?? stringValue(p.summary);
-    if (summary === undefined || summary.length === 0) return [];
+    const summary = stringValue(p.message) ?? stringValue(p.summary) ?? "";
     const payload: Raw = { summary, trigger: "auto" };
     const tokensBefore = numericValue(p.tokens_before);
     if (tokensBefore !== undefined) payload.tokens_before = Math.trunc(tokensBefore);

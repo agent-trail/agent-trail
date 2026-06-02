@@ -292,13 +292,14 @@ export function reasoningDedupKey(text: string): string {
 }
 
 // Real Codex sessions emit context compaction as a top-level `compacted`
-// record (not nested in `event_msg`). The payload carries `message` (the
-// summary text) and `replacement_history` (the messages folded into the
-// summary). `event_msg.context_compacted` also fires as an empty notification
-// marker — the adapter ignores it since the canonical content lives on the
-// top-level record. Token counts (tokens_before / tokens_after) are not in
-// the source stream; the optional payload fields stay absent unless a later
-// session shape starts to carry them.
+// record (not nested in `event_msg`). The payload carries `replacement_history`
+// (the messages folded into the summary) and sometimes `message`; observed real
+// `message` values can be empty, so the canonical compact entry may have an
+// empty summary while provenance stays preserved under source.raw.
+// `event_msg.context_compacted` also fires as an empty notification marker — the
+// adapter ignores it since the canonical content lives on the top-level record.
+// Token counts (tokens_before / tokens_after) are not in the source stream; the
+// optional payload fields stay absent unless a later session shape carries them.
 // Strip Codex spinner-glyph noise from tool-result output. Real Codex outputs
 // often end with `\n· ` (TUI's "in progress" marker leaked into the
 // transcript). We only strip when the trim region contains at least one of
