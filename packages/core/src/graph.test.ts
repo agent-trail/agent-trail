@@ -218,6 +218,78 @@ test("emits cross_group_fork_from_hash_mismatch when sibling content_hash diverg
   });
 });
 
+test("warns when parent subagent_invoke names an in-file child without reciprocal fork_from", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(1, { id: "01HSESS0000000000000000001" }),
+      record(2, {
+        type: "tool_call",
+        id: "01HCALL0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "subagent_invoke",
+          args: {
+            task: "inspect parser",
+            session_id: "01HSESS0000000000000000002",
+          },
+        },
+      }),
+      header(3, {
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:01:00.000Z",
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/fork_from",
+    severity: "warning",
+    code: "child_session_fork_from_mismatch",
+    message:
+      'child session "01HSESS0000000000000000002" is named by subagent_invoke "01HCALL0000000000000000001" but does not fork_from that parent call',
+  });
+});
+
+test("warns when child fork_from points at parent subagent call but parent session_id disagrees", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(1, { id: "01HSESS0000000000000000001" }),
+      record(2, {
+        type: "tool_call",
+        id: "01HCALL0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "subagent_invoke",
+          args: {
+            task: "inspect parser",
+            session_id: "01HSESS0000000000000000003",
+          },
+        },
+      }),
+      header(3, {
+        id: "01HSESS0000000000000000002",
+        ts: "2026-05-17T14:01:00.000Z",
+        fork_from: {
+          session_id: "01HSESS0000000000000000001",
+          entry_id: "01HCALL0000000000000000001",
+        },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/args/session_id",
+    severity: "warning",
+    code: "child_session_parent_link_mismatch",
+    message:
+      'subagent_invoke "01HCALL0000000000000000001" points to child session "01HSESS0000000000000000003" but child header "01HSESS0000000000000000002" forks from it',
+  });
+});
+
 test("tool_call/tool_result pairing is scoped per session group (no cross-group satisfaction)", () => {
   const diagnostics = validateTrailGraph(
     [

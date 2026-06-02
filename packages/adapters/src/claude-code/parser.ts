@@ -61,10 +61,15 @@ export function extractMetadataHints(envelopes: CcEnvelope[]): ClaudeCodeMetadat
   return hints;
 }
 
-export function buildHeader(envelopes: CcEnvelope[]): Header {
-  const first = envelopes.find((env) => isTracerEnvelope(env) && env.timestamp !== undefined);
+export function buildHeader(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean } = {},
+): Header {
+  const first = envelopes.find(
+    (env) => isTracerEnvelope(env, options) && env.timestamp !== undefined,
+  );
   const firstSession = envelopes.find(
-    (env) => isTracerEnvelope(env) && env.sessionId !== undefined,
+    (env) => isTracerEnvelope(env, options) && env.sessionId !== undefined,
   );
   const firstTs = first?.timestamp;
   if (first === undefined || firstTs === undefined || firstSession?.sessionId === undefined) {

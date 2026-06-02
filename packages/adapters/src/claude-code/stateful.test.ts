@@ -203,9 +203,11 @@ describe("claude-code v2 stateful behaviors", () => {
         "x-claudecode/ai_title": "Wire v2 metadata",
         "x-claudecode/agent_name": "wire-v2-metadata",
       });
-      expect(trail.header.vcs?.branch).toBe("feature/topic");
-      expect(trail.header.vcs?.head_commit).toBe("abcdef0123456789abcdef0123456789abcdef01");
-      expect(trail.header.vcs?.worktree).toEqual({
+      expect(trail.groups[0]!.header.vcs?.branch).toBe("feature/topic");
+      expect(trail.groups[0]!.header.vcs?.head_commit).toBe(
+        "abcdef0123456789abcdef0123456789abcdef01",
+      );
+      expect(trail.groups[0]!.header.vcs?.worktree).toEqual({
         name: "topic",
         path: "/orig/repo/.worktrees/topic",
         original_cwd: "/orig/repo",

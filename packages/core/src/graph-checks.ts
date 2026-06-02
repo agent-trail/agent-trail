@@ -522,6 +522,115 @@ export function crossGroupForkFromWarnings(groups: SessionGroup[]): Diagnostic[]
   return diagnostics;
 }
 
+type SubagentInvokeRef = {
+  parentSessionId: string;
+  callId: string;
+  childSessionId?: string;
+  line: number;
+};
+
+function subagentInvokeRef(group: SessionGroup, entry: JsonlRecord): SubagentInvokeRef | undefined {
+  if (entry.value.type !== "tool_call") return undefined;
+  const payload = entry.value.payload;
+  if (typeof payload !== "object" || payload === null) return undefined;
+  if ((payload as { tool?: unknown }).tool !== "subagent_invoke") return undefined;
+  const args = (payload as { args?: unknown }).args;
+  if (typeof args !== "object" || args === null) return undefined;
+  const callId = entry.value.id;
+  const parentSessionId = group.header.value.id;
+  if (typeof callId !== "string" || typeof parentSessionId !== "string") return undefined;
+  const childSessionId = (args as { session_id?: unknown }).session_id;
+  return {
+    parentSessionId,
+    callId,
+    childSessionId: typeof childSessionId === "string" ? childSessionId : undefined,
+    line: entry.line,
+  };
+}
+
+function forkFromOf(group: SessionGroup): { session_id?: string; entry_id?: string } | undefined {
+  const forkFrom = group.header.value.fork_from;
+  if (typeof forkFrom !== "object" || forkFrom === null) return undefined;
+  const sessionId = (forkFrom as { session_id?: unknown }).session_id;
+  const entryId = (forkFrom as { entry_id?: unknown }).entry_id;
+  return {
+    session_id: typeof sessionId === "string" ? sessionId : undefined,
+    entry_id: typeof entryId === "string" ? entryId : undefined,
+  };
+}
+
+// In-file child-session linking is advisory, not validity-critical. The child
+// header's fork_from is authoritative, while parent subagent_invoke.session_id
+// is a renderer-friendly back-reference when adapters can link confidently.
+export function childSessionLinkWarnings(groups: SessionGroup[]): Diagnostic[] {
+  const groupById = new Map<string, SessionGroup>();
+  const subagentByCallId = new Map<string, SubagentInvokeRef>();
+  const subagentsByChildId = new Map<string, SubagentInvokeRef[]>();
+
+  for (const group of groups) {
+    const groupId = group.header.value.id;
+    if (typeof groupId === "string") groupById.set(groupId, group);
+    for (const entry of group.entries) {
+      const ref = subagentInvokeRef(group, entry);
+      if (ref === undefined) continue;
+      subagentByCallId.set(ref.callId, ref);
+      if (ref.childSessionId !== undefined) {
+        const existing = subagentsByChildId.get(ref.childSessionId) ?? [];
+        existing.push(ref);
+        subagentsByChildId.set(ref.childSessionId, existing);
+      }
+    }
+  }
+
+  const diagnostics: Diagnostic[] = [];
+
+  for (const [childSessionId, refs] of subagentsByChildId) {
+    const childGroup = groupById.get(childSessionId);
+    if (childGroup === undefined) continue;
+    for (const ref of refs) {
+      const forkFrom = forkFromOf(childGroup);
+      if (forkFrom?.session_id === ref.parentSessionId && forkFrom.entry_id === ref.callId) {
+        continue;
+      }
+      diagnostics.push(
+        createDiagnostic({
+          line: childGroup.header.line,
+          path: "/fork_from",
+          severity: "warning",
+          code: "child_session_fork_from_mismatch",
+          message: `child session "${childSessionId}" is named by subagent_invoke "${ref.callId}" but does not fork_from that parent call`,
+        }),
+      );
+    }
+  }
+
+  for (const childGroup of groups) {
+    const childSessionId = childGroup.header.value.id;
+    if (typeof childSessionId !== "string") continue;
+    const forkFrom = forkFromOf(childGroup);
+    if (forkFrom?.entry_id === undefined || forkFrom.session_id === undefined) continue;
+    if (!groupById.has(forkFrom.session_id)) continue;
+    const parentRef = subagentByCallId.get(forkFrom.entry_id);
+    if (parentRef === undefined) continue;
+    if (parentRef.parentSessionId !== forkFrom.session_id) continue;
+    if (parentRef.childSessionId === childSessionId) continue;
+    diagnostics.push(
+      createDiagnostic({
+        line: parentRef.line,
+        path: "/payload/args/session_id",
+        severity: "warning",
+        code: "child_session_parent_link_mismatch",
+        message:
+          parentRef.childSessionId === undefined
+            ? `subagent_invoke "${parentRef.callId}" does not name child session "${childSessionId}" that forks from it`
+            : `subagent_invoke "${parentRef.callId}" points to child session "${parentRef.childSessionId}" but child header "${childSessionId}" forks from it`,
+      }),
+    );
+  }
+
+  return diagnostics;
+}
+
 export function envelopeSessionsManifestWarnings(
   envelopeRecord: JsonlRecord,
   groups: SessionGroup[],

@@ -1699,6 +1699,30 @@ test("accepts envelope.sessions manifest that matches the session header", async
   expect(diagnostics).toEqual([]);
 });
 
+test("rejects graph facts on envelope.sessions manifest entries", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","sessions":[{"id":"01HSESS0000000000000000001","agent":"codex-cli","role":"child","follows":"01HSESS0000000000000000000"}]}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions/0/role",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/sessions/0/follows",
+    severity: "error",
+    code: "additionalProperties",
+    message: "must NOT have additional properties",
+  });
+});
+
 test("accepts envelope and session meta blocks", async () => {
   const diagnostics = await validateTrailString(
     [

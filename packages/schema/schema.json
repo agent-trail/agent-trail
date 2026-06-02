@@ -352,9 +352,7 @@
             "required": ["id", "agent"],
             "properties": {
               "id": { "$ref": "#/$defs/id" },
-              "agent": { "$ref": "#/$defs/agentName" },
-              "role": { "type": "string" },
-              "follows": { "type": "string" }
+              "agent": { "$ref": "#/$defs/agentName" }
             },
             "additionalProperties": false
           }

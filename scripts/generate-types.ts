@@ -62,7 +62,7 @@ if (!KIND_BLOCK_RE.test(compiled)) {
 }
 const flatUnion = [
   ...kindEnum.map((value) => `      | ${JSON.stringify(value)}`),
-  "      | `x-${string}/${string}`",
+  "      | `x-$" + "{string}/$" + "{string}`",
 ].join("\n");
 let generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
 
@@ -103,7 +103,7 @@ if (!RESULT_ACTION_RE.test(generated)) {
 }
 const resultActionUnion = [
   ...resultActionEnum.map((value) => `      | ${JSON.stringify(value)}`),
-  "      | `x-${string}/${string}`",
+  "      | `x-$" + "{string}/$" + "{string}`",
   "      | null",
 ].join("\n");
 generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);

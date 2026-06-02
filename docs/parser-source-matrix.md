@@ -57,7 +57,9 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
 - **Pi** — tree-native: 10 pure mappings (**override-ratio 0**) plus four custom reconciler rules for
   tree parenting + `branch_summary` divergence, tool-kind propagation, `model_change.from_model`
   threading, and EOF `session_terminated` synthesis (the kit's general `branchReconciliation` is
-  deferred — Pi carries its own rule).
+  deferred — Pi carries its own rule). Pi `/tree` branches remain inside one session group via
+  `parent_id`; only Pi `parentSession` forked sessions, if added later, become separate child
+  session groups.
 - **Codex** — linear (`parentChain`), explicit `call_id`s (`toolLinking`), no per-entry
   `source.schema_version` → static mappings. Stateful behaviors split per the kit's grain:
   **pass-1 overrides** for synthesized `model_change` + per-turn reasoning dedup (reset on `turn_id`),
@@ -73,13 +75,23 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   the `event_msg` echo) **except** when it carries `input_image` content: those images map to the
   spec `attachments[]` field and are folded onto the matching `user_message`/`agent_message` by a
   transient-carrier reconciler (`codexImageRollup`), so codex user images are captured without
-  duplicating the message (#114 attachments).
+  duplicating the message (#114 attachments). `spawn_agent` maps to `subagent_invoke`; when the
+  paired spawn output exposes an `agent_id` and exactly one direct child rollout file has
+  `session_meta.payload.id` equal to that `agent_id`, the adapter emits the child as a separate
+  session group with `header.fork_from` pointing at the parent tool call and backfills the parent
+  `subagent_invoke.args.session_id` with the child header `id`. `wait_agent` and `close_agent`
+  remain ordinary tool events unless the source carries enough lifecycle evidence to say more.
 - **Claude Code** — linear (`parentChain`); every record carries `version` → per-record
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eight pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
   system/progress/queue-operation/pr-link→system_event, permission-mode) plus four custom rules:
   synthesized `model_change`, `permission_mode_change` deltas, tool-kind propagation to results, and
-  multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
+  multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0. `Agent` /
+  `Task` calls map to `subagent_invoke`; direct child files under
+  `<parentSessionId>/subagents/*.jsonl` are bundled as separate session groups only when exactly one
+  child first-user prompt matches the parent task text. Child group ids are deterministic, derived
+  from the parent session id plus child `agentId` or filename stem; sidechain child messages, tool
+  calls, and tool results remain in the child group transcript.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
@@ -170,7 +182,9 @@ Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
 - `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
 - `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`.
 
-Remaining deferred shapes: `bashExecution`, `label`, `parentSession` forked sessions.
+Remaining deferred shapes: `bashExecution`, `label`, `parentSession` forked sessions. If Pi
+`parentSession` support is added, those forked sessions should use child session groups with
+`header.fork_from`; Pi `/tree` branches stay inside one tree-native group.
 
 Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
@@ -378,8 +392,9 @@ Deferred shapes (hardening follow-ups beyond the current verified slice):
   their attachment signal through the rollup/fallback path above.
 - Encrypted reasoning recovery — `response_item.reasoning` with `encrypted_content` carries
   no plaintext and stays skipped until a key surfaces.
-- Subagent header `fork_from` lineage via `agent_role` / `source.subagent.parent_thread_id`
-  — no such field observed in any real session yet; defer until evidence.
+- Ambiguous or missing `spawn_agent` child rollout matching — direct child sessions are bundled only
+  when `agent_id` resolves to exactly one child file. Missing, ambiguous, or external child files are
+  warning-tolerant and leave `subagent_invoke.args.session_id` unset.
 - `~/.codex/config.toml` profile reading for model identity — `turn_context.payload.model`
   is already canonical; profile file is redundant noise unless future sessions diverge.
 - 12s `event_msg` ↔ `response_fallback` dedupe — no `response_fallback` records observed in
@@ -400,8 +415,9 @@ variants observed in real sessions), and in-session model switches (emitted as s
 `model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
 `AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
 `tool_use_id` are converted to `user_query_response`.
-Deferred shapes include image attachments, server-tool result blocks, cross-file subagent merging,
-and overflow blob storage.
+Deferred shapes include image attachments, server-tool result blocks, ambiguous prompt-only
+subagent matching hardening, recursive child-session inclusion beyond direct children, and overflow
+blob storage.
 
 Emitted `system_event.kind` values (spec §9.3):
 

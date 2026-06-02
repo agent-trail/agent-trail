@@ -1,8 +1,15 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
-import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import type {
+  DetectOptions,
+  SessionRef,
+  TrailAdapter,
+  TrailFile,
+  TrailSessionGroup,
+} from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
 import { codexKitAdapter } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
@@ -214,6 +221,113 @@ function deriveIdFromFilename(filePath: string): string | undefined {
   return match?.[1];
 }
 
+type ForkFrom = NonNullable<Header["fork_from"]>;
+
+async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<TrailSessionGroup> {
+  const firstRecord = await readFirstRecordFromHead(path);
+  if (firstRecord === undefined) {
+    throw new Error("Codex session must contain a parseable JSON object header");
+  }
+  const header = buildHeader(firstRecord);
+  if (forkFrom !== undefined) header.fork_from = forkFrom;
+  if (header.vcs === undefined && typeof header.cwd === "string") {
+    const vcs = await readGitVcs(header.cwd);
+    if (vcs !== undefined) header.vcs = vcs;
+  }
+  const sessionUid = header.session_uid ?? header.id;
+  const entries = await codexKitAdapter.parse({ path }, { sessionUid });
+  return { header, entries };
+}
+
+function isSubagentInvoke(entry: Entry): boolean {
+  return entry.type === "tool_call" && entry.payload.tool === "subagent_invoke";
+}
+
+function childIdFromToolResult(entry: Entry): string | undefined {
+  if (entry.type !== "tool_result") return undefined;
+  const output = (entry.payload as { output?: unknown }).output;
+  if (typeof output !== "string" || output.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (parsed !== null && typeof parsed === "object") {
+      const agentId = (parsed as { agent_id?: unknown }).agent_id;
+      if (typeof agentId === "string" && agentId.length > 0) return agentId;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function spawnChildCandidates(entries: Entry[]): { callEntryId: string; childId: string }[] {
+  const subagentCallIds = new Set<string>();
+  for (const entry of entries) {
+    if (isSubagentInvoke(entry)) subagentCallIds.add(entry.id);
+  }
+  const out: { callEntryId: string; childId: string }[] = [];
+  for (const entry of entries) {
+    if (entry.type !== "tool_result") continue;
+    const forId = (entry.payload as { for_id?: unknown }).for_id;
+    if (typeof forId !== "string" || !subagentCallIds.has(forId)) continue;
+    const childId = childIdFromToolResult(entry);
+    if (childId !== undefined) out.push({ callEntryId: forId, childId });
+  }
+  return out;
+}
+
+async function findUniqueSessionPathById(
+  childId: string,
+  parentPath: string,
+): Promise<string | undefined> {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) return undefined;
+  const files = await walkRolloutFiles(sessionsDir);
+  let match: string | undefined;
+  for (const file of files) {
+    if (file === parentPath) continue;
+    const meta = await readMetadataFromHead(file).catch(() => ({}) as HeadMetadata);
+    if (meta.id !== childId) continue;
+    if (match !== undefined) return undefined;
+    match = file;
+  }
+  return match;
+}
+
+function withLinkedChildSessionIds(entries: Entry[], linked: Map<string, string>): Entry[] {
+  return entries.map((entry) => {
+    const childId = linked.get(entry.id);
+    if (childId === undefined || !isSubagentInvoke(entry)) return entry;
+    const args = isRecord(entry.payload.args) ? entry.payload.args : {};
+    return {
+      ...entry,
+      payload: {
+        ...entry.payload,
+        args: { ...args, session_id: childId },
+      },
+    } as Entry;
+  });
+}
+
+async function directChildGroups(
+  parentGroup: TrailSessionGroup,
+  parentPath: string,
+): Promise<TrailSessionGroup[]> {
+  const linked = new Map<string, string>();
+  const children: TrailSessionGroup[] = [];
+  for (const candidate of spawnChildCandidates(parentGroup.entries)) {
+    const childPath = await findUniqueSessionPathById(candidate.childId, parentPath);
+    if (childPath === undefined) continue;
+    const child = await parseSingleGroup(childPath, {
+      session_id: parentGroup.header.id,
+      entry_id: candidate.callEntryId,
+    });
+    linked.set(candidate.callEntryId, child.header.id);
+    children.push(child);
+  }
+  parentGroup.entries = withLinkedChildSessionIds(parentGroup.entries, linked);
+  return children;
+}
+
 export const codexAdapter: TrailAdapter = {
   name: "codex",
   async detectSessions(opts?: DetectOptions): Promise<SessionRef[]> {
@@ -229,19 +343,10 @@ export const codexAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Codex adapter requires SessionRef.path");
     }
-    const firstRecord = await readFirstRecordFromHead(ref.path);
-    if (firstRecord === undefined) {
-      throw new Error("Codex session must contain a parseable JSON object header");
-    }
-    const header = buildHeader(firstRecord);
-    if (header.vcs === undefined && typeof header.cwd === "string") {
-      const vcs = await readGitVcs(header.cwd);
-      if (vcs !== undefined) header.vcs = vcs;
-    }
-    const sessionUid = header.session_uid ?? header.id;
-    const entries = await codexKitAdapter.parse({ path: ref.path }, { sessionUid });
-    const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
-    return { envelope, header, entries };
+    const parentGroup = await parseSingleGroup(ref.path);
+    const groups = [parentGroup, ...(await directChildGroups(parentGroup, ref.path))];
+    const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
+    return { envelope, groups };
   },
   async isAvailable(): Promise<boolean> {
     const dir = codexSessionsDir();

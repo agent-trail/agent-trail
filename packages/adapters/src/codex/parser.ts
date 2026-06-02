@@ -207,6 +207,13 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
     const searchArgs = toolSearchArgs(args);
     if (searchArgs !== undefined) return { tool: "tool_search", args: searchArgs };
   }
+  if (rawName === "spawn_agent") {
+    const task = stringValue(args.message) ?? stringValue(args.task) ?? "";
+    const invokeArgs: Record<string, unknown> = { task };
+    const agentType = stringValue(args.agent_type);
+    if (agentType !== undefined) invokeArgs.agent_type = agentType;
+    return { tool: "subagent_invoke", args: invokeArgs };
+  }
   if (rawName === "read") {
     const path = stringValue(args.path);
     if (path !== undefined) return { tool: "file_read", args: { path } };

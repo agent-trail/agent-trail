@@ -56,9 +56,12 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 
 | Term | Definition |
 |---|---|
-| **Trail file** | A JSONL file conforming to this specification. |
+| **Trail file** | A JSONL file conforming to this specification; contains one or more session groups. |
 | **Trail envelope** | Optional `type:"trail"` record at line 1 carrying file-level metadata (producer, file label, file-scope hash, manifest, vendor extensions). Not part of the event graph. |
 | **Header** | The session header (`type:"session"`). On line 1 when there is no envelope, on line 2 when the envelope is present. Not part of the event graph. |
+| **Session group** | One `type:"session"` header plus the events after it until the next session header or EOF. |
+| **Session bundle** | A trail file with one or more session groups. At session-group level the bundle is a forest; each group may itself be linear or tree-native. |
+| **Child session** | A separate session group or external session spawned or forked from another session, linked by the child header's `fork_from`. |
 | **Event** | Any object after the header line; one unit of session content. |
 | **File-level content hash** | SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. |
 | **Session-level content hash** | SHA-256 of the canonical bytes covering ONLY the session header and its events (envelope excluded), with the session header's `content_hash` pinned to `<pending>`. |
@@ -227,7 +230,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
     "content_hash": "<raw-file-content-hash>"
   },
   "sessions": [                                     // optional manifest
-    { "id": "<session-id>", "agent": "<canonical-name>", "role": "...", "follows": "..." }
+    { "id": "<session-id>", "agent": "<canonical-name>" }
   ],
   "meta": {                                         // optional; see §8.0.3
     "io.entire.checkpoint_id": "ckpt-7"
@@ -269,6 +272,7 @@ This draft defines one standard event-entry `meta` key: `redaction_count` (§15)
 When `sessions` is present, the validator warns if the manifest disagrees with the file:
 
 - The manifest MUST list one entry per session group (§8.6) in file order. Each entry's `id` and `agent` MUST match the corresponding session header's `id` and `agent.name`. Length mismatch and per-entry drift both emit `envelope_sessions_manifest_drift` warnings — never errors, so renderers can still display the file.
+- The manifest is an index/rendering hint only. It MUST NOT carry graph facts such as child-session role or follows edges; session headers are authoritative for lineage.
 
 ### 8.0.5 File identity defaults when envelope is absent
 
@@ -441,6 +445,8 @@ Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segm
 ### 8.6 Multi-session trail files
 
 A trail file MAY contain one OR more `(session header, events*)` groups concatenated. Boundaries are positional: a group extends from a `type:"session"` record up to (but excluding) the next `type:"session"` record, or to EOF. Single-session trails are the N=1 case and are unchanged.
+
+A multi-session trail is a session bundle: a forest of session groups. Each group may be linear or tree-native. For example, Pi branch trees remain one group whose events use `parent_id`; external subagents and forked transcripts are separate groups linked by `header.fork_from`.
 
 #### 8.6.1 File grammar
 
@@ -1331,8 +1337,10 @@ Full command in `command`; output in the corresponding `tool_result.payload.outp
 
 Indicates a child conversation was spawned. Two cases:
 
-- **Same file:** child events use this event's `id` as their root `parent_id`. The child is a subtree.
-- **Separate file:** set `session_id` to the child file's session id or content hash. The child events aren't in this file.
+- **Inline subtree:** when the source stores child events inline in the same session, child events use this event's `id` as their root `parent_id`.
+- **External child session:** when the source stores the child as a separate transcript, set `args.session_id` to the child session header `id`. The child may appear as a sibling group in the same session bundle or as an external trail. Do not use a content hash or source runtime id in `args.session_id`.
+
+When the external child appears in the same file, the child header SHOULD set `fork_from.session_id` to the parent session header `id` and `fork_from.entry_id` to the parent `subagent_invoke` event `id`. `fork_from.content_hash` is optional best-effort and refers to the parent session-level content hash.
 
 ### 10.5 The `other` escape hatch
 
@@ -1369,10 +1377,12 @@ The `meta` field is for fields outside the canonical vocabulary. For verbatim so
 Adapters should emit `parent_id`:
 
 - For all events when the source has a native tree (Pi, OpenClaw).
-- For events that are children of a subagent invocation (Claude Code `Task`, Cursor background agents) — the root of the subtree uses the parent's `subagent_invoke` event id.
+- For events that are children of an inline subagent invocation — the root of the subtree uses the parent's `subagent_invoke` event id.
 - For detected user rewinds where the adapter can reconstruct branch points (best-effort).
 
 Adapters should omit `parent_id` for agents with linear conversations and no subagents (Codex CLI, OpenCode, Aider, ChatGPT).
+
+`parent_id` is intra-group tree topology only. Do not model Pi `/tree` branch forks as child sessions. When a source stores a subagent or fork as an external transcript, use a child session with `header.fork_from` instead of cross-group `parent_id`.
 
 ### 12.2 Reader behavior
 
@@ -1506,7 +1516,8 @@ If `content_hash` is present:
 Warnings (non-fatal):
 
 - Each `tool_call.id` should be referenced by exactly one `tool_result.payload.for_id` (or paired via §9.5).
-- `subagent_invoke` events should have descendants in this file or set `session_id` pointing elsewhere.
+- Inline `subagent_invoke` events should have descendants in the same group, or external child invocations should set `args.session_id` to the child header `id` when known.
+- When an in-file child session is present, the parent `subagent_invoke.args.session_id` and child `header.fork_from.{session_id,entry_id}` should agree. Mismatches are warnings, not errors, so partial bundles and external-only references remain readable.
 - `branch_summary.payload.abandoned_branch_id` should reference a real branch root.
 - Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
   - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).

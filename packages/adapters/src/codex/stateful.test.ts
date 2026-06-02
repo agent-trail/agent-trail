@@ -44,7 +44,8 @@ describe("codex v2 stateful behaviors", () => {
   // non-blocking additions — assert the count + uniqueness directly, tied to v1.
   test("reasoning dedup: per-turn duplicates collapse (matches v1 count)", async () => {
     const path = join(FIXTURES, "reasoning-dedupe.jsonl");
-    const v1 = (await codexAdapter.parseSession({ id: "x", adapter: "codex", path })).entries;
+    const v1 = (await codexAdapter.parseSession({ id: "x", adapter: "codex", path })).groups[0]!
+      .entries;
     const keys = thinkingTexts(await entries("reasoning-dedupe.jsonl"));
     // No two emitted thinking entries share a normalized key (dedup held)...
     expect(new Set(keys).size).toBe(keys.length);
