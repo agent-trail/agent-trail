@@ -345,12 +345,21 @@ const assistantMessage = defineMapping<Raw>({
     const model = stringValue(record.message?.model);
     const usage = mapAgentMessageUsage(record.message?.usage);
     let usageEmitted = false;
+    // requestId groups all entries split out of one LLM request envelope. See
+    // issue #126; matches the spec's semantic.group_id ("one LLM request's
+    // events"). The reconciler preserves it when adding tool_kind to tool_calls.
+    const groupId = stringValue(record.requestId);
+    const sem = (extra?: Record<string, unknown>): Record<string, unknown> | undefined => {
+      const s = { ...(groupId !== undefined ? { group_id: groupId } : {}), ...(extra ?? {}) };
+      return Object.keys(s).length > 0 ? s : undefined;
+    };
     return blocks.flatMap((block, i): TrailEntryDraft[] => {
       const envelopeRef = i > 0 ? "" : undefined;
       const source = src(record, String(block.type), block, i, { envelopeRef });
       if (block.type === "text" && typeof block.text === "string") {
         const blockUsage = !usageEmitted ? usage : undefined;
         if (blockUsage !== undefined) usageEmitted = true;
+        const semantic = sem();
         return [
           {
             type: "agent_message",
@@ -362,6 +371,7 @@ const assistantMessage = defineMapping<Raw>({
                 : {}),
               ...(blockUsage !== undefined ? { usage: blockUsage } : {}),
             },
+            ...(semantic !== undefined ? { semantic } : {}),
             source,
             meta: meta(record, { model }),
           },
@@ -372,10 +382,12 @@ const assistantMessage = defineMapping<Raw>({
           stringValue(block.thinking) ??
           stringValue(block.data) ??
           (block.type === "redacted_thinking" ? "[redacted thinking]" : "");
+        const semantic = sem();
         return [
           {
             type: "agent_thinking",
             payload: { text, ...(model !== undefined ? { model } : {}) },
+            ...(semantic !== undefined ? { semantic } : {}),
             source,
             meta: meta(record, { model }),
           },
@@ -388,11 +400,14 @@ const assistantMessage = defineMapping<Raw>({
           toolName === "TodoWrite" ? taskPlanItemsFromTodoWrite(block.input) : undefined;
         if (taskPlanItems !== undefined) {
           const taskPlanCallId = isNonEmptyString(callId) ? callId : undefined;
+          const semantic = sem(
+            taskPlanCallId !== undefined ? { call_id: taskPlanCallId } : undefined,
+          );
           return [
             {
               type: "task_plan_update",
               payload: { items: taskPlanItems },
-              ...(taskPlanCallId !== undefined ? { semantic: { call_id: taskPlanCallId } } : {}),
+              ...(semantic !== undefined ? { semantic } : {}),
               source,
               meta: meta(record, { model, callId: taskPlanCallId }),
             } as TrailEntryDraft,
@@ -402,11 +417,12 @@ const assistantMessage = defineMapping<Raw>({
           const payload = userQueryPayload(block.input);
           if (payload !== undefined) {
             const queryCallId = isNonEmptyString(callId) ? callId : undefined;
+            const semantic = sem(queryCallId !== undefined ? { call_id: queryCallId } : undefined);
             return [
               {
                 type: "user_query",
                 payload,
-                ...(queryCallId !== undefined ? { semantic: { call_id: queryCallId } } : {}),
+                ...(semantic !== undefined ? { semantic } : {}),
                 source,
                 meta: meta(record, { model, callId: queryCallId }),
               },
@@ -418,10 +434,10 @@ const assistantMessage = defineMapping<Raw>({
           {
             type: "tool_call",
             payload: mapped,
-            semantic: {
+            semantic: sem({
               ...(callId !== undefined ? { call_id: callId } : {}),
               tool_kind: mapped.tool as ToolKind,
-            },
+            }),
             source,
             meta: meta(record, { model, callId }),
           },

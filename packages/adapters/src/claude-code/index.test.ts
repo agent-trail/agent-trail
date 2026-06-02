@@ -255,6 +255,47 @@ test("parseSession() captures entrypoint and userType provenance into header.met
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() sets requestId as semantic.group_id on assistant-derived entries", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000d0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "list files" },
+    },
+    {
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-0000000000d1",
+      timestamp: "2026-05-17T14:00:07.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000d0",
+      requestId: "req-abc",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [
+          { type: "text", text: "on it" },
+          { type: "tool_use", id: "tooluse-x", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+    },
+  ]);
+  const entries = trail.groups[0]!.entries;
+  const am = entries.find((e) => e.type === "agent_message");
+  const tc = entries.find((e) => e.type === "tool_call");
+  expect(am?.semantic?.group_id).toBe("req-abc");
+  expect(tc?.semantic?.group_id).toBe("req-abc");
+  // group_id must not clobber the tool_kind the reconciler relies on.
+  expect(tc?.semantic?.tool_kind).toBeDefined();
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
   const trail = await parseFixture();
   const userMessage = trail.groups[0]!.entries.find((e) => e.type === "user_message");
@@ -278,7 +319,11 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
     tool: "shell_command",
     args: { command: "ls" },
   });
-  expect(toolCall?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
+  expect(toolCall?.semantic).toEqual({
+    group_id: "req_synthetic_01",
+    call_id: "tooluse-1",
+    tool_kind: "shell_command",
+  });
 });
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call", async () => {
@@ -1851,7 +1896,11 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
   );
   expect(read).toBeDefined();
   expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
-  expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
+  expect(read?.semantic).toEqual({
+    group_id: "req_synthetic_adv_01",
+    call_id: "tooluse-read",
+    tool_kind: "file_read",
+  });
 
   const bash = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
