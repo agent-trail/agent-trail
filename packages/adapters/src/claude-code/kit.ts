@@ -20,10 +20,19 @@ import {
 } from "./reconcile-rules.ts";
 import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
+function inheritsTimestamp(record: Raw): boolean {
+  return (
+    record.type === "permission-mode" ||
+    record.type === "ai-title" ||
+    record.type === "agent-name" ||
+    record.type === "worktree-state"
+  );
+}
+
 type Raw = Record<string, unknown>;
 type ClaudeCodeSourcePointer = SourcePointer & { includeSidechain?: boolean };
 
-function withInheritedPermissionTimestamps(records: Raw[], includeSidechain: boolean): Raw[] {
+function withInheritedTimestamps(records: Raw[], includeSidechain: boolean): Raw[] {
   const first = records.find(
     (record) => isTracerEnvelope(record, { includeSidechain }) && record.timestamp !== undefined,
   );
@@ -31,7 +40,7 @@ function withInheritedPermissionTimestamps(records: Raw[], includeSidechain: boo
   return records.map((record) => {
     if (typeof record.timestamp === "string") inheritedTimestamp = record.timestamp;
     if (
-      record.type === "permission-mode" &&
+      inheritsTimestamp(record) &&
       typeof record.timestamp !== "string" &&
       inheritedTimestamp !== undefined
     ) {
@@ -45,7 +54,7 @@ class ClaudeCodeJsonlReader implements SourceReader {
   async *records(source: SourcePointer): AsyncIterable<RawRecord> {
     const text = await readFile(source.path, "utf8");
     const includeSidechain = (source as ClaudeCodeSourcePointer).includeSidechain === true;
-    const records = withInheritedPermissionTimestamps(parseLines(text) as Raw[], includeSidechain);
+    const records = withInheritedTimestamps(parseLines(text) as Raw[], includeSidechain);
     if (includeSidechain) {
       for (const record of records) {
         Object.defineProperty(record, INCLUDE_SIDECHAIN, { value: true });

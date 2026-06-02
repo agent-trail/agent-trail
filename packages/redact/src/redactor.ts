@@ -95,6 +95,7 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "user_query",
   "user_query_response",
   "capability_change",
+  "session_metadata_update",
 ]);
 
 // Attachment references (image/file uris) appear on user_message, agent_message,
@@ -111,6 +112,20 @@ function* visitAttachments(payload: Record<string, unknown>, index: number): Gen
     if (typeof obj.uri === "string") {
       yield keyVisit(obj, "uri", index, `records[${index}].payload.attachments[${i}].uri`);
     }
+  }
+}
+
+function* visitObjectMember(
+  container: Record<string, unknown>,
+  key: string,
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  const value = container[key];
+  if (typeof value === "string") {
+    yield keyVisit(container, key, recordIndex, path);
+  } else if (value !== null && typeof value === "object") {
+    yield* walkContainer(value as Record<string, unknown> | unknown[], recordIndex, path);
   }
 }
 
@@ -187,6 +202,16 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
           `records[${index}].payload.data`,
         );
       }
+    }
+
+    if (payload && type === "session_metadata_update") {
+      yield* visitObjectMember(payload, "value", index, `records[${index}].payload.value`);
+      yield* visitObjectMember(
+        payload,
+        "previous_value",
+        index,
+        `records[${index}].payload.previous_value`,
+      );
     }
 
     if (payload && type === "tool_call") {

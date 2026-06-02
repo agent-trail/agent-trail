@@ -165,7 +165,7 @@ describe("claude-code v2 stateful behaviors", () => {
     }
   });
 
-  test("parseSession wrapper preserves envelope metadata and worktree vcs hints", async () => {
+  test("parseSession wrapper emits session metadata update events", async () => {
     const path = writeTempJsonl("cc-v2-wrapper-", [
       {
         type: "user",
@@ -198,22 +198,32 @@ describe("claude-code v2 stateful behaviors", () => {
         adapter: "claude-code",
         path,
       });
-      expect(trail.envelope?.name).toBe("Wire v2 metadata");
-      expect(trail.envelope?.meta).toEqual({
-        "x-claudecode/ai_title": "Wire v2 metadata",
-        "x-claudecode/agent_name": "wire-v2-metadata",
-      });
-      expect(trail.groups[0]!.header.vcs?.branch).toBe("feature/topic");
-      expect(trail.groups[0]!.header.vcs?.head_commit).toBe(
-        "abcdef0123456789abcdef0123456789abcdef01",
-      );
-      expect(trail.groups[0]!.header.vcs?.worktree).toEqual({
-        name: "topic",
-        path: "/orig/repo/.worktrees/topic",
-        original_cwd: "/orig/repo",
-        original_branch: "main",
-        original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
-      });
+      expect(trail.envelope?.name).toBeUndefined();
+      expect(trail.envelope?.meta).toBeUndefined();
+      expect(trail.groups[0]!.header.vcs).toBeUndefined();
+      const updates = trail.groups[0]!.entries.filter(
+        (entry) => entry.type === "session_metadata_update",
+      ).map((entry) => entry.payload);
+      expect(updates).toEqual([
+        { field: "name", value: "Wire v2 metadata", reason: "ai_generated" },
+        {
+          field: "x-claudecode/agent_name",
+          value: "wire-v2-metadata",
+          reason: "ai_generated",
+        },
+        { field: "vcs.branch", value: "feature/topic", reason: "runtime_inferred" },
+        {
+          field: "vcs.worktree",
+          value: {
+            name: "topic",
+            path: "/orig/repo/.worktrees/topic",
+            original_cwd: "/orig/repo",
+            original_branch: "main",
+            original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+          },
+          reason: "runtime_inferred",
+        },
+      ]);
     } finally {
       rmSync(dirname(path), { recursive: true, force: true });
     }

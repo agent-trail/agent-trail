@@ -13,7 +13,7 @@ import type {
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
 import { claudeCodeKitAdapter } from "./kit.ts";
-import { buildHeader, extractMetadataHints } from "./parser.ts";
+import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 import { isObject, parseLines } from "./source.ts";
 
@@ -171,7 +171,7 @@ async function parseGroup(
     parentSessionId?: string;
     includeSidechain?: boolean;
   } = {},
-): Promise<{ group: TrailSessionGroup; hints: ReturnType<typeof extractMetadataHints> }> {
+): Promise<TrailSessionGroup> {
   const text = await Bun.file(path).text();
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes, { includeSidechain: options.includeSidechain === true });
@@ -185,33 +185,14 @@ async function parseGroup(
     header.meta = { ...header.meta, "dev.claudecode.agent_id": options.childKey };
   }
   if (options.forkFrom !== undefined) header.fork_from = options.forkFrom;
-  const hints = extractMetadataHints(envelopes);
   if (header.vcs === undefined && typeof header.cwd === "string") {
     const vcs = await readGitVcs(header.cwd);
     if (vcs !== undefined) header.vcs = vcs;
   }
-  // Fallback when the live working tree is unreadable (e.g. an ephemeral
-  // worktree directory has been cleaned up since the session). The
-  // worktree-state envelope itself carries enough information to populate a
-  // vcs block with `revision = original_head_commit`.
-  if (header.vcs === undefined && hints.worktree?.original_head_commit !== undefined) {
-    header.vcs = {
-      type: "git",
-      revision: hints.worktree.original_head_commit,
-      head_commit: hints.worktree.original_head_commit,
-    };
-  }
-  // Worktree-state envelope is authoritative for the session's branch + worktree
-  // context. Override `vcs.branch` (live git may report a different current branch)
-  // and attach the worktree subobject.
-  if (header.vcs !== undefined) {
-    if (hints.worktreeBranch !== undefined) header.vcs.branch = hints.worktreeBranch;
-    if (hints.worktree !== undefined) header.vcs.worktree = hints.worktree;
-  }
   const sessionUid = header.session_uid ?? header.id;
   const source = { path, includeSidechain: options.includeSidechain === true };
   const entries = await claudeCodeKitAdapter.parse(source, { sessionUid });
-  return { group: { header, entries }, hints };
+  return { header, entries };
 }
 
 function safeChildDir(parentPath: string): string | undefined {
@@ -322,11 +303,11 @@ async function directChildGroups(
       includeSidechain: true,
     }).catch(() => undefined);
     if (parsed === undefined) continue;
-    if (usedChildIds.has(parsed.group.header.id)) continue;
+    if (usedChildIds.has(parsed.header.id)) continue;
     usedFiles.add(child.file);
-    usedChildIds.add(parsed.group.header.id);
-    linked.set(entry.id, parsed.group.header.id);
-    groups.push(parsed.group);
+    usedChildIds.add(parsed.header.id);
+    linked.set(entry.id, parsed.header.id);
+    groups.push(parsed);
   }
   parentGroup.entries = withLinkedChildSessionIds(parentGroup.entries, linked);
   return groups;
@@ -354,13 +335,11 @@ export const claudeCodeAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Claude Code adapter requires SessionRef.path");
     }
-    const parsedParent = await parseGroup(ref.path);
-    const groups = [parsedParent.group, ...(await directChildGroups(parsedParent.group, ref.path))];
+    const parentGroup = await parseGroup(ref.path);
+    const groups = [parentGroup, ...(await directChildGroups(parentGroup, ref.path))];
     const envelope = buildTrailEnvelope({
       producer: PRODUCER,
       groups,
-      name: parsedParent.hints.envelopeName,
-      meta: parsedParent.hints.envelopeMeta,
     });
     return { envelope, groups };
   },

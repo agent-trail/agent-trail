@@ -84,6 +84,10 @@ const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl
   .pathname;
 const QUARANTINE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/quarantine.jsonl", import.meta.url)
   .pathname;
+const SYSTEM_EVENTS_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/system-events.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
@@ -130,6 +134,14 @@ async function parseQuarantineFixture() {
     id: "quarantine",
     adapter: "pi",
     path: QUARANTINE_FIXTURE_PATH,
+  });
+}
+
+async function parseSystemEventsFixture() {
+  return piAdapter.parseSession({
+    id: "system-events",
+    adapter: "pi",
+    path: SYSTEM_EVENTS_FIXTURE_PATH,
   });
 }
 
@@ -1120,11 +1132,29 @@ test("parseSession() leaves vcs undefined when cwd is not a git working tree", a
   expect(trail.groups[0]!.header.vcs).toBeUndefined();
 });
 
+test("session_info emits session_metadata_update name instead of x-pi/session_info", async () => {
+  const trail = await parseSystemEventsFixture();
+  const update = trail.groups[0]!.entries.find(
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "name",
+  );
+  expect(update?.payload).toEqual({
+    field: "name",
+    value: "Refactor adapter kit",
+    reason: "ai_generated",
+  });
+  expect(
+    trail.groups[0]!.entries.some(
+      (e) =>
+        e.type === "system_event" && (e.payload as { kind?: unknown }).kind === "x-pi/session_info",
+    ),
+  ).toBe(false);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 // Issue #88: Pi `thinking_level_change` is a built-in pi-mono envelope. It maps
 // to x-pi/thinking_level_change because no reserved kind covers thinking-level
 // transitions (model_change is for model id only).
-// Issue #88: Pi `session_info` is the built-in session-namer hook. Surface as
-// x-pi/session_info (vendor; no portable equivalent yet).
 // Issue #88: Pi `custom` / `custom_message` are the plugin extension surface.
 // Adapter collapses every plugin-defined customType into one vendor kind per
 // envelope-type and preserves the source customType under payload.data.custom_type.

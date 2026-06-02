@@ -225,6 +225,73 @@ test("parseSession on the desktop tracer fixture emits a valid trail with codex-
   expect(errors).toEqual([]);
 });
 
+test("parseSession emits trimmed session_metadata_update name from CRLF session_index thread_name", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({ id: "other", thread_name: "Other", updated_at: "2026-06-02T04:50:00.000000Z" })}\r\n${JSON.stringify(
+      {
+        id,
+        thread_name: "  Address TDD #125  ",
+        updated_at: "2026-06-02T04:51:00.000000Z",
+      },
+    )}\r\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const update = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+  );
+
+  expect(update?.ts).toBe("2026-06-02T04:51:00.000Z");
+  expect(update?.payload).toEqual({
+    field: "name",
+    value: "Address TDD #125",
+    reason: "external",
+  });
+  expect(update?.source).toEqual({
+    agent: "codex-cli",
+    original_type: "session_index",
+    synthesized: true,
+    raw: {
+      id,
+      thread_name: "  Address TDD #125  ",
+      updated_at: "2026-06-02T04:51:00.000000Z",
+    },
+  });
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
+test("parseSession skips session_index rows without usable thread_name", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({ id, thread_name: "", updated_at: "2026-06-02T04:51:00.000000Z" })}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  expect(
+    trail.groups[0]!.entries.some(
+      (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+    ),
+  ).toBe(false);
+});
+
 test("desktop fixture emits user_message + agent_message entries from event_msg channel", async () => {
   const trail = await parseDesktopFixture();
   const userEntries = trail.groups[0]!.entries.filter((e) => e.type === "user_message");
@@ -1333,18 +1400,60 @@ test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call
   expect(data?.result_ok).toBe(true);
 });
 
-test("event_msg.thread_goal_updated emits x-codex/thread_goal_updated system_event", async () => {
+test("event_msg.thread_goal_updated emits session_metadata_update description", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.groups[0]!.entries.find(
-    (e) =>
-      e.type === "system_event" &&
-      (e.payload as { kind: string }).kind === "x-codex/thread_goal_updated",
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "description",
   );
   expect(evt).toBeDefined();
-  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
-  expect(data?.thread_id).toBe("thread-1");
-  expect(data?.turn_id).toBe("turn-life");
-  expect(data?.goal).toEqual({ summary: "finish the task" });
+  expect(evt?.payload).toEqual({
+    field: "description",
+    value: "finish the task",
+    reason: "ai_generated",
+  });
+  expect(
+    trail.groups[0]!.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
+    ),
+  ).toBe(false);
+});
+
+test("event_msg.thread_goal_updated emits vendor session_metadata_update when summary is empty", async () => {
+  const id = "019d8900-bbbb-7000-e000-00000000000b";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "thread_goal_updated",
+          goal: { summary: "", items: ["finish"] },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "x-codex/thread_goal",
+  );
+
+  expect(evt?.payload).toEqual({
+    field: "x-codex/thread_goal",
+    value: { summary: "", items: ["finish"] },
+    reason: "ai_generated",
+  });
+  expect(
+    trail.groups[0]!.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
+    ),
+  ).toBe(false);
 });
 
 test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {

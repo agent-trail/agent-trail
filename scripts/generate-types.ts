@@ -108,6 +108,18 @@ const resultActionUnion = [
 ].join("\n");
 generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);
 
+const SESSION_METADATA_FIELD_RE =
+  /(export interface SessionMetadataUpdate \{[\s\S]*?\| \{\n {8})field: string;(\n {8}value: unknown;[\s\S]*?\n {6}\};)/;
+if (!SESSION_METADATA_FIELD_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the SessionMetadataUpdate vendor field line to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+generated = generated.replace(
+  SESSION_METADATA_FIELD_RE,
+  "$1field: `x-$" + "{string}/$" + "{string}`;$2",
+);
+
 // json-schema-to-typescript can mistake the `task_plan_update.payload.items`
 // property name for the schema `items` keyword and leak `minItems?: 0` into the
 // generated payload type. The schema has `additionalProperties:false`; this

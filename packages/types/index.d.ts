@@ -122,6 +122,7 @@ export type Entry = EntryBase &
     | SessionEnd
     | CommandInvoke
     | CapabilityChange
+    | SessionMetadataUpdate
     | Unknown
   );
 export type ToolKind =
@@ -224,25 +225,26 @@ export interface Vcs {
    * Commit hash at session start (lowercase hex, 7-64 chars). For git this is typically the same value as `revision`; the field exists as an explicit, version-control-neutral alias and survives across VCS migrations.
    */
   head_commit?: string;
+  worktree?: Worktree;
+}
+/**
+ * Worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.).
+ */
+export interface Worktree {
+  name: string;
+  path: string;
   /**
-   * Worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.).
+   * Working directory of the parent repository at the time the worktree was created.
    */
-  worktree?: {
-    name: string;
-    path: string;
-    /**
-     * Working directory of the parent repository at the time the worktree was created.
-     */
-    original_cwd?: string;
-    /**
-     * Branch the parent repository was on when the worktree was created.
-     */
-    original_branch?: string;
-    /**
-     * Commit hash the worktree was forked from.
-     */
-    original_head_commit?: string;
-  };
+  original_cwd?: string;
+  /**
+   * Branch the parent repository was on when the worktree was created.
+   */
+  original_branch?: string;
+  /**
+   * Commit hash the worktree was forked from.
+   */
+  original_head_commit?: string;
 }
 export interface EntryBase {
   type: string;
@@ -765,6 +767,35 @@ export interface CapabilityChangedItem {
   field: string;
   from?: unknown;
   to?: unknown;
+}
+export interface SessionMetadataUpdate {
+  type?: "session_metadata_update";
+  payload?:
+    | {
+        field: "name" | "description" | "agent.model_default" | "vcs.branch";
+        value: string;
+        previous_value?: string;
+        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+      }
+    | {
+        field: "tags";
+        value: string[];
+        previous_value?: string[];
+        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+      }
+    | {
+        field: "vcs.worktree";
+        value: Worktree;
+        previous_value?: Worktree;
+        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+      }
+    | {
+        field: `x-${string}/${string}`;
+        value: unknown;
+        previous_value?: unknown;
+        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+      };
+  [k: string]: unknown;
 }
 /**
  * Catch-all for unrecognized event types. Readers must tolerate these.

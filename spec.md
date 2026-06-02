@@ -908,6 +908,33 @@ A summary entry. Used for whole-session summaries. Branch and compaction summari
 
 Part of the canonical vocabulary. Adapters need not emit them. Readers must tolerate them either way.
 
+#### `session_metadata_update`
+
+Post-creation update to logical session metadata that was not known when the immutable header was written. The header remains as-written; consumers that need the effective session metadata replay these events in file order, with the last update to a field winning. The event is part of normal session content and contributes to the session-level `content_hash`.
+
+```jsonc
+{
+  "type": "session_metadata_update",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "field": "name",
+    "value": "Implement metadata updates",
+    "previous_value": "Old title",
+    "reason": "ai_generated"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `field` | yes | enum or extension | One of `name`, `description`, `tags`, `agent.model_default`, `vcs.branch`, `vcs.worktree`, or an adapter extension `x-<adapter>/<key>`. |
+| `value` | yes | field-specific | Replacement value. Must match the field type: string for `name`/`description`/`agent.model_default`/`vcs.branch`, string array for `tags`, and the §8.2 worktree shape for `vcs.worktree`. Extension fields may carry any JSON value. |
+| `previous_value` | no | field-specific | Prior value when the adapter knows it. Same type as `value`. |
+| `reason` | yes | enum | `ai_generated`, `user_set`, `runtime_inferred`, or `external`. |
+
+Writers MUST NOT use this event for immutable identity or cryptographic fields such as `id`, `session_uid`, `content_hash`, `redacted_from`, `vcs.revision`, or `vcs.head_commit`. Working-directory changes remain `system_event.kind:"cwd_change"`.
+
 #### `system_event`
 
 A meaningful source timeline record that is not a user message, agent message, tool call, tool result, summary, or known lifecycle event. Use this for source status/progress/bookkeeping records that should remain visible in a timeline. Do not use it as a dumping ground for high-volume internal state or records that map cleanly to a more specific canonical event.

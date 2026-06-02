@@ -67,6 +67,41 @@ test("valid/capability-change.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/session-metadata-update-name.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-name.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-tags.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-tags.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-agent-model-default.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-agent-model-default.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-vcs-branch.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-vcs-branch.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-vendor.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-vendor.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl reports pattern at /payload/attachments/0/uri", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl"),
@@ -165,6 +200,58 @@ test("invalid-schema/capability-change-bad-reason.trail.jsonl reports enum at /p
     severity: "error",
     code: "enum",
     message: "must be equal to one of the allowed values",
+  });
+});
+
+test("invalid-schema/session-metadata-update-bad-field-cwd.trail.jsonl reports oneOf at /payload", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-metadata-update-bad-field-cwd.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload",
+    severity: "error",
+    code: "oneOf",
+    message: "must match exactly one schema in oneOf",
+  });
+});
+
+test("invalid-schema/session-metadata-update-bad-tags-value.trail.jsonl reports type at /payload/value", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-metadata-update-bad-tags-value.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/value",
+    severity: "error",
+    code: "type",
+    message: "must be array",
+  });
+});
+
+test("invalid-schema/session-metadata-update-bad-reason.trail.jsonl reports enum at /payload/reason", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-metadata-update-bad-reason.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/reason",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
+test("invalid-schema/session-metadata-update-bad-worktree.trail.jsonl reports required at /payload/value/path", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/session-metadata-update-bad-worktree.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/value/path",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'path'",
   });
 });
 

@@ -335,14 +335,11 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     emit: (record) => {
       if (emittableTs(record) === null) return [];
       const name = stringValue(record.name);
+      if (name === undefined) return [];
       return [
         {
-          type: "system_event",
-          payload: {
-            kind: "x-pi/session_info",
-            text: name !== undefined ? `Session info: ${name}` : "Session info",
-            ...(name !== undefined ? { data: { name } } : {}),
-          },
+          type: "session_metadata_update",
+          payload: { field: "name", value: name, reason: "ai_generated" },
           source: src(record, "session_info"),
           meta: metaFor(record, "session_info_envelope"),
         },

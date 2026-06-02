@@ -50,6 +50,7 @@ export const implementedEventTypes = [
   "session_end",
   "command_invoke",
   "capability_change",
+  "session_metadata_update",
 ] as const;
 
 const eventValidators = new Map<string, ValidateFunction<unknown>>(

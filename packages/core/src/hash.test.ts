@@ -67,6 +67,35 @@ test("computeContentHash produces a stable digest for a header + user_message tr
   expect(digest).toBe("2be81234cd4d38dd4b40e3b20a30addcebacc06dca1218cb66d97578eecba022");
 });
 
+test("computeContentHash includes session_metadata_update events", () => {
+  const base = [header()];
+  const withNameUpdate = [
+    header(),
+    record(2, {
+      type: "session_metadata_update",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { field: "name", value: "Release notes", reason: "ai_generated" },
+    }),
+  ];
+  const withDifferentNameUpdate = [
+    header(),
+    record(2, {
+      type: "session_metadata_update",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { field: "name", value: "Fix parser bug", reason: "ai_generated" },
+    }),
+  ];
+
+  const baseDigest = computeContentHash(base);
+  const nameDigest = computeContentHash(withNameUpdate);
+  const changedNameDigest = computeContentHash(withDifferentNameUpdate);
+
+  expect(nameDigest).not.toBe(baseDigest);
+  expect(changedNameDigest).not.toBe(nameDigest);
+});
+
 test("computeContentHash ignores any existing header content_hash value", () => {
   const baseline = computeContentHash([header()]);
   const withWrongHash = computeContentHash([header({ content_hash: "deadbeef".repeat(8) })]);
