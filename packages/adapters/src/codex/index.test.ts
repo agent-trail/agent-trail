@@ -1110,7 +1110,17 @@ test("event_msg.elicitation_request emits permission_request with request metada
   const id = "019d8900-ffff-7000-e000-00000000000f";
   const request = {
     message: "Linear needs a workspace choice",
-    schema: { type: "object", required: ["workspace"] },
+    schema: {
+      type: "object",
+      required: ["workspace"],
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Workspace slug",
+          default: "private-workspace",
+        },
+      },
+    },
   };
   const path = seedSession({
     date: { y: "2026", m: "05", d: "28" },
@@ -1145,9 +1155,145 @@ test("event_msg.elicitation_request emits permission_request with request metada
     request_id: "elicit-1",
     server_name: "linear",
     prompt: "Choose a Linear workspace",
-    request,
+    request: {
+      schema: {
+        type: "object",
+        required: ["workspace"],
+        properties: {
+          workspace: {
+            type: "string",
+            description: "Workspace slug",
+          },
+        },
+      },
+    },
     available_decisions: ["approve", "deny"],
   });
+  expect(JSON.stringify(evt?.payload)).not.toContain("private-workspace");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request sanitizes URL-mode request data", async () => {
+  const id = "019d8901-0000-7000-e000-000000000010";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          id: "elicit-url-1",
+          server_name: "github",
+          prompt: "Sign in to GitHub",
+          request: {
+            mode: "url",
+            url: "https://auth.example.com/oauth/device?state=secret-state&token=secret-token#secret-fragment",
+            elicitationId: "oauth-flow-1",
+            title: "Authorize GitHub",
+            description: "Complete account linking",
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-url-1",
+    server_name: "github",
+    prompt: "Sign in to GitHub",
+    request: {
+      mode: "url",
+      title: "Authorize GitHub",
+      description: "Complete account linking",
+      elicitation_id: "oauth-flow-1",
+      url_origin: "https://auth.example.com",
+      url_host: "auth.example.com",
+    },
+  });
+  const payloadJson = JSON.stringify(evt?.payload);
+  expect(payloadJson).not.toContain("secret-state");
+  expect(payloadJson).not.toContain("secret-token");
+  expect(payloadJson).not.toContain("secret-fragment");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request strips form defaults and submitted values", async () => {
+  const id = "019d8901-0001-7000-e000-000000000011";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          id: "elicit-form-1",
+          server_name: "deploy",
+          prompt: "Provide deployment credentials",
+          request: {
+            mode: "form",
+            requestedSchema: {
+              type: "object",
+              required: ["apiKey"],
+              properties: {
+                apiKey: {
+                  type: "string",
+                  title: "API key",
+                  default: "sk-live-secret",
+                  examples: ["sk-example-secret"],
+                },
+                region: {
+                  type: "string",
+                  default: "us-east-1",
+                },
+              },
+            },
+            content: { apiKey: "sk-live-secret" },
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-form-1",
+    server_name: "deploy",
+    prompt: "Provide deployment credentials",
+    request: {
+      mode: "form",
+      schema: {
+        type: "object",
+        required: ["apiKey"],
+        properties: {
+          apiKey: { type: "string", title: "API key" },
+          region: { type: "string" },
+        },
+      },
+    },
+  });
+  const payloadJson = JSON.stringify(evt?.payload);
+  expect(payloadJson).not.toContain("sk-live-secret");
+  expect(payloadJson).not.toContain("sk-example-secret");
+  expect(payloadJson).not.toContain("us-east-1");
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

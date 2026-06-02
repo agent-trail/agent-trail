@@ -485,6 +485,99 @@ function copyArray(data: Raw, p: Raw, key: string, outKey = key): void {
   if (Array.isArray(p[key])) data[outKey] = p[key];
 }
 
+function copyStringArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (!Array.isArray(value)) return;
+  const strings = value.filter((item): item is string => typeof item === "string");
+  if (strings.length === value.length) data[outKey] = strings;
+}
+
+function copySchemaType(data: Raw, p: Raw): void {
+  const value = p.type;
+  if (typeof value === "string") data.type = value;
+  else if (
+    Array.isArray(value) &&
+    value.every((item): item is string => typeof item === "string")
+  ) {
+    data.type = value;
+  }
+}
+
+function sanitizedSchema(value: unknown): Raw | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Raw = {};
+  copySchemaType(out, value);
+  copyString(out, value, "title");
+  copyString(out, value, "description");
+  copyString(out, value, "format");
+  copyStringArray(out, value, "required");
+
+  if (isObject(value.properties)) {
+    const properties: Raw = {};
+    for (const [name, property] of Object.entries(value.properties)) {
+      const sanitized = sanitizedSchema(property);
+      properties[name] = sanitized ?? {};
+    }
+    if (Object.keys(properties).length > 0) out.properties = properties;
+  }
+
+  const items = sanitizedSchema(value.items);
+  if (items !== undefined) out.items = items;
+
+  for (const key of ["oneOf", "anyOf", "allOf"] as const) {
+    const variants = value[key];
+    if (!Array.isArray(variants)) continue;
+    const sanitized = variants
+      .map((variant) => sanitizedSchema(variant))
+      .filter((variant): variant is Raw => variant !== undefined);
+    if (sanitized.length > 0) out[key] = sanitized;
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizedUrlData(rawUrl: string): Raw | undefined {
+  try {
+    const url = new URL(rawUrl);
+    return {
+      url_origin: url.origin,
+      url_host: url.host,
+    };
+  } catch {
+    return { has_url: true };
+  }
+}
+
+function sanitizedElicitationRequest(value: unknown): Raw | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Raw = {};
+  copyString(out, value, "mode");
+  copyString(out, value, "type");
+  copyString(out, value, "action");
+  copyString(out, value, "title");
+  copyString(out, value, "displayName", "display_name");
+  copyString(out, value, "display_name");
+  copyString(out, value, "description");
+
+  const elicitationId =
+    stringValue(value.elicitation_id) ??
+    stringValue(value.elicitationId) ??
+    stringValue(value.request_id) ??
+    stringValue(value.requestId);
+  if (elicitationId !== undefined) out.elicitation_id = elicitationId;
+
+  const urlData = stringValue(value.url);
+  if (urlData !== undefined) Object.assign(out, sanitizedUrlData(urlData));
+
+  const schema =
+    sanitizedSchema(value.requestedSchema) ??
+    sanitizedSchema(value.requested_schema) ??
+    sanitizedSchema(value.schema);
+  if (schema !== undefined) out.schema = schema;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function permissionRequestBaseData(p: Raw): { data: Raw; callId?: string } {
   const data: Raw = {};
   const callId = stringValue(p.call_id);
@@ -599,7 +692,8 @@ const elicitationRequest = lifecycle("elicitation_request", (p) => {
   }
   copyString(data, p, "server_name");
   copyString(data, p, "prompt");
-  copyObject(data, p, "request");
+  const request = sanitizedElicitationRequest(p.request);
+  if (request !== undefined) data.request = request;
   copyArray(data, p, "available_decisions");
   return {
     kind: "permission_request",

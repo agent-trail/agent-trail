@@ -318,7 +318,8 @@ Lifecycle-vocabulary `system_event` emissions:
   `system_event{kind:"permission_request"}`. `semantic.call_id` links when the source carries a
   `call_id`; `data` preserves source pairing ids (`tool_call_id`, `approval_id`, `request_id`) and
   request context such as `turn_id`, `started_at_ms`, `reason`, `prompt`, `command`, `cwd`,
-  `permissions`, `changes`, `grant_root`, `server_name`, and `request`.
+  `permissions`, `changes`, `grant_root`, `server_name`, and sanitized elicitation `request`
+  metadata.
 - `event_msg.patch_apply_end` → `system_event{kind:"x-codex/patch_apply_end"}` with
   `semantic.call_id` linking to the originating `apply_patch` tool_call. `data` carries
   `success`, `changes`, `stdout_excerpt`, `stderr_excerpt`, `status`.
