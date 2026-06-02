@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Header, TrailEnvelope } from "@agent-trail/types";
+import type { TrailSessionGroup } from "./index.ts";
 
 export type BuildTrailEnvelopeOptions = {
   producer: string;
-  header: Header;
+  header?: Header;
+  groups?: TrailSessionGroup[];
   /** Override for deterministic tests; defaults to node:crypto randomUUID(). */
   randomId?: () => string;
   /** Override for deterministic tests; defaults to new Date().toISOString(). */
@@ -24,10 +26,12 @@ export function buildTrailEnvelope(opts: BuildTrailEnvelopeOptions): TrailEnvelo
   };
   if (opts.name !== undefined) envelope.name = opts.name;
   if (opts.meta !== undefined && Object.keys(opts.meta).length > 0) envelope.meta = opts.meta;
-  if (opts.header.vcs !== undefined) envelope.vcs = opts.header.vcs;
+  const headers = opts.groups?.map((group) => group.header) ?? (opts.header ? [opts.header] : []);
+  const firstHeader = headers[0];
+  if (firstHeader?.vcs !== undefined) envelope.vcs = firstHeader.vcs;
   // Populate a minimal sessions manifest so indexers can enumerate sessions
   // without parsing event records. The session header remains authoritative;
   // the validator warns on drift.
-  envelope.sessions = [{ id: opts.header.id, agent: opts.header.agent.name }];
+  envelope.sessions = headers.map((header) => ({ id: header.id, agent: header.agent.name }));
   return envelope;
 }

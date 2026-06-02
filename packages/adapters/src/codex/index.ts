@@ -1,9 +1,15 @@
-import { open, readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import type { Entry } from "@agent-trail/types";
+import { lstat, open, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
+import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
-import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import type {
+  DetectOptions,
+  SessionRef,
+  TrailAdapter,
+  TrailFile,
+  TrailSessionGroup,
+} from "../index.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
 import { codexKitAdapter } from "./kit.ts";
@@ -79,7 +85,7 @@ async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLi
 // Id is only extracted from the first parseable line (session_meta carries
 // the canonical session id at `payload.id`).
 // See `docs/parser-source-matrix.md` Codex row for verification notes.
-type HeadMetadata = { id?: string; cwd?: string };
+type HeadMetadata = { id?: string; cwd?: string; threadSource?: string; parentThreadId?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -89,6 +95,8 @@ async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
   const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
   let id: string | undefined;
   let cwd: string | undefined;
+  let threadSource: string | undefined;
+  let parentThreadId: string | undefined;
   let sawFirst = false;
   for (const line of lines) {
     let record: Record<string, unknown>;
@@ -102,17 +110,36 @@ async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
     if (!sawFirst) {
       sawFirst = true;
       if (payload !== null && typeof payload === "object") {
-        const payloadId = (payload as Record<string, unknown>).id;
+        const payloadRecord = payload as Record<string, unknown>;
+        const payloadId = payloadRecord.id;
         if (typeof payloadId === "string" && payloadId.length > 0) id = payloadId;
+        if (record.type === "session_meta") {
+          const rawThreadSource = payloadRecord.thread_source;
+          if (typeof rawThreadSource === "string" && rawThreadSource.length > 0) {
+            threadSource = rawThreadSource;
+          }
+          const source = payloadRecord.source;
+          const rawParentThreadId =
+            isRecord(source) &&
+            isRecord(source.subagent) &&
+            isRecord(source.subagent.thread_spawn) &&
+            typeof source.subagent.thread_spawn.parent_thread_id === "string"
+              ? source.subagent.thread_spawn.parent_thread_id
+              : undefined;
+          if (rawParentThreadId !== undefined) parentThreadId = rawParentThreadId;
+        }
       }
       if (id === undefined) {
         const topId = record.id;
         if (typeof topId === "string" && topId.length > 0) id = topId;
       }
     }
-    if (cwd === undefined && payload !== null && typeof payload === "object") {
-      const payloadCwd = (payload as Record<string, unknown>).cwd;
-      if (typeof payloadCwd === "string" && payloadCwd.length > 0) cwd = payloadCwd;
+    if (payload !== null && typeof payload === "object") {
+      const payloadRecord = payload as Record<string, unknown>;
+      if (cwd === undefined) {
+        const payloadCwd = payloadRecord.cwd;
+        if (typeof payloadCwd === "string" && payloadCwd.length > 0) cwd = payloadCwd;
+      }
     }
     if (cwd === undefined) {
       const topCwd = record.cwd;
@@ -120,7 +147,7 @@ async function readMetadataFromHead(path: string): Promise<HeadMetadata> {
     }
     if (id !== undefined && cwd !== undefined) break;
   }
-  return { id, cwd };
+  return { id, cwd, threadSource, parentThreadId };
 }
 
 async function readSessionVersionFromHead(path: string): Promise<string | undefined> {
@@ -170,9 +197,9 @@ async function walkRolloutFiles(root: string): Promise<string[]> {
     }
     for (const name of names) {
       const full = join(dir, name);
-      let s: Awaited<ReturnType<typeof stat>>;
+      let s: Awaited<ReturnType<typeof lstat>>;
       try {
-        s = await stat(full);
+        s = await lstat(full);
       } catch {
         continue;
       }
@@ -215,6 +242,164 @@ function deriveIdFromFilename(filePath: string): string | undefined {
   const base = filePath.replace(/^.*\//, "").replace(/\.jsonl$/, "");
   const match = base.match(/-([0-9a-f-]{36})$/i);
   return match?.[1];
+}
+
+type ForkFrom = NonNullable<Header["fork_from"]>;
+
+async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<TrailSessionGroup> {
+  const firstRecord = await readFirstRecordFromHead(path);
+  if (firstRecord === undefined) {
+    throw new Error("Codex session must contain a parseable JSON object header");
+  }
+  const header = buildHeader(firstRecord);
+  if (forkFrom !== undefined) header.fork_from = forkFrom;
+  if (header.vcs === undefined && typeof header.cwd === "string") {
+    const vcs = await readGitVcs(header.cwd);
+    if (vcs !== undefined) header.vcs = vcs;
+  }
+  const sessionUid = header.session_uid ?? header.id;
+  const entries = await codexKitAdapter.parse({ path }, { sessionUid });
+  const sessionIndexUpdate = sessionIndexNameUpdate(
+    await readSessionIndexRow(header.id),
+    sessionUid,
+  );
+  if (sessionIndexUpdate !== undefined) entries.push(sessionIndexUpdate);
+  return { header, entries };
+}
+
+function isSubagentInvoke(entry: Entry): boolean {
+  return entry.type === "tool_call" && entry.payload.tool === "subagent_invoke";
+}
+
+function childIdFromToolResult(entry: Entry): string | undefined {
+  if (entry.type !== "tool_result") return undefined;
+  const payload = entry.payload;
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const output = (payload as Record<string, unknown>).output;
+  if (typeof output !== "string" || output.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (parsed !== null && typeof parsed === "object") {
+      const agentId = (parsed as Record<string, unknown>).agent_id;
+      if (typeof agentId === "string" && agentId.length > 0) return agentId;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function spawnChildCandidates(entries: Entry[]): { callEntryId: string; childId: string }[] {
+  const subagentCallIds = new Set<string>();
+  for (const entry of entries) {
+    if (isSubagentInvoke(entry)) subagentCallIds.add(entry.id);
+  }
+  const out: { callEntryId: string; childId: string }[] = [];
+  const seenPairs = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "tool_result") continue;
+    const payload = entry.payload;
+    if (typeof payload !== "object" || payload === null) continue;
+    const forId = (payload as Record<string, unknown>).for_id;
+    if (typeof forId !== "string" || !subagentCallIds.has(forId)) continue;
+    const childId = childIdFromToolResult(entry);
+    if (childId === undefined) continue;
+    const key = `${forId}\0${childId}`;
+    if (seenPairs.has(key)) continue;
+    seenPairs.add(key);
+    out.push({ callEntryId: forId, childId });
+  }
+  return out;
+}
+
+type ChildSessionPathIndex = Map<string, string | undefined>;
+
+async function buildChildSessionPathIndex(
+  parentPath: string,
+  parentSessionId: string,
+): Promise<ChildSessionPathIndex | undefined> {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) return undefined;
+  const files = await walkRolloutFiles(sessionsDir);
+  const index: ChildSessionPathIndex = new Map();
+  for (const file of files) {
+    if (file === parentPath) continue;
+    const meta = await readMetadataFromHead(file).catch(() => ({}) as HeadMetadata);
+    if (meta.threadSource !== "subagent" || meta.parentThreadId !== parentSessionId) continue;
+    if (meta.id === undefined) continue;
+    index.set(meta.id, index.has(meta.id) ? undefined : file);
+  }
+  return index;
+}
+
+function findUniqueSessionPathById(
+  childId: string,
+  childSessionPathIndex: ChildSessionPathIndex,
+): string | undefined {
+  return childSessionPathIndex.get(childId);
+}
+
+async function isInsideCodexSessionsDir(path: string): Promise<boolean> {
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) return false;
+  let root: string;
+  let target: string;
+  try {
+    root = await realpath(sessionsDir);
+    target = await realpath(path);
+  } catch {
+    return false;
+  }
+  const rel = relative(root, target);
+  return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function withLinkedChildSessionIds(entries: Entry[], linked: Map<string, string>): Entry[] {
+  return entries.map((entry) => {
+    const childId = linked.get(entry.id);
+    if (childId === undefined || !isSubagentInvoke(entry)) return entry;
+    const args = isRecord(entry.payload.args) ? entry.payload.args : {};
+    return {
+      ...entry,
+      payload: {
+        ...entry.payload,
+        args: { ...args, session_id: childId },
+      },
+    } as Entry;
+  });
+}
+
+async function directChildGroups(
+  parentGroup: TrailSessionGroup,
+  parentPath: string,
+): Promise<TrailSessionGroup[]> {
+  if (!(await isInsideCodexSessionsDir(parentPath))) return [];
+  const linked = new Map<string, string>();
+  const children: TrailSessionGroup[] = [];
+  const candidates = spawnChildCandidates(parentGroup.entries);
+  const childSessionPathIndex = await buildChildSessionPathIndex(parentPath, parentGroup.header.id);
+  if (childSessionPathIndex === undefined) return [];
+  const callCounts = new Map<string, number>();
+  const childCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    callCounts.set(candidate.callEntryId, (callCounts.get(candidate.callEntryId) ?? 0) + 1);
+    childCounts.set(candidate.childId, (childCounts.get(candidate.childId) ?? 0) + 1);
+  }
+  for (const candidate of candidates) {
+    if (callCounts.get(candidate.callEntryId) !== 1) continue;
+    if (childCounts.get(candidate.childId) !== 1) continue;
+    const childPath = findUniqueSessionPathById(candidate.childId, childSessionPathIndex);
+    if (childPath === undefined) continue;
+    const child = await parseSingleGroup(childPath, {
+      session_id: parentGroup.header.id,
+      entry_id: candidate.callEntryId,
+    }).catch(() => undefined);
+    if (child === undefined) continue;
+    linked.set(candidate.callEntryId, child.header.id);
+    children.push(child);
+  }
+  parentGroup.entries = withLinkedChildSessionIds(parentGroup.entries, linked);
+  return children;
 }
 
 function codexSessionIndexPath(): string | undefined {
@@ -299,24 +484,10 @@ export const codexAdapter: TrailAdapter = {
     if (ref.path === undefined) {
       throw new Error("Codex adapter requires SessionRef.path");
     }
-    const firstRecord = await readFirstRecordFromHead(ref.path);
-    if (firstRecord === undefined) {
-      throw new Error("Codex session must contain a parseable JSON object header");
-    }
-    const header = buildHeader(firstRecord);
-    if (header.vcs === undefined && typeof header.cwd === "string") {
-      const vcs = await readGitVcs(header.cwd);
-      if (vcs !== undefined) header.vcs = vcs;
-    }
-    const sessionUid = header.session_uid ?? header.id;
-    const entries = await codexKitAdapter.parse({ path: ref.path }, { sessionUid });
-    const sessionIndexUpdate = sessionIndexNameUpdate(
-      await readSessionIndexRow(header.id),
-      sessionUid,
-    );
-    if (sessionIndexUpdate !== undefined) entries.push(sessionIndexUpdate);
-    const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
-    return { envelope, header, entries };
+    const parentGroup = await parseSingleGroup(ref.path);
+    const groups = [parentGroup, ...(await directChildGroups(parentGroup, ref.path))];
+    const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
+    return { envelope, groups };
   },
   async isAvailable(): Promise<boolean> {
     const dir = codexSessionsDir();
