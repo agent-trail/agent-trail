@@ -74,7 +74,7 @@ function systemSubtypeToKind(subtype: string | undefined): string {
     case "compact_boundary":
       return "x-claudecode/compact_boundary";
     case "api_error":
-      return "x-claudecode/api_error";
+      return "api_error";
     case "away_summary":
       return "x-claudecode/away_summary";
     case "local_command":
@@ -103,6 +103,13 @@ export function systemEventKind(envelope: CcEnvelope): string {
 
 export function systemEventData(envelope: CcEnvelope): Record<string, unknown> | undefined {
   if (envelope.type === "progress") return jsonObjectValue(envelope.data);
+  if (envelope.type === "system" && stringValue(envelope.subtype) === "api_error") {
+    const content = stringValue(envelope.content);
+    return {
+      severity: "error",
+      ...(content !== undefined ? { details: content } : {}),
+    };
+  }
   if (envelope.type === "pr-link") {
     const out: Record<string, unknown> = {};
     if (typeof envelope.prNumber === "number") out.pr_number = envelope.prNumber;

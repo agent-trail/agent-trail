@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -22,7 +23,13 @@ import {
   patchSingleFilePath,
   stripSpinner,
 } from "./parser.ts";
-import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
+import {
+  isObject,
+  numericValue,
+  sanitizeSourceRaw,
+  stringValue,
+  timestampToIso,
+} from "./source.ts";
 
 type Raw = Record<string, unknown>;
 type UserQueryOption = { label: string; description?: string };
@@ -41,15 +48,37 @@ function payloadOf(record: Raw): Raw {
   return isObject(record.payload) ? record.payload : {};
 }
 
+function elidedArrayMarker(value: unknown[]): Record<string, unknown> {
+  return {
+    elided: true,
+    size_bytes: Buffer.byteLength(JSON.stringify(value) ?? "", "utf8"),
+    item_count: value.length,
+  };
+}
+
+function compactedSourceRaw(record: Raw): Raw {
+  const payload = payloadOf(record);
+  const replacementHistory = payload.replacement_history;
+  if (!Array.isArray(replacementHistory)) return record;
+  return {
+    ...record,
+    payload: {
+      ...payload,
+      replacement_history: elidedArrayMarker(replacementHistory),
+    },
+  };
+}
+
 function emittable(record: Raw): boolean {
   return timestampToIso(record.timestamp) !== undefined;
 }
 
 function source(originalType: string, raw?: Raw, synthesized?: boolean): Entry["source"] {
+  const safeRaw = raw !== undefined ? sanitizeSourceRaw(raw) : undefined;
   return {
     agent: AGENT_NAME,
     original_type: originalType,
-    ...(raw !== undefined ? { raw } : {}),
+    ...(safeRaw !== undefined ? { raw: safeRaw } : {}),
     ...(synthesized === true ? { synthesized: true } : {}),
   };
 }
@@ -282,6 +311,18 @@ const customToolCall = defineMapping<Raw>({
   },
 });
 
+function functionCallOutputText(rawOutput: unknown): string {
+  const body = isObject(rawOutput) && "body" in rawOutput ? rawOutput.body : rawOutput;
+  if (typeof body === "string") return body;
+  if (body === undefined) return "";
+  return JSON.stringify(body);
+}
+
+function functionCallOutputOk(payload: Raw, rawOutput: unknown): boolean {
+  if (isObject(rawOutput) && typeof rawOutput.success === "boolean") return rawOutput.success;
+  return payload.success !== false;
+}
+
 function toolResult(
   payloadType: "function_call_output" | "custom_tool_call_output",
 ): MappingDef<Raw> {
@@ -293,17 +334,16 @@ function toolResult(
       const p = payloadOf(record);
       const callId = stringValue(p.call_id);
       const rawOutput = p.output;
-      const outputRaw =
-        typeof rawOutput === "string"
-          ? rawOutput
-          : rawOutput === undefined
-            ? ""
-            : JSON.stringify(rawOutput);
-      const ok = p.success !== false;
+      const output = stripSpinner(functionCallOutputText(rawOutput));
+      const ok = functionCallOutputOk(p, rawOutput);
       return [
         {
           type: "tool_result",
-          payload: { ok, output: stripSpinner(outputRaw) },
+          payload: {
+            ok,
+            output,
+            ...(!ok && output.length > 0 ? { error: output } : {}),
+          },
           source: source(rawType),
           meta: meta(rawType, callId),
         },
@@ -399,8 +439,7 @@ const compacted = defineMapping<Raw>({
   emit: (record) => {
     if (!emittable(record)) return [];
     const p = payloadOf(record);
-    const summary = stringValue(p.message) ?? stringValue(p.summary);
-    if (summary === undefined || summary.length === 0) return [];
+    const summary = stringValue(p.message) ?? stringValue(p.summary) ?? "";
     const payload: Raw = { summary, trigger: "auto" };
     const tokensBefore = numericValue(p.tokens_before);
     if (tokensBefore !== undefined) payload.tokens_before = Math.trunc(tokensBefore);
@@ -410,7 +449,7 @@ const compacted = defineMapping<Raw>({
       {
         type: "context_compact",
         payload,
-        source: source("compacted"),
+        source: source("compacted", compactedSourceRaw(record)),
         meta: meta("compacted"),
       },
     ];
@@ -428,6 +467,129 @@ const tokenCount = defineMapping<Raw>({
     return [
       { type: "system_event", payload: { kind: USAGE_CARRIER }, meta: { [USAGE_CARRIER]: usage } },
     ];
+  },
+});
+
+function diagnosticCode(payload: Raw): string | undefined {
+  const info = payload.codex_error_info;
+  if (typeof info === "string") return info;
+  if (isObject(info)) {
+    const direct = stringValue(info.code) ?? stringValue(info.type);
+    if (direct !== undefined) return direct;
+    const variant = Object.keys(info).find((key) => key !== "code" && key !== "type");
+    if (variant !== undefined) return variant;
+  }
+  return stringValue(payload.code);
+}
+
+function diagnosticSourcePayload(payload: Raw): Raw {
+  return enforceSourceRawSize(redactValue(payload)).value as Raw;
+}
+
+function diagnosticMessageData(payload: Raw, severity: string): Raw {
+  const data: Raw = { severity };
+  const code = diagnosticCode(payload);
+  if (code !== undefined) data.code = code;
+  const message = stringValue(payload.message);
+  if (message !== undefined) data.details = message;
+  return data;
+}
+
+function diagnosticDraft(
+  rawType: string,
+  sourcePayload: Raw,
+  kind: string,
+  text: string,
+  data: Raw,
+): TrailEntryDraft {
+  const payload: Raw = { kind, text };
+  if (Object.keys(data).length > 0) payload.data = data;
+  return {
+    type: "system_event",
+    payload,
+    source: source(rawType, diagnosticSourcePayload(sourcePayload)),
+    meta: meta(rawType),
+  };
+}
+
+function messageDiagnostic(payloadType: string, kind: string, severity: string): MappingDef<Raw> {
+  const rawType = `event_msg.${payloadType}`;
+  return defineMapping<Raw>({
+    match: { type: "event_msg", payload: { type: payloadType } },
+    emit: (record) => {
+      if (!emittable(record)) return [];
+      const p = payloadOf(record);
+      const text = stringValue(p.message) ?? "Codex diagnostic";
+      return [diagnosticDraft(rawType, p, kind, text, diagnosticMessageData(p, severity))];
+    },
+  });
+}
+
+const modelReroute = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "model_reroute" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const from = stringValue(p.from_model) ?? stringValue(p.from);
+    const to = stringValue(p.to_model) ?? stringValue(p.to);
+    const reason = stringValue(p.reason);
+    const data: Raw = {};
+    if (from !== undefined) data.from = from;
+    if (to !== undefined) data.to = to;
+    if (reason !== undefined) data.reason = reason;
+    const text =
+      from !== undefined && to !== undefined ? `Model rerouted: ${from} → ${to}` : "Model rerouted";
+    return [diagnosticDraft("event_msg.model_reroute", p, "model_rerouted", text, data)];
+  },
+});
+
+const modelVerification = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "model_verification" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const verifications = Array.isArray(p.verifications)
+      ? p.verifications.filter((item): item is string => typeof item === "string")
+      : [];
+    const data: Raw = { reason: "model_verification" };
+    if (verifications.length > 0) data.details = verifications;
+    return [
+      diagnosticDraft(
+        "event_msg.model_verification",
+        p,
+        "model_rerouted",
+        "Model verification required",
+        data,
+      ),
+    ];
+  },
+});
+
+const deprecationNotice = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "deprecation_notice" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const text = stringValue(p.summary) ?? "Deprecation notice";
+    const data: Raw = {};
+    const details = stringValue(p.details);
+    if (details !== undefined) data.details = details;
+    return [diagnosticDraft("event_msg.deprecation_notice", p, "deprecation_notice", text, data)];
+  },
+});
+
+const streamError = defineMapping<Raw>({
+  match: { type: "event_msg", payload: { type: "stream_error" } },
+  emit: (record) => {
+    if (!emittable(record)) return [];
+    const p = payloadOf(record);
+    const text = stringValue(p.message) ?? "Stream error";
+    const data: Raw = { severity: "error" };
+    const code = diagnosticCode(p);
+    if (code !== undefined) data.code = code;
+    const details = stringValue(p.additional_details);
+    if (details !== undefined) data.details = details;
+    return [diagnosticDraft("event_msg.stream_error", p, "stream_error", text, data)];
   },
 });
 
@@ -1101,6 +1263,13 @@ export const codexMappings: MappingDef<Raw>[] = [
   toolSearchOutput,
   compacted,
   tokenCount,
+  messageDiagnostic("error", "agent_error", "error"),
+  messageDiagnostic("warning", "agent_warning", "warning"),
+  messageDiagnostic("guardian_warning", "guardian_alert", "warning"),
+  modelReroute,
+  modelVerification,
+  deprecationNotice,
+  streamError,
   taskStarted,
   taskCompleted,
   execCommandEnd,

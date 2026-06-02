@@ -15,6 +15,10 @@ const capabilityEntries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "capability-changes.jsonl"), "unit-test");
 const capabilityV0_128Entries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "capability-changes-v0_128.jsonl"), "unit-test");
+const diagnosticEntries = (): Promise<Entry[]> =>
+  parseCodexEntries(join(FIXTURES, "diagnostics.jsonl"), "unit-test");
+const diagnosticV0_128Entries = (): Promise<Entry[]> =>
+  parseCodexEntries(join(FIXTURES, "diagnostics-v0_128.jsonl"), "unit-test");
 
 function expectWriterStrict(entries: Entry[]): void {
   for (const [index, entry] of entries.entries()) {
@@ -162,6 +166,179 @@ describe("codex capability registry events", () => {
     expect(all.map((entry) => entry.payload)).toEqual([
       { scope: "mcp_server", reason: "connected", added: [{ name: "linear" }] },
     ]);
+  });
+});
+
+describe("codex diagnostic event messages", () => {
+  const fixtures = [
+    ["v0.135", diagnosticEntries],
+    ["v0.128", diagnosticV0_128Entries],
+  ] as const;
+
+  for (const [version, loadEntries] of fixtures) {
+    test(`diagnostic event_msg variants emit reserved system_event kinds under ${version}`, async () => {
+      const all = await loadEntries();
+      expectWriterStrict(all);
+
+      const diagnostics = all
+        .filter((entry) => entry.type === "system_event")
+        .map((entry) => entry.payload);
+      expect(diagnostics).toEqual([
+        {
+          kind: "agent_error",
+          text: "agent failed to process submission",
+          data: {
+            severity: "error",
+            code: "internal_error",
+            details: "agent failed to process submission",
+          },
+        },
+        {
+          kind: "agent_warning",
+          text: "agent recovered after retry",
+          data: { severity: "warning", details: "agent recovered after retry" },
+        },
+        {
+          kind: "guardian_alert",
+          text: "guardian flagged approval",
+          data: { severity: "warning", details: "guardian flagged approval" },
+        },
+        {
+          kind: "model_rerouted",
+          text: "Model rerouted: gpt-5.3 → gpt-5.2",
+          data: { from: "gpt-5.3", to: "gpt-5.2", reason: "high_risk_cyber_activity" },
+        },
+        {
+          kind: "model_rerouted",
+          text: "Model verification required",
+          data: { reason: "model_verification", details: ["trusted_access_for_cyber"] },
+        },
+        {
+          kind: "deprecation_notice",
+          text: "legacy profile is deprecated",
+          data: { details: "Use named permission profiles." },
+        },
+        {
+          kind: "stream_error",
+          text: "stream disconnected",
+          data: {
+            severity: "error",
+            code: "transport_lost",
+            details: "retrying with backoff",
+          },
+        },
+      ]);
+      expect(
+        all.every((entry) => {
+          const raw = entry.source?.raw as Record<string, unknown> | undefined;
+          const rawType = (entry.meta as Record<string, unknown>)["dev.codex.raw_type"];
+          return typeof raw?.type === "string" && rawType === `event_msg.${raw.type}`;
+        }),
+      ).toBe(true);
+    });
+  }
+
+  test("diagnostic source raw is redacted and size capped", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-diagnostics-raw-"));
+    try {
+      const fixture = join(dir, "diagnostics.jsonl");
+      const largeDetails = "x".repeat(40_000);
+      await writeFile(
+        fixture,
+        `${[
+          {
+            timestamp: "2026-06-01T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "019d9000-cccc-7000-e000-000000000175",
+              timestamp: "2026-06-01T12:00:00.000Z",
+              cwd: "/tmp/synthetic-project",
+              cli_version: "0.135.0",
+            },
+          },
+          {
+            timestamp: "2026-06-01T12:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "stream_error",
+              message: "stream disconnected",
+              codex_error_info: "transport_lost",
+              additional_details: largeDetails,
+              headers: { authorization: "Bearer sk-aaaaaaaaaaaaaaaaaaaaaaaa" },
+            },
+          },
+        ]
+          .map((line) => JSON.stringify(line))
+          .join("\n")}\n`,
+      );
+
+      const all = await parseCodexEntries(fixture, "unit-test");
+      expectWriterStrict(all);
+      const event = all.find(
+        (entry) =>
+          entry.type === "system_event" &&
+          (entry.payload as { kind?: string }).kind === "stream_error",
+      );
+      const raw = event?.source?.raw as
+        | {
+            additional_details?: unknown;
+            headers?: { authorization?: string };
+          }
+        | undefined;
+      expect(raw?.headers?.authorization).toBe("Bearer [OPENAI_KEY]");
+      expect(raw?.additional_details).toEqual({ elided: true, size_bytes: 40_000 });
+      expect(JSON.stringify(raw)).not.toContain("sk-aaaaaaaaaaaaaaaaaaaaaaaa");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("stream_error omits details when no additional_details field is present", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "codex-stream-error-"));
+    try {
+      const fixture = join(dir, "diagnostics.jsonl");
+      await writeFile(
+        fixture,
+        `${[
+          {
+            timestamp: "2026-06-01T12:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "019d9000-dddd-7000-e000-000000000175",
+              timestamp: "2026-06-01T12:00:00.000Z",
+              cwd: "/tmp/synthetic-project",
+              cli_version: "0.135.0",
+            },
+          },
+          {
+            timestamp: "2026-06-01T12:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "stream_error",
+              message: "stream disconnected",
+              codex_error_info: "transport_lost",
+            },
+          },
+        ]
+          .map((line) => JSON.stringify(line))
+          .join("\n")}\n`,
+      );
+
+      const all = await parseCodexEntries(fixture, "unit-test");
+      expectWriterStrict(all);
+      const event = all.find(
+        (entry) =>
+          entry.type === "system_event" &&
+          (entry.payload as { kind?: string }).kind === "stream_error",
+      );
+      expect(event?.payload).toEqual({
+        kind: "stream_error",
+        text: "stream disconnected",
+        data: { severity: "error", code: "transport_lost" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

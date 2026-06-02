@@ -269,6 +269,57 @@ test("parseSession emits trimmed session_metadata_update name from CRLF session_
   expect(await validateAdapterTrail(trail)).toEqual([]);
 });
 
+test("parseSession sanitizes session_index source raw", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const fakeSecret = "TEST_SECRET=not-real-placeholder-123456";
+  const hugeDebug = "x".repeat(40_000);
+  const previousHardCap = process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({
+      id,
+      thread_name: "  Safe session title  ",
+      updated_at: "2026-06-02T04:51:00.000000Z",
+      env: { SESSION_SECRET: fakeSecret },
+      debug: hugeDebug,
+    })}\n`,
+  );
+
+  process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP = "32768";
+  try {
+    const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+    const update = trail.groups[0]!.entries.find(
+      (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+    );
+    const raw = update?.source?.raw as
+      | { env?: { SESSION_SECRET?: unknown }; debug?: unknown }
+      | undefined;
+
+    expect(update?.payload).toEqual({
+      field: "name",
+      value: "Safe session title",
+      reason: "external",
+    });
+    expect(raw?.env?.SESSION_SECRET).toBe("TEST_SECRET=[ENV_SECRET]");
+    expect(raw?.debug).toEqual({ elided: true, size_bytes: hugeDebug.length });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    if (previousHardCap === undefined) {
+      delete process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+    } else {
+      process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP = previousHardCap;
+    }
+  }
+});
+
 test("parseSession skips session_index rows without usable thread_name", async () => {
   const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
   const path = seedSession({
@@ -1086,6 +1137,183 @@ test("update_plan ack dropping keeps failed outputs and colliding non-plan tool 
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession maps nested failed function output to a failed tool_result", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000132";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-nested-error",
+          name: "shell_command",
+          arguments: JSON.stringify({ command: "run failing tool" }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-nested-error",
+          output: { body: "tool failed before producing a response", success: false },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
+  expect(result?.payload).toEqual({
+    for_id: call?.id,
+    ok: false,
+    output: "tool failed before producing a response",
+    error: "tool failed before producing a response",
+  });
+  expect(result?.semantic).toEqual({
+    call_id: "call-nested-error",
+    tool_kind: "shell_command",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession keeps nonzero command output successful when tool metadata says success", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000133";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-nonzero-exit",
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "false" }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-nonzero-exit",
+          output: {
+            body: "Process exited with code 2\nOutput:\ncommand failed",
+            success: true,
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
+  expect(result?.payload).toEqual({
+    for_id: trail.groups[0]!.entries.find((entry) => entry.type === "tool_call")?.id,
+    ok: true,
+    output: "Process exited with code 2\nOutput:\ncommand failed",
+  });
+  expect(result?.semantic).toEqual({
+    call_id: "call-nonzero-exit",
+    tool_kind: "shell_command",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession maps nested custom tool output status and body", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000134";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: "call-custom-nested-error",
+          name: "freeform_tool",
+          input: "fail",
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call-custom-nested-error",
+          output: { body: "custom tool failed", success: false },
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: "call-custom-nested-ok",
+          name: "freeform_tool",
+          input: "succeed",
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:04.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call-custom-nested-ok",
+          output: {
+            body: "Exit code: 2\nOutput:\ncustom command chose nonzero",
+            success: true,
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const failedCall = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-error",
+  );
+  const failedResult = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-error",
+  );
+  expect(failedResult?.payload).toEqual({
+    for_id: failedCall?.id,
+    ok: false,
+    output: "custom tool failed",
+    error: "custom tool failed",
+  });
+
+  const okCall = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-ok",
+  );
+  const okResult = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-ok",
+  );
+  expect(okResult?.payload).toEqual({
+    for_id: okCall?.id,
+    ok: true,
+    output: "Exit code: 2\nOutput:\ncustom command chose nonzero",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("exec_command function_call maps to shell_command with workdir as cwd", async () => {
   const trail = await parseDesktopFixture();
   const exec = trail.groups[0]!.entries.find(
@@ -1195,10 +1423,114 @@ test("compact fixture emits context_compact from top-level compacted record", as
   // optional fields stay absent.
   expect((compact?.payload as { tokens_before?: number }).tokens_before).toBeUndefined();
   expect((compact?.payload as { tokens_after?: number }).tokens_after).toBeUndefined();
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+  expect(
+    (compact?.source?.raw as { payload?: { replacement_history?: unknown } } | undefined)?.payload
+      ?.replacement_history,
+  ).toMatchObject({ elided: true, item_count: 2 });
+  expect(
+    typeof (
+      compact?.source?.raw as { payload?: { replacement_history?: { size_bytes?: unknown } } }
+    )?.payload?.replacement_history?.size_bytes,
+  ).toBe("number");
+  expect(JSON.stringify(compact?.source?.raw)).not.toContain("first turn");
+  expect(JSON.stringify(compact?.source?.raw)).not.toContain("first response");
   expect(compact?.meta?.["dev.codex.raw_type"]).toBe("compacted");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
+});
+
+test("parseSession() emits context_compact for empty-message compacted records", async () => {
+  const id = "019d8a00-1760-7000-a000-000000000176";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T03:00:04.000Z",
+        type: "compacted",
+        payload: {
+          message: "",
+          replacement_history: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "folded prompt" }],
+            },
+          ],
+        },
+      },
+      {
+        timestamp: "2026-05-28T03:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          cwd: process.cwd(),
+          model: "gpt-5-codex",
+          turn_id: "turn-after-compact",
+          summary: "auto",
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
+  expect(compact).toBeDefined();
+  expect((compact?.payload as { summary?: string }).summary).toBe("");
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+  expect(
+    (compact?.source?.raw as { payload?: { replacement_history?: unknown } } | undefined)?.payload
+      ?.replacement_history,
+  ).toMatchObject({ elided: true, item_count: 1 });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("source raw policy elides oversized codex raw arguments", async () => {
+  const id = "019d8a00-1760-7000-a000-000000000176";
+  const hugeArguments = `not-json-${"x".repeat(40_000)}`;
+  const previousHardCap = process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-huge-raw",
+          name: "unknown_tool",
+          arguments: hugeArguments,
+        },
+      },
+    ],
+  });
+
+  process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP = "32768";
+  try {
+    const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+    const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+    expect((call?.source?.raw as { arguments?: unknown } | undefined)?.arguments).toEqual({
+      elided: true,
+      size_bytes: hugeArguments.length,
+    });
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    if (previousHardCap === undefined) {
+      delete process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
+    } else {
+      process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP = previousHardCap;
+    }
+  }
 });
 
 test("compact fixture emits synthesized model_change at the in-session model switch", async () => {

@@ -1,7 +1,7 @@
 // Claude Code is linear (parentChain handles parent_id). These custom rules cover
 // the cross-record behaviors the kit's per-record mappings can't express:
 // synthesized model_change (assistant model transitions), permission-mode deltas,
-// tool_kind propagation to results, and multi-block source.raw.envelope_ref
+// compact-boundary provenance, tool_kind propagation to results, and multi-block source.raw.envelope_ref
 // backfill + hint stripping. ccEnvelopeRefBackfill runs LAST (it strips hints).
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
@@ -72,6 +72,48 @@ export const ccModelChangeSynth: ReconcilerRule = (entries) => {
     }
     out.push(entry);
   }
+  return out;
+};
+
+function isCompactBoundary(entry: Entry): boolean {
+  return (
+    entry.type === "system_event" &&
+    (entry.payload as { kind?: unknown }).kind === "x-claudecode/compact_boundary"
+  );
+}
+
+export const ccCompactBoundaryProvenance: ReconcilerRule = (entries) => {
+  const out: Entry[] = [];
+  let entryIdsSinceLastCompact: string[] = [];
+  let pendingReplacedMessageIds: string[] | undefined;
+
+  for (const entry of entries) {
+    if (isCompactBoundary(entry)) {
+      pendingReplacedMessageIds =
+        entryIdsSinceLastCompact.length > 0 ? [...entryIdsSinceLastCompact] : undefined;
+      entryIdsSinceLastCompact = [];
+      out.push(entry);
+      continue;
+    }
+
+    if (entry.type === "context_compact") {
+      if (pendingReplacedMessageIds !== undefined) {
+        out.push({
+          ...entry,
+          payload: { ...entry.payload, replaced_message_ids: pendingReplacedMessageIds },
+        });
+      } else {
+        out.push(entry);
+      }
+      pendingReplacedMessageIds = undefined;
+      entryIdsSinceLastCompact = [];
+      continue;
+    }
+
+    entryIdsSinceLastCompact.push(entry.id);
+    out.push(entry);
+  }
+
   return out;
 };
 

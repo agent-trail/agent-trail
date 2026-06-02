@@ -29,7 +29,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -85,9 +85,10 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eleven pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
   ai-title/agent-name/worktree-state→session_metadata_update,
-  system/progress/queue-operation/pr-link→system_event, permission-mode) plus four custom rules:
-  synthesized `model_change`, `permission_mode_change` deltas, tool-kind propagation to results, and
-  multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0. `Agent` /
+  system/progress/queue-operation/pr-link→system_event, permission-mode) plus custom rules for
+  synthesized `model_change`, `permission_mode_change` deltas, compact-boundary provenance,
+  TodoWrite task-plan delta/ack handling, tool-kind propagation to results, and multi-block
+  `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0. `Agent` /
   `Task` calls map to `subagent_invoke`; direct child files under
   `<parentSessionId>/subagents/*.jsonl` are bundled as separate session groups only when exactly one
   child first-user prompt matches the parent task text. Child group ids are deterministic, derived
@@ -145,9 +146,10 @@ Issue #20 expanded coverage to Pi's optional events. `agent_thinking` is emitted
 "aborted"` (pi-ai `StopReason`); Pi has no dedicated interrupt envelope, so the entry is stamped
 `source.synthesized: true` with `payload.reason = "stop_reason_aborted"`. `context_compact` is
 emitted from Pi's top-level `compaction` envelope (`summary`, `firstKeptEntryId`, `tokensBefore`,
-optional `details` / `fromHook`); `payload.trigger` is always `"auto"` (Pi has no manual/auto
-distinction in the envelope — `fromHook` distinguishes pi-core vs extension-fired compactions and
-is preserved under `metadata["dev.pi.compaction"]`). `model_change` is emitted from Pi's top-level
+optional `details` / `fromHook`); when `firstKeptEntryId` resolves, emitted entries before that
+source id populate `payload.replaced_message_ids`. `payload.trigger` is always `"auto"` (Pi has no
+manual/auto distinction in the envelope — `fromHook` distinguishes pi-core vs extension-fired
+compactions and is preserved under `metadata["dev.pi.compaction"]`). `model_change` is emitted from Pi's top-level
 `model_change` envelope (`provider`, `modelId`); `payload.from_model` is resolved from the last
 assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
 
@@ -293,9 +295,10 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   too.
 - Top-level `compacted` record → `context_compact`. The summary text lives at `payload.message`
   (real shape — not `payload.summary`), with `payload.replacement_history` carrying the folded
-  message list (preserved verbatim under `source.raw` via the source slot). `event_msg.payload
-  .type == "context_compacted"` is an empty notification marker that fires alongside; the
-  adapter ignores it since the canonical content lives on the top-level record.
+  message list. The adapter preserves an elision marker for `replacement_history` under
+  `source.raw` rather than inlining the folded transcript text. `event_msg.payload.type ==
+  "context_compacted"` is an empty notification marker that fires alongside; the adapter ignores it
+  since the canonical content lives on the top-level record.
   `payload.trigger` is hard-coded to `"auto"` (Codex auto-compaction has no manual signal).
   `tokens_before` / `tokens_after` are emitted only when the source happens to carry them.
 - `event_msg.token_count` → rolls up onto the preceding `agent_message.payload.usage`
@@ -313,6 +316,24 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `turn_context.payload.model` values differ. `payload.from_model` is the last observed model;
   `payload.to_model` is the new value. `source.synthesized: true` and
   `metadata["dev.codex.raw_type"] = "turn_context.model_change"` flag the synthetic origin.
+
+Diagnostic `system_event` emissions:
+
+- `event_msg.error` → `system_event{kind:"agent_error"}`. `text` carries the message;
+  `data` carries `severity:"error"`, `code` when available from `codex_error_info`, and
+  `details`.
+- `event_msg.warning` → `system_event{kind:"agent_warning"}` with
+  `data.severity:"warning"` and `details`.
+- `event_msg.guardian_warning` → `system_event{kind:"guardian_alert"}` with
+  `data.severity:"warning"` and `details`.
+- `event_msg.model_reroute` → `system_event{kind:"model_rerouted"}` with
+  `data.from`, `data.to`, and `data.reason`.
+- `event_msg.model_verification` → `system_event{kind:"model_rerouted"}` with
+  `data.reason:"model_verification"` and the verification list under `data.details`.
+- `event_msg.deprecation_notice` → `system_event{kind:"deprecation_notice"}` with
+  `text` from the source summary and optional details.
+- `event_msg.stream_error` → `system_event{kind:"stream_error"}` with
+  `data.severity:"error"`, optional `code`, and `details`.
 
 Lifecycle-vocabulary `system_event` emissions:
 
@@ -387,6 +408,8 @@ Capability-registry emissions:
 - `response_item.reasoning.summary` — plaintext reasoning from the response-item channel.
 - `compacted` — auto-compaction (top-level record).
 - `turn_context.model_change` — synthesized model-change marker.
+- `event_msg.error` / `warning` / `guardian_warning` / `model_reroute` /
+  `model_verification` / `deprecation_notice` / `stream_error` — diagnostic events.
 - `event_msg.task_started` / `event_msg.task_complete` — lifecycle bookends.
 - `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
   `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
@@ -457,14 +480,22 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 - `permission_mode_change` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `data.to` carries the new mode (e.g., `plan`, `bypassPermissions`); `data.from` carries the previous mode when a prior mode is known.
 
+Reserved diagnostic vocabulary (cross-agent portable):
+
+- `api_error` — `system` envelope with `subtype == "api_error"`. `data` carries
+  `severity:"error"` and the source content as `details` when present.
+- `hook_failed` — `system.subtype == "stop_hook_summary"` `hookErrors[]` and
+  `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error`. `data`
+  carries `severity:"error"`, `blocking`, `hook_name`, `code`, and `details` when
+  present.
+
 Vendor extensions (Claude Code-specific):
 
 - `x-claudecode/turn_duration` — `system` envelope with `subtype == "turn_duration"` (duration metadata for the just-completed turn; `turn_end` is preferred for boundary semantics).
-- `x-claudecode/api_error` — `system` envelope with `subtype == "api_error"`.
 - `x-claudecode/away_summary` — `system` envelope with `subtype == "away_summary"` (Claude Code "you were away" recap).
 - `x-claudecode/local_command` — `system` envelope with `subtype == "local_command"` (slash-command stdout).
 - `x-claudecode/bridge_status` — `system` envelope with `subtype == "bridge_status"` (remote-control bridge).
-- `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope).
+- `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope, and a prior boundary can populate `context_compact.payload.replaced_message_ids` with folded emitted entry ids).
 - `x-claudecode/<subtype>` — fallback for unknown safe-named `system` subtypes.
 - `x-claudecode/system` — fallback for `system` envelopes without a recognizable subtype.
 - `x-claudecode/progress` — fallback for `progress` envelopes whose `data.type` is not `hook_progress`.
@@ -481,6 +512,8 @@ Capability-registry attachments:
   text without inventing skill names.
 - `attachment.mcp_instructions_delta` →
   `capability_change{scope:"mcp_server", reason:"instructions_updated"}`.
+- `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error` →
+  `system_event{kind:"hook_failed"}`.
 
 Session metadata from non-message envelopes:
 

@@ -1,0 +1,4 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000176","session_uid":"01HZZZZZZZZZZZZZZZZZZZZ176","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000176","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"long prompt"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000177","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"long answer"}}
+{"type":"context_compact","id":"01HEVTA0000000000000000178","ts":"2026-05-17T14:00:10.000Z","payload":{"summary":"Long prompt and answer were compacted.","trigger":"auto","replaced_message_ids":["01HEVTA0000000000000000176","01HEVTA0000000000000000177"]}}

@@ -158,6 +158,45 @@ function metadataSource(record: CcEnvelope, originalType: string): Entry["source
   );
 }
 
+function hookFailureData(
+  raw: Record<string, unknown>,
+  fallbackBlocking?: boolean,
+): { text: string; data: Record<string, unknown> } {
+  const hookName = stringValue(raw.hookName) ?? stringValue(raw.hook_name) ?? stringValue(raw.name);
+  const details =
+    stringValue(raw.message) ??
+    stringValue(raw.error) ??
+    stringValue(raw.details) ??
+    stringValue(raw.stderr);
+  const code =
+    stringValue(raw.code) ?? (typeof raw.code === "number" ? String(raw.code) : undefined);
+  const blocking = booleanValue(raw.blocking) ?? fallbackBlocking;
+  const data: Record<string, unknown> = { severity: "error" };
+  if (blocking !== undefined) data.blocking = blocking;
+  if (hookName !== undefined) data.hook_name = hookName;
+  if (code !== undefined) data.code = code;
+  if (details !== undefined) data.details = details;
+  return {
+    text: hookName !== undefined ? `Hook failed: ${hookName}` : "Hook failed",
+    data,
+  };
+}
+
+function hookFailureDraft(
+  record: CcEnvelope,
+  originalType: string,
+  raw: Record<string, unknown>,
+  options?: { fallbackBlocking?: boolean; sourceBlock?: CcBlock; sourceBlockIndex?: number },
+): TrailEntryDraft {
+  const { text, data } = hookFailureData(raw, options?.fallbackBlocking);
+  return {
+    type: "system_event",
+    payload: { kind: "hook_failed", text, data },
+    source: src(record, originalType, options?.sourceBlock, options?.sourceBlockIndex),
+    meta: meta(record),
+  };
+}
+
 function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined {
   const args = jsonObjectValue(input) ?? {};
   if (!Array.isArray(args.todos)) return undefined;
@@ -187,6 +226,21 @@ const userMessage = defineMapping<Raw>({
   emit: (raw) => {
     const record = raw as CcEnvelope;
     if (!gate(record)) return [];
+    if (record.isCompactSummary === true) {
+      const text =
+        stringValue(record.summary) ??
+        stringValue(record.message?.content) ??
+        jsonString(record.message?.content);
+      if (text === undefined) return [];
+      return [
+        {
+          type: "context_compact",
+          payload: { summary: text, trigger: "auto" },
+          source: src(record, "user"),
+          meta: meta(record),
+        },
+      ];
+    }
     const content = record.message?.content;
     if (typeof content === "string") {
       const interrupt = isInterruptMarker(content);
@@ -382,6 +436,7 @@ const summary = defineMapping<Raw>({
       stringValue(record.summary) ??
       stringValue(record.message?.content) ??
       jsonString(record.message?.content);
+    if (text === undefined) return [];
     if (record.isCompactSummary === true) {
       return [
         {
@@ -496,7 +551,7 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
       if (!gate(record, allowNoUuid)) return [];
       const synthesized = typeof record.uuid !== "string";
       const data = systemEventData(record);
-      return [
+      const drafts: TrailEntryDraft[] = [
         {
           type: "system_event",
           payload: {
@@ -514,6 +569,21 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
           meta: meta(record),
         },
       ];
+      if (
+        record.type === "system" &&
+        stringValue(record.subtype) === "stop_hook_summary" &&
+        Array.isArray(record.hookErrors)
+      ) {
+        drafts.push(
+          ...record.hookErrors.filter(isObject).map((error, index) =>
+            hookFailureDraft(record, "system.stop_hook_summary.hook_error", error, {
+              sourceBlock: error,
+              sourceBlockIndex: index,
+            }),
+          ),
+        );
+      }
+      return drafts;
     },
   });
 }
@@ -600,6 +670,14 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
   const subtype = isLegacyAttachment ? stringValue(attachment.type) : stringValue(record.type);
   if (subtype === undefined) return [];
   const originalType = isLegacyAttachment ? `attachment.${subtype}` : subtype;
+
+  if (subtype === "hook_blocking_error" || subtype === "hook_non_blocking_error") {
+    return [
+      hookFailureDraft(record, originalType, attachment, {
+        fallbackBlocking: subtype === "hook_blocking_error",
+      }),
+    ];
+  }
 
   if (subtype === "deferred_tools_delta") {
     const drafts: TrailEntryDraft[] = [];

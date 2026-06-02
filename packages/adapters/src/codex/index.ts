@@ -15,7 +15,7 @@ import { readGitVcs } from "../vcs.ts";
 import { codexKitAdapter } from "./kit.ts";
 import { AGENT_NAME, buildHeader } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
-import { isObject, stringValue, timestampToIso } from "./source.ts";
+import { isObject, sanitizeSourceRaw, stringValue, timestampToIso } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-codex/${pkg.version}`;
 
@@ -456,7 +456,7 @@ function sessionIndexNameUpdate(
       agent: AGENT_NAME,
       original_type: "session_index",
       synthesized: true,
-      raw: row,
+      raw: sanitizeSourceRaw(row),
     },
   };
 }

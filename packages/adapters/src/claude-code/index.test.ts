@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
@@ -121,24 +122,24 @@ test("detectSessions() returns empty when project dir is missing", async () => {
   expect(await claudeCodeAdapter.detectSessions()).toEqual([]);
 });
 
-const FIXTURE_PATH = new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url)
-  .pathname;
-const FIDELITY_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
-  import.meta.url,
-).pathname;
-const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
-  import.meta.url,
-).pathname;
-const PERMISSION_MODE_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/permission-mode.jsonl",
-  import.meta.url,
-).pathname;
-const CAPABILITY_CHANGES_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/capability-changes.jsonl",
-  import.meta.url,
-).pathname;
+const FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url),
+);
+const FIDELITY_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl", import.meta.url),
+);
+const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
+);
+const INTERRUPT_MODEL_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl", import.meta.url),
+);
+const PERMISSION_MODE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/permission-mode.jsonl", import.meta.url),
+);
+const CAPABILITY_CHANGES_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/capability-changes.jsonl", import.meta.url),
+);
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -153,6 +154,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseCompactProvenanceFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "compact-provenance",
+    adapter: "claude-code",
+    path: COMPACT_PROVENANCE_FIXTURE_PATH,
   });
 }
 
@@ -2022,8 +2031,349 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   });
   // The resume preamble (continuation summary) maps to a session_start system_event.
   expect(byKind("session_start")?.type).toBe("system_event");
-  expect(trail.groups[0]!.entries.some((e) => e.type === "session_summary")).toBe(true);
-  expect(trail.groups[0]!.entries.some((e) => e.type === "context_compact")).toBe(true);
+  const entries = trail.groups[0]!.entries;
+  expect(entries.some((e) => e.type === "session_summary")).toBe(true);
+  const compact = entries.find((e) => e.type === "context_compact");
+  expect(compact).toBeDefined();
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+});
+
+test("parseSession() maps compact_boundary provenance to the next compact summary", async () => {
+  const trail = await parseCompactProvenanceFixture();
+  const entries = trail.groups[0]!.entries;
+  const compact = entries.find((e) => e.type === "context_compact");
+  const compactBoundaryIndex = entries.findIndex(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-claudecode/compact_boundary",
+  );
+  expect(compactBoundaryIndex).toBeGreaterThan(-1);
+  const folded = entries.slice(0, compactBoundaryIndex).map((e) => e.id);
+  expect(entries.slice(0, compactBoundaryIndex).map((e) => e.type)).toEqual([
+    "user_message",
+    "agent_message",
+    "tool_call",
+    "tool_result",
+  ]);
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual(
+    folded,
+  );
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps real user-shaped compact summaries after compact_boundary", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0001763",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1801",
+      timestamp: "2026-05-17T16:20:00.000Z",
+      message: { role: "user", content: "fold this real-shaped turn" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1801",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1802",
+      timestamp: "2026-05-17T16:20:01.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1802",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1803",
+      timestamp: "2026-05-17T16:20:02.000Z",
+      isCompactSummary: true,
+      message: { role: "user", content: "Recovered Claude compact summary." },
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const foldedUser = entries.find(
+    (e) =>
+      e.type === "user_message" &&
+      (e.payload as { text?: string }).text === "fold this real-shaped turn",
+  );
+  const compact = entries.find((e) => e.type === "context_compact");
+  if (foldedUser === undefined) throw new Error("expected folded user entry");
+  expect((compact?.payload as { summary?: string }).summary).toBe(
+    "Recovered Claude compact summary.",
+  );
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    foldedUser.id,
+  ]);
+  expect(
+    entries.some(
+      (e) =>
+        e.type === "user_message" &&
+        (e.payload as { text?: string }).text === "Recovered Claude compact summary.",
+    ),
+  ).toBe(false);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() lets a later compact_boundary supersede stale pending provenance", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0001762",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T16:10:00.000Z",
+      message: { role: "user", content: "before first boundary" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1761",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1762",
+      timestamp: "2026-05-17T16:10:01.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1762",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1763",
+      timestamp: "2026-05-17T16:10:02.000Z",
+      message: { role: "user", content: "after stale boundary" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1763",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1764",
+      timestamp: "2026-05-17T16:10:03.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1764",
+      type: "summary",
+      summary: "Compacted the later segment.",
+      leafUuid: "00000000-0000-0000-0000-cccccccc1763",
+      isCompactSummary: true,
+      uuid: "00000000-0000-0000-0000-cccccccc1765",
+      timestamp: "2026-05-17T16:10:04.000Z",
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const laterUser = entries.find(
+    (e) =>
+      e.type === "user_message" && (e.payload as { text?: string }).text === "after stale boundary",
+  );
+  const compact = entries.find((e) => e.type === "context_compact");
+  if (laterUser === undefined) throw new Error("expected later user entry");
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    laterUser.id,
+  ]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps Claude Code api_error to the reserved diagnostic kind", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000175",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "system",
+      subtype: "api_error",
+      content: "rate limit exceeded",
+      uuid: "00000000-0000-0000-0000-cccccccc1751",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+  ]);
+
+  const event = trail.groups[0]!.entries.find((entry) => entry.type === "system_event");
+  expect(event?.payload).toEqual({
+    kind: "api_error",
+    text: "rate limit exceeded",
+    data: { severity: "error", details: "rate limit exceeded" },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() emits hook_failed events from stop_hook_summary hookErrors", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000176",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "system",
+      subtype: "stop_hook_summary",
+      content: "Stop hook summary",
+      hookErrors: [
+        {
+          hookName: "Stop:test",
+          message: "tests failed",
+          code: "exit_1",
+          blocking: true,
+        },
+        {
+          hookName: "Stop:notify",
+          stderr: "notification hook failed",
+          code: 2,
+          blocking: false,
+        },
+      ],
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+  ]);
+
+  const events = trail.groups[0]!.entries.filter((entry) => entry.type === "system_event");
+  expect(events.map((entry) => entry.payload)).toEqual([
+    { kind: "turn_end", text: "Stop hook summary" },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: Stop:test",
+      data: {
+        severity: "error",
+        blocking: true,
+        hook_name: "Stop:test",
+        code: "exit_1",
+        details: "tests failed",
+      },
+    },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: Stop:notify",
+      data: {
+        severity: "error",
+        blocking: false,
+        hook_name: "Stop:notify",
+        code: "2",
+        details: "notification hook failed",
+      },
+    },
+  ]);
+  const firstHookRaw = events[1]?.source?.raw as
+    | { envelope?: { subtype?: string }; block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  const secondHookRaw = events[2]?.source?.raw as
+    | { block?: { hookName?: string }; block_index?: number }
+    | undefined;
+  expect(firstHookRaw?.envelope?.subtype).toBe("stop_hook_summary");
+  expect(firstHookRaw?.block?.hookName).toBe("Stop:test");
+  expect(firstHookRaw?.block_index).toBe(0);
+  expect(secondHookRaw?.block?.hookName).toBe("Stop:notify");
+  expect(secondHookRaw?.block_index).toBe(1);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps hook error attachments to hook_failed events", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000177",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      message: { role: "user", content: "run hooks" },
+      uuid: "00000000-0000-0000-0000-cccccccc1771",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1771",
+      type: "attachment",
+      attachment: {
+        type: "hook_blocking_error",
+        hookName: "PreToolUse:Bash",
+        message: "blocked command",
+        code: "exit_2",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1772",
+      timestamp: "2026-05-17T14:00:06.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1772",
+      type: "attachment",
+      attachment: {
+        type: "hook_non_blocking_error",
+        hookName: "PostToolUse:Bash",
+        message: "audit hook failed",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1773",
+      timestamp: "2026-05-17T14:00:07.000Z",
+    },
+  ]);
+
+  const events = trail.groups[0]!.entries.filter(
+    (entry) =>
+      entry.type === "system_event" && (entry.payload as { kind?: string }).kind === "hook_failed",
+  );
+  expect(events.map((entry) => entry.payload)).toEqual([
+    {
+      kind: "hook_failed",
+      text: "Hook failed: PreToolUse:Bash",
+      data: {
+        severity: "error",
+        blocking: true,
+        hook_name: "PreToolUse:Bash",
+        code: "exit_2",
+        details: "blocked command",
+      },
+    },
+    {
+      kind: "hook_failed",
+      text: "Hook failed: PostToolUse:Bash",
+      data: {
+        severity: "error",
+        blocking: false,
+        hook_name: "PostToolUse:Bash",
+        details: "audit hook failed",
+      },
+    },
+  ]);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {
