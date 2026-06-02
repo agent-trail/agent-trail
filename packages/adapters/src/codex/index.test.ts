@@ -225,7 +225,7 @@ test("parseSession on the desktop tracer fixture emits a valid trail with codex-
   expect(errors).toEqual([]);
 });
 
-test("parseSession emits session_metadata_update name from session_index thread_name", async () => {
+test("parseSession emits trimmed session_metadata_update name from CRLF session_index thread_name", async () => {
   const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
   const path = seedSession({
     date: { y: "2026", m: "05", d: "28" },
@@ -236,11 +236,13 @@ test("parseSession emits session_metadata_update name from session_index thread_
   if (codexHome === undefined) throw new Error("expected codex home");
   writeFileSync(
     join(codexHome, "session_index.jsonl"),
-    `${JSON.stringify({
-      id,
-      thread_name: "Address TDD #125",
-      updated_at: "2026-06-02T04:51:00.000000Z",
-    })}\n`,
+    `${JSON.stringify({ id: "other", thread_name: "Other", updated_at: "2026-06-02T04:50:00.000000Z" })}\r\n${JSON.stringify(
+      {
+        id,
+        thread_name: "  Address TDD #125  ",
+        updated_at: "2026-06-02T04:51:00.000000Z",
+      },
+    )}\r\n`,
   );
 
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
@@ -260,7 +262,7 @@ test("parseSession emits session_metadata_update name from session_index thread_
     synthesized: true,
     raw: {
       id,
-      thread_name: "Address TDD #125",
+      thread_name: "  Address TDD #125  ",
       updated_at: "2026-06-02T04:51:00.000000Z",
     },
   });

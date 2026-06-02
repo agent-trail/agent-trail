@@ -233,7 +233,7 @@ async function readSessionIndexRow(
   } catch {
     return undefined;
   }
-  for (const line of text.split("\n")) {
+  for (const line of text.split(/\r?\n/)) {
     if (line.length === 0) continue;
     let row: unknown;
     try {
@@ -253,7 +253,8 @@ function sessionIndexNameUpdate(
 ): Entry | undefined {
   if (row === undefined) return undefined;
   const threadName = stringValue(row.thread_name);
-  if (threadName === undefined || threadName.trim().length === 0) return undefined;
+  const trimmedThreadName = threadName?.trim();
+  if (trimmedThreadName === undefined || trimmedThreadName.length === 0) return undefined;
   const ts = sessionIndexTimestampToIso(row.updated_at);
   if (ts === undefined) return undefined;
   return {
@@ -265,7 +266,7 @@ function sessionIndexNameUpdate(
       ts,
     ]),
     ts,
-    payload: { field: "name", value: threadName, reason: "external" },
+    payload: { field: "name", value: trimmedThreadName, reason: "external" },
     source: {
       agent: AGENT_NAME,
       original_type: "session_index",
