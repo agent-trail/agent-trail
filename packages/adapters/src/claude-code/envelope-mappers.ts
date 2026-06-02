@@ -38,7 +38,7 @@ export function systemEventText(envelope: CcEnvelope): string {
 
 // Maps Claude Code hook lifecycle events to reserved system_event kinds (spec §9.3).
 // Unrecognized hookEvent values fall back to `hook_fired` so timelines surface them.
-function hookEventToKind(hookEvent: string | undefined): string {
+export function hookEventToKind(hookEvent: string | undefined): string {
   switch (hookEvent) {
     case "SessionStart":
       return "session_start";

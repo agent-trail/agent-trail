@@ -340,10 +340,19 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §9.3). `data`
   carries `turn_id`, `started_at`, `model_context_window`, `collaboration_mode_kind` when
   present.
+- `event_msg.item_started` → `system_event{kind:"task_started"}`. `data` carries
+  `thread_id`, `turn_id`, `started_at_ms`, and the source `item` object without inventing
+  task-plan status snapshots.
 - `event_msg.task_complete` (singular in the source — `task_completed` is the canonical
   schema kind) → `system_event{kind:"task_completed"}`. `data` carries `turn_id`,
   `completed_at`, `duration_ms`, `time_to_first_token_ms`, `last_agent_message`. The source
   wording is preserved under `metadata["dev.codex.raw_type"] = "event_msg.task_complete"`.
+- `event_msg.hook_started` / `event_msg.hook_completed` →
+  `system_event{kind:"hook_fired"}`. `data` carries `turn_id` and curated hook run fields
+  (`id`, event/scope/status/timing fields, and output entries).
+- `event_msg.exec_command_begin` → `system_event{kind:"x-codex/exec_command_begin"}` with
+  `semantic.call_id`. `data` carries `call_id`, `turn_id`, `process_id`, `started_at_ms`,
+  `command`, `cwd`, `parsed_cmd`, source, and interaction input when present.
 - `event_msg.exec_command_end` → `system_event{kind:"x-codex/exec_command_end"}` with
   `semantic.call_id` linking to the originating `exec_command` tool_call. `data` carries
   `turn_id`, `command`, `cwd`, `exit_code`, `duration_ms`, truncated `stdout_excerpt` /
@@ -358,14 +367,27 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.patch_apply_end` → `system_event{kind:"x-codex/patch_apply_end"}` with
   `semantic.call_id` linking to the originating `apply_patch` tool_call. `data` carries
   `success`, `changes`, `stdout_excerpt`, `stderr_excerpt`, `status`.
+- `event_msg.patch_apply_begin` / `event_msg.patch_apply_updated` →
+  `system_event{kind:"x-codex/patch_apply_begin"}` /
+  `system_event{kind:"x-codex/patch_apply_updated"}` with `semantic.call_id`. `data`
+  carries source `call_id`, turn id, approval flag, and structured `changes` when present.
+- `event_msg.mcp_tool_call_begin` → `system_event{kind:"x-codex/mcp_tool_call_begin"}` with
+  `semantic.call_id`. `data` carries `call_id`, `plugin_id`, `invocation`, and
+  `mcp_app_resource_uri` when present.
 - `event_msg.mcp_tool_call_end` → `system_event{kind:"x-codex/mcp_tool_call_end"}` with
   `semantic.call_id`. `data` carries `plugin_id`, `invocation`, `duration_ms`, and a
   flattened `result_ok` boolean derived from the Rust-style `{Ok|Err: …}` enum.
+- `event_msg.web_search_begin` → `system_event{kind:"x-codex/web_search_begin"}` with
+  `semantic.call_id` and `data.call_id`.
 - `event_msg.web_search_end` → `system_event{kind:"x-codex/web_search_end"}`. Pairing is
   query-based: consumers join by matching `data.query` against the `web_search` tool_call's
   `args.query`. The source `ws_*` vendor id is preserved verbatim under `data.call_id` for
   audit fidelity, but is not surfaced as `semantic.call_id` because no `tool_call` was
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
+- `event_msg.image_generation_begin` / `event_msg.image_generation_end` →
+  `system_event{kind:"x-codex/image_generation_begin"}` /
+  `system_event{kind:"x-codex/image_generation_end"}` with `semantic.call_id`. `data`
+  preserves source `call_id`, status, revised prompt, result, and saved path when present.
 - `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a non-empty
   string, it updates `description`; otherwise the raw goal object is preserved under
   `x-codex/thread_goal`.
@@ -410,9 +432,15 @@ Capability-registry emissions:
 - `turn_context.model_change` — synthesized model-change marker.
 - `event_msg.error` / `warning` / `guardian_warning` / `model_reroute` /
   `model_verification` / `deprecation_notice` / `stream_error` — diagnostic events.
-- `event_msg.task_started` / `event_msg.task_complete` — lifecycle bookends.
-- `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
-  `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
+- `event_msg.task_started` / `event_msg.item_started` / `event_msg.task_complete` —
+  lifecycle bookends.
+- `event_msg.hook_started` / `event_msg.hook_completed` — hook run lifecycle markers.
+- `event_msg.exec_command_begin` / `event_msg.exec_command_end` /
+  `event_msg.patch_apply_begin` / `event_msg.patch_apply_updated` /
+  `event_msg.patch_apply_end` / `event_msg.mcp_tool_call_begin` /
+  `event_msg.mcp_tool_call_end` / `event_msg.web_search_begin` /
+  `event_msg.web_search_end` / `event_msg.image_generation_begin` /
+  `event_msg.image_generation_end` — paired enrichment events.
 - `event_msg.exec_approval_request` / `event_msg.request_permissions` /
   `event_msg.apply_patch_approval_request` / `event_msg.elicitation_request` — approval and
   permission request markers.
@@ -452,10 +480,11 @@ unset. Real sessions stay out of git per the fixture policy below.
 
 Claude Code fixture coverage currently includes mixed assistant content blocks, multiple tool calls,
 multiple tool results, tool-result error state, user text blocks, thinking/redacted-thinking blocks,
-real summary and compact-summary records, meaningful system/progress/queue records, user interrupt
-markers (both `[Request interrupted by user]` and `[Request interrupted by user for tool use]`
-variants observed in real sessions), and in-session model switches (emitted as synthetic
-`model_change` entries with `source.synthesized: true` when assistant `message.model` shifts).
+real summary and compact-summary records, meaningful system/progress/queue records, hook-success
+attachments, user interrupt markers (both `[Request interrupted by user]` and
+`[Request interrupted by user for tool use]` variants observed in real sessions), and in-session
+model switches (emitted as synthetic `model_change` entries with `source.synthesized: true` when
+assistant `message.model` shifts).
 `AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
 `tool_use_id` are converted to `user_query_response`.
 Deferred shapes include image attachments, server-tool result blocks, ambiguous prompt-only
@@ -472,6 +501,9 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `subagent_end` — `progress` envelope with `data.hookEvent == "SubagentStop"`.
 - `pre_tool_use` — `progress` envelope with `data.hookEvent == "PreToolUse"`.
 - `post_tool_use` — `progress` envelope with `data.hookEvent == "PostToolUse"`.
+- `session_start` / `turn_end` / `pre_tool_use` / `post_tool_use` / `hook_fired` —
+  `attachment.hook_success`, preserving `hook_event`, `hook_name`, `tool_call_id`, command,
+  exit code, duration, and stdout/stderr excerpts when present.
 - `permission_request` — `progress` envelope with `data.hookEvent == "Notification"`.
 - `permission_request` — `attachment.command_permissions`, preserving `allowed_tools` and `model`.
 - `permission_decision` — `attachment.hook_permission_decision`, preserving explicit

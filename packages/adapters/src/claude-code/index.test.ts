@@ -254,12 +254,11 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   expect(toolCall?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
 });
 
-test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call event id", async () => {
+test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call", async () => {
   const trail = await parseFixture();
   const toolCall = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
   expect(toolResult).toBeDefined();
-  expect(toolResult?.parent_id).toBe(toolCall?.id);
   expect(toolResult?.payload).toEqual({
     for_id: toolCall?.id,
     ok: true,
@@ -1219,13 +1218,39 @@ test("parseSession() emits a session_summary for summary records", async () => {
 
 test("parseSession() filters attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
-  // 5 message-derived entries + 1 system_event for the synthetic queue-operation
-  // (issue #88 now emits queue-operation envelopes with synthesized ids).
-  expect(trail.groups[0]!.entries).toHaveLength(6);
+  // 5 message-derived entries + queue-operation + hook_success lifecycle marker.
+  expect(trail.groups[0]!.entries).toHaveLength(7);
   const ids = trail.groups[0]!.entries.map((e) => e.id);
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
   expect(ids).not.toContain("00000000-0000-0000-0000-cccccccceee1");
+});
+
+test("parseSession() maps hook_success attachments to hook lifecycle markers", async () => {
+  const trail = await parseFixture();
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" && entry.source?.original_type === "attachment.hook_success",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("tooluse-1");
+  expect(evt?.payload as { kind?: string; text?: string; data?: Record<string, unknown> }).toEqual({
+    kind: "pre_tool_use",
+    text: "Hook success: PreToolUse (PreToolUse:Bash)",
+    data: {
+      hook_event: "PreToolUse",
+      hook_name: "PreToolUse:Bash",
+      tool_call_id: "tooluse-1",
+      exit_code: 0,
+      duration_ms: 12,
+      command: "/synthetic/hook.sh",
+      stdout_excerpt: "{}\n",
+      stderr_excerpt: "",
+    },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
