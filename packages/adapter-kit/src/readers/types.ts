@@ -1,5 +1,10 @@
 export type RawRecord = Record<string, unknown>;
 
+export interface SourceSnapshot {
+  records: RawRecord[];
+  sourceVersion?: string;
+}
+
 // Points at one source artifact (a file path today; SQLite-backed readers in a
 // later phase may carry a DB path under the same shape).
 export interface SourcePointer {

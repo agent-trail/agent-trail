@@ -51,6 +51,17 @@ function withInheritedTimestamps(records: Raw[], includeSidechain: boolean): Raw
   });
 }
 
+function sourceVersionOf(records: Raw[], includeSidechain: boolean): string | undefined {
+  const hasVersion = (r: Raw): boolean => stringValue(r.version) !== undefined;
+  const first = records.find(
+    (r) => isTracerEnvelope(r, { includeSidechain }) && r.timestamp !== undefined && hasVersion(r),
+  );
+  const firstSession = records.find(
+    (r) => isTracerEnvelope(r, { includeSidechain }) && r.sessionId !== undefined && hasVersion(r),
+  );
+  return stringValue(first?.version) ?? stringValue(firstSession?.version);
+}
+
 class ClaudeCodeJsonlReader implements SourceReader {
   async *records(source: SourcePointer): AsyncIterable<RawRecord> {
     const text = await readFile(source.path, "utf8");
@@ -71,16 +82,7 @@ class ClaudeCodeJsonlReader implements SourceReader {
     // The source version comes from the first tracer record that carries one
     // (preferring one with a timestamp, else one with a sessionId) — NOT the
     // first raw line, which is often a versionless record.
-    const hasVersion = (r: Raw): boolean => stringValue(r.version) !== undefined;
-    const first = records.find(
-      (r) =>
-        isTracerEnvelope(r, { includeSidechain }) && r.timestamp !== undefined && hasVersion(r),
-    );
-    const firstSession = records.find(
-      (r) =>
-        isTracerEnvelope(r, { includeSidechain }) && r.sessionId !== undefined && hasVersion(r),
-    );
-    return stringValue(first?.version) ?? stringValue(firstSession?.version);
+    return sourceVersionOf(records, includeSidechain);
   }
 
   async identityHash(source: SourcePointer): Promise<string> {
@@ -121,5 +123,24 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
 
 /** Run the kit-based Claude Code adapter over a source file, returning entries. */
 export async function parseClaudeCodeEntries(path: string, sessionUid: string): Promise<Entry[]> {
-  return claudeCodeKitAdapter.parse({ path }, { sessionUid });
+  const text = await readFile(path, "utf8");
+  return parseClaudeCodeSnapshotEntries(parseLines(text) as Raw[], sessionUid);
+}
+
+export async function parseClaudeCodeSnapshotEntries(
+  records: Raw[],
+  sessionUid: string,
+  options: { includeSidechain?: boolean } = {},
+): Promise<Entry[]> {
+  const includeSidechain = options.includeSidechain === true;
+  const inherited = withInheritedTimestamps(records, includeSidechain);
+  if (includeSidechain) {
+    for (const record of inherited) {
+      Object.defineProperty(record, INCLUDE_SIDECHAIN, { value: true });
+    }
+  }
+  return claudeCodeKitAdapter.parseSnapshot(
+    { records: inherited, sourceVersion: sourceVersionOf(records, includeSidechain) },
+    { sessionUid },
+  );
 }

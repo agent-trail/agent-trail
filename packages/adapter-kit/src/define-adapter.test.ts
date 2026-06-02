@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { defineAdapter } from "./define-adapter.ts";
 import { defineMapping } from "./define-mapping.ts";
 import { JsonlReader } from "./readers/jsonl-reader.ts";
-import type { RawRecord } from "./readers/types.ts";
+import type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 
 const PI_ENTRY_NS = "f9a5cab6-b078-4cde-e267-849a0b1c2d34";
 const dir = mkdtempSync(join(tmpdir(), "adapter-kit-e2e-"));
@@ -122,5 +122,55 @@ describe("defineAdapter().parse() end-to-end", () => {
       "totally_unknown_record",
     );
     expect(entries[0]?.source?.synthesized).toBe(true);
+  });
+
+  test("parseSnapshot maps supplied records and version without invoking the reader", async () => {
+    const calls: string[] = [];
+    const reader: SourceReader = {
+      async *records(_source: SourcePointer): AsyncIterable<RawRecord> {
+        calls.push("records");
+        yield {
+          type: "message",
+          timestamp: "2026-05-21T14:00:01.000Z",
+          message: { role: "user", content: "from-reader" },
+        };
+      },
+      async schemaVersion(_source: SourcePointer): Promise<string | undefined> {
+        calls.push("schemaVersion");
+        return "3.0.0";
+      },
+      async identityHash(_source: SourcePointer): Promise<string> {
+        calls.push("identityHash");
+        return "unused";
+      },
+    };
+    const snapshotAdapter = defineAdapter({
+      agent: "pi",
+      idNamespace: PI_ENTRY_NS,
+      quarantineNamespace: "pi",
+      sourceFormatVersions: ["v1"],
+      reader,
+      tsFrom: (record) => String(record.timestamp),
+      mappings: [userMessage],
+      reconciler: { parentChain: true },
+    });
+
+    const entries = await snapshotAdapter.parseSnapshot(
+      {
+        sourceVersion: "3.0.0",
+        records: [
+          {
+            type: "message",
+            timestamp: "2026-05-21T14:00:01.000Z",
+            message: { role: "user", content: "from-snapshot" },
+          },
+        ],
+      },
+      { sessionUid: "sess-snapshot" },
+    );
+
+    expect(calls).toEqual([]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.payload).toEqual({ text: "from-snapshot" });
   });
 });

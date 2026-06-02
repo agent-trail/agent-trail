@@ -12,7 +12,7 @@ import type {
 } from "../index.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
-import { codexKitAdapter } from "./kit.ts";
+import { parseCodexSnapshotEntries } from "./kit.ts";
 import { AGENT_NAME, buildHeader } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 import { isObject, sanitizeSourceRaw, stringValue, timestampToIso } from "./source.ts";
@@ -169,17 +169,18 @@ async function readSessionVersionFromHead(path: string): Promise<string | undefi
   return undefined;
 }
 
-async function readFirstRecordFromHead(path: string): Promise<Record<string, unknown> | undefined> {
-  const { lines } = await readJsonLinesHead(path, HEAD_SCAN_BYTES);
-  for (const line of lines) {
+function parseObjectRecords(text: string): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  for (const raw of text.split("\n")) {
+    if (raw.length === 0) continue;
     try {
-      const value: unknown = JSON.parse(line);
-      if (isRecord(value)) return value;
+      const value: unknown = JSON.parse(raw);
+      if (isRecord(value)) records.push(value);
     } catch {
-      // Skip malformed head lines defensively.
+      // Keep Codex's tolerant entry parsing behavior for malformed lines.
     }
   }
-  return undefined;
+  return records;
 }
 
 async function walkRolloutFiles(root: string): Promise<string[]> {
@@ -247,7 +248,8 @@ function deriveIdFromFilename(filePath: string): string | undefined {
 type ForkFrom = NonNullable<Header["fork_from"]>;
 
 async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<TrailSessionGroup> {
-  const firstRecord = await readFirstRecordFromHead(path);
+  const records = parseObjectRecords(await readFile(path, "utf8"));
+  const firstRecord = records[0];
   if (firstRecord === undefined) {
     throw new Error("Codex session must contain a parseable JSON object header");
   }
@@ -258,7 +260,7 @@ async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<Trai
     if (vcs !== undefined) header.vcs = vcs;
   }
   const sessionUid = header.session_uid ?? header.id;
-  const entries = await codexKitAdapter.parse({ path }, { sessionUid });
+  const entries = await parseCodexSnapshotEntries(records, sessionUid);
   const sessionIndexUpdate = sessionIndexNameUpdate(
     await readSessionIndexRow(header.id),
     sessionUid,
