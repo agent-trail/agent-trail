@@ -533,13 +533,15 @@ function subagentInvokeRef(group: SessionGroup, entry: JsonlRecord): SubagentInv
   if (entry.value.type !== "tool_call") return undefined;
   const payload = entry.value.payload;
   if (typeof payload !== "object" || payload === null) return undefined;
-  if ((payload as { tool?: unknown }).tool !== "subagent_invoke") return undefined;
-  const args = (payload as { args?: unknown }).args;
+  const payloadRecord = payload as Record<string, unknown>;
+  if (payloadRecord.tool !== "subagent_invoke") return undefined;
+  const args = payloadRecord.args;
   if (typeof args !== "object" || args === null) return undefined;
+  const argsRecord = args as Record<string, unknown>;
   const callId = entry.value.id;
   const parentSessionId = group.header.value.id;
   if (typeof callId !== "string" || typeof parentSessionId !== "string") return undefined;
-  const childSessionId = (args as { session_id?: unknown }).session_id;
+  const childSessionId = argsRecord.session_id;
   return {
     parentSessionId,
     callId,
@@ -551,8 +553,9 @@ function subagentInvokeRef(group: SessionGroup, entry: JsonlRecord): SubagentInv
 function forkFromOf(group: SessionGroup): { session_id?: string; entry_id?: string } | undefined {
   const forkFrom = group.header.value.fork_from;
   if (typeof forkFrom !== "object" || forkFrom === null) return undefined;
-  const sessionId = (forkFrom as { session_id?: unknown }).session_id;
-  const entryId = (forkFrom as { entry_id?: unknown }).entry_id;
+  const forkFromRecord = forkFrom as Record<string, unknown>;
+  const sessionId = forkFromRecord.session_id;
+  const entryId = forkFromRecord.entry_id;
   return {
     session_id: typeof sessionId === "string" ? sessionId : undefined,
     entry_id: typeof entryId === "string" ? entryId : undefined,

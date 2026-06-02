@@ -1557,7 +1557,7 @@ Warnings (non-fatal):
   - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
   - `multiple_envelopes` (error): more than one envelope appears in the file.
   - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
-  - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent`.
+  - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent.name`.
 
 Streaming rules (§8.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
 

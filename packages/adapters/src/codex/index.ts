@@ -273,12 +273,14 @@ function isSubagentInvoke(entry: Entry): boolean {
 
 function childIdFromToolResult(entry: Entry): string | undefined {
   if (entry.type !== "tool_result") return undefined;
-  const output = (entry.payload as { output?: unknown }).output;
+  const payload = entry.payload;
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const output = (payload as Record<string, unknown>).output;
   if (typeof output !== "string" || output.length === 0) return undefined;
   try {
     const parsed = JSON.parse(output) as unknown;
     if (parsed !== null && typeof parsed === "object") {
-      const agentId = (parsed as { agent_id?: unknown }).agent_id;
+      const agentId = (parsed as Record<string, unknown>).agent_id;
       if (typeof agentId === "string" && agentId.length > 0) return agentId;
     }
   } catch {
@@ -296,7 +298,9 @@ function spawnChildCandidates(entries: Entry[]): { callEntryId: string; childId:
   const seenPairs = new Set<string>();
   for (const entry of entries) {
     if (entry.type !== "tool_result") continue;
-    const forId = (entry.payload as { for_id?: unknown }).for_id;
+    const payload = entry.payload;
+    if (typeof payload !== "object" || payload === null) continue;
+    const forId = (payload as Record<string, unknown>).for_id;
     if (typeof forId !== "string" || !subagentCallIds.has(forId)) continue;
     const childId = childIdFromToolResult(entry);
     if (childId === undefined) continue;
@@ -308,24 +312,31 @@ function spawnChildCandidates(entries: Entry[]): { callEntryId: string; childId:
   return out;
 }
 
-async function findUniqueSessionPathById(
-  childId: string,
+type ChildSessionPathIndex = Map<string, string | undefined>;
+
+async function buildChildSessionPathIndex(
   parentPath: string,
   parentSessionId: string,
-): Promise<string | undefined> {
+): Promise<ChildSessionPathIndex | undefined> {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) return undefined;
   const files = await walkRolloutFiles(sessionsDir);
-  let match: string | undefined;
+  const index: ChildSessionPathIndex = new Map();
   for (const file of files) {
     if (file === parentPath) continue;
     const meta = await readMetadataFromHead(file).catch(() => ({}) as HeadMetadata);
-    if (meta.id !== childId) continue;
     if (meta.threadSource !== "subagent" || meta.parentThreadId !== parentSessionId) continue;
-    if (match !== undefined) return undefined;
-    match = file;
+    if (meta.id === undefined) continue;
+    index.set(meta.id, index.has(meta.id) ? undefined : file);
   }
-  return match;
+  return index;
+}
+
+function findUniqueSessionPathById(
+  childId: string,
+  childSessionPathIndex: ChildSessionPathIndex,
+): string | undefined {
+  return childSessionPathIndex.get(childId);
 }
 
 async function isInsideCodexSessionsDir(path: string): Promise<boolean> {
@@ -366,6 +377,8 @@ async function directChildGroups(
   const linked = new Map<string, string>();
   const children: TrailSessionGroup[] = [];
   const candidates = spawnChildCandidates(parentGroup.entries);
+  const childSessionPathIndex = await buildChildSessionPathIndex(parentPath, parentGroup.header.id);
+  if (childSessionPathIndex === undefined) return [];
   const callCounts = new Map<string, number>();
   const childCounts = new Map<string, number>();
   for (const candidate of candidates) {
@@ -375,11 +388,7 @@ async function directChildGroups(
   for (const candidate of candidates) {
     if (callCounts.get(candidate.callEntryId) !== 1) continue;
     if (childCounts.get(candidate.childId) !== 1) continue;
-    const childPath = await findUniqueSessionPathById(
-      candidate.childId,
-      parentPath,
-      parentGroup.header.id,
-    );
+    const childPath = findUniqueSessionPathById(candidate.childId, childSessionPathIndex);
     if (childPath === undefined) continue;
     const child = await parseSingleGroup(childPath, {
       session_id: parentGroup.header.id,
