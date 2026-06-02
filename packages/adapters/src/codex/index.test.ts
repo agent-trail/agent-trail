@@ -892,6 +892,105 @@ test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_i
   expect(data?.stderr_excerpt).toBe("");
 });
 
+test("event_msg.exec_approval_request emits permission_request linked by call_id", async () => {
+  const id = "019d8900-cccc-7000-e000-00000000000c";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "exec_approval_request",
+          call_id: "call-exec-approval",
+          approval_id: "approval-exec-1",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          command: ["bash", "-lc", "npm test"],
+          cwd: "/proj/codex-approval",
+          reason: "requires network",
+          available_decisions: ["approved", "abort"],
+          parsed_cmd: [{ type: "npm", cmd: "npm test" }],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-approval");
+  expect(evt?.source?.original_type).toBe("event_msg.exec_approval_request");
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.exec_approval_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-exec-approval",
+    approval_id: "approval-exec-1",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    reason: "requires network",
+    command: ["bash", "-lc", "npm test"],
+    cwd: "/proj/codex-approval",
+    available_decisions: ["approved", "abort"],
+    parsed_cmd: [{ type: "npm", cmd: "npm test" }],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.request_permissions emits permission_request with requested permissions", async () => {
+  const id = "019d8900-dddd-7000-e000-00000000000d";
+  const permissions = {
+    network: { mode: "enabled" },
+    file_system: { writable_roots: ["/proj/codex-approval"] },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "request_permissions",
+          call_id: "call-request-permissions",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          reason: "needs workspace write",
+          permissions,
+          cwd: "/proj/codex-approval",
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-request-permissions");
+  expect(evt?.source?.original_type).toBe("event_msg.request_permissions");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-request-permissions",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    reason: "needs workspace write",
+    permissions,
+    cwd: "/proj/codex-approval",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.entries.find(
@@ -904,6 +1003,97 @@ test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id"
   const data = (evt?.payload as { data?: Record<string, unknown> }).data;
   expect(data?.success).toBe(true);
   expect(data?.changes).toEqual({ "src/x.ts": { type: "modify" } });
+});
+
+test("event_msg.apply_patch_approval_request emits permission_request linked by call_id", async () => {
+  const id = "019d8900-eeee-7000-e000-00000000000e";
+  const changes = { "/private/tmp/outside.txt": { type: "add" } };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "apply_patch_approval_request",
+          call_id: "call-patch-approval",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          changes,
+          reason: "writes outside workspace",
+          grant_root: "/private/tmp",
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-patch-approval");
+  expect(evt?.source?.original_type).toBe("event_msg.apply_patch_approval_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-patch-approval",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    changes,
+    reason: "writes outside workspace",
+    grant_root: "/private/tmp",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request emits permission_request with request metadata", async () => {
+  const id = "019d8900-ffff-7000-e000-00000000000f";
+  const request = {
+    message: "Linear needs a workspace choice",
+    schema: { type: "object", required: ["workspace"] },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          request_id: "elicit-1",
+          server_name: "linear",
+          prompt: "Choose a Linear workspace",
+          request,
+          available_decisions: ["approve", "deny"],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect(evt?.source?.original_type).toBe("event_msg.elicitation_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-1",
+    server_name: "linear",
+    prompt: "Choose a Linear workspace",
+    request,
+    available_decisions: ["approve", "deny"],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call_id", async () => {

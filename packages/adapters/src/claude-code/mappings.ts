@@ -546,6 +546,23 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function permissionDecision(value: unknown): "allow" | "deny" | undefined {
+  const normalized = stringValue(value)?.toLowerCase();
+  if (normalized === "allow" || normalized === "allowed" || normalized === "approved") {
+    return "allow";
+  }
+  if (
+    normalized === "deny" ||
+    normalized === "denied" ||
+    normalized === "reject" ||
+    normalized === "rejected" ||
+    normalized === "abort"
+  ) {
+    return "deny";
+  }
+  return undefined;
+}
+
 function skillMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
   const description = stringValue(value.description);
   return description === undefined ? undefined : { description };
@@ -660,6 +677,54 @@ const capabilityAttachment = defineMapping<Raw>({
             ],
           },
           source: src(record, "attachment.mcp_instructions_delta"),
+          meta: meta(record),
+        },
+      ];
+    }
+
+    if (subtype === "hook_permission_decision") {
+      const decision = permissionDecision(attachment.decision);
+      if (decision === undefined) return [];
+      const data: Record<string, unknown> = { decision };
+      const toolCallId =
+        stringValue(attachment.tool_call_id) ??
+        stringValue(attachment.toolCallId) ??
+        stringValue(attachment.tool_use_id) ??
+        stringValue(attachment.toolUseID);
+      if (toolCallId !== undefined) data.tool_call_id = toolCallId;
+      const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+      if (hookEvent !== undefined) data.hook_event = hookEvent;
+      const capability = stringValue(attachment.capability);
+      if (capability !== undefined) data.capability = capability;
+      return [
+        {
+          type: "system_event",
+          payload: {
+            kind: "permission_decision",
+            data,
+          },
+          ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
+          source: src(record, "attachment.hook_permission_decision"),
+          meta: meta(record, { callId: toolCallId }),
+        },
+      ];
+    }
+
+    if (subtype === "command_permissions") {
+      const data: Record<string, unknown> = {};
+      const allowedTools = stringArray(attachment.allowed_tools ?? attachment.allowedTools);
+      if (allowedTools.length > 0) data.allowed_tools = allowedTools;
+      const model = stringValue(attachment.model);
+      if (model !== undefined) data.model = model;
+      if (Object.keys(data).length === 0) return [];
+      return [
+        {
+          type: "system_event",
+          payload: {
+            kind: "permission_request",
+            data,
+          },
+          source: src(record, "attachment.command_permissions"),
           meta: meta(record),
         },
       ];

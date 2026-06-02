@@ -462,6 +462,34 @@ function lifecycle(
   });
 }
 
+function copyString(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = stringValue(p[key]);
+  if (value !== undefined) data[outKey] = value;
+}
+
+function copyTruncatedNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = numericValue(p[key]);
+  if (value !== undefined) data[outKey] = Math.trunc(value);
+}
+
+function copyObject(data: Raw, p: Raw, key: string, outKey = key): void {
+  if (isObject(p[key])) data[outKey] = p[key];
+}
+
+function copyArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  if (Array.isArray(p[key])) data[outKey] = p[key];
+}
+
+function permissionRequestBaseData(p: Raw): { data: Raw; callId?: string } {
+  const data: Raw = {};
+  const callId = stringValue(p.call_id);
+  if (callId !== undefined) data.tool_call_id = callId;
+  copyString(data, p, "turn_id");
+  copyTruncatedNumber(data, p, "started_at_ms");
+  copyString(data, p, "reason");
+  return { data, callId };
+}
+
 const taskStarted = lifecycle("task_started", (p) => {
   const data: Raw = {};
   const turnId = stringValue(p.turn_id);
@@ -497,6 +525,33 @@ const execCommandEnd = lifecycle("exec_command_end", (p) => ({
   linkedCallId: stringValue(p.call_id),
 }));
 
+const execApprovalRequest = lifecycle("exec_approval_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyString(data, p, "approval_id");
+  copyArray(data, p, "command");
+  copyString(data, p, "cwd");
+  copyArray(data, p, "available_decisions");
+  copyArray(data, p, "parsed_cmd");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.exec_approval_request",
+    data,
+    linkedCallId: callId,
+  };
+});
+
+const requestPermissions = lifecycle("request_permissions", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyObject(data, p, "permissions");
+  copyString(data, p, "cwd");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.request_permissions",
+    data,
+    linkedCallId: callId,
+  };
+});
+
 const patchApplyEnd = lifecycle("patch_apply_end", (p) => {
   const data: Raw = {};
   if (typeof p.success === "boolean") data.success = p.success;
@@ -512,6 +567,33 @@ const patchApplyEnd = lifecycle("patch_apply_end", (p) => {
     rawType: "event_msg.patch_apply_end",
     data,
     linkedCallId: stringValue(p.call_id),
+  };
+});
+
+const applyPatchApprovalRequest = lifecycle("apply_patch_approval_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyObject(data, p, "changes");
+  copyString(data, p, "grant_root");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.apply_patch_approval_request",
+    data,
+    linkedCallId: callId,
+  };
+});
+
+const elicitationRequest = lifecycle("elicitation_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyString(data, p, "request_id");
+  copyString(data, p, "server_name");
+  copyString(data, p, "prompt");
+  copyObject(data, p, "request");
+  copyArray(data, p, "available_decisions");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.elicitation_request",
+    data,
+    linkedCallId: callId,
   };
 });
 
@@ -893,7 +975,11 @@ export const codexMappings: MappingDef<Raw>[] = [
   taskStarted,
   taskCompleted,
   execCommandEnd,
+  execApprovalRequest,
+  requestPermissions,
   patchApplyEnd,
+  applyPatchApprovalRequest,
+  elicitationRequest,
   mcpToolCallEnd,
   threadGoalUpdated,
   webSearchEnd,
