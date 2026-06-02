@@ -271,7 +271,7 @@ test("parseSession emits trimmed session_metadata_update name from CRLF session_
 
 test("parseSession sanitizes session_index source raw", async () => {
   const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
-  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const fakeSecret = "TEST_SECRET=not-real-placeholder-123456";
   const hugeDebug = "x".repeat(40_000);
   const previousHardCap = process.env.AGENT_TRAIL_SOURCE_RAW_HARD_CAP;
   const path = seedSession({
@@ -287,7 +287,7 @@ test("parseSession sanitizes session_index source raw", async () => {
       id,
       thread_name: "  Safe session title  ",
       updated_at: "2026-06-02T04:51:00.000000Z",
-      env: { OPENAI_API_KEY: key },
+      env: { SESSION_SECRET: fakeSecret },
       debug: hugeDebug,
     })}\n`,
   );
@@ -299,7 +299,7 @@ test("parseSession sanitizes session_index source raw", async () => {
       (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
     );
     const raw = update?.source?.raw as
-      | { env?: { OPENAI_API_KEY?: unknown }; debug?: unknown }
+      | { env?: { SESSION_SECRET?: unknown }; debug?: unknown }
       | undefined;
 
     expect(update?.payload).toEqual({
@@ -307,7 +307,7 @@ test("parseSession sanitizes session_index source raw", async () => {
       value: "Safe session title",
       reason: "external",
     });
-    expect(raw?.env?.OPENAI_API_KEY).toBe("[OPENAI_KEY]");
+    expect(raw?.env?.SESSION_SECRET).toBe("TEST_SECRET=[ENV_SECRET]");
     expect(raw?.debug).toEqual({ elided: true, size_bytes: hugeDebug.length });
     const diagnostics = await validateAdapterTrail(trail);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);

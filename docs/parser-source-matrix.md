@@ -78,10 +78,10 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eleven pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
   ai-title/agent-name/worktree-state→session_metadata_update,
-  system/progress/queue-operation/pr-link→system_event, permission-mode) plus five custom rules:
+  system/progress/queue-operation/pr-link→system_event, permission-mode) plus custom rules for
   synthesized `model_change`, `permission_mode_change` deltas, compact-boundary provenance,
-  tool-kind propagation to results, and multi-block `source.raw.envelope_ref` backfill + hint
-  stripping. Override-ratio 0.
+  TodoWrite task-plan delta/ack handling, tool-kind propagation to results, and multi-block
+  `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old

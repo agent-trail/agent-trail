@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
@@ -127,10 +128,9 @@ const FIDELITY_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
   import.meta.url,
 ).pathname;
-const COMPACT_PROVENANCE_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/compact-provenance.jsonl",
-  import.meta.url,
-).pathname;
+const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
+);
 const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
   import.meta.url,
