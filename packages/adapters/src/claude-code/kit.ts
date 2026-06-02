@@ -11,6 +11,7 @@ import type { Entry } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { claudeCodeMappings } from "./mappings.ts";
 import {
+  ccCompactBoundaryProvenance,
   ccDropTaskPlanResults,
   ccEnvelopeRefBackfill,
   ccModelChangeSynth,
@@ -101,6 +102,7 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
       ccPermissionModeDelta,
       ccTaskPlanDeltas,
       ccDropTaskPlanResults,
+      ccCompactBoundaryProvenance,
       ccEnvelopeRefBackfill,
     ],
   },

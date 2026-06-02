@@ -716,6 +716,15 @@ test("compact fixture emits context_compact from top-level compacted record", as
   // optional fields stay absent.
   expect((compact?.payload as { tokens_before?: number }).tokens_before).toBeUndefined();
   expect((compact?.payload as { tokens_after?: number }).tokens_after).toBeUndefined();
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+  expect(
+    (
+      (compact?.source?.raw as { payload?: { replacement_history?: unknown[] } } | undefined)
+        ?.payload?.replacement_history ?? []
+    ).length,
+  ).toBe(2);
   expect(compact?.meta?.["dev.codex.raw_type"]).toBe("compacted");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");

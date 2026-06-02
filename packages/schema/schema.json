@@ -1169,7 +1169,12 @@
               "summary": { "type": "string" },
               "trigger": { "type": "string", "enum": ["manual", "auto"] },
               "tokens_before": { "type": "integer", "minimum": 0 },
-              "tokens_after": { "type": "integer", "minimum": 0 }
+              "tokens_after": { "type": "integer", "minimum": 0 },
+              "replaced_message_ids": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/id" },
+                "description": "Agent Trail entry IDs folded or replaced by this compaction summary. Provenance-only; readers must not require same-file resolution."
+              }
             },
             "additionalProperties": false
           }

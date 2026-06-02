@@ -60,6 +60,13 @@ test("valid/agent-message-attachments-multiple.trail.jsonl validates clean", asy
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/context-compact-replaced-message-ids.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/context-compact-replaced-message-ids.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/capability-change.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/capability-change.trail.jsonl"),

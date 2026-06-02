@@ -410,7 +410,7 @@ const compacted = defineMapping<Raw>({
       {
         type: "context_compact",
         payload,
-        source: source("compacted"),
+        source: source("compacted", record),
         meta: meta("compacted"),
       },
     ];

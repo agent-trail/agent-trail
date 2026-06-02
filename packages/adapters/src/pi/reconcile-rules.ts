@@ -35,6 +35,49 @@ function rawParentEdge(raw: Record<string, unknown> | undefined): ParentHintEdge
 
 type ParentHintEdge = { sid: string; pid: string | null };
 
+function firstKeptEntryIdFrom(entry: Entry): string | undefined {
+  const raw = entry.source?.raw;
+  if (raw !== undefined) {
+    const firstKept = (raw as Record<string, unknown>).firstKeptEntryId;
+    if (typeof firstKept === "string") return firstKept;
+  }
+  const piMeta = entry.meta?.["dev.pi.compaction"];
+  if (piMeta !== null && typeof piMeta === "object") {
+    const firstKept = (piMeta as Record<string, unknown>).firstKeptEntryId;
+    if (typeof firstKept === "string") return firstKept;
+  }
+  return undefined;
+}
+
+function sourceIdFromRecord(record: RawRecord): string | undefined {
+  const id = (record as Record<string, unknown>).id;
+  return typeof id === "string" ? id : undefined;
+}
+
+function replacedIdsBeforeSourceId(
+  firstKeptSourceId: string,
+  records: RawRecord[],
+  sourceIdToEntryIds: Map<string, string[]>,
+): string[] | undefined {
+  const replaced: string[] = [];
+  const seen = new Set<string>();
+  for (const record of records) {
+    const sourceId = sourceIdFromRecord(record);
+    if (sourceId === undefined) continue;
+    if (sourceId === firstKeptSourceId) {
+      return replaced.length > 0 ? replaced : undefined;
+    }
+    const entryIds = sourceIdToEntryIds.get(sourceId);
+    if (entryIds === undefined) continue;
+    for (const entryId of entryIds) {
+      if (seen.has(entryId)) continue;
+      seen.add(entryId);
+      replaced.push(entryId);
+    }
+  }
+  return undefined;
+}
+
 function rawParentEdgeFromEntry(entry: Entry): ParentHintEdge | undefined {
   return rawParentEdge(
     entry.source?.raw ??
@@ -58,6 +101,7 @@ function rawParentEdgeFromRecord(record: RawRecord): ParentHintEdge | undefined 
 export const piParentResolution: ReconcilerRule = (entries, ctx) => {
   const parentBySourceId = new Map<string, string | null>();
   const sourceIdToFirstEntryId = new Map<string, string>();
+  const sourceIdToEntryIds = new Map<string, string[]>();
   const sourceIdToLastEntryId = new Map<string, string>();
   const lastEntryIdForSid = new Map<string, string>();
 
@@ -77,6 +121,9 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
     if (hint === undefined) continue;
     if (!parentBySourceId.has(hint.sid)) parentBySourceId.set(hint.sid, hint.pid);
     if (!sourceIdToFirstEntryId.has(hint.sid)) sourceIdToFirstEntryId.set(hint.sid, entry.id);
+    const sourceEntryIds = sourceIdToEntryIds.get(hint.sid) ?? [];
+    sourceEntryIds.push(entry.id);
+    sourceIdToEntryIds.set(hint.sid, sourceEntryIds);
     sourceIdToLastEntryId.set(hint.sid, entry.id);
   }
 
@@ -111,6 +158,19 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
         ...entry,
         payload: { ...entry.payload, abandoned_branch_id: resolved },
       };
+    }
+    if (entry.type === "context_compact") {
+      const firstKeptEntryId = firstKeptEntryIdFrom(entry);
+      const replaced =
+        firstKeptEntryId !== undefined
+          ? replacedIdsBeforeSourceId(firstKeptEntryId, ctx.records ?? [], sourceIdToEntryIds)
+          : undefined;
+      if (replaced !== undefined) {
+        next = {
+          ...next,
+          payload: { ...next.payload, replaced_message_ids: replaced },
+        };
+      }
     }
     next = backfillEnvelopeRef(next, hint, sourceIdToFirstEntryId);
     return stripHint(next);

@@ -1158,12 +1158,18 @@ Session was compacted to free context window.
     "summary": "<text>",
     "trigger": "auto",
     "tokens_before": 12000,
-    "tokens_after": 4000
+    "tokens_after": 4000,
+    "replaced_message_ids": ["<entry-id>", "<entry-id>"]
   }
 }
 ```
 
 `trigger`: `manual` | `auto`.
+
+`replaced_message_ids`: optional Agent Trail entry IDs folded or replaced by this
+compaction summary, in source order. These IDs are provenance-only; readers MUST
+validate their ID shape but MUST NOT require them to resolve to entries present in
+the same trail file.
 
 #### `branch_point`
 

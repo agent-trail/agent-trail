@@ -133,9 +133,10 @@ Issue #20 expanded coverage to Pi's optional events. `agent_thinking` is emitted
 "aborted"` (pi-ai `StopReason`); Pi has no dedicated interrupt envelope, so the entry is stamped
 `source.synthesized: true` with `payload.reason = "stop_reason_aborted"`. `context_compact` is
 emitted from Pi's top-level `compaction` envelope (`summary`, `firstKeptEntryId`, `tokensBefore`,
-optional `details` / `fromHook`); `payload.trigger` is always `"auto"` (Pi has no manual/auto
-distinction in the envelope — `fromHook` distinguishes pi-core vs extension-fired compactions and
-is preserved under `metadata["dev.pi.compaction"]`). `model_change` is emitted from Pi's top-level
+optional `details` / `fromHook`); when `firstKeptEntryId` resolves, emitted entries before that
+source id populate `payload.replaced_message_ids`. `payload.trigger` is always `"auto"` (Pi has no
+manual/auto distinction in the envelope — `fromHook` distinguishes pi-core vs extension-fired
+compactions and is preserved under `metadata["dev.pi.compaction"]`). `model_change` is emitted from Pi's top-level
 `model_change` envelope (`provider`, `modelId`); `payload.from_model` is resolved from the last
 assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
 
@@ -434,7 +435,7 @@ Vendor extensions (Claude Code-specific):
 - `x-claudecode/away_summary` — `system` envelope with `subtype == "away_summary"` (Claude Code "you were away" recap).
 - `x-claudecode/local_command` — `system` envelope with `subtype == "local_command"` (slash-command stdout).
 - `x-claudecode/bridge_status` — `system` envelope with `subtype == "bridge_status"` (remote-control bridge).
-- `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope).
+- `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope, and a prior boundary can populate `context_compact.payload.replaced_message_ids`).
 - `x-claudecode/<subtype>` — fallback for unknown safe-named `system` subtypes.
 - `x-claudecode/system` — fallback for `system` envelopes without a recognizable subtype.
 - `x-claudecode/progress` — fallback for `progress` envelopes whose `data.type` is not `hook_progress`.

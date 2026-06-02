@@ -127,6 +127,10 @@ const FIDELITY_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
   import.meta.url,
 ).pathname;
+const COMPACT_PROVENANCE_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/claude-code/compact-provenance.jsonl",
+  import.meta.url,
+).pathname;
 const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
   "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
   import.meta.url,
@@ -153,6 +157,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseCompactProvenanceFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "compact-provenance",
+    adapter: "claude-code",
+    path: COMPACT_PROVENANCE_FIXTURE_PATH,
   });
 }
 
@@ -1089,6 +1101,19 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   expect(byKind("session_start")?.type).toBe("system_event");
   expect(trail.entries.some((e) => e.type === "session_summary")).toBe(true);
   expect(trail.entries.some((e) => e.type === "context_compact")).toBe(true);
+});
+
+test("parseSession() maps compact_boundary provenance to the next compact summary", async () => {
+  const trail = await parseCompactProvenanceFixture();
+  const compact = trail.entries.find((e) => e.type === "context_compact");
+  const folded = trail.entries
+    .filter((e) => e.type === "user_message" || e.type === "agent_message")
+    .map((e) => e.id);
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual(
+    folded,
+  );
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {

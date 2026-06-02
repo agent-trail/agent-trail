@@ -1056,9 +1056,16 @@ test("compaction-and-model-change fixture round-trips through validateAdapterTra
 test("compaction-and-model-change fixture emits context_compact and model_change with from_model from prior assistant", async () => {
   const trail = await parseCompactFixture();
   const compact = trail.entries.find((e) => e.type === "context_compact");
+  const foldedUser = trail.entries.find(
+    (e) => e.type === "user_message" && (e.payload as { text?: string }).text === "long ramble",
+  );
   expect(compact).toBeDefined();
+  expect(foldedUser).toBeDefined();
   expect((compact?.payload as { summary?: string }).summary).toContain("acknowledged");
   expect((compact?.payload as { trigger?: string }).trigger).toBe("auto");
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    foldedUser!.id,
+  ]);
   const mc = trail.entries.find((e) => e.type === "model_change");
   expect(mc?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
