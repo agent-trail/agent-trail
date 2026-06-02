@@ -83,6 +83,10 @@ const COMPACT_FIXTURE_PATH = new URL(
 ).pathname;
 const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl", import.meta.url)
   .pathname;
+const TOOL_RESULT_ERROR_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/tool-result-error.jsonl",
+  import.meta.url,
+).pathname;
 const QUARANTINE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/quarantine.jsonl", import.meta.url)
   .pathname;
 const SYSTEM_EVENTS_FIXTURE_PATH = new URL(
@@ -127,6 +131,14 @@ async function parseUsageFixture() {
     id: "usage-and-cost",
     adapter: "pi",
     path: USAGE_FIXTURE_PATH,
+  });
+}
+
+async function parseToolResultErrorFixture() {
+  return piAdapter.parseSession({
+    id: "tool-result-error",
+    adapter: "pi",
+    path: TOOL_RESULT_ERROR_FIXTURE_PATH,
   });
 }
 
@@ -235,13 +247,27 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
     output_tokens: 567,
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
+    context_input_tokens: 1384,
   });
+  expect((agentMsg?.payload as { usage?: Record<string, unknown> })?.usage).not.toHaveProperty(
+    "context_window_tokens",
+  );
   expect(
     (agentMsg?.source?.raw as { envelope?: { message?: { usage?: unknown } } })?.envelope?.message
       ?.usage,
   ).toMatchObject({
     totalTokens: 1801,
     cost: 0.0123,
+  });
+});
+
+test("parseSession() preserves Pi tool-result contextAtCompletion under vendor meta", async () => {
+  const trail = await parseToolResultErrorFixture();
+  const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  expect(toolResult?.meta?.["dev.pi.context_at_completion"]).toEqual({
+    tokens: 15909,
+    contextWindow: 200000,
+    percent: 7.9545,
   });
 });
 

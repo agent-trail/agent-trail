@@ -6,6 +6,8 @@ export type AgentMessageUsage = {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   reasoning_tokens?: number;
+  context_input_tokens?: number;
+  context_window_tokens?: number;
 };
 
 function nonNegativeInteger(value: unknown): number | undefined {
@@ -70,5 +72,17 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   if (cacheCreate !== undefined) usage.cache_creation_tokens = cacheCreate;
   const reasoning = pick(src, ["reasoning_tokens", "reasoningTokens"]);
   if (reasoning !== undefined) usage.reasoning_tokens = reasoning;
+  const contextInput = pick(src, ["context_input_tokens", "contextInputTokens"]);
+  if (contextInput !== undefined) usage.context_input_tokens = contextInput;
+  else {
+    const contextComponents = [inputTokens, cacheRead, cacheCreate];
+    if (contextComponents.some((value) => value !== undefined)) {
+      let total = 0;
+      for (const value of contextComponents) total += value ?? 0;
+      usage.context_input_tokens = total;
+    }
+  }
+  const contextWindow = pick(src, ["context_window_tokens", "contextWindowTokens"]);
+  if (contextWindow !== undefined) usage.context_window_tokens = contextWindow;
   return Object.keys(usage).length > 0 ? usage : undefined;
 }

@@ -13,6 +13,7 @@ test("mapAgentMessageUsage: maps snake_case input/output tokens", () => {
   expect(mapAgentMessageUsage({ input_tokens: 10, output_tokens: 20 })).toEqual({
     input_tokens: 10,
     output_tokens: 20,
+    context_input_tokens: 10,
   });
 });
 
@@ -20,6 +21,7 @@ test("mapAgentMessageUsage: accepts camelCase aliases", () => {
   expect(mapAgentMessageUsage({ inputTokens: 3, outputTokens: 4 })).toEqual({
     input_tokens: 3,
     output_tokens: 4,
+    context_input_tokens: 3,
   });
 });
 
@@ -41,13 +43,62 @@ test("mapAgentMessageUsage: maps Pi's bare input/output/cacheRead/cacheWrite nam
     output_tokens: 567,
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
+    context_input_tokens: 1384,
+  });
+});
+
+test("mapAgentMessageUsage: derives Claude Code cache-inclusive context input tokens", () => {
+  expect(
+    mapAgentMessageUsage({
+      input_tokens: 10,
+      output_tokens: 20,
+      cache_read_input_tokens: 8,
+      cache_creation_input_tokens: 2,
+    }),
+  ).toEqual({
+    input_tokens: 10,
+    output_tokens: 20,
+    cache_read_tokens: 8,
+    cache_creation_tokens: 2,
+    context_input_tokens: 20,
   });
 });
 
 test("mapAgentMessageUsage: renames cache_*_input_tokens to spec names", () => {
   expect(
     mapAgentMessageUsage({ cache_read_input_tokens: 8, cache_creation_input_tokens: 2 }),
-  ).toEqual({ cache_read_tokens: 8, cache_creation_tokens: 2 });
+  ).toEqual({
+    cache_read_tokens: 8,
+    cache_creation_tokens: 2,
+    context_input_tokens: 10,
+  });
+});
+
+test("mapAgentMessageUsage: derives context input from canonical cache token aliases", () => {
+  expect(
+    mapAgentMessageUsage({ input_tokens: 10, cache_read_tokens: 8, cache_creation_tokens: 2 }),
+  ).toEqual({
+    input_tokens: 10,
+    cache_read_tokens: 8,
+    cache_creation_tokens: 2,
+    context_input_tokens: 20,
+  });
+});
+
+test("mapAgentMessageUsage: preserves direct context usage fields", () => {
+  expect(
+    mapAgentMessageUsage({
+      input_tokens: 10,
+      cache_read_tokens: 8,
+      context_input_tokens: 42,
+      contextWindowTokens: 200000,
+    }),
+  ).toEqual({
+    input_tokens: 10,
+    cache_read_tokens: 8,
+    context_input_tokens: 42,
+    context_window_tokens: 200000,
+  });
 });
 
 test("mapAgentMessageUsage: maps cumulative + reasoning tokens", () => {

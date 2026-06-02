@@ -71,6 +71,8 @@ describe("codex v2 stateful behaviors", () => {
     expect(usage?.reasoning_tokens).toBe(12);
     expect(usage?.input_tokens_cumulative).toBe(1200);
     expect(usage?.output_tokens_cumulative).toBe(400);
+    expect(usage?.context_input_tokens).toBe(120);
+    expect(usage?.context_window_tokens).toBe(200000);
     // The carrier itself is dropped from output.
     expect(all.some((e) => (e.payload as { kind?: string }).kind === "x-codex/_usage")).toBe(false);
   });
