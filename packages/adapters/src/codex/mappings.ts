@@ -955,6 +955,8 @@ const patchApplyBegin = lifecycle("patch_apply_begin", (p) => {
 const patchApplyUpdated = lifecycle("patch_apply_updated", (p) => {
   const data: Raw = {};
   copyString(data, p, "call_id");
+  copyString(data, p, "turn_id");
+  if (typeof p.auto_approved === "boolean") data.auto_approved = p.auto_approved;
   copyObject(data, p, "changes");
   return {
     kind: "x-codex/patch_apply_updated",

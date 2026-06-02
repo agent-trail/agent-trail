@@ -11,7 +11,7 @@
 {"timestamp":"2026-05-28T11:00:06.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-exec-life","output":"file.txt\n"}}
 {"timestamp":"2026-05-28T11:00:07.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","status":"completed","call_id":"call-patch-life","input":"*** Begin Patch\n*** Update File: src/x.ts\n@@ -1 +1 @@\n-a\n+A\n*** End Patch\n"}}
 {"timestamp":"2026-05-28T11:00:07.250Z","type":"event_msg","payload":{"type":"patch_apply_begin","turn_id":"turn-life","call_id":"call-patch-life","auto_approved":true,"changes":{"src/x.ts":{"type":"modify"}}}}
-{"timestamp":"2026-05-28T11:00:07.500Z","type":"event_msg","payload":{"type":"patch_apply_updated","call_id":"call-patch-life","changes":{"src/x.ts":{"type":"modify"}}}}
+{"timestamp":"2026-05-28T11:00:07.500Z","type":"event_msg","payload":{"type":"patch_apply_updated","turn_id":"turn-life","call_id":"call-patch-life","auto_approved":true,"changes":{"src/x.ts":{"type":"modify"}}}}
 {"timestamp":"2026-05-28T11:00:08.000Z","type":"event_msg","payload":{"type":"patch_apply_end","turn_id":"turn-life","call_id":"call-patch-life","stdout":"","stderr":"","success":true,"changes":{"src/x.ts":{"type":"modify"}},"status":"completed"}}
 {"timestamp":"2026-05-28T11:00:09.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-patch-life","output":"Success."}}
 {"timestamp":"2026-05-28T11:00:09.500Z","type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"call-mcp-life","invocation":{"server":"openai-bundled","tool":"computer.click"},"plugin_id":"computer-use@openai-bundled","mcp_app_resource_uri":"app://computer-use"}}

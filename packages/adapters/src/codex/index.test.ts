@@ -2090,6 +2090,8 @@ test("event_msg patch apply begin and update emit linked vendor lifecycle marker
   expect(updated?.source?.original_type).toBe("event_msg.patch_apply_updated");
   expect((updated?.payload as { data?: Record<string, unknown> }).data).toEqual({
     call_id: "call-patch-life",
+    turn_id: "turn-life",
+    auto_approved: true,
     changes: { "src/x.ts": { type: "modify" } },
   });
 });

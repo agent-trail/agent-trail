@@ -715,11 +715,12 @@ function hookSuccessData(attachment: Record<string, unknown>): Record<string, un
   if (hookEvent !== undefined) data.hook_event = hookEvent;
   const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
   if (hookName !== undefined) data.hook_name = hookName;
-  const toolCallId =
+  const rawToolCallId =
     stringValue(attachment.tool_call_id) ??
     stringValue(attachment.toolCallId) ??
     stringValue(attachment.tool_use_id) ??
     stringValue(attachment.toolUseID);
+  const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId.trim() : undefined;
   if (toolCallId !== undefined) data.tool_call_id = toolCallId;
   const exitCode = numberValue(attachment.exit_code) ?? numberValue(attachment.exitCode);
   if (exitCode !== undefined) data.exit_code = Math.trunc(exitCode);

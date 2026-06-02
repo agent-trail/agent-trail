@@ -1305,6 +1305,45 @@ test("parseSession() truncates hook_success stdout and stderr excerpts", async (
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() omits blank hook_success tool ids from data and semantic", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000ac",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "run hook" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000ad",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000ac",
+      attachment: {
+        type: "hook_success",
+        hookEvent: "PreToolUse",
+        hookName: "PreToolUse:Bash",
+        toolUseID: "   ",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" && entry.source?.original_type === "attachment.hook_success",
+  );
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect(data?.tool_call_id).toBeUndefined();
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
   const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
