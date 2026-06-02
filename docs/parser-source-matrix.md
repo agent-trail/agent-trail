@@ -299,6 +299,24 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `payload.to_model` is the new value. `source.synthesized: true` and
   `metadata["dev.codex.raw_type"] = "turn_context.model_change"` flag the synthetic origin.
 
+Diagnostic `system_event` emissions:
+
+- `event_msg.error` → `system_event{kind:"agent_error"}`. `text` carries the message;
+  `data` carries `severity:"error"`, `code` when available from `codex_error_info`, and
+  `details`.
+- `event_msg.warning` → `system_event{kind:"agent_warning"}` with
+  `data.severity:"warning"` and `details`.
+- `event_msg.guardian_warning` → `system_event{kind:"guardian_alert"}` with
+  `data.severity:"warning"` and `details`.
+- `event_msg.model_reroute` → `system_event{kind:"model_rerouted"}` with
+  `data.from`, `data.to`, and `data.reason`.
+- `event_msg.model_verification` → `system_event{kind:"model_rerouted"}` with
+  `data.reason:"model_verification"` and the verification list under `data.details`.
+- `event_msg.deprecation_notice` → `system_event{kind:"deprecation_notice"}` with
+  `text` from the source summary and optional details.
+- `event_msg.stream_error` → `system_event{kind:"stream_error"}` with
+  `data.severity:"error"`, optional `code`, and `details`.
+
 Lifecycle-vocabulary `system_event` emissions:
 
 - `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §9.3). `data`
@@ -365,6 +383,8 @@ Capability-registry emissions:
 - `response_item.reasoning.summary` — plaintext reasoning from the response-item channel.
 - `compacted` — auto-compaction (top-level record).
 - `turn_context.model_change` — synthesized model-change marker.
+- `event_msg.error` / `warning` / `guardian_warning` / `model_reroute` /
+  `model_verification` / `deprecation_notice` / `stream_error` — diagnostic events.
 - `event_msg.task_started` / `event_msg.task_complete` — lifecycle bookends.
 - `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
   `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
@@ -427,10 +447,18 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 - `permission_mode_change` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `data.to` carries the new mode (e.g., `plan`, `bypassPermissions`); `data.from` carries the previous mode when a prior mode is known.
 
+Reserved diagnostic vocabulary (cross-agent portable):
+
+- `api_error` — `system` envelope with `subtype == "api_error"`. `data` carries
+  `severity:"error"` and the source content as `details` when present.
+- `hook_failed` — `system.subtype == "stop_hook_summary"` `hookErrors[]` and
+  `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error`. `data`
+  carries `severity:"error"`, `blocking`, `hook_name`, `code`, and `details` when
+  present.
+
 Vendor extensions (Claude Code-specific):
 
 - `x-claudecode/turn_duration` — `system` envelope with `subtype == "turn_duration"` (duration metadata for the just-completed turn; `turn_end` is preferred for boundary semantics).
-- `x-claudecode/api_error` — `system` envelope with `subtype == "api_error"`.
 - `x-claudecode/away_summary` — `system` envelope with `subtype == "away_summary"` (Claude Code "you were away" recap).
 - `x-claudecode/local_command` — `system` envelope with `subtype == "local_command"` (slash-command stdout).
 - `x-claudecode/bridge_status` — `system` envelope with `subtype == "bridge_status"` (remote-control bridge).
@@ -451,6 +479,8 @@ Capability-registry attachments:
   text without inventing skill names.
 - `attachment.mcp_instructions_delta` →
   `capability_change{scope:"mcp_server", reason:"instructions_updated"}`.
+- `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error` →
+  `system_event{kind:"hook_failed"}`.
 
 Session metadata from non-message envelopes:
 

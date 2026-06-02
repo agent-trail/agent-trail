@@ -15,6 +15,8 @@ const capabilityEntries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "capability-changes.jsonl"), "unit-test");
 const capabilityV0_128Entries = (): Promise<Entry[]> =>
   parseCodexEntries(join(FIXTURES, "capability-changes-v0_128.jsonl"), "unit-test");
+const diagnosticEntries = (): Promise<Entry[]> =>
+  parseCodexEntries(join(FIXTURES, "diagnostics.jsonl"), "unit-test");
 
 function expectWriterStrict(entries: Entry[]): void {
   for (const [index, entry] of entries.entries()) {
@@ -162,6 +164,65 @@ describe("codex capability registry events", () => {
     expect(all.map((entry) => entry.payload)).toEqual([
       { scope: "mcp_server", reason: "connected", added: [{ name: "linear" }] },
     ]);
+  });
+});
+
+describe("codex diagnostic event messages", () => {
+  test("diagnostic event_msg variants emit reserved system_event kinds", async () => {
+    const all = await diagnosticEntries();
+    expectWriterStrict(all);
+
+    const diagnostics = all
+      .filter((entry) => entry.type === "system_event")
+      .map((entry) => entry.payload);
+    expect(diagnostics).toEqual([
+      {
+        kind: "agent_error",
+        text: "agent failed to process submission",
+        data: {
+          severity: "error",
+          code: "internal_error",
+          details: "agent failed to process submission",
+        },
+      },
+      {
+        kind: "agent_warning",
+        text: "agent recovered after retry",
+        data: { severity: "warning", details: "agent recovered after retry" },
+      },
+      {
+        kind: "guardian_alert",
+        text: "guardian flagged approval",
+        data: { severity: "warning", details: "guardian flagged approval" },
+      },
+      {
+        kind: "model_rerouted",
+        text: "Model rerouted: gpt-5.3 → gpt-5.2",
+        data: { from: "gpt-5.3", to: "gpt-5.2", reason: "high_risk_cyber_activity" },
+      },
+      {
+        kind: "model_rerouted",
+        text: "Model verification required",
+        data: { reason: "model_verification", details: ["trusted_access_for_cyber"] },
+      },
+      {
+        kind: "deprecation_notice",
+        text: "legacy profile is deprecated",
+        data: { details: "Use named permission profiles." },
+      },
+      {
+        kind: "stream_error",
+        text: "stream disconnected",
+        data: { severity: "error", details: "retrying with backoff" },
+      },
+    ]);
+    expect(
+      all.every((entry) => {
+        const raw = entry.source?.raw as Record<string, unknown> | undefined;
+        const rawType = (entry.meta as Record<string, unknown>)["dev.codex.raw_type"];
+        return typeof raw?.type === "string" && rawType === `event_msg.${raw.type}`;
+      }),
+    ).toBe(true);
   });
 });
 

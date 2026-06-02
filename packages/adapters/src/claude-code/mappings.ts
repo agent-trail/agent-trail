@@ -155,6 +155,44 @@ function metadataSource(record: CcEnvelope, originalType: string): Entry["source
   );
 }
 
+function hookFailureData(
+  raw: Record<string, unknown>,
+  fallbackBlocking?: boolean,
+): { text: string; data: Record<string, unknown> } {
+  const hookName = stringValue(raw.hookName) ?? stringValue(raw.hook_name) ?? stringValue(raw.name);
+  const details =
+    stringValue(raw.message) ??
+    stringValue(raw.error) ??
+    stringValue(raw.details) ??
+    stringValue(raw.stderr);
+  const code = stringValue(raw.code);
+  const blocking = booleanValue(raw.blocking) ?? fallbackBlocking;
+  const data: Record<string, unknown> = { severity: "error" };
+  if (blocking !== undefined) data.blocking = blocking;
+  if (hookName !== undefined) data.hook_name = hookName;
+  if (code !== undefined) data.code = code;
+  if (details !== undefined) data.details = details;
+  return {
+    text: hookName !== undefined ? `Hook failed: ${hookName}` : "Hook failed",
+    data,
+  };
+}
+
+function hookFailureDraft(
+  record: CcEnvelope,
+  originalType: string,
+  raw: Record<string, unknown>,
+  fallbackBlocking?: boolean,
+): TrailEntryDraft {
+  const { text, data } = hookFailureData(raw, fallbackBlocking);
+  return {
+    type: "system_event",
+    payload: { kind: "hook_failed", text, data },
+    source: src(record, originalType),
+    meta: meta(record),
+  };
+}
+
 function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined {
   const args = jsonObjectValue(input) ?? {};
   if (!Array.isArray(args.todos)) return undefined;
@@ -493,7 +531,7 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
       if (!gate(record, allowNoUuid)) return [];
       const synthesized = typeof record.uuid !== "string";
       const data = systemEventData(record);
-      return [
+      const drafts: TrailEntryDraft[] = [
         {
           type: "system_event",
           payload: {
@@ -511,6 +549,18 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
           meta: meta(record),
         },
       ];
+      if (
+        record.type === "system" &&
+        stringValue(record.subtype) === "stop_hook_summary" &&
+        Array.isArray(record.hookErrors)
+      ) {
+        drafts.push(
+          ...record.hookErrors
+            .filter(isObject)
+            .map((error) => hookFailureDraft(record, "system.stop_hook_summary.hook_error", error)),
+        );
+      }
+      return drafts;
     },
   });
 }
@@ -582,6 +632,17 @@ const capabilityAttachment = defineMapping<Raw>({
     const attachment = isObject(record.attachment) ? record.attachment : undefined;
     const subtype = stringValue(attachment?.type);
     if (attachment === undefined || subtype === undefined) return [];
+
+    if (subtype === "hook_blocking_error" || subtype === "hook_non_blocking_error") {
+      return [
+        hookFailureDraft(
+          record,
+          `attachment.${subtype}`,
+          attachment,
+          subtype === "hook_blocking_error",
+        ),
+      ];
+    }
 
     if (subtype === "deferred_tools_delta") {
       const drafts: TrailEntryDraft[] = [];

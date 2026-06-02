@@ -607,6 +607,101 @@ test("update_plan ack dropping keeps failed outputs and colliding non-plan tool 
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession maps nested failed function output to a failed tool_result", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000132";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-nested-error",
+          name: "shell_command",
+          arguments: JSON.stringify({ command: "run failing tool" }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-nested-error",
+          output: { body: "tool failed before producing a response", success: false },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const call = trail.entries.find((entry) => entry.type === "tool_call");
+  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  expect(result?.payload).toEqual({
+    for_id: call?.id,
+    ok: false,
+    output: "tool failed before producing a response",
+    error: "tool failed before producing a response",
+  });
+  expect(result?.semantic).toEqual({
+    call_id: "call-nested-error",
+    tool_kind: "shell_command",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession keeps nonzero command output successful when tool metadata says success", async () => {
+  const id = "019d8a00-1311-7000-a000-000000000133";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-nonzero-exit",
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "false" }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-nonzero-exit",
+          output: {
+            body: "Process exited with code 2\nOutput:\ncommand failed",
+            success: true,
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  expect(result?.payload).toEqual({
+    for_id: trail.entries.find((entry) => entry.type === "tool_call")?.id,
+    ok: true,
+    output: "Process exited with code 2\nOutput:\ncommand failed",
+  });
+  expect(result?.semantic).toEqual({
+    call_id: "call-nonzero-exit",
+    tool_kind: "shell_command",
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("exec_command function_call maps to shell_command with workdir as cwd", async () => {
   const trail = await parseDesktopFixture();
   const exec = trail.entries.find(
