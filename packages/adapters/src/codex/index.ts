@@ -262,7 +262,9 @@ function firstTurnContextSnapshot(
     if (timestampToIso(record.timestamp) === undefined) continue;
     const payload = isObject(record.payload) ? record.payload : {};
     const snapshot = turnContextSnapshot(payload);
-    return Object.keys(snapshot).length > 0 ? snapshot : undefined;
+    // Skip a policy-less turn_context and keep scanning rather than bailing, so
+    // a later record that does carry policy fields still snapshots.
+    if (Object.keys(snapshot).length > 0) return snapshot;
   }
   return undefined;
 }

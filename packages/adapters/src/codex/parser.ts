@@ -511,9 +511,9 @@ export function permissionModeLabel(p: Record<string, unknown>): string | undefi
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((k) => [k, canonicalize((value as Record<string, unknown>)[k])]);
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => [k, canonicalize(v)]);
   }
   return value;
 }
