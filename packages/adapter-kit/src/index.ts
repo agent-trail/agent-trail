@@ -31,7 +31,7 @@ export {
   SqliteReader,
   type SqliteReaderOptions,
 } from "./readers/sqlite-reader.ts";
-export type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
+export type { RawRecord, SourcePointer, SourceReader, SourceSnapshot } from "./readers/types.ts";
 export { reconcile } from "./reconciler/index.ts";
 export { selectSchemaVersion } from "./source-schemas/select.ts";
 export { validateSourceRecord } from "./source-schemas/validate.ts";

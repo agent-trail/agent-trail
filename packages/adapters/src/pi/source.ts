@@ -35,9 +35,23 @@ export type PiEnvelope = {
 
 export function parseLines(text: string): PiEnvelope[] {
   const out: PiEnvelope[] = [];
-  for (const raw of text.split("\n")) {
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i] ?? "";
     if (raw.length === 0) continue;
-    out.push(JSON.parse(raw) as PiEnvelope);
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`JsonlReader: failed to parse JSON on line ${i + 1}: ${message}`, {
+        cause: error,
+      });
+    }
+    if (!isObject(value) || Array.isArray(value)) {
+      throw new Error(`JsonlReader: expected JSON object on line ${i + 1}`);
+    }
+    out.push(value as PiEnvelope);
   }
   return out;
 }

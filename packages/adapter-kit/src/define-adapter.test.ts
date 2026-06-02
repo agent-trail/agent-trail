@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { defineAdapter } from "./define-adapter.ts";
 import { defineMapping } from "./define-mapping.ts";
 import { JsonlReader } from "./readers/jsonl-reader.ts";
-import type { RawRecord } from "./readers/types.ts";
+import type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 
 const PI_ENTRY_NS = "f9a5cab6-b078-4cde-e267-849a0b1c2d34";
 const dir = mkdtempSync(join(tmpdir(), "adapter-kit-e2e-"));
@@ -122,5 +122,101 @@ describe("defineAdapter().parse() end-to-end", () => {
       "totally_unknown_record",
     );
     expect(entries[0]?.source?.synthesized).toBe(true);
+  });
+
+  test("parseSnapshot maps supplied records and version without invoking the reader", async () => {
+    const calls: string[] = [];
+    const reader: SourceReader = {
+      async *records(_source: SourcePointer): AsyncIterable<RawRecord> {
+        calls.push("records");
+        yield {
+          type: "message",
+          timestamp: "2026-05-21T14:00:01.000Z",
+          message: { role: "user", content: "from-reader" },
+        };
+      },
+      async schemaVersion(_source: SourcePointer): Promise<string | undefined> {
+        calls.push("schemaVersion");
+        return "3.0.0";
+      },
+      async identityHash(_source: SourcePointer): Promise<string> {
+        calls.push("identityHash");
+        return "unused";
+      },
+    };
+    const snapshotAdapter = defineAdapter({
+      agent: "pi",
+      idNamespace: PI_ENTRY_NS,
+      quarantineNamespace: "pi",
+      sourceFormatVersions: ["v1"],
+      reader,
+      tsFrom: (record) => String(record.timestamp),
+      mappings: [userMessage],
+      reconciler: { parentChain: true },
+    });
+
+    const entries = await snapshotAdapter.parseSnapshot(
+      {
+        sourceVersion: "3.0.0",
+        records: [
+          {
+            type: "message",
+            timestamp: "2026-05-21T14:00:01.000Z",
+            message: { role: "user", content: "from-snapshot" },
+          },
+        ],
+      },
+      { sessionUid: "sess-snapshot" },
+    );
+
+    expect(calls).toEqual([]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.payload).toEqual({ text: "from-snapshot" });
+  });
+
+  test("parseSnapshot without sourceVersion maps leniently instead of quarantining", async () => {
+    const entries = await adapter.parseSnapshot(
+      {
+        records: [
+          {
+            type: "totally_unknown_record",
+            timestamp: "2026-05-21T14:00:05.000Z",
+            blob: { a: 1 },
+          },
+        ],
+      },
+      { sessionUid: "sess-no-version" },
+    );
+
+    expect(entries).toEqual([]);
+  });
+
+  test("parse and parseSnapshot emit identical entries for the same records and version", async () => {
+    const records = [
+      {
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-eeeee0000099",
+        timestamp: "2026-05-21T14:00:00.000Z",
+        cwd: "/tmp/p",
+      },
+      {
+        type: "message",
+        id: "00000000-0000-0000-0000-eeeeeeeeee11",
+        parentId: null,
+        timestamp: "2026-05-21T14:00:01.000Z",
+        message: { role: "user", content: "hi" },
+      },
+      { type: "totally_unknown_record", timestamp: "2026-05-21T14:00:05.000Z", blob: { a: 1 } },
+    ];
+    const path = fixture("equivalent.jsonl", records);
+
+    const viaParse = await adapter.parse({ path }, { sessionUid: "sess-equivalent" });
+    const viaSnapshot = await adapter.parseSnapshot(
+      { records, sourceVersion: "3.0.0" },
+      { sessionUid: "sess-equivalent" },
+    );
+
+    expect(viaSnapshot).toEqual(viaParse);
   });
 });

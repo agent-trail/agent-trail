@@ -10,6 +10,7 @@ import { cleanGitEnv } from "../vcs.ts";
 // content and assert linkage via the found entries' own ids — never by a
 // reconstructed id.
 import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
+import { parseLines } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
 let prevHome: string | undefined;
@@ -484,6 +485,35 @@ test("parseSession() rejects non-object JSONL records instead of silently skippi
   await expect(
     piAdapter.parseSession({ id: "non-object", adapter: "pi", path: file }),
   ).rejects.toThrow(/expected JSON object on line 2/);
+});
+
+test("parseSession() rejects array JSONL records instead of quarantining them", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "array-record.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000101",
+      timestamp: "2026-05-21T14:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    })}\n[]\n`,
+  );
+
+  await expect(piAdapter.parseSession({ id: "array", adapter: "pi", path: file })).rejects.toThrow(
+    /expected JSON object on line 2/,
+  );
+});
+
+test("parseLines() reports malformed JSONL with a line number", () => {
+  expect(() => parseLines('{"type":"session"}\r\n{"type":')).toThrow(
+    /JsonlReader: failed to parse JSON on line 2:/,
+  );
+});
+
+test("parseLines() tolerates CRLF blank lines", () => {
+  expect(parseLines('{"type":"session"}\r\n\r\n')).toEqual([{ type: "session" }]);
 });
 
 test("parseSession() stamps timestamp-less drift quarantine from the session header", async () => {

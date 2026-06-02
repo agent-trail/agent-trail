@@ -65,14 +65,10 @@ import {
 } from "@agent-trail/adapter-kit";
 
 const schemaVersion = selectSchemaVersion("codex", session.cli_version);
-if (schemaVersion === undefined) {
-  // quarantine the whole session — no schema to validate against
-  return;
-}
-
 const reader = new JsonlReader();
 for await (const record of reader.records(source)) {
-  const diags = validateSourceRecord("codex", schemaVersion, record);
+  const diags =
+    schemaVersion === undefined ? [] : validateSourceRecord("codex", schemaVersion, record);
   if (diags.length > 0) {
     // quarantine the record — see formatDiagnosticsText from @agent-trail/core
     continue;
@@ -122,6 +118,23 @@ const entries = await adapter.parse({ path }, { sessionUid });
 
 `parse()` reads the whole source into memory before pass 1 (overrides' `ctx.window.recent`
 back-look needs random access). Fine for typical coding sessions; not a streaming-only path.
+If adapter glue has already read the source to build a session header, use `parseSnapshot()` to reuse
+those records without asking the reader to read the same source again:
+
+```ts
+type SourceSnapshot = {
+  records: RawRecord[];
+  sourceVersion?: string;
+};
+
+const snapshot = { records, sourceVersion: header.source?.format_version };
+const entries = await adapter.parseSnapshot(snapshot, { sessionUid });
+```
+
+`sourceVersion` is optional. When omitted, source-schema drift validation is unavailable and mappings
+run leniently, matching `parse()` behavior for readers that report an unknown or missing source
+version. Snapshot records must already be in the reader-equivalent shape expected by mappings and
+reconciler rules; `parseSnapshot()` does not normalize raw file records.
 
 ### Pass 1 — pure mappings
 
