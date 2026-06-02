@@ -857,9 +857,7 @@ test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call
 test("event_msg.thread_goal_updated emits session_metadata_update description", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.entries.find(
-    (e) =>
-      e.type === "session_metadata_update" &&
-      (e.payload as { field?: unknown }).field === "description",
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "description",
   );
   expect(evt).toBeDefined();
   expect(evt?.payload).toEqual({
@@ -876,7 +874,7 @@ test("event_msg.thread_goal_updated emits session_metadata_update description", 
   ).toBe(false);
 });
 
-test("event_msg.thread_goal_updated emits vendor session_metadata_update when summary is absent", async () => {
+test("event_msg.thread_goal_updated emits vendor session_metadata_update when summary is empty", async () => {
   const id = "019d8900-bbbb-7000-e000-00000000000b";
   const path = seedSession({
     date: { y: "2026", m: "05", d: "28" },
@@ -888,23 +886,28 @@ test("event_msg.thread_goal_updated emits vendor session_metadata_update when su
         type: "event_msg",
         payload: {
           type: "thread_goal_updated",
-          goal: { summary: null, items: ["finish"] },
+          goal: { summary: "", items: ["finish"] },
         },
       },
     ],
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
   const evt = trail.entries.find(
-    (e) =>
-      e.type === "session_metadata_update" &&
-      (e.payload as { field?: unknown }).field === "x-codex/thread_goal",
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "x-codex/thread_goal",
   );
 
   expect(evt?.payload).toEqual({
     field: "x-codex/thread_goal",
-    value: { summary: null, items: ["finish"] },
+    value: { summary: "", items: ["finish"] },
     reason: "ai_generated",
   });
+  expect(
+    trail.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: unknown }).kind === "x-codex/thread_goal_updated",
+    ),
+  ).toBe(false);
 });
 
 test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {

@@ -28,9 +28,9 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-05-21 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-05-20 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`); single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-01 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -75,8 +75,9 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   transient-carrier reconciler (`codexImageRollup`), so codex user images are captured without
   duplicating the message (#114 attachments).
 - **Claude Code** — linear (`parentChain`); every record carries `version` → per-record
-  `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eight pure mappings
+  `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eleven pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
+  ai-title/agent-name/worktree-state→session_metadata_update,
   system/progress/queue-operation/pr-link→system_event, permission-mode) plus four custom rules:
   synthesized `model_change`, `permission_mode_change` deltas, tool-kind propagation to results, and
   multi-block `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0.
@@ -118,7 +119,7 @@ canonical `branch_summary` events. `payload.abandoned_branch_id` is resolved by 
 `fromId` chain up to the divergence point with the active branch (active leaf = last envelope in
 source order per spec §12.2), then returning the entry id of the topmost source id on the abandoned
 side (the "root of abandoned branch"). When the divergence walk lands on a source id the adapter
-didn't emit an entry for (e.g. a `session_info` envelope that's currently dropped), the resolver
+didn't emit an entry for (for example, a non-timeline envelope without a mapped entry), the resolver
 walks deeper into the abandoned subtree, then climbs the parent chain from `fromId` to the nearest
 mapped ancestor; the verbatim source string is a last-resort fallback so the emitted payload remains
 schema-valid. Pi-specific `details` (`readFiles`, `modifiedFiles`) are mirrored into
@@ -320,8 +321,9 @@ Lifecycle-vocabulary `system_event` emissions:
   `args.query`. The source `ws_*` vendor id is preserved verbatim under `data.call_id` for
   audit fidelity, but is not surfaced as `semantic.call_id` because no `tool_call` was
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
-- `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a string,
-  it updates `description`; otherwise the raw goal object is preserved under `x-codex/thread_goal`.
+- `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a non-empty
+  string, it updates `description`; otherwise the raw goal object is preserved under
+  `x-codex/thread_goal`.
 - `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
   (for example, `"interrupted"`).
 - `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`

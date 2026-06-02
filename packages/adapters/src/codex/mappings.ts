@@ -543,7 +543,7 @@ const threadGoalUpdated = defineMapping<Raw>({
       {
         type: "session_metadata_update",
         payload:
-          summary !== undefined
+          summary !== undefined && summary.length > 0
             ? { field: "description", value: summary, reason: "ai_generated" }
             : { field: "x-codex/thread_goal", value: goal, reason: "ai_generated" },
         source: source("event_msg.thread_goal_updated"),

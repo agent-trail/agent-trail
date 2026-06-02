@@ -1125,8 +1125,7 @@ test("parseSession() leaves vcs undefined when cwd is not a git working tree", a
 test("session_info emits session_metadata_update name instead of x-pi/session_info", async () => {
   const trail = await parseSystemEventsFixture();
   const update = trail.entries.find(
-    (e) =>
-      e.type === "session_metadata_update" && (e.payload as { field?: unknown }).field === "name",
+    (e) => e.type === "session_metadata_update" && e.payload?.field === "name",
   );
   expect(update?.payload).toEqual({
     field: "name",

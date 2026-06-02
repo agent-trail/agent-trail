@@ -1464,7 +1464,7 @@ test("parseSession() maps agent-name without ai-title to a vendor session_metada
     const update = trail.entries.find(
       (entry) =>
         entry.type === "session_metadata_update" &&
-        (entry.payload as { field?: unknown }).field === "x-claudecode/agent_name",
+        entry.payload?.field === "x-claudecode/agent_name",
     );
     expect(update?.payload).toEqual({
       field: "x-claudecode/agent_name",
