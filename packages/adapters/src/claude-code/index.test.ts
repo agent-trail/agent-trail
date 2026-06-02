@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
@@ -385,6 +385,501 @@ test("parseSession() bundles a direct Agent child session from subagents directo
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   expect(diagnostics.some((d) => d.code.startsWith("child_session_"))).toBe(false);
+});
+
+test("parseSession() does not bundle a child file for duplicate Agent prompts", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000021";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "delegate twice" },
+        uuid: "00000000-0000-0000-0000-aaaa00000022",
+        timestamp: "2026-05-17T14:00:05.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-aaaa00000022",
+        isSidechain: false,
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [
+            {
+              type: "tool_use",
+              id: "agent-tool-1",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+            {
+              type: "tool_use",
+              id: "agent-tool-2",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+          ],
+          stop_reason: "tool_use",
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000023",
+        timestamp: "2026-05-17T14:00:06.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: true,
+        type: "user",
+        agentId: "child-one",
+        message: { role: "user", content: "inspect parser" },
+        uuid: "00000000-0000-0000-0000-bbbb00000021",
+        timestamp: "2026-05-17T14:00:08.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invokes = trail.groups[0]!.entries.filter(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invokes).toHaveLength(2);
+  expect(
+    invokes.every((entry) => {
+      const args = entry.payload.args as Record<string, unknown>;
+      return !("session_id" in args);
+    }),
+  ).toBe(true);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not use raw Claude sessionId as a child directory path", async () => {
+  const dir = createProjectDir();
+  const parentPath = join(dir, "safe-parent.jsonl");
+  const rawSessionId = "../escaped-parent";
+  const escapedChildDir = join(dir, "..", "escaped-parent", "subagents");
+  mkdirSync(escapedChildDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: false,
+        type: "assistant",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [
+            {
+              type: "tool_use",
+              id: "agent-tool-1",
+              name: "Agent",
+              input: { prompt: "inspect parser", subagent_type: "reviewer" },
+            },
+          ],
+          stop_reason: "tool_use",
+        },
+        uuid: "00000000-0000-0000-0000-aaaa00000031",
+        timestamp: "2026-05-17T14:00:06.000Z",
+        sessionId: rawSessionId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  writeFileSync(
+    join(escapedChildDir, "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000031",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: rawSessionId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: "safe-parent",
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() requires Claude child files to be sidechain records for the parent session", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000041";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000042",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000041",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: "00000000-0000-0000-0000-cccc00000041",
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() refuses mixed Claude child files even when one record has matching sidechain provenance", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000061";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000062",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    join(childDir, "agent-child-one.jsonl"),
+    `${[
+      {
+        parentUuid: null,
+        isSidechain: true,
+        type: "user",
+        agentId: "child-one",
+        message: { role: "user", content: "inspect parser" },
+        uuid: "00000000-0000-0000-0000-bbbb00000061",
+        timestamp: "2026-05-17T14:00:08.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+      {
+        parentUuid: "00000000-0000-0000-0000-bbbb00000061",
+        isSidechain: false,
+        type: "assistant",
+        agentId: "child-one",
+        message: {
+          role: "assistant",
+          model: "claude-opus-4-7",
+          content: [{ type: "text", text: "untrusted mixed transcript" }],
+        },
+        uuid: "00000000-0000-0000-0000-bbbb00000062",
+        timestamp: "2026-05-17T14:00:09.000Z",
+        sessionId: parentId,
+        version: "1.0.0-synthetic",
+        cwd: process.cwd(),
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() skips malformed Claude child files instead of failing parent parse", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000051";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000052",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(join(childDir, "agent-child-one.jsonl"), "not-json\n");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() skips non-object Claude child records instead of failing parent parse", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000071";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000072",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(join(childDir, "agent-child-one.jsonl"), "null\n");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+});
+
+test("parseSession() does not follow a symlinked Claude subagents directory", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000081";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const outsideChildDir = mkdtempSync(join(tmpdir(), "cc-adapter-linked-child-dir-"));
+  symlinkSync(outsideChildDir, join(dir, parentId), "dir");
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000082",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  mkdirSync(join(outsideChildDir, "subagents"), { recursive: true });
+  writeFileSync(
+    join(outsideChildDir, "subagents", "agent-child-one.jsonl"),
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000081",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  rmSync(outsideChildDir, { recursive: true, force: true });
+});
+
+test("parseSession() does not follow symlinked Claude child files", async () => {
+  const dir = createProjectDir();
+  const parentId = "00000000-0000-0000-0000-aaaa00000091";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const childDir = join(dir, parentId, "subagents");
+  mkdirSync(childDir, { recursive: true });
+  const outsideChildDir = mkdtempSync(join(tmpdir(), "cc-adapter-linked-child-file-"));
+  const outsideChildFile = join(outsideChildDir, "agent-child-one.jsonl");
+  writeFileSync(
+    parentPath,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-7",
+        content: [
+          {
+            type: "tool_use",
+            id: "agent-tool-1",
+            name: "Agent",
+            input: { prompt: "inspect parser", subagent_type: "reviewer" },
+          },
+        ],
+        stop_reason: "tool_use",
+      },
+      uuid: "00000000-0000-0000-0000-aaaa00000092",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  writeFileSync(
+    outsideChildFile,
+    `${JSON.stringify({
+      parentUuid: null,
+      isSidechain: true,
+      type: "user",
+      agentId: "child-one",
+      message: { role: "user", content: "inspect parser" },
+      uuid: "00000000-0000-0000-0000-bbbb00000091",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: parentId,
+      version: "1.0.0-synthetic",
+      cwd: process.cwd(),
+    })}\n`,
+  );
+  symlinkSync(outsideChildFile, join(childDir, "agent-child-one.jsonl"), "file");
+
+  const trail = await claudeCodeAdapter.parseSession({
+    id: parentId,
+    adapter: "claude-code",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  rmSync(outsideChildDir, { recursive: true, force: true });
 });
 
 test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matching acks", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,7 +274,10 @@ test("parseSession bundles a direct spawn_agent child session", async () => {
       {
         timestamp: "2026-05-30T01:47:00.000Z",
         type: "event_msg",
-        payload: { type: "agent_message", message: "child result" },
+        payload: {
+          type: "agent_message",
+          message: "child result",
+        },
       },
     ],
   });
@@ -334,6 +337,405 @@ test("parseSession bundles a direct spawn_agent child session", async () => {
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   expect(diagnostics.some((d) => d.code.startsWith("child_session_"))).toBe(false);
+});
+
+test("parseSession does not bundle a spawn_agent child without child-side provenance", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000011";
+  const childId = "019d9000-bbbb-7000-a000-000000000012";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "untrusted child" },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not bundle a spawn_agent child when provenance only appears on a later event", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000041";
+  const childId = "019d9000-bbbb-7000-a000-000000000042";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "agent_message",
+          message: "spoofed child provenance",
+          thread_source: "subagent",
+          source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+        },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not scan ambient Codex sessions for arbitrary parent files", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000051";
+  const childId = "019d9000-bbbb-7000-a000-000000000052";
+  seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: childId,
+    cwd: process.cwd(),
+    extraPayload: {
+      thread_source: "subagent",
+      source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+    },
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "ambient child result" },
+      },
+    ],
+  });
+  const parentPath = join(tmpCwd, "outside-parent.jsonl");
+  writeFileSync(
+    parentPath,
+    `${[
+      {
+        timestamp: "2026-05-31T01:46:00.000Z",
+        type: "session_meta",
+        payload: {
+          id: parentId,
+          timestamp: "2026-05-31T01:46:00.000Z",
+          cwd: process.cwd(),
+          originator: "codex-tui",
+          cli_version: "0.128.0",
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+});
+
+test("parseSession does not follow symlinked Codex session directories for children", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000061";
+  const childId = "019d9000-bbbb-7000-a000-000000000062";
+  const sessionsDir = codexSessionsDir();
+  if (sessionsDir === undefined) throw new Error("expected sessions dir");
+  mkdirSync(sessionsDir, { recursive: true });
+  const outsideDir = mkdtempSync(join(tmpdir(), "codex-adapter-linked-child-"));
+  const childPath = join(outsideDir, `rollout-2026-05-31T01-47-00-000Z-${childId}.jsonl`);
+  writeFileSync(
+    childPath,
+    `${[
+      {
+        timestamp: "2026-05-31T01:47:00.000Z",
+        type: "session_meta",
+        payload: {
+          id: childId,
+          timestamp: "2026-05-31T01:47:00.000Z",
+          cwd: process.cwd(),
+          originator: "codex-tui",
+          cli_version: "0.128.0",
+          thread_source: "subagent",
+          source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:47:01.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "symlinked child result" },
+      },
+    ]
+      .map((record) => JSON.stringify(record))
+      .join("\n")}\n`,
+  );
+  symlinkSync(outsideDir, join(sessionsDir, "linked-child-dir"), "dir");
+  const parentPath = seedSession({
+    date: { y: "2026", m: "05", d: "31" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-31T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-05-31T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const invoke = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.payload.tool === "subagent_invoke",
+  );
+  expect(invoke?.payload).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "inspect parser", agent_type: "reviewer" },
+  });
+  rmSync(outsideDir, { recursive: true, force: true });
+});
+
+test("parseSession skips incompatible Codex child files instead of failing parent parse", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000031";
+  const childId = "019d9000-bbbb-7000-a000-000000000032";
+  const childPath = seedSession({
+    date: { y: "2026", m: "06", d: "02" },
+    id: childId,
+    cwd: process.cwd(),
+  });
+  writeFileSync(
+    childPath,
+    `${JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: childId,
+        cwd: process.cwd(),
+        originator: "codex-tui",
+        cli_version: "0.128.0",
+        thread_source: "subagent",
+        source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+      },
+    })}\n`,
+  );
+  const parentPath = seedSession({
+    date: { y: "2026", m: "06", d: "02" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-06-02T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-06-02T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups).toHaveLength(1);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession dedupes repeated spawn_agent outputs for the same child", async () => {
+  const parentId = "019d9000-bbbb-7000-a000-000000000021";
+  const childId = "019d9000-bbbb-7000-a000-000000000022";
+  seedSession({
+    date: { y: "2026", m: "06", d: "01" },
+    id: childId,
+    cwd: process.cwd(),
+    extraPayload: {
+      thread_source: "subagent",
+      source: { subagent: { thread_spawn: { parent_thread_id: parentId } } },
+    },
+    extraRecords: [
+      {
+        timestamp: "2026-06-01T01:47:00.000Z",
+        type: "event_msg",
+        payload: { type: "agent_message", message: "child result" },
+      },
+    ],
+  });
+  const parentPath = seedSession({
+    date: { y: "2026", m: "06", d: "01" },
+    id: parentId,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-06-01T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-spawn-1",
+          name: "spawn_agent",
+          arguments: JSON.stringify({ agent_type: "reviewer", message: "inspect parser" }),
+        },
+      },
+      {
+        timestamp: "2026-06-01T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+      {
+        timestamp: "2026-06-01T01:46:03.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-spawn-1",
+          output: JSON.stringify({ agent_id: childId, nickname: "Reviewer" }),
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({
+    id: parentId,
+    adapter: "codex",
+    path: parentPath,
+  });
+
+  expect(trail.groups.map((group) => group.header.id)).toEqual([parentId, childId]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("update_plan function calls emit task_plan_update and drop matching ack outputs", async () => {

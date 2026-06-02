@@ -1,5 +1,5 @@
-import { open, readdir, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
@@ -153,6 +153,16 @@ function childPrompt(envelopes: Record<string, unknown>[]): string | undefined {
   return undefined;
 }
 
+function childBelongsToParent(envelopes: unknown[], parentSessionId: string): boolean {
+  if (envelopes.length === 0) return false;
+  for (const envelope of envelopes) {
+    if (!isObject(envelope)) return false;
+    if (envelope.isSidechain !== true) return false;
+    if (envelope.sessionId !== parentSessionId) return false;
+  }
+  return true;
+}
+
 async function parseGroup(
   path: string,
   options: {
@@ -204,11 +214,45 @@ async function parseGroup(
   return { group: { header, entries }, hints };
 }
 
-async function childFiles(parentPath: string, parentSessionId: string): Promise<string[]> {
-  const dir = join(dirname(parentPath), parentSessionId, "subagents");
-  if (!(await dirExists(dir))) return [];
-  const names = await readdir(dir);
-  return names.filter((name) => name.endsWith(".jsonl")).map((name) => join(dir, name));
+function safeChildDir(parentPath: string): string | undefined {
+  const parentDir = resolve(dirname(parentPath));
+  const parentStem = basename(parentPath, ".jsonl");
+  if (
+    parentStem.length === 0 ||
+    parentStem === "." ||
+    parentStem === ".." ||
+    parentStem.includes("/") ||
+    parentStem.includes("\\")
+  ) {
+    return undefined;
+  }
+  const dir = resolve(parentDir, parentStem, "subagents");
+  const rel = relative(parentDir, dir);
+  if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) return undefined;
+  return dir;
+}
+
+async function childFiles(parentPath: string): Promise<string[]> {
+  const dir = safeChildDir(parentPath);
+  if (dir === undefined) return [];
+  const dirStat = await lstat(dir).catch(() => undefined);
+  if (dirStat === undefined || !dirStat.isDirectory() || dirStat.isSymbolicLink()) return [];
+  const realParentDir = await realpath(dirname(parentPath)).catch(() => undefined);
+  const realDir = await realpath(dir).catch(() => undefined);
+  if (realParentDir === undefined || realDir === undefined) return [];
+  const rel = relative(realParentDir, realDir);
+  if (rel.length === 0 || rel.startsWith("..") || isAbsolute(rel)) return [];
+  const names = await readdir(dir).catch(() => undefined);
+  if (names === undefined) return [];
+  const files: string[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".jsonl")) continue;
+    const file = join(dir, name);
+    const fileStat = await lstat(file).catch(() => undefined);
+    if (fileStat === undefined || !fileStat.isFile() || fileStat.isSymbolicLink()) continue;
+    files.push(file);
+  }
+  return files;
 }
 
 function withLinkedChildSessionIds(entries: Entry[], linked: Map<string, string>): Entry[] {
@@ -228,12 +272,21 @@ async function directChildGroups(
   parentGroup: TrailSessionGroup,
   parentPath: string,
 ): Promise<TrailSessionGroup[]> {
-  const files = await childFiles(parentPath, parentGroup.header.id);
+  const files = await childFiles(parentPath);
   if (files.length === 0) return [];
   const childCandidates = await Promise.all(
     files.map(async (file) => {
-      const text = await Bun.file(file).text();
-      const envelopes = parseLines(text) as Record<string, unknown>[];
+      const text = await Bun.file(file)
+        .text()
+        .catch(() => undefined);
+      if (text === undefined) return undefined;
+      let envelopes: Record<string, unknown>[];
+      try {
+        envelopes = parseLines(text) as Record<string, unknown>[];
+      } catch {
+        return undefined;
+      }
+      if (!childBelongsToParent(envelopes, parentGroup.header.id)) return undefined;
       return {
         file,
         envelopes,
@@ -242,13 +295,24 @@ async function directChildGroups(
       };
     }),
   );
+  const candidates = childCandidates.filter((candidate) => candidate !== undefined);
 
+  const taskCounts = new Map<string, number>();
+  for (const entry of parentGroup.entries) {
+    const task = subagentTask(entry);
+    if (task !== undefined) taskCounts.set(task, (taskCounts.get(task) ?? 0) + 1);
+  }
   const linked = new Map<string, string>();
   const groups: TrailSessionGroup[] = [];
+  const usedFiles = new Set<string>();
+  const usedChildIds = new Set<string>();
   for (const entry of parentGroup.entries) {
     const task = subagentTask(entry);
     if (task === undefined) continue;
-    const matches = childCandidates.filter((candidate) => candidate.prompt === task);
+    if (taskCounts.get(task) !== 1) continue;
+    const matches = candidates.filter(
+      (candidate) => candidate.prompt === task && !usedFiles.has(candidate.file),
+    );
     if (matches.length !== 1) continue;
     const child = matches[0]!;
     const parsed = await parseGroup(child.file, {
@@ -256,7 +320,11 @@ async function directChildGroups(
       childKey: child.key,
       parentSessionId: parentGroup.header.id,
       includeSidechain: true,
-    });
+    }).catch(() => undefined);
+    if (parsed === undefined) continue;
+    if (usedChildIds.has(parsed.group.header.id)) continue;
+    usedFiles.add(child.file);
+    usedChildIds.add(parsed.group.header.id);
     linked.set(entry.id, parsed.group.header.id);
     groups.push(parsed.group);
   }
