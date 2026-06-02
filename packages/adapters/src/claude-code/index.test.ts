@@ -1733,7 +1733,7 @@ test("parseSession() maps Claude Code api_error to the reserved diagnostic kind"
     },
   ]);
 
-  const event = trail.entries.find((entry) => entry.type === "system_event");
+  const event = trail.groups[0]!.entries.find((entry) => entry.type === "system_event");
   expect(event?.payload).toEqual({
     kind: "api_error",
     text: "rate limit exceeded",
@@ -1777,7 +1777,7 @@ test("parseSession() emits hook_failed events from stop_hook_summary hookErrors"
     },
   ]);
 
-  const events = trail.entries.filter((entry) => entry.type === "system_event");
+  const events = trail.groups[0]!.entries.filter((entry) => entry.type === "system_event");
   expect(events.map((entry) => entry.payload)).toEqual([
     { kind: "turn_end", text: "Stop hook summary" },
     {
@@ -1862,7 +1862,7 @@ test("parseSession() maps hook error attachments to hook_failed events", async (
     },
   ]);
 
-  const events = trail.entries.filter(
+  const events = trail.groups[0]!.entries.filter(
     (entry) =>
       entry.type === "system_event" && (entry.payload as { kind?: string }).kind === "hook_failed",
   );

@@ -1116,8 +1116,8 @@ test("parseSession maps nested failed function output to a failed tool_result", 
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
 
-  const call = trail.entries.find((entry) => entry.type === "tool_call");
-  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   expect(result?.payload).toEqual({
     for_id: call?.id,
     ok: false,
@@ -1166,9 +1166,9 @@ test("parseSession keeps nonzero command output successful when tool metadata sa
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
 
-  const result = trail.entries.find((entry) => entry.type === "tool_result");
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   expect(result?.payload).toEqual({
-    for_id: trail.entries.find((entry) => entry.type === "tool_call")?.id,
+    for_id: trail.groups[0]!.entries.find((entry) => entry.type === "tool_call")?.id,
     ok: true,
     output: "Process exited with code 2\nOutput:\ncommand failed",
   });
@@ -1233,10 +1233,10 @@ test("parseSession maps nested custom tool output status and body", async () => 
   });
   const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
 
-  const failedCall = trail.entries.find(
+  const failedCall = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-error",
   );
-  const failedResult = trail.entries.find(
+  const failedResult = trail.groups[0]!.entries.find(
     (entry) =>
       entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-error",
   );
@@ -1247,10 +1247,10 @@ test("parseSession maps nested custom tool output status and body", async () => 
     error: "custom tool failed",
   });
 
-  const okCall = trail.entries.find(
+  const okCall = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-custom-nested-ok",
   );
-  const okResult = trail.entries.find(
+  const okResult = trail.groups[0]!.entries.find(
     (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "call-custom-nested-ok",
   );
   expect(okResult?.payload).toEqual({
