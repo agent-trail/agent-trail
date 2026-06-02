@@ -593,148 +593,161 @@ function listingText(attachment: Record<string, unknown>): string | undefined {
   return jsonString(content);
 }
 
+function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
+  if (!gate(record)) return [];
+  const isLegacyAttachment = record.type === "attachment";
+  const attachment = isLegacyAttachment && isObject(record.attachment) ? record.attachment : record;
+  const subtype = isLegacyAttachment ? stringValue(attachment.type) : stringValue(record.type);
+  if (subtype === undefined) return [];
+  const originalType = isLegacyAttachment ? `attachment.${subtype}` : subtype;
+
+  if (subtype === "deferred_tools_delta") {
+    const drafts: TrailEntryDraft[] = [];
+    const added = stringArray(attachment.addedNames ?? attachment.added_names).map((name) => ({
+      name,
+    }));
+    if (added.length > 0) {
+      drafts.push({
+        type: "capability_change",
+        payload: { scope: "tool", reason: "registered", added },
+        source: src(record, originalType),
+        meta: meta(record),
+      });
+    }
+    const removed = stringArray(attachment.removedNames ?? attachment.removed_names).map(
+      (name) => ({ name }),
+    );
+    if (removed.length > 0) {
+      drafts.push({
+        type: "capability_change",
+        payload: { scope: "tool", reason: "deregistered", removed },
+        source: src(record, originalType),
+        meta: meta(record),
+      });
+    }
+    return drafts;
+  }
+
+  if (subtype === "skill_listing") {
+    const snapshot = skillItems(attachment);
+    if (snapshot.length > 0) {
+      return [
+        {
+          type: "capability_change",
+          payload: { scope: "skill", reason: "loaded", snapshot },
+          source: src(record, originalType),
+          meta: meta(record),
+        },
+      ];
+    }
+    const text = listingText(attachment);
+    if (text === undefined || text.length === 0) return [];
+    return [
+      {
+        type: "capability_change",
+        payload: {
+          scope: "skill",
+          reason: "loaded",
+          changed: [{ name: "skill_listing", field: "listing", to: text }],
+        },
+        source: src(record, originalType),
+        meta: meta(record),
+      },
+    ];
+  }
+
+  if (subtype === "mcp_instructions_delta") {
+    const name =
+      stringValue(attachment.serverName) ??
+      stringValue(attachment.server) ??
+      stringValue(attachment.name) ??
+      "mcp_instructions";
+    const content = listingText(attachment);
+    return [
+      {
+        type: "capability_change",
+        payload: {
+          scope: "mcp_server",
+          reason: "instructions_updated",
+          changed: [
+            {
+              name,
+              field: "instructions",
+              ...(content !== undefined && content.length > 0 ? { to: content } : {}),
+            },
+          ],
+        },
+        source: src(record, originalType),
+        meta: meta(record),
+      },
+    ];
+  }
+
+  if (subtype === "hook_permission_decision") {
+    const decision = permissionDecision(attachment.decision);
+    if (decision === undefined) return [];
+    const data: Record<string, unknown> = { decision };
+    const rawToolCallId =
+      stringValue(attachment.tool_call_id) ??
+      stringValue(attachment.toolCallId) ??
+      stringValue(attachment.tool_use_id) ??
+      stringValue(attachment.toolUseID);
+    const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
+    if (toolCallId !== undefined) data.tool_call_id = toolCallId;
+    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+    if (hookEvent !== undefined) data.hook_event = hookEvent;
+    const capability = stringValue(attachment.capability);
+    if (capability !== undefined) data.capability = capability;
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: "permission_decision",
+          data,
+        },
+        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
+        source: src(record, originalType),
+        meta: meta(record, { callId: toolCallId }),
+      },
+    ];
+  }
+
+  if (subtype === "command_permissions") {
+    const data: Record<string, unknown> = {};
+    const rawAllowedTools = attachment.allowed_tools ?? attachment.allowedTools;
+    if (Array.isArray(rawAllowedTools)) data.allowed_tools = stringArray(rawAllowedTools);
+    const model = stringValue(attachment.model);
+    if (model !== undefined) data.model = model;
+    if (Object.keys(data).length === 0) return [];
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: "permission_request",
+          data,
+        },
+        source: src(record, originalType),
+        meta: meta(record),
+      },
+    ];
+  }
+
+  return [];
+}
+
 const capabilityAttachment = defineMapping<Raw>({
   match: { type: "attachment" },
-  emit: (raw) => {
-    const record = raw as CcEnvelope;
-    if (!gate(record)) return [];
-    const attachment = isObject(record.attachment) ? record.attachment : undefined;
-    const subtype = stringValue(attachment?.type);
-    if (attachment === undefined || subtype === undefined) return [];
+  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
+});
 
-    if (subtype === "deferred_tools_delta") {
-      const drafts: TrailEntryDraft[] = [];
-      const added = stringArray(attachment.addedNames ?? attachment.added_names).map((name) => ({
-        name,
-      }));
-      if (added.length > 0) {
-        drafts.push({
-          type: "capability_change",
-          payload: { scope: "tool", reason: "registered", added },
-          source: src(record, "attachment.deferred_tools_delta"),
-          meta: meta(record),
-        });
-      }
-      const removed = stringArray(attachment.removedNames ?? attachment.removed_names).map(
-        (name) => ({ name }),
-      );
-      if (removed.length > 0) {
-        drafts.push({
-          type: "capability_change",
-          payload: { scope: "tool", reason: "deregistered", removed },
-          source: src(record, "attachment.deferred_tools_delta"),
-          meta: meta(record),
-        });
-      }
-      return drafts;
-    }
+const topLevelCommandPermissions = defineMapping<Raw>({
+  match: { type: "command_permissions" },
+  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
+});
 
-    if (subtype === "skill_listing") {
-      const snapshot = skillItems(attachment);
-      if (snapshot.length > 0) {
-        return [
-          {
-            type: "capability_change",
-            payload: { scope: "skill", reason: "loaded", snapshot },
-            source: src(record, "attachment.skill_listing"),
-            meta: meta(record),
-          },
-        ];
-      }
-      const text = listingText(attachment);
-      if (text === undefined || text.length === 0) return [];
-      return [
-        {
-          type: "capability_change",
-          payload: {
-            scope: "skill",
-            reason: "loaded",
-            changed: [{ name: "skill_listing", field: "listing", to: text }],
-          },
-          source: src(record, "attachment.skill_listing"),
-          meta: meta(record),
-        },
-      ];
-    }
-
-    if (subtype === "mcp_instructions_delta") {
-      const name =
-        stringValue(attachment.serverName) ??
-        stringValue(attachment.server) ??
-        stringValue(attachment.name) ??
-        "mcp_instructions";
-      const content = listingText(attachment);
-      return [
-        {
-          type: "capability_change",
-          payload: {
-            scope: "mcp_server",
-            reason: "instructions_updated",
-            changed: [
-              {
-                name,
-                field: "instructions",
-                ...(content !== undefined && content.length > 0 ? { to: content } : {}),
-              },
-            ],
-          },
-          source: src(record, "attachment.mcp_instructions_delta"),
-          meta: meta(record),
-        },
-      ];
-    }
-
-    if (subtype === "hook_permission_decision") {
-      const decision = permissionDecision(attachment.decision);
-      if (decision === undefined) return [];
-      const data: Record<string, unknown> = { decision };
-      const rawToolCallId =
-        stringValue(attachment.tool_call_id) ??
-        stringValue(attachment.toolCallId) ??
-        stringValue(attachment.tool_use_id) ??
-        stringValue(attachment.toolUseID);
-      const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
-      if (toolCallId !== undefined) data.tool_call_id = toolCallId;
-      const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
-      if (hookEvent !== undefined) data.hook_event = hookEvent;
-      const capability = stringValue(attachment.capability);
-      if (capability !== undefined) data.capability = capability;
-      return [
-        {
-          type: "system_event",
-          payload: {
-            kind: "permission_decision",
-            data,
-          },
-          ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-          source: src(record, "attachment.hook_permission_decision"),
-          meta: meta(record, { callId: toolCallId }),
-        },
-      ];
-    }
-
-    if (subtype === "command_permissions") {
-      const data: Record<string, unknown> = {};
-      const allowedTools = stringArray(attachment.allowed_tools ?? attachment.allowedTools);
-      if (allowedTools.length > 0) data.allowed_tools = allowedTools;
-      const model = stringValue(attachment.model);
-      if (model !== undefined) data.model = model;
-      if (Object.keys(data).length === 0) return [];
-      return [
-        {
-          type: "system_event",
-          payload: {
-            kind: "permission_request",
-            data,
-          },
-          source: src(record, "attachment.command_permissions"),
-          meta: meta(record),
-        },
-      ];
-    }
-
-    return [];
-  },
+const topLevelHookPermissionDecision = defineMapping<Raw>({
+  match: { type: "hook_permission_decision" },
+  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
 });
 
 export const claudeCodeMappings: MappingDef<Raw>[] = [
@@ -745,6 +758,8 @@ export const claudeCodeMappings: MappingDef<Raw>[] = [
   agentNameMetadata,
   worktreeStateMetadata,
   capabilityAttachment,
+  topLevelCommandPermissions,
+  topLevelHookPermissionDecision,
   systemEvent("system", false),
   systemEvent("progress", false),
   systemEvent("queue-operation", true),
