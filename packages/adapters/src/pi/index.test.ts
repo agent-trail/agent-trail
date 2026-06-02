@@ -1598,3 +1598,41 @@ test("explicit leaf feeds branch_summary.abandoned_branch_id resolution", async 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
+
+// Issue #125 #1/#2: when a leaf/label targetId points at a source id that emitted
+// no entry, resolution climbs to the nearest mapped ancestor (mirrors
+// abandoned_branch_id). A target with no mapped ancestor keeps the raw id.
+test("label target resolves to nearest mapped ancestor when the target emitted nothing", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "label-ancestor.jsonl");
+  // The compaction has no summary → emits nothing; the label targets it, so
+  // resolution must climb to the user_message parent.
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1abc00000001", timestamp: "2026-05-22T05:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1abc00000002", parentId: null, timestamp: "2026-05-22T05:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "compaction", id: "00000000-0000-0000-0000-1abc00000003", parentId: "00000000-0000-0000-0000-1abc00000002", timestamp: "2026-05-22T05:00:02.000Z" })}\n${JSON.stringify({ type: "label", id: "00000000-0000-0000-0000-1abc00000004", parentId: "00000000-0000-0000-0000-1abc00000002", timestamp: "2026-05-22T05:00:03.000Z", targetId: "00000000-0000-0000-0000-1abc00000003", label: "tag" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "label-ancestor", adapter: "pi", path: file });
+  const entries = trail.groups[0]!.entries;
+  const user = entries.find((e) => e.type === "user_message");
+  const label = entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string } }).data?.target_id).toBe(user?.id);
+});
+
+test("label target with no mapped ancestor keeps the raw Pi id", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "label-unresolved.jsonl");
+  // targetId references an id that appears nowhere → no mapped ancestor exists.
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1abd00000001", timestamp: "2026-05-22T06:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1abd00000002", parentId: null, timestamp: "2026-05-22T06:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "label", id: "00000000-0000-0000-0000-1abd00000003", parentId: "00000000-0000-0000-0000-1abd00000002", timestamp: "2026-05-22T06:00:02.000Z", targetId: "00000000-0000-0000-0000-deadbeef0000", label: "dangling" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "label-unresolved", adapter: "pi", path: file });
+  const label = trail.groups[0]!.entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string } }).data?.target_id).toBe(
+    "00000000-0000-0000-0000-deadbeef0000",
+  );
+});

@@ -28,7 +28,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
@@ -45,6 +45,14 @@ mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built
 `coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
 `file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
 synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
+`LeafEntry` (active branch-tip) maps to `system_event{kind:"x-pi/leaf_change"}` and `LabelEntry`
+to `system_event{kind:"x-pi/label"}`, both with the raw Pi `targetId` resolved to the referenced
+trail entry id (nearest mapped ancestor when the target itself emitted nothing); the final leaf also
+feeds `branch_summary` divergence resolution. `BashExecutionMessage` (user `!`/`!!` shell prefix)
+maps to a `shell_command` `tool_call` + `tool_result` pair marked `dev.pi.user_shell`, with
+exit/cancel/truncate/full-output-path carried in `dev.pi.*` meta. The message-channel variants
+(`message.role` of `bashExecution` / `custom` / `branchSummary` / `compactionSummary`) route to the
+same trail entries as their tree-entry counterparts.
 
 **Adapter-kit implementation (#146 Phase 4).** All three adapters are built on the adapter-kit
 mapping DSL + two-pass reconciler (`defineAdapter`). Each agent's production `TrailAdapter`
@@ -54,7 +62,7 @@ Codex also `overrides.ts`). The earlier hand-written parsers were removed once p
 shared helpers they exported (`buildHeader`, `source.ts`/`tools.ts`/`entry-metadata.ts` helpers,
 Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
 
-- **Pi** — tree-native: 10 pure mappings (**override-ratio 0**) plus four custom reconciler rules for
+- **Pi** — tree-native: 16 pure mappings (**override-ratio 0**) plus four custom reconciler rules for
   tree parenting + `branch_summary` divergence, tool-kind propagation, `model_change.from_model`
   threading, and EOF `session_terminated` synthesis (the kit's general `branchReconciliation` is
   deferred — Pi carries its own rule). Pi `/tree` branches remain inside one session group via
@@ -192,9 +200,11 @@ Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
 
 - `x-pi/thinking_level_change` — pi-mono `thinking_level_change` envelope. `payload.data.thinking_level` carries `low | medium | high`. No reserved kind matches (model_change covers model id, not thinking level).
 - `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
-- `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`.
+- `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`. `display` surfaces as `meta["dev.pi.display"]` (display:false events are kept, not dropped).
+- `x-pi/leaf_change` — pi-mono `leaf` envelope (active branch-tip pointer). `payload.data.leaf_id` carries the referenced trail entry id; a null `targetId` clears the pointer (no `data`).
+- `x-pi/label` — pi-mono `label` envelope (targetId+label annotation). `payload.data.target_id` carries the referenced trail entry id; `payload.data.label` preserves the source label when present.
 
-Remaining deferred shapes: `bashExecution`, `label`, `parentSession` forked sessions. If Pi
+Remaining deferred shapes: `parentSession` forked sessions. If Pi
 `parentSession` support is added, those forked sessions should use child session groups with
 `header.fork_from`; Pi `/tree` branches stay inside one tree-native group.
 

@@ -505,7 +505,9 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const command = stringValue(msg?.command);
       if (command === undefined) return [];
       // No native Pi call id for `!` shell — synthesize one so the built-in
-      // toolLinking pass pairs the call with its result.
+      // toolLinking pass pairs the call with its result. Keyed on the source
+      // envelope id, which is unique within a Pi session, so the two drafts this
+      // mapping emits are the only pair sharing it.
       const callId = `x-pi/bash:${record.id}`;
       const cancelled = msg?.cancelled === true;
       const exitCode = typeof msg?.exitCode === "number" ? msg.exitCode : undefined;
@@ -531,7 +533,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
           source: src(record, "bashExecution"),
           meta: {
             linker: { call_id: callId },
-            ...metaFor(record, "bash_execution_call", callMeta),
+            ...metaFor(record, "bash_execution", callMeta),
           },
         },
         {
@@ -548,7 +550,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
             linker: { call_id: callId },
             ...metaFor(
               record,
-              "bash_execution_result",
+              "bash_execution",
               Object.keys(resultMeta).length > 0 ? resultMeta : undefined,
             ),
           },

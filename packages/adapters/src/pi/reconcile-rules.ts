@@ -8,7 +8,7 @@ import type { RawRecord, ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { type ParentableEntry, resolveEntryParents } from "../parenting.ts";
 import { deriveSynthesizedEntryId, PI_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
-import { findAbandonedBranchRootId } from "./divergence.ts";
+import { findAbandonedBranchRootId, nearestMappedAncestor } from "./divergence.ts";
 import { PARENT_HINT, type ParentHint } from "./mappings.ts";
 
 function hintOf(entry: Entry): ParentHint | undefined {
@@ -47,6 +47,20 @@ function firstKeptEntryIdFrom(entry: Entry): string | undefined {
     if (typeof firstKept === "string") return firstKept;
   }
   return undefined;
+}
+
+// Resolve a leaf/label target (a raw Pi source id) to the trail entry id it
+// points at: the entry the source id emitted, or — if that source id emitted
+// nothing (e.g. an unmapped/dropped intermediate) — the nearest mapped ancestor,
+// mirroring how abandoned_branch_id resolves. Returns undefined only when the
+// whole ancestor chain is unmapped; the caller then keeps the raw id as a
+// last-resort audit pointer rather than inventing a reference.
+function resolveTargetEntryId(
+  rawTargetId: string,
+  parentBySourceId: Map<string, string | null>,
+  sourceIdToFirstEntryId: Map<string, string>,
+): string | undefined {
+  return nearestMappedAncestor(rawTargetId, parentBySourceId, sourceIdToFirstEntryId);
 }
 
 function sourceIdFromRecord(record: RawRecord): string | undefined {
@@ -164,7 +178,7 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
         const rawLeaf = payload.data?.leaf_id;
         if (typeof rawLeaf === "string") {
           activeLeafSourceId = rawLeaf; // raw id captured before resolution below
-          const mapped = sourceIdToFirstEntryId.get(rawLeaf);
+          const mapped = resolveTargetEntryId(rawLeaf, parentBySourceId, sourceIdToFirstEntryId);
           if (mapped !== undefined) {
             next = { ...next, payload: { ...payload, data: { ...payload.data, leaf_id: mapped } } };
           }
@@ -172,7 +186,7 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
       } else if (payload.kind === "x-pi/label") {
         const rawTarget = payload.data?.target_id;
         if (typeof rawTarget === "string") {
-          const mapped = sourceIdToFirstEntryId.get(rawTarget);
+          const mapped = resolveTargetEntryId(rawTarget, parentBySourceId, sourceIdToFirstEntryId);
           if (mapped !== undefined) {
             next = {
               ...next,
