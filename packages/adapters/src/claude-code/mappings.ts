@@ -880,6 +880,35 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     ];
   }
 
+  if (subtype === "hook_additional_context") {
+    // Text a hook injects into the user turn — input the model actually
+    // received. Represented as a system_event (not user_message) so it is not
+    // misattributed as user-typed. See issue #126.
+    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+    const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
+    const toolCallId = hookToolCallId(attachment);
+    const content = attachment.content;
+    const data: Record<string, unknown> = {};
+    if (hookEvent !== undefined) data.hook_event = hookEvent;
+    if (hookName !== undefined) data.hook_name = hookName;
+    if (toolCallId !== undefined) data.tool_call_id = toolCallId;
+    if (content !== undefined) data.content = content;
+    const text = textFromToolResultContent(content);
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: "x-claudecode/hook_additional_context",
+          ...(text.length > 0 ? { text } : {}),
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        },
+        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
+        source: src(record, originalType),
+        meta: meta(record, { callId: toolCallId }),
+      },
+    ];
+  }
+
   if (subtype === "command_permissions") {
     const data: Record<string, unknown> = {};
     const rawAllowedTools = attachment.allowed_tools ?? attachment.allowedTools;

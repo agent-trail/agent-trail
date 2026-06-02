@@ -1389,6 +1389,51 @@ test("parseSession() uses normalized hook_success tool ids for semantic linkage"
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps hook_additional_context attachments to a system_event", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b1",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b0",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        toolUseID: "tooluse-ctx",
+        content: [{ type: "text", text: "CAVEMAN MODE ACTIVE" }],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+
+  expect(evt).toBeDefined();
+  expect((evt?.payload as { kind?: string }).kind).toBe("x-claudecode/hook_additional_context");
+  const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
+  expect(payload.text).toContain("CAVEMAN MODE ACTIVE");
+  expect(payload.data?.hook_event).toBe("UserPromptSubmit");
+  expect(payload.data?.hook_name).toBe("inject-context");
+  expect(payload.data?.content).toEqual([{ type: "text", text: "CAVEMAN MODE ACTIVE" }]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
   const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
