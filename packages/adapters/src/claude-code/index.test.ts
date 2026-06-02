@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
@@ -121,24 +122,24 @@ test("detectSessions() returns empty when project dir is missing", async () => {
   expect(await claudeCodeAdapter.detectSessions()).toEqual([]);
 });
 
-const FIXTURE_PATH = new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url)
-  .pathname;
-const FIDELITY_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl",
-  import.meta.url,
-).pathname;
-const INTERRUPT_MODEL_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl",
-  import.meta.url,
-).pathname;
-const PERMISSION_MODE_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/permission-mode.jsonl",
-  import.meta.url,
-).pathname;
-const CAPABILITY_CHANGES_FIXTURE_PATH = new URL(
-  "../../tests/fixtures/claude-code/capability-changes.jsonl",
-  import.meta.url,
-).pathname;
+const FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/basic-flow.jsonl", import.meta.url),
+);
+const FIDELITY_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl", import.meta.url),
+);
+const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
+);
+const INTERRUPT_MODEL_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/interrupt-and-model-change.jsonl", import.meta.url),
+);
+const PERMISSION_MODE_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/permission-mode.jsonl", import.meta.url),
+);
+const CAPABILITY_CHANGES_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/capability-changes.jsonl", import.meta.url),
+);
 
 async function parseFixture() {
   return claudeCodeAdapter.parseSession({
@@ -153,6 +154,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseCompactProvenanceFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "compact-provenance",
+    adapter: "claude-code",
+    path: COMPACT_PROVENANCE_FIXTURE_PATH,
   });
 }
 
@@ -1710,8 +1719,169 @@ test("parseSession() maps system, progress, queue, resume preamble, summary, and
   });
   // The resume preamble (continuation summary) maps to a session_start system_event.
   expect(byKind("session_start")?.type).toBe("system_event");
-  expect(trail.groups[0]!.entries.some((e) => e.type === "session_summary")).toBe(true);
-  expect(trail.groups[0]!.entries.some((e) => e.type === "context_compact")).toBe(true);
+  const entries = trail.groups[0]!.entries;
+  expect(entries.some((e) => e.type === "session_summary")).toBe(true);
+  const compact = entries.find((e) => e.type === "context_compact");
+  expect(compact).toBeDefined();
+  expect(
+    (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
+  ).toBeUndefined();
+});
+
+test("parseSession() maps compact_boundary provenance to the next compact summary", async () => {
+  const trail = await parseCompactProvenanceFixture();
+  const entries = trail.groups[0]!.entries;
+  const compact = entries.find((e) => e.type === "context_compact");
+  const compactBoundaryIndex = entries.findIndex(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-claudecode/compact_boundary",
+  );
+  expect(compactBoundaryIndex).toBeGreaterThan(-1);
+  const folded = entries.slice(0, compactBoundaryIndex).map((e) => e.id);
+  expect(entries.slice(0, compactBoundaryIndex).map((e) => e.type)).toEqual([
+    "user_message",
+    "agent_message",
+    "tool_call",
+    "tool_result",
+  ]);
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual(
+    folded,
+  );
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps real user-shaped compact summaries after compact_boundary", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0001763",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1801",
+      timestamp: "2026-05-17T16:20:00.000Z",
+      message: { role: "user", content: "fold this real-shaped turn" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1801",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1802",
+      timestamp: "2026-05-17T16:20:01.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1802",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1803",
+      timestamp: "2026-05-17T16:20:02.000Z",
+      isCompactSummary: true,
+      message: { role: "user", content: "Recovered Claude compact summary." },
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const foldedUser = entries.find(
+    (e) =>
+      e.type === "user_message" &&
+      (e.payload as { text?: string }).text === "fold this real-shaped turn",
+  );
+  const compact = entries.find((e) => e.type === "context_compact");
+  if (foldedUser === undefined) throw new Error("expected folded user entry");
+  expect((compact?.payload as { summary?: string }).summary).toBe(
+    "Recovered Claude compact summary.",
+  );
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    foldedUser.id,
+  ]);
+  expect(
+    entries.some(
+      (e) =>
+        e.type === "user_message" &&
+        (e.payload as { text?: string }).text === "Recovered Claude compact summary.",
+    ),
+  ).toBe(false);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() lets a later compact_boundary supersede stale pending provenance", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0001762",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T16:10:00.000Z",
+      message: { role: "user", content: "before first boundary" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1761",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1762",
+      timestamp: "2026-05-17T16:10:01.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1762",
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1763",
+      timestamp: "2026-05-17T16:10:02.000Z",
+      message: { role: "user", content: "after stale boundary" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1763",
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      content: "Compact boundary",
+      uuid: "00000000-0000-0000-0000-cccccccc1764",
+      timestamp: "2026-05-17T16:10:03.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1764",
+      type: "summary",
+      summary: "Compacted the later segment.",
+      leafUuid: "00000000-0000-0000-0000-cccccccc1763",
+      isCompactSummary: true,
+      uuid: "00000000-0000-0000-0000-cccccccc1765",
+      timestamp: "2026-05-17T16:10:04.000Z",
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const laterUser = entries.find(
+    (e) =>
+      e.type === "user_message" && (e.payload as { text?: string }).text === "after stale boundary",
+  );
+  const compact = entries.find((e) => e.type === "context_compact");
+  if (laterUser === undefined) throw new Error("expected later user entry");
+  expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
+    laterUser.id,
+  ]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() maps Claude Code api_error to the reserved diagnostic kind", async () => {
