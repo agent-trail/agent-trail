@@ -597,7 +597,9 @@ A text response from the agent.
       "output_tokens": 567,
       "cache_read_tokens": 100,
       "cache_creation_tokens": 50,
-      "reasoning_tokens": 200
+      "reasoning_tokens": 200,
+      "context_input_tokens": 1384,
+      "context_window_tokens": 200000
     }
   }
 }
@@ -626,10 +628,14 @@ Captures per-message token accounting emitted by the source agent. Optional. Whe
 | `cache_read_tokens` | no | integer ≥0 | input tokens served from prompt cache; billed separately from `input_tokens` |
 | `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
 | `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
+| `context_input_tokens` | no | integer ≥0 | prompt/context tokens submitted to the model for this request; cache-inclusive when the source exposes enough detail |
+| `context_window_tokens` | no | integer ≥0 | model context-window size for this request, only when the source exposes it |
 
 When `usage` is present, writers MUST emit at least one of (`input_tokens`, `input_tokens_cumulative`) AND at least one of (`output_tokens`, `output_tokens_cumulative`). Both shapes are supported because sources differ: Anthropic emits deltas, some Codex variants emit only cumulative totals. Readers SHOULD prefer the delta form and fall back to subtracting consecutive cumulative values.
 
 Cache token semantics match Anthropic and OpenAI Responses API: `input_tokens` counts non-cached input only; `cache_read_tokens` and `cache_creation_tokens` are independent billing categories. Total billed input = `input_tokens + cache_read_tokens + cache_creation_tokens`. They are additive, not a subset of `input_tokens`.
+
+Context token semantics are for context-pressure analytics, not billing. Writers MAY emit `context_input_tokens` when the source exposes prompt/context tokens for the request, including cache-read and cache-creation tokens when those count against the context window. Writers MAY emit `context_window_tokens` when the source reports the model's context-window size for the request. Writers MUST NOT estimate either field from raw text or tokenizer assumptions, and MUST NOT fabricate a `context_window_tokens` value from model name alone. Consumers derive context pressure as `context_input_tokens / context_window_tokens` when both fields are present.
 
 Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 

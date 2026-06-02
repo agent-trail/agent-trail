@@ -211,6 +211,11 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const callId = idValue(record.message?.toolCallId);
       const ok = record.message?.isError !== true;
       const output = textFromContent(record.message?.content);
+      const details = isObject(record.message?.details) ? record.message.details : undefined;
+      const toolMetadata = isObject(details?.toolMetadata) ? details.toolMetadata : undefined;
+      const contextAtCompletion = isObject(toolMetadata?.contextAtCompletion)
+        ? toolMetadata.contextAtCompletion
+        : undefined;
       return [
         {
           type: "tool_result",
@@ -224,7 +229,13 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
           source: src(record, "message"),
           meta: {
             ...(callId !== undefined ? { linker: { call_id: callId } } : {}),
-            ...metaFor(record, "tool_result_envelope"),
+            ...metaFor(
+              record,
+              "tool_result_envelope",
+              contextAtCompletion !== undefined
+                ? { "dev.pi.context_at_completion": contextAtCompletion }
+                : undefined,
+            ),
           },
         },
       ];

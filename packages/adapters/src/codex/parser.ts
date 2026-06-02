@@ -399,7 +399,8 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
 // `reasoning_output_tokens` → `reasoning_tokens` (delta). The Codex
 // `total_*` counterparts map to `*_cumulative`. Codex's `total_tokens`,
 // `cached_input_tokens` cumulative, and `reasoning_output_tokens` cumulative
-// have no spec slot and are dropped (input+output remain recoverable).
+// have no spec slot and are dropped (input+output remain recoverable). Codex
+// `model_context_window`, when present, maps to `context_window_tokens`.
 //
 // Returns `undefined` when `payload.info` is null/missing or every translated
 // field would be empty — never fabricates zeros (`usage.ts` decision #4).
@@ -423,5 +424,7 @@ export function codexUsageFromTokenCount(
   if (inputCumulative !== undefined) merged.input_tokens_cumulative = inputCumulative;
   const outputCumulative = numericValue(total.output_tokens);
   if (outputCumulative !== undefined) merged.output_tokens_cumulative = outputCumulative;
+  const contextWindow = numericValue(info.model_context_window);
+  if (contextWindow !== undefined) merged.context_window_tokens = contextWindow;
   return mapAgentMessageUsage(merged);
 }
