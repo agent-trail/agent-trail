@@ -84,6 +84,108 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       ...options,
     });
 
+  // Shared draft builders. Pi records branch summaries, compactions, and custom
+  // content in two declaration-merged forms: as top-level tree entries
+  // (`type:"branch_summary"` …) and as message-channel variants
+  // (`type:"message"` with `message.role:"branchSummary"` …). Both forms map to
+  // the same trail entry; these builders keep the two paths identical.
+  const emitBranchSummary = (
+    record: PiEnvelope,
+    summary: string,
+    fromId: string,
+    originalType: string,
+    rawType: string,
+    extras?: { details?: Record<string, unknown>; fromHook?: unknown },
+  ): TrailEntryDraft[] => {
+    const extraMeta: Meta = {};
+    if (extras?.details !== undefined) extraMeta["dev.pi.branch_details"] = extras.details;
+    // #5: fromHook distinguishes a hook-triggered branch return from a user one.
+    if (typeof extras?.fromHook === "boolean")
+      extraMeta["dev.pi.branch_from_hook"] = extras.fromHook;
+    return [
+      {
+        // abandoned_branch_id starts as the raw fromId; piParentResolution refines
+        // it to the abandoned branch's root entry id (divergence walk).
+        type: "branch_summary",
+        payload: { abandoned_branch_id: fromId, summary },
+        source: src(record, originalType),
+        meta: metaFor(record, rawType, Object.keys(extraMeta).length > 0 ? extraMeta : undefined, {
+          fromId,
+        }),
+      },
+    ];
+  };
+
+  const emitCompaction = (
+    record: PiEnvelope,
+    summary: string,
+    tokensBefore: number | undefined,
+    originalType: string,
+    rawType: string,
+    piMeta?: Record<string, unknown>,
+  ): TrailEntryDraft[] => [
+    {
+      type: "context_compact",
+      payload: {
+        summary,
+        ...(tokensBefore !== undefined ? { tokens_before: tokensBefore } : {}),
+        trigger: "auto",
+      },
+      source: src(record, originalType),
+      meta: metaFor(
+        record,
+        rawType,
+        piMeta !== undefined && Object.keys(piMeta).length > 0
+          ? { "dev.pi.compaction": piMeta }
+          : undefined,
+      ),
+    },
+  ];
+
+  const emitCustom = (
+    record: PiEnvelope,
+    args: {
+      customType: string | undefined;
+      content: unknown;
+      data: unknown;
+      display: unknown;
+      isMessage: boolean;
+    },
+    originalType: string,
+    rawType: string,
+  ): TrailEntryDraft[] => {
+    const { customType, isMessage } = args;
+    const data: Record<string, unknown> = {};
+    if (customType !== undefined) data.custom_type = customType;
+    const inner = isObject(args.data) ? args.data : undefined;
+    if (inner !== undefined) data.custom_data = inner;
+    const content = stringValue(args.content);
+    const text =
+      content !== undefined && content.trim().length > 0
+        ? content
+        : customType !== undefined
+          ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
+          : isMessage
+            ? "Custom message"
+            : "Custom event";
+    // #12: display is UI-only visibility; surface it without conflating it into
+    // the event's presence. Never drop display:false — interchange keeps it.
+    const extraMeta: Meta | undefined =
+      typeof args.display === "boolean" ? { "dev.pi.display": args.display } : undefined;
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: isMessage ? "x-pi/custom_message" : "x-pi/custom",
+          text,
+          ...(Object.keys(data).length > 0 ? { data } : {}),
+        },
+        source: src(record, originalType),
+        meta: metaFor(record, rawType, extraMeta),
+      },
+    ];
+  };
+
   const userMessage = defineMapping<PiEnvelope>({
     match: { type: "message", message: { role: "user" } },
     emit: (record) => {
@@ -216,6 +318,15 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const contextAtCompletion = isObject(toolMetadata?.contextAtCompletion)
         ? toolMetadata.contextAtCompletion
         : undefined;
+      // #14: surface the source toolName. Name-based call/result pairing is not
+      // attempted (ambiguous when a tool is called more than once) — for_id is
+      // set by the built-in toolLinking pass via call_id — but the name is
+      // preserved for consumers.
+      const toolName = stringValue(record.message?.toolName);
+      const piMeta: Record<string, unknown> = {};
+      if (contextAtCompletion !== undefined)
+        piMeta["dev.pi.context_at_completion"] = contextAtCompletion;
+      if (toolName !== undefined) piMeta["dev.pi.tool_name"] = toolName;
       return [
         {
           type: "tool_result",
@@ -232,9 +343,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
             ...metaFor(
               record,
               "tool_result_envelope",
-              contextAtCompletion !== undefined
-                ? { "dev.pi.context_at_completion": contextAtCompletion }
-                : undefined,
+              Object.keys(piMeta).length > 0 ? piMeta : undefined,
             ),
           },
         },
@@ -250,21 +359,17 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const fromId = stringValue(record.fromId);
       if (summary === undefined || fromId === undefined) return [];
       const details = isObject(record.details) ? record.details : undefined;
-      return [
+      return emitBranchSummary(
+        record,
+        summary,
+        fromId,
+        "branch_summary",
+        "branch_summary_envelope",
         {
-          // abandoned_branch_id starts as the raw fromId; piParentResolution
-          // refines it to the abandoned branch's root entry id (divergence walk).
-          type: "branch_summary",
-          payload: { abandoned_branch_id: fromId, summary },
-          source: src(record, "branch_summary"),
-          meta: metaFor(
-            record,
-            "branch_summary_envelope",
-            details !== undefined ? { "dev.pi.branch_details": details } : undefined,
-            { fromId },
-          ),
+          details,
+          fromHook: record.fromHook,
         },
-      ];
+      );
     },
   });
 
@@ -279,22 +384,14 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       if (record.firstKeptEntryId !== undefined) piMeta.firstKeptEntryId = record.firstKeptEntryId;
       if (record.details !== undefined) piMeta.details = record.details;
       if (record.fromHook !== undefined) piMeta.fromHook = record.fromHook;
-      return [
-        {
-          type: "context_compact",
-          payload: {
-            summary,
-            ...(tokensBefore !== undefined ? { tokens_before: tokensBefore } : {}),
-            trigger: "auto",
-          },
-          source: src(record, "compaction"),
-          meta: metaFor(
-            record,
-            "compaction_envelope",
-            Object.keys(piMeta).length > 0 ? { "dev.pi.compaction": piMeta } : undefined,
-          ),
-        },
-      ];
+      return emitCompaction(
+        record,
+        summary,
+        tokensBefore,
+        "compaction",
+        "compaction_envelope",
+        piMeta,
+      );
     },
   });
 
@@ -358,50 +455,224 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     },
   });
 
-  const customEmit = (record: PiEnvelope, isMessage: boolean): TrailEntryDraft[] => {
-    if (emittableTs(record) === null) return [];
-    const customType = stringValue(record.customType);
-    const data: Record<string, unknown> = {};
-    if (customType !== undefined) data.custom_type = customType;
-    const inner = isObject(record.data) ? record.data : undefined;
-    if (inner !== undefined) data.custom_data = inner;
-    const content = stringValue(record.content);
-    const text =
-      content !== undefined && content.trim().length > 0
-        ? content
-        : customType !== undefined
-          ? `${isMessage ? "Custom message" : "Custom"}: ${customType}`
-          : isMessage
-            ? "Custom message"
-            : "Custom event";
-    return [
-      {
-        type: "system_event",
-        payload: {
-          kind: isMessage ? "x-pi/custom_message" : "x-pi/custom",
-          text,
-          ...(Object.keys(data).length > 0 ? { data } : {}),
-        },
-        source: src(record, isMessage ? "custom_message" : "custom"),
-        meta: metaFor(record, isMessage ? "custom_message_envelope" : "custom_envelope"),
-      },
-    ];
-  };
-
+  // CustomEntry carries its payload under `data`; CustomMessageEntry under
+  // `details` + a `display` flag (pi harness types). Normalize both here.
   const custom = defineMapping<PiEnvelope>({
     match: { type: "custom" },
-    emit: (record) => customEmit(record, false),
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      return emitCustom(
+        record,
+        {
+          customType: stringValue(record.customType),
+          content: record.content,
+          data: record.data,
+          display: undefined,
+          isMessage: false,
+        },
+        "custom",
+        "custom_envelope",
+      );
+    },
   });
 
   const customMessage = defineMapping<PiEnvelope>({
     match: { type: "custom_message" },
-    emit: (record) => customEmit(record, true),
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      return emitCustom(
+        record,
+        {
+          customType: stringValue(record.customType),
+          content: record.content,
+          data: record.details,
+          display: record.display,
+          isMessage: true,
+        },
+        "custom_message",
+        "custom_message_envelope",
+      );
+    },
   });
+
+  // Message-channel variants: `type:"message"` envelopes whose `message.role` is a
+  // declaration-merged coding-agent type. Fields live on `message`, not content.
+  const bashExecution = defineMapping<PiEnvelope>({
+    match: { type: "message", message: { role: "bashExecution" } },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const msg = record.message;
+      const command = stringValue(msg?.command);
+      if (command === undefined) return [];
+      // No native Pi call id for `!` shell — synthesize one so the built-in
+      // toolLinking pass pairs the call with its result.
+      const callId = `x-pi/bash:${record.id}`;
+      const cancelled = msg?.cancelled === true;
+      const exitCode = typeof msg?.exitCode === "number" ? msg.exitCode : undefined;
+      const ok = !cancelled && (exitCode === undefined || exitCode === 0);
+      const output = stringValue(msg?.output);
+      // user-origin marker + the bash fields the spec shell_command shape can't hold.
+      const callMeta: Record<string, unknown> = { "dev.pi.user_shell": true };
+      if (msg?.excludeFromContext === true) callMeta["dev.pi.exclude_from_context"] = true;
+      const shellMeta: Record<string, unknown> = {};
+      if (exitCode !== undefined) shellMeta.exit_code = exitCode;
+      // payload.truncated requires payload.output_size (schema dependentSchemas);
+      // Pi gives no original byte length, so record truncation in meta instead.
+      const resultMeta: Record<string, unknown> = {};
+      if (msg?.truncated === true) resultMeta["dev.pi.truncated"] = true;
+      if (cancelled) resultMeta["dev.pi.cancelled"] = true;
+      if (stringValue(msg?.fullOutputPath) !== undefined)
+        resultMeta["dev.pi.full_output_path"] = msg?.fullOutputPath;
+      return [
+        {
+          type: "tool_call",
+          payload: { tool: "shell_command", args: { command } },
+          semantic: { call_id: callId, tool_kind: "shell_command" },
+          source: src(record, "bashExecution"),
+          meta: {
+            linker: { call_id: callId },
+            ...metaFor(record, "bash_execution_call", callMeta),
+          },
+        },
+        {
+          type: "tool_result",
+          payload: {
+            ok,
+            ...(output !== undefined && output.length > 0 ? { output } : {}),
+            ...(cancelled ? { error: "command cancelled" } : {}),
+            ...(Object.keys(shellMeta).length > 0 ? { meta: { shell_command: shellMeta } } : {}),
+          },
+          semantic: { call_id: callId, tool_kind: "shell_command" },
+          source: src(record, "bashExecution"),
+          meta: {
+            linker: { call_id: callId },
+            ...metaFor(
+              record,
+              "bash_execution_result",
+              Object.keys(resultMeta).length > 0 ? resultMeta : undefined,
+            ),
+          },
+        },
+      ];
+    },
+  });
+
+  const customMessageVariant = defineMapping<PiEnvelope>({
+    match: { type: "message", message: { role: "custom" } },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const msg = record.message;
+      return emitCustom(
+        record,
+        {
+          customType: stringValue(msg?.customType),
+          content: msg?.content,
+          data: msg?.details,
+          display: msg?.display,
+          isMessage: true,
+        },
+        "custom_message_variant",
+        "custom_message_variant",
+      );
+    },
+  });
+
+  const branchSummaryVariant = defineMapping<PiEnvelope>({
+    match: { type: "message", message: { role: "branchSummary" } },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const summary = stringValue(record.message?.summary);
+      const fromId = stringValue(record.message?.fromId);
+      if (summary === undefined || fromId === undefined) return [];
+      return emitBranchSummary(
+        record,
+        summary,
+        fromId,
+        "branchSummaryMessage",
+        "branch_summary_message",
+      );
+    },
+  });
+
+  const compactionSummaryVariant = defineMapping<PiEnvelope>({
+    match: { type: "message", message: { role: "compactionSummary" } },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const summary = stringValue(record.message?.summary);
+      if (summary === undefined) return [];
+      const tokensBefore = numericValue(record.message?.tokensBefore);
+      return emitCompaction(
+        record,
+        summary,
+        tokensBefore,
+        "compactionSummaryMessage",
+        "compaction_message",
+      );
+    },
+  });
+
+  // #1: LeafEntry — Pi's authoritative active-branch-tip pointer. Emitted as a
+  // state signal; piParentResolution resolves data.leaf_id to the mapped entry id
+  // and uses the pointer when refining branch_summary.abandoned_branch_id.
+  const leaf = defineMapping<PiEnvelope>({
+    match: { type: "leaf" },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const target = stringValue(record.targetId);
+      return [
+        {
+          type: "system_event",
+          payload: {
+            kind: "x-pi/leaf_change",
+            text: target !== undefined ? "Active branch tip moved" : "Active branch tip cleared",
+            // raw Pi targetId; piParentResolution rewrites it to the mapped entry id.
+            ...(target !== undefined ? { data: { leaf_id: target } } : {}),
+          },
+          source: src(record, "leaf"),
+          meta: metaFor(record, "leaf_envelope"),
+        },
+      ];
+    },
+  });
+
+  // #2: LabelEntry — targetId+label annotation. piParentResolution resolves
+  // data.target_id to the mapped entry id.
+  const label = defineMapping<PiEnvelope>({
+    match: { type: "label" },
+    emit: (record) => {
+      if (emittableTs(record) === null) return [];
+      const target = stringValue(record.targetId);
+      if (target === undefined) return [];
+      const labelText = stringValue(record.label);
+      return [
+        {
+          type: "system_event",
+          payload: {
+            kind: "x-pi/label",
+            text: labelText !== undefined ? `Label: ${labelText}` : "Label",
+            data: { target_id: target, ...(labelText !== undefined ? { label: labelText } : {}) },
+          },
+          source: src(record, "label"),
+          meta: metaFor(record, "label_envelope"),
+        },
+      ];
+    },
+  });
+
+  // #13 drift defense for unknown top-level types is handled upstream of dispatch
+  // by the source-schema drift mechanism (defineAdapter): a `type` outside the
+  // pi/v1 enum fails validation and is quarantined as `x-pi/unknown_record`
+  // (lossless, raw on source.raw). `leaf`/`label` are now in that enum so they
+  // route to the typed mappings below instead of generic quarantine.
 
   return [
     userMessage,
     assistantMessage,
     toolResult,
+    bashExecution,
+    customMessageVariant,
+    branchSummaryVariant,
+    compactionSummaryVariant,
     branchSummary,
     compaction,
     modelChange,
@@ -409,5 +680,7 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     sessionInfo,
     custom,
     customMessage,
+    leaf,
+    label,
   ];
 }
