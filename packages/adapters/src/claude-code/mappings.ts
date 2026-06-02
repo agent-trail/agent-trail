@@ -35,6 +35,7 @@ type UserQueryOption = { label: string; description?: string };
  * output — v1 Claude Code entries carry no entry-level meta.
  */
 export const HINT = "x-claudecode/_h";
+export const INCLUDE_SIDECHAIN = Symbol.for("agent-trail.claude-code.include-sidechain");
 
 export interface CcHint {
   sid?: string;
@@ -139,7 +140,9 @@ function src(
 // Mirrors v1 buildEntries gate: drop sidechain/meta envelopes and records
 // without a timestamp; require a uuid except where v1 synthesizes one.
 function gate(record: CcEnvelope, allowNoUuid = false): boolean {
-  if (record.isSidechain === true || record.isMeta === true) return false;
+  const includeSidechain =
+    (record as { [INCLUDE_SIDECHAIN]?: boolean })[INCLUDE_SIDECHAIN] === true;
+  if ((record.isSidechain === true && !includeSidechain) || record.isMeta === true) return false;
   if (typeof record.timestamp !== "string") return false;
   if (!allowNoUuid && typeof record.uuid !== "string") return false;
   return true;

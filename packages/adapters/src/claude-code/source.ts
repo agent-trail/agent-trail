@@ -37,10 +37,13 @@ export type CcEnvelope = {
 
 export type CcBlock = Record<string, unknown> & { type?: string };
 
-export function isTracerEnvelope(envelope: CcEnvelope): boolean {
+export function isTracerEnvelope(
+  envelope: CcEnvelope,
+  options: { includeSidechain?: boolean } = {},
+): boolean {
   if (envelope.type === "attachment") return false;
   if (envelope.type === "file-history-snapshot") return false;
-  if (envelope.isSidechain === true) return false;
+  if (envelope.isSidechain === true && options.includeSidechain !== true) return false;
   if (envelope.isMeta === true) return false;
   return (
     envelope.type === "user" ||

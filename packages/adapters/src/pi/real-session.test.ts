@@ -18,8 +18,8 @@ test.skipIf(realPath === undefined || realPath.length === 0)(
       adapter: "pi",
       path: realPath,
     });
-    expect(trail.header.agent.name).toBe("pi");
-    for (const entry of trail.entries) {
+    expect(trail.groups[0]!.header.agent.name).toBe("pi");
+    for (const entry of trail.groups[0]!.entries) {
       expect(typeof entry.id).toBe("string");
       expect(entry.id.length).toBeGreaterThan(0);
       expect(typeof entry.ts).toBe("string");

@@ -9,7 +9,7 @@ import {
 } from "@agent-trail/adapter-kit";
 import type { Entry } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
-import { claudeCodeMappings } from "./mappings.ts";
+import { claudeCodeMappings, INCLUDE_SIDECHAIN } from "./mappings.ts";
 import {
   ccDropTaskPlanResults,
   ccEnvelopeRefBackfill,
@@ -20,8 +20,6 @@ import {
 } from "./reconcile-rules.ts";
 import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
-type Raw = Record<string, unknown>;
-
 function inheritsTimestamp(record: Raw): boolean {
   return (
     record.type === "permission-mode" ||
@@ -31,9 +29,12 @@ function inheritsTimestamp(record: Raw): boolean {
   );
 }
 
-function withInheritedTimestamps(records: Raw[]): Raw[] {
+type Raw = Record<string, unknown>;
+type ClaudeCodeSourcePointer = SourcePointer & { includeSidechain?: boolean };
+
+function withInheritedTimestamps(records: Raw[], includeSidechain: boolean): Raw[] {
   const first = records.find(
-    (record) => isTracerEnvelope(record) && record.timestamp !== undefined,
+    (record) => isTracerEnvelope(record, { includeSidechain }) && record.timestamp !== undefined,
   );
   let inheritedTimestamp = stringValue(first?.timestamp);
   return records.map((record) => {
@@ -52,21 +53,31 @@ function withInheritedTimestamps(records: Raw[]): Raw[] {
 class ClaudeCodeJsonlReader implements SourceReader {
   async *records(source: SourcePointer): AsyncIterable<RawRecord> {
     const text = await readFile(source.path, "utf8");
-    yield* withInheritedTimestamps(parseLines(text) as Raw[]);
+    const includeSidechain = (source as ClaudeCodeSourcePointer).includeSidechain === true;
+    const records = withInheritedTimestamps(parseLines(text) as Raw[], includeSidechain);
+    if (includeSidechain) {
+      for (const record of records) {
+        Object.defineProperty(record, INCLUDE_SIDECHAIN, { value: true });
+      }
+    }
+    yield* records;
   }
 
   async schemaVersion(source: SourcePointer): Promise<string | undefined> {
     const text = await readFile(source.path, "utf8");
     const records = parseLines(text) as Raw[];
+    const includeSidechain = (source as ClaudeCodeSourcePointer).includeSidechain === true;
     // The source version comes from the first tracer record that carries one
     // (preferring one with a timestamp, else one with a sessionId) — NOT the
     // first raw line, which is often a versionless record.
     const hasVersion = (r: Raw): boolean => stringValue(r.version) !== undefined;
     const first = records.find(
-      (r) => isTracerEnvelope(r) && r.timestamp !== undefined && hasVersion(r),
+      (r) =>
+        isTracerEnvelope(r, { includeSidechain }) && r.timestamp !== undefined && hasVersion(r),
     );
     const firstSession = records.find(
-      (r) => isTracerEnvelope(r) && r.sessionId !== undefined && hasVersion(r),
+      (r) =>
+        isTracerEnvelope(r, { includeSidechain }) && r.sessionId !== undefined && hasVersion(r),
     );
     return stringValue(first?.version) ?? stringValue(firstSession?.version);
   }

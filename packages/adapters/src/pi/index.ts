@@ -128,8 +128,9 @@ export const piAdapter: TrailAdapter = {
     const entries = await buildPiKitAdapter(
       versionString(envelopes.find((env) => env.type === "session")?.version),
     ).parse({ path: ref.path }, { sessionUid: header.session_uid });
-    const envelope = buildTrailEnvelope({ producer: PRODUCER, header });
-    return { envelope, header, entries };
+    const groups = [{ header, entries }];
+    const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
+    return { envelope, groups };
   },
   async isAvailable(): Promise<boolean> {
     const sessionsDir = piSessionsDir();
