@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import type { AgentTrailV010, CapabilityChange, Header, SystemEvent } from "@agent-trail/types";
+import type {
+  AgentTrailV010,
+  CapabilityChange,
+  Header,
+  SessionMetadataUpdate,
+  SystemEvent,
+} from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
   const header = {
@@ -58,4 +64,36 @@ test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
   expect(change.payload.scope).toBe("tool");
   expect(change.payload.snapshot[0]?.metadata?.namespace).toBe("web");
   expect(change.payload.changed[0]?.field).toBe("description");
+});
+
+test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes", () => {
+  const name = {
+    type: "session_metadata_update",
+    payload: { field: "name", value: "Release notes", reason: "ai_generated" },
+  } satisfies SessionMetadataUpdate;
+  const tags = {
+    type: "session_metadata_update",
+    payload: { field: "tags", value: ["release"], reason: "user_set" },
+  } satisfies SessionMetadataUpdate;
+  const worktree = {
+    type: "session_metadata_update",
+    payload: {
+      field: "vcs.worktree",
+      value: { name: "topic", path: "/repo/.worktrees/topic" },
+      reason: "runtime_inferred",
+    },
+  } satisfies SessionMetadataUpdate;
+  const vendor = {
+    type: "session_metadata_update",
+    payload: {
+      field: "x-codex/thread_goal",
+      value: { summary: null, items: ["ship"] },
+      reason: "ai_generated",
+    },
+  } satisfies SessionMetadataUpdate;
+
+  expect(name.payload?.field).toBe("name");
+  expect(tags.payload?.field).toBe("tags");
+  expect(worktree.payload?.field).toBe("vcs.worktree");
+  expect(vendor.payload?.field).toBe("x-codex/thread_goal");
 });

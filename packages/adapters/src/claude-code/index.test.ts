@@ -1386,8 +1386,7 @@ test("parseSession() leaves vcs undefined when cwd is not a git working tree", a
 // (stop_hook_summary → turn_end) and to x-claudecode/* otherwise.
 // Issue #88: queue-operation envelopes lack uuid across Claude Code versions
 // (null or absent). The adapter synthesizes a UUID and stamps source.synthesized.
-// Issue #88: ai-title envelope populates envelope.name + meta breadcrumb.
-test("parseSession() surfaces ai-title under envelope.name and envelope.meta", async () => {
+test("parseSession() maps ai-title and agent-name to session_metadata_update events", async () => {
   const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -1414,18 +1413,27 @@ test("parseSession() surfaces ai-title under envelope.name and envelope.meta", a
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.envelope?.name).toBe("Wire ai-title plumbing");
-    expect(trail.envelope?.meta).toEqual({
-      "x-claudecode/ai_title": "Wire ai-title plumbing",
-      "x-claudecode/agent_name": "wire-ai-title-plumbing",
-    });
+    expect(trail.envelope?.name).toBeUndefined();
+    expect(trail.envelope?.meta).toBeUndefined();
+    const updates = trail.entries.filter((entry) => entry.type === "session_metadata_update");
+    expect(updates.map((entry) => entry.payload)).toEqual([
+      { field: "name", value: "Wire ai-title plumbing", reason: "ai_generated" },
+      {
+        field: "x-claudecode/agent_name",
+        value: "wire-ai-title-plumbing",
+        reason: "ai_generated",
+      },
+    ]);
+    expect(updates.map((entry) => entry.ts)).toEqual([
+      "2026-05-17T22:00:00.000Z",
+      "2026-05-17T22:00:00.000Z",
+    ]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-// Issue #88: agent-name alone (no ai-title) still populates envelope.name.
-test("parseSession() falls back to agent-name when ai-title is absent", async () => {
+test("parseSession() maps agent-name without ai-title to a vendor session_metadata_update", async () => {
   const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -1451,17 +1459,24 @@ test("parseSession() falls back to agent-name when ai-title is absent", async ()
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.envelope?.name).toBe("fallback-slug");
-    expect(trail.envelope?.meta).toEqual({ "x-claudecode/agent_name": "fallback-slug" });
+    expect(trail.envelope?.name).toBeUndefined();
+    expect(trail.envelope?.meta).toBeUndefined();
+    const update = trail.entries.find(
+      (entry) =>
+        entry.type === "session_metadata_update" &&
+        entry.payload?.field === "x-claudecode/agent_name",
+    );
+    expect(update?.payload).toEqual({
+      field: "x-claudecode/agent_name",
+      value: "fallback-slug",
+      reason: "ai_generated",
+    });
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-// Issue #88: worktree-state populates vcs.branch + vcs.head_commit + vcs.worktree.
-// Falls back to envelope-supplied head_commit when the worktree directory is no
-// longer readable (paseo-style ephemeral worktrees).
-test("parseSession() populates vcs.worktree from worktree-state envelope when cwd is unreadable", async () => {
+test("parseSession() maps worktree-state to session_metadata_update when cwd is unreadable", async () => {
   const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -1500,16 +1515,24 @@ test("parseSession() populates vcs.worktree from worktree-state envelope when cw
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.header.vcs?.type).toBe("git");
-    expect(trail.header.vcs?.branch).toBe("feature/topic");
-    expect(trail.header.vcs?.head_commit).toBe("abcdef0123456789abcdef0123456789abcdef01");
-    expect(trail.header.vcs?.worktree).toEqual({
-      name: "topic",
-      path: "/orig/repo/.worktrees/topic",
-      original_cwd: "/orig/repo",
-      original_branch: "main",
-      original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
-    });
+    expect(trail.header.vcs).toBeUndefined();
+    const updates = trail.entries
+      .filter((entry) => entry.type === "session_metadata_update")
+      .map((entry) => entry.payload);
+    expect(updates).toEqual([
+      { field: "vcs.branch", value: "feature/topic", reason: "runtime_inferred" },
+      {
+        field: "vcs.worktree",
+        value: {
+          name: "topic",
+          path: "/orig/repo/.worktrees/topic",
+          original_cwd: "/orig/repo",
+          original_branch: "main",
+          original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+        },
+        reason: "runtime_inferred",
+      },
+    ]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

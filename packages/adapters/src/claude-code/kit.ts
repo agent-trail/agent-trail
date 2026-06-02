@@ -22,7 +22,16 @@ import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 
-function withInheritedPermissionTimestamps(records: Raw[]): Raw[] {
+function inheritsTimestamp(record: Raw): boolean {
+  return (
+    record.type === "permission-mode" ||
+    record.type === "ai-title" ||
+    record.type === "agent-name" ||
+    record.type === "worktree-state"
+  );
+}
+
+function withInheritedTimestamps(records: Raw[]): Raw[] {
   const first = records.find(
     (record) => isTracerEnvelope(record) && record.timestamp !== undefined,
   );
@@ -30,7 +39,7 @@ function withInheritedPermissionTimestamps(records: Raw[]): Raw[] {
   return records.map((record) => {
     if (typeof record.timestamp === "string") inheritedTimestamp = record.timestamp;
     if (
-      record.type === "permission-mode" &&
+      inheritsTimestamp(record) &&
       typeof record.timestamp !== "string" &&
       inheritedTimestamp !== undefined
     ) {
@@ -43,7 +52,7 @@ function withInheritedPermissionTimestamps(records: Raw[]): Raw[] {
 class ClaudeCodeJsonlReader implements SourceReader {
   async *records(source: SourcePointer): AsyncIterable<RawRecord> {
     const text = await readFile(source.path, "utf8");
-    yield* withInheritedPermissionTimestamps(parseLines(text) as Raw[]);
+    yield* withInheritedTimestamps(parseLines(text) as Raw[]);
   }
 
   async schemaVersion(source: SourcePointer): Promise<string | undefined> {
