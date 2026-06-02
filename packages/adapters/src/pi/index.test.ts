@@ -10,6 +10,7 @@ import { cleanGitEnv } from "../vcs.ts";
 // content and assert linkage via the found entries' own ids — never by a
 // reconstructed id.
 import { mangleCwd, piAgentDir, piProjectDir, piSessionsDir } from "./paths.ts";
+import { parseLines } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
 let prevHome: string | undefined;
@@ -502,6 +503,12 @@ test("parseSession() rejects array JSONL records instead of quarantining them", 
 
   await expect(piAdapter.parseSession({ id: "array", adapter: "pi", path: file })).rejects.toThrow(
     /expected JSON object on line 2/,
+  );
+});
+
+test("parseLines() reports malformed JSONL with a line number", () => {
+  expect(() => parseLines('{"type":"session"}\n{"type":')).toThrow(
+    /JsonlReader: failed to parse JSON on line 2:/,
   );
 });
 
