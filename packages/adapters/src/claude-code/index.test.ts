@@ -326,6 +326,38 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   });
 });
 
+test("parseSession() captures inline base64 image blocks as user_message attachments", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000f0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this screenshot" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+        ],
+      },
+    },
+  ]);
+  const um = trail.groups[0]!.entries.find((e) => e.type === "user_message");
+  expect(um?.payload.text).toBe("what is this screenshot");
+  const attachments = (um?.payload as { attachments?: unknown[] }).attachments;
+  expect(attachments).toHaveLength(1);
+  const att = attachments?.[0] as { kind?: string; media_type?: string; uri?: string };
+  expect(att.kind).toBe("image");
+  expect(att.media_type).toBe("image/png");
+  expect(att.uri).toMatch(/^sha256:[0-9a-f]{64}$/);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() records subagent attribution on a tool_result entry.meta", async () => {
   const trail = await parseClaudeCodeJsonl([
     {

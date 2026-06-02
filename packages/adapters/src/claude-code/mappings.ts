@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
-import type { Entry, ToolKind } from "@agent-trail/types";
+import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -77,6 +77,30 @@ function attributionMeta(record: CcEnvelope): Record<string, unknown> | undefine
   const sourceUuid = stringValue(record.sourceToolAssistantUUID);
   if (sourceUuid !== undefined) out["dev.claudecode.source_tool_assistant_uuid"] = sourceUuid;
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+// Pasted images/documents arrive as inline content blocks
+// `{ type:"image"|"document", source:{ type:"base64", media_type, data } }`.
+// Hash the decoded bytes to a content-addressed sha256 ref (v0.1 has no inline
+// data: URIs); the blob store resolves it at share time. Mirrors the Codex
+// adapter's image rollup (#160). See issue #126.
+function imageAttachments(content: unknown): Attachment[] {
+  const out: Attachment[] = [];
+  for (const block of asBlocks(content)) {
+    if (block.type !== "image" && block.type !== "document") continue;
+    const source = isObject(block.source) ? block.source : undefined;
+    const data = stringValue(source?.data);
+    if (stringValue(source?.type) !== "base64" || data === undefined) continue;
+    const mediaType = stringValue(source?.media_type) ?? stringValue(source?.mediaType);
+    const bytes = Buffer.from(data, "base64");
+    const att: Attachment = {
+      kind: block.type === "image" ? "image" : "file",
+      uri: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+    };
+    if (mediaType !== undefined) att.media_type = mediaType;
+    out.push(att);
+  }
+  return out;
 }
 
 function questionId(question: string, occurrence: number): string {
@@ -298,8 +322,9 @@ const userMessage = defineMapping<Raw>({
           },
         ];
       }
+      const images = imageAttachments(content);
       const blocks = asBlocks(content).filter((b) => b.type === "text" || b.type === "tool_result");
-      return blocks.flatMap((block, i): TrailEntryDraft[] => {
+      const blockDrafts = blocks.flatMap((block, i): TrailEntryDraft[] => {
         const envelopeRef = i > 0 ? "" : undefined;
         const source = src(record, String(block.type), block, i, { envelopeRef });
         if (block.type === "text" && typeof block.text === "string") {
@@ -347,6 +372,29 @@ const userMessage = defineMapping<Raw>({
         }
         return [];
       });
+      if (images.length === 0) return blockDrafts;
+      // Fold pasted images onto the owning user turn. Attach to the first
+      // user_message; if the turn carried no text block, synthesize one.
+      const idx = blockDrafts.findIndex((d) => d.type === "user_message");
+      if (idx >= 0) {
+        const owner = blockDrafts[idx];
+        if (owner !== undefined) {
+          blockDrafts[idx] = {
+            ...owner,
+            payload: { ...(owner.payload ?? {}), attachments: images },
+          };
+        }
+        return blockDrafts;
+      }
+      return [
+        {
+          type: "user_message",
+          payload: { text: "", attachments: images },
+          source: src(record, "user"),
+          meta: meta(record),
+        },
+        ...blockDrafts,
+      ];
     })();
     if (attribution === undefined) return drafts;
     return drafts.map((d) => ({ ...d, meta: { ...attribution, ...(d.meta ?? {}) } }));
