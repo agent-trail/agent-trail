@@ -4,7 +4,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { readGitVcs } from "../vcs.ts";
-import { buildPiKitAdapter } from "./kit.ts";
+import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
 import { parseLines, versionString } from "./source.ts";
@@ -125,9 +125,7 @@ export const piAdapter: TrailAdapter = {
       const vcs = await readGitVcs(header.cwd);
       if (vcs !== undefined) header.vcs = vcs;
     }
-    const entries = await buildPiKitAdapter(
-      versionString(envelopes.find((env) => env.type === "session")?.version),
-    ).parse({ path: ref.path }, { sessionUid: header.session_uid });
+    const entries = await parsePiSnapshotEntries(envelopes, header.session_uid);
     const groups = [{ header, entries }];
     const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
     return { envelope, groups };

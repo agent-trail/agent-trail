@@ -142,6 +142,7 @@ function seedSession(opts: {
   cliVersion?: string;
   extraPayload?: Record<string, unknown>;
   extraRecords?: Record<string, unknown>[];
+  lineEnding?: string;
 }): string {
   const sessionsDir = codexSessionsDir();
   if (sessionsDir === undefined) throw new Error("expected sessions dir");
@@ -164,7 +165,11 @@ function seedSession(opts: {
     },
   };
   const records = [sessionMeta, ...(opts.extraRecords ?? [])];
-  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  const lineEnding = opts.lineEnding ?? "\n";
+  writeFileSync(
+    path,
+    `${records.map((record) => JSON.stringify(record)).join(lineEnding)}${lineEnding}`,
+  );
   return path;
 }
 
@@ -341,6 +346,21 @@ test("parseSession skips session_index rows without usable thread_name", async (
       (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
     ),
   ).toBe(false);
+});
+
+test("parseSession tolerates CRLF blank lines in session JSONL", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba2";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    lineEnding: "\r\n",
+  });
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+
+  expect(trail.groups[0]?.header.id).toBe(id);
+  expect(await validateAdapterTrail(trail)).toEqual([]);
 });
 
 test("desktop fixture emits user_message + agent_message entries from event_msg channel", async () => {
@@ -2801,6 +2821,18 @@ test("sourceVersion() returns cli_version of the newest seeded session", async (
   expect(version).toBe("0.128.0");
 });
 
+test("sourceVersion() reads cli_version from CRLF session head", async () => {
+  seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id: "019d7909-85dd-7881-aa12-95ffc8ca8ba1",
+    cwd: process.cwd(),
+    cliVersion: "0.129.0",
+    lineEnding: "\r\n",
+  });
+
+  expect(await codexAdapter.sourceVersion()).toBe("0.129.0");
+});
+
 test("sourceVersion() is null when no sessions exist", async () => {
   expect(await codexAdapter.sourceVersion()).toBeNull();
 });
@@ -2813,6 +2845,25 @@ test('buildSessionRef sets headerStatus="header" for healthy sessions', async ()
   });
   const refs = await codexAdapter.detectSessions();
   expect(refs[0]?.headerStatus).toBe("header");
+});
+
+test("detectSessions() reads id and cwd from CRLF session head", async () => {
+  const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    lineEnding: "\r\n",
+  });
+
+  const refs = await codexAdapter.detectSessions();
+
+  expect(refs).toHaveLength(1);
+  expect(refs[0]).toMatchObject({
+    id,
+    cwd: process.cwd(),
+    headerStatus: "header",
+  });
 });
 
 test("detectSessions() and parseSession() tolerate large session_meta records", async () => {

@@ -14,7 +14,7 @@ import { stringValue, timestampToIso } from "./source.ts";
 
 type Raw = Record<string, unknown>;
 
-function cliVersionOf(first: Raw): string | undefined {
+export function cliVersionOf(first: Raw): string | undefined {
   const payload =
     typeof first.payload === "object" && first.payload !== null ? (first.payload as Raw) : {};
   return stringValue(payload.cli_version) ?? stringValue(payload.originator);
@@ -56,4 +56,14 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
 /** Run the kit-based Codex adapter over a source file, returning emitted entries. */
 export async function parseCodexEntries(path: string, sessionUid: string): Promise<Entry[]> {
   return codexKitAdapter.parse({ path }, { sessionUid });
+}
+
+export async function parseCodexSnapshotEntries(
+  records: Raw[],
+  sessionUid: string,
+): Promise<Entry[]> {
+  return codexKitAdapter.parseSnapshot(
+    { records, sourceVersion: records[0] === undefined ? undefined : cliVersionOf(records[0]) },
+    { sessionUid },
+  );
 }

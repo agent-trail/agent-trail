@@ -48,8 +48,19 @@ export function sessionVersionOf(text: string): string | undefined {
   return versionString(parseLines(text).find((env) => env.type === "session")?.version);
 }
 
+export async function parsePiSnapshotEntries(
+  envelopes: PiEnvelope[],
+  sessionUid: string,
+): Promise<Entry[]> {
+  const sessionVersion = versionString(envelopes.find((env) => env.type === "session")?.version);
+  return buildPiKitAdapter(sessionVersion).parseSnapshot(
+    { records: envelopes, sourceVersion: sessionVersion },
+    { sessionUid },
+  );
+}
+
 /** Run the kit-based Pi adapter over a source file, returning emitted entries. */
 export async function parsePiEntries(path: string, sessionUid: string): Promise<Entry[]> {
   const text = await Bun.file(path).text();
-  return buildPiKitAdapter(sessionVersionOf(text)).parse({ path }, { sessionUid });
+  return parsePiSnapshotEntries(parseLines(text), sessionUid);
 }

@@ -12,7 +12,7 @@ import type {
 } from "../index.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
-import { claudeCodeKitAdapter } from "./kit.ts";
+import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
 import { isObject, parseLines } from "./source.ts";
@@ -190,8 +190,9 @@ async function parseGroup(
     if (vcs !== undefined) header.vcs = vcs;
   }
   const sessionUid = header.session_uid ?? header.id;
-  const source = { path, includeSidechain: options.includeSidechain === true };
-  const entries = await claudeCodeKitAdapter.parse(source, { sessionUid });
+  const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
+    includeSidechain: options.includeSidechain === true,
+  });
   return { header, entries };
 }
 
