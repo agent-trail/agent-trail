@@ -1016,9 +1016,8 @@ const mcpToolCallEnd = lifecycle("mcp_tool_call_end", (p) => {
 const mcpToolCallBegin = lifecycle("mcp_tool_call_begin", (p) => {
   const data: Raw = {};
   copyString(data, p, "call_id");
-  const pluginId = stringValue(p.plugin_id);
-  if (pluginId !== undefined) data.plugin_id = pluginId;
-  if (isObject(p.invocation)) data.invocation = p.invocation;
+  copyString(data, p, "plugin_id");
+  copyObject(data, p, "invocation");
   copyString(data, p, "mcp_app_resource_uri");
   return {
     kind: "x-codex/mcp_tool_call_begin",
