@@ -182,6 +182,11 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
           if (mapped !== undefined) {
             next = { ...next, payload: { ...payload, data: { ...payload.data, leaf_id: mapped } } };
           }
+        } else {
+          // A cleared tip (Pi leaf targetId:null → no data.leaf_id) resets the
+          // tracker, so a later branch_summary falls back to its own parent
+          // rather than a stale leaf.
+          activeLeafSourceId = undefined;
         }
       } else if (payload.kind === "x-pi/label") {
         const rawTarget = payload.data?.target_id;

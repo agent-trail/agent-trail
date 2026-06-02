@@ -47,8 +47,10 @@ mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built
 synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
 `LeafEntry` (active branch-tip) maps to `system_event{kind:"x-pi/leaf_change"}` and `LabelEntry`
 to `system_event{kind:"x-pi/label"}`, both with the raw Pi `targetId` resolved to the referenced
-trail entry id (nearest mapped ancestor when the target itself emitted nothing); the final leaf also
-feeds `branch_summary` divergence resolution. `BashExecutionMessage` (user `!`/`!!` shell prefix)
+trail entry id (nearest mapped ancestor when the target itself emitted nothing). The most recent
+`x-pi/leaf_change` at or before a `branch_summary` (its contemporaneous active tip, not a
+file-global final leaf) feeds that summary's divergence resolution; a cleared tip resets it so the
+summary falls back to its own parent. `BashExecutionMessage` (user `!`/`!!` shell prefix)
 maps to a `shell_command` `tool_call` + `tool_result` pair marked `dev.pi.user_shell`, with
 exit/cancel/truncate/full-output-path carried in `dev.pi.*` meta. The message-channel variants
 (`message.role` of `bashExecution` / `custom` / `branchSummary` / `compactionSummary`) route to the

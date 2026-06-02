@@ -523,8 +523,8 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const resultMeta: Record<string, unknown> = {};
       if (msg?.truncated === true) resultMeta["dev.pi.truncated"] = true;
       if (cancelled) resultMeta["dev.pi.cancelled"] = true;
-      if (stringValue(msg?.fullOutputPath) !== undefined)
-        resultMeta["dev.pi.full_output_path"] = msg?.fullOutputPath;
+      const fullOutputPath = stringValue(msg?.fullOutputPath);
+      if (fullOutputPath !== undefined) resultMeta["dev.pi.full_output_path"] = fullOutputPath;
       return [
         {
           type: "tool_call",

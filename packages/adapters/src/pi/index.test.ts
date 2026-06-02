@@ -1636,3 +1636,36 @@ test("label target with no mapped ancestor keeps the raw Pi id", async () => {
     "00000000-0000-0000-0000-deadbeef0000",
   );
 });
+
+// Issue #125 #1: a cleared leaf (targetId:null) resets the tracked active tip so
+// a following branch_summary falls back to its own parent rather than a stale
+// leaf. Exercises the reset branch + fallback.
+test("a cleared leaf resets the active tip before a later branch_summary", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "leaf-clear-branch.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-c1ea00000001", timestamp: "2026-05-22T07:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000002", parentId: null, timestamp: "2026-05-22T07:00:01.000Z", message: { role: "user", content: "root" } })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000003", parentId: "00000000-0000-0000-0000-c1ea00000002", timestamp: "2026-05-22T07:00:02.000Z", message: { role: "assistant", model: "claude-sonnet-4-5", stopReason: "stop", content: "active" } })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-c1ea00000004", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:03.000Z", targetId: "00000000-0000-0000-0000-c1ea00000003" })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-c1ea00000005", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:04.000Z", targetId: null })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000006", parentId: "00000000-0000-0000-0000-c1ea00000002", timestamp: "2026-05-22T07:00:05.000Z", message: { role: "user", content: "abandoned" } })}\n${JSON.stringify({ type: "branch_summary", id: "00000000-0000-0000-0000-c1ea00000007", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:06.000Z", fromId: "00000000-0000-0000-0000-c1ea00000006", summary: "back from abandoned" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({
+    id: "leaf-clear-branch",
+    adapter: "pi",
+    path: file,
+  });
+  const entries = trail.groups[0]!.entries;
+  const leafChanges = entries.filter(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/leaf_change",
+  );
+  expect(leafChanges).toHaveLength(2);
+  // The clearing leaf carries no data.leaf_id.
+  expect((leafChanges[1]?.payload as { data?: unknown }).data).toBeUndefined();
+  // branch_summary still resolves to the abandoned sibling via the parent fallback.
+  const branch = entries.find((e) => e.type === "branch_summary");
+  const abandoned = entries.find(
+    (e) => e.id === (branch?.payload as { abandoned_branch_id?: string }).abandoned_branch_id,
+  );
+  expect((abandoned?.payload as { text?: string }).text).toBe("abandoned");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
