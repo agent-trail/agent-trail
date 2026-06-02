@@ -860,12 +860,7 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     const decision = permissionDecision(attachment.decision);
     if (decision === undefined) return [];
     const data: Record<string, unknown> = { decision };
-    const rawToolCallId =
-      stringValue(attachment.tool_call_id) ??
-      stringValue(attachment.toolCallId) ??
-      stringValue(attachment.tool_use_id) ??
-      stringValue(attachment.toolUseID);
-    const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
+    const toolCallId = hookToolCallId(attachment);
     if (toolCallId !== undefined) data.tool_call_id = toolCallId;
     const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
     if (hookEvent !== undefined) data.hook_event = hookEvent;

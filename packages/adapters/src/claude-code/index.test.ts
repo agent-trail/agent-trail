@@ -1586,7 +1586,7 @@ test("parseSession() maps hook_permission_decision attachments to permission_dec
       attachment: {
         type: "hook_permission_decision",
         decision: "allow",
-        tool_call_id: "tooluse-bash-1",
+        tool_call_id: " tooluse-bash-1 ",
         hook_event: "PreToolUse",
         capability: "Bash",
       },
