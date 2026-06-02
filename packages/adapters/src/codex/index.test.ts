@@ -1703,6 +1703,197 @@ test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_i
   expect(data?.stderr_excerpt).toBe("");
 });
 
+test("event_msg.exec_approval_request emits permission_request linked by call_id", async () => {
+  const id = "019d8900-cccc-7000-e000-00000000000c";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "exec_approval_request",
+          call_id: "call-exec-approval",
+          approval_id: "approval-exec-1",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          command: ["bash", "-lc", "npm test"],
+          cwd: "/proj/codex-approval",
+          reason: "requires network",
+          available_decisions: ["approved", "abort"],
+          parsed_cmd: [{ type: "npm", cmd: "npm test" }],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-approval");
+  expect(evt?.source?.original_type).toBe("event_msg.exec_approval_request");
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.exec_approval_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-exec-approval",
+    approval_id: "approval-exec-1",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    reason: "requires network",
+    command: ["bash", "-lc", "npm test"],
+    cwd: "/proj/codex-approval",
+    available_decisions: ["approved", "abort"],
+    parsed_cmd: [{ type: "npm", cmd: "npm test" }],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.exec_approval_request preserves derived approval context without explicit decisions", async () => {
+  const id = "019d8900-cccd-7000-e000-00000000000c";
+  const networkApprovalContext = { host: "api.example.com", protocol: "https" };
+  const proposedNetworkPolicyAmendments = [{ host: "api.example.com", action: "allow" }];
+  const additionalPermissions = {
+    file_system: { writable_roots: ["/proj/codex-approval"] },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "exec_approval_request",
+          call_id: "call-exec-approval-context",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          command: ["bun", "test"],
+          cwd: "/proj/codex-approval",
+          network_approval_context: networkApprovalContext,
+          proposed_execpolicy_amendment: ["bun", "test"],
+          proposed_network_policy_amendments: proposedNetworkPolicyAmendments,
+          additional_permissions: additionalPermissions,
+          parsed_cmd: [{ type: "bun", cmd: "bun test" }],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-approval-context");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-exec-approval-context",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    command: ["bun", "test"],
+    cwd: "/proj/codex-approval",
+    network_approval_context: networkApprovalContext,
+    proposed_execpolicy_amendment: ["bun", "test"],
+    proposed_network_policy_amendments: proposedNetworkPolicyAmendments,
+    additional_permissions: additionalPermissions,
+    parsed_cmd: [{ type: "bun", cmd: "bun test" }],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.request_permissions emits permission_request with requested permissions", async () => {
+  const id = "019d8900-dddd-7000-e000-00000000000d";
+  const permissions = {
+    network: { mode: "enabled" },
+    file_system: { writable_roots: ["/proj/codex-approval"] },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "request_permissions",
+          call_id: "call-request-permissions",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          reason: "needs workspace write",
+          permissions,
+          cwd: "/proj/codex-approval",
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-request-permissions");
+  expect(evt?.source?.original_type).toBe("event_msg.request_permissions");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-request-permissions",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    reason: "needs workspace write",
+    permissions,
+    cwd: "/proj/codex-approval",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.request_permissions treats blank call_id as missing", async () => {
+  const id = "019d8900-ddde-7000-e000-00000000000d";
+  const permissions = { network: { mode: "enabled" } };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "request_permissions",
+          call_id: "   ",
+          reason: "needs network",
+          permissions,
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    reason: "needs network",
+    permissions,
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.groups[0]!.entries.find(
@@ -1715,6 +1906,269 @@ test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id"
   const data = (evt?.payload as { data?: Record<string, unknown> }).data;
   expect(data?.success).toBe(true);
   expect(data?.changes).toEqual({ "src/x.ts": { type: "modify" } });
+});
+
+test("event_msg.apply_patch_approval_request emits permission_request linked by call_id", async () => {
+  const id = "019d8900-eeee-7000-e000-00000000000e";
+  const changes = { "/private/tmp/outside.txt": { type: "add" } };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "apply_patch_approval_request",
+          call_id: "call-patch-approval",
+          turn_id: "turn-approval",
+          started_at_ms: 1748430001000,
+          changes,
+          reason: "writes outside workspace",
+          grant_root: "/private/tmp",
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-patch-approval");
+  expect(evt?.source?.original_type).toBe("event_msg.apply_patch_approval_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    tool_call_id: "call-patch-approval",
+    turn_id: "turn-approval",
+    started_at_ms: 1748430001000,
+    changes,
+    reason: "writes outside workspace",
+    grant_root: "/private/tmp",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request emits permission_request with request metadata", async () => {
+  const id = "019d8900-ffff-7000-e000-00000000000f";
+  const request = {
+    message: "Linear needs a workspace choice",
+    schema: {
+      type: "object",
+      required: ["workspace"],
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Workspace slug",
+          default: "private-workspace",
+        },
+      },
+    },
+  };
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          id: "elicit-1",
+          server_name: "linear",
+          prompt: "Choose a Linear workspace",
+          request,
+          available_decisions: ["approve", "deny"],
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect(evt?.source?.original_type).toBe("event_msg.elicitation_request");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-1",
+    server_name: "linear",
+    prompt: "Choose a Linear workspace",
+    request: {
+      schema: {
+        type: "object",
+        required: ["workspace"],
+        properties: {
+          workspace: {
+            type: "string",
+          },
+        },
+      },
+    },
+    available_decisions: ["approve", "deny"],
+  });
+  expect(JSON.stringify(evt?.payload)).not.toContain("private-workspace");
+  expect(JSON.stringify(evt?.payload)).not.toContain("Workspace slug");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request sanitizes URL-mode request data", async () => {
+  const id = "019d8901-0000-7000-e000-000000000010";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          id: "elicit-url-1",
+          server_name: "github",
+          prompt: "Sign in to GitHub",
+          request: {
+            mode: "url",
+            url: "https://auth.example.com/oauth/device?state=secret-state&token=secret-token#secret-fragment",
+            elicitationId: "oauth-flow-1",
+            title: "Authorize GitHub",
+            description: "Complete account linking",
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-url-1",
+    server_name: "github",
+    prompt: "Sign in to GitHub",
+    request: {
+      mode: "url",
+      elicitation_id: "oauth-flow-1",
+      url_origin: "https://auth.example.com",
+      url_host: "auth.example.com",
+    },
+  });
+  const payloadJson = JSON.stringify(evt?.payload);
+  expect(payloadJson).not.toContain("secret-state");
+  expect(payloadJson).not.toContain("secret-token");
+  expect(payloadJson).not.toContain("secret-fragment");
+  expect(payloadJson).not.toContain("Authorize GitHub");
+  expect(payloadJson).not.toContain("Complete account linking");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg.elicitation_request strips form defaults and submitted values", async () => {
+  const id = "019d8901-0001-7000-e000-000000000011";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    cliVersion: "0.135.0",
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "elicitation_request",
+          id: "elicit-form-1",
+          server_name: "deploy",
+          prompt: "Provide deployment credentials",
+          request: {
+            mode: "form",
+            requestedSchema: {
+              type: "object",
+              required: ["apiKey"],
+              properties: {
+                apiKey: {
+                  type: "string",
+                  title: "API key",
+                  format: "password",
+                  minLength: 8,
+                  maxLength: 64,
+                  pattern: "^[A-Za-z0-9-]+$",
+                  enum: ["sk-live-secret"],
+                  default: "sk-live-secret",
+                  examples: ["sk-example-secret"],
+                },
+                region: {
+                  type: "string",
+                  default: "us-east-1",
+                },
+                replicas: {
+                  type: "number",
+                  minimum: 1,
+                  maximum: 5,
+                  multipleOf: 1,
+                  exclusiveMaximum: false,
+                },
+              },
+            },
+            content: { apiKey: "sk-live-secret" },
+          },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    request_id: "elicit-form-1",
+    server_name: "deploy",
+    prompt: "Provide deployment credentials",
+    request: {
+      mode: "form",
+      schema: {
+        type: "object",
+        required: ["apiKey"],
+        properties: {
+          apiKey: {
+            type: "string",
+            format: "password",
+            pattern: "^[A-Za-z0-9-]+$",
+            minLength: 8,
+            maxLength: 64,
+          },
+          region: { type: "string" },
+          replicas: {
+            type: "number",
+            minimum: 1,
+            maximum: 5,
+            multipleOf: 1,
+            exclusiveMaximum: false,
+          },
+        },
+      },
+    },
+  });
+  const payloadJson = JSON.stringify(evt?.payload);
+  expect(payloadJson).not.toContain("sk-live-secret");
+  expect(payloadJson).not.toContain("sk-example-secret");
+  expect(payloadJson).not.toContain("us-east-1");
+  expect(payloadJson).not.toContain("API key");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call_id", async () => {

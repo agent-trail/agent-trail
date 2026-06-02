@@ -624,6 +624,155 @@ function lifecycle(
   });
 }
 
+function copyString(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = stringValue(p[key]);
+  if (value !== undefined) data[outKey] = value;
+}
+
+function copyTruncatedNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = numericValue(p[key]);
+  if (value !== undefined) data[outKey] = Math.trunc(value);
+}
+
+function copyNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = numericValue(p[key]);
+  if (value !== undefined) data[outKey] = value;
+}
+
+function copyBooleanOrNumber(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (typeof value === "boolean") data[outKey] = value;
+  else copyNumber(data, p, key, outKey);
+}
+
+function copyObject(data: Raw, p: Raw, key: string, outKey = key): void {
+  if (isObject(p[key])) data[outKey] = p[key];
+}
+
+function copyObjectOrArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (isObject(value) || Array.isArray(value)) data[outKey] = value;
+}
+
+function copyArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  if (Array.isArray(p[key])) data[outKey] = p[key];
+}
+
+function copyStringArray(data: Raw, p: Raw, key: string, outKey = key): void {
+  const value = p[key];
+  if (!Array.isArray(value)) return;
+  const strings = value.filter((item): item is string => typeof item === "string");
+  if (strings.length === value.length) data[outKey] = strings;
+}
+
+function copySchemaType(data: Raw, p: Raw): void {
+  const value = p.type;
+  if (typeof value === "string") data.type = value;
+  else if (
+    Array.isArray(value) &&
+    value.every((item): item is string => typeof item === "string")
+  ) {
+    data.type = value;
+  }
+}
+
+function sanitizedSchema(value: unknown): Raw | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Raw = {};
+  copySchemaType(out, value);
+  copyString(out, value, "format");
+  copyString(out, value, "$ref");
+  copyString(out, value, "pattern");
+  copyStringArray(out, value, "required");
+  for (const key of [
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "minProperties",
+    "maxProperties",
+    "multipleOf",
+  ] as const) {
+    copyNumber(out, value, key);
+  }
+  copyBooleanOrNumber(out, value, "exclusiveMinimum");
+  copyBooleanOrNumber(out, value, "exclusiveMaximum");
+
+  if (isObject(value.properties)) {
+    const properties: Raw = {};
+    for (const [name, property] of Object.entries(value.properties)) {
+      const sanitized = sanitizedSchema(property);
+      properties[name] = sanitized ?? {};
+    }
+    if (Object.keys(properties).length > 0) out.properties = properties;
+  }
+
+  const items = sanitizedSchema(value.items);
+  if (items !== undefined) out.items = items;
+
+  for (const key of ["oneOf", "anyOf", "allOf"] as const) {
+    const variants = value[key];
+    if (!Array.isArray(variants)) continue;
+    const sanitized = variants
+      .map((variant) => sanitizedSchema(variant))
+      .filter((variant): variant is Raw => variant !== undefined);
+    if (sanitized.length > 0) out[key] = sanitized;
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizedUrlData(rawUrl: string): Raw | undefined {
+  try {
+    const url = new URL(rawUrl);
+    return {
+      url_origin: url.origin,
+      url_host: url.host,
+    };
+  } catch {
+    return { has_url: true };
+  }
+}
+
+function sanitizedElicitationRequest(value: unknown): Raw | undefined {
+  if (!isObject(value)) return undefined;
+  const out: Raw = {};
+  copyString(out, value, "mode");
+  copyString(out, value, "type");
+  copyString(out, value, "action");
+
+  const elicitationId =
+    stringValue(value.elicitation_id) ??
+    stringValue(value.elicitationId) ??
+    stringValue(value.request_id) ??
+    stringValue(value.requestId);
+  if (elicitationId !== undefined) out.elicitation_id = elicitationId;
+
+  const urlData = stringValue(value.url);
+  if (urlData !== undefined) Object.assign(out, sanitizedUrlData(urlData));
+
+  const schema =
+    sanitizedSchema(value.requestedSchema) ??
+    sanitizedSchema(value.requested_schema) ??
+    sanitizedSchema(value.schema);
+  if (schema !== undefined) out.schema = schema;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function permissionRequestBaseData(p: Raw): { data: Raw; callId?: string } {
+  const data: Raw = {};
+  const rawCallId = stringValue(p.call_id);
+  const callId = isNonEmptyString(rawCallId) ? rawCallId : undefined;
+  if (callId !== undefined) data.tool_call_id = callId;
+  copyString(data, p, "turn_id");
+  copyTruncatedNumber(data, p, "started_at_ms");
+  copyString(data, p, "reason");
+  return { data, callId };
+}
+
 const taskStarted = lifecycle("task_started", (p) => {
   const data: Raw = {};
   const turnId = stringValue(p.turn_id);
@@ -659,6 +808,37 @@ const execCommandEnd = lifecycle("exec_command_end", (p) => ({
   linkedCallId: stringValue(p.call_id),
 }));
 
+const execApprovalRequest = lifecycle("exec_approval_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyString(data, p, "approval_id");
+  copyArray(data, p, "command");
+  copyString(data, p, "cwd");
+  copyObject(data, p, "network_approval_context");
+  copyObjectOrArray(data, p, "proposed_execpolicy_amendment");
+  copyArray(data, p, "proposed_network_policy_amendments");
+  copyObject(data, p, "additional_permissions");
+  copyArray(data, p, "available_decisions");
+  copyArray(data, p, "parsed_cmd");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.exec_approval_request",
+    data,
+    linkedCallId: callId,
+  };
+});
+
+const requestPermissions = lifecycle("request_permissions", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyObject(data, p, "permissions");
+  copyString(data, p, "cwd");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.request_permissions",
+    data,
+    linkedCallId: callId,
+  };
+});
+
 const patchApplyEnd = lifecycle("patch_apply_end", (p) => {
   const data: Raw = {};
   if (typeof p.success === "boolean") data.success = p.success;
@@ -674,6 +854,37 @@ const patchApplyEnd = lifecycle("patch_apply_end", (p) => {
     rawType: "event_msg.patch_apply_end",
     data,
     linkedCallId: stringValue(p.call_id),
+  };
+});
+
+const applyPatchApprovalRequest = lifecycle("apply_patch_approval_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  copyObject(data, p, "changes");
+  copyString(data, p, "grant_root");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.apply_patch_approval_request",
+    data,
+    linkedCallId: callId,
+  };
+});
+
+const elicitationRequest = lifecycle("elicitation_request", (p) => {
+  const { data, callId } = permissionRequestBaseData(p);
+  const requestId = p.request_id ?? p.id;
+  if (typeof requestId === "string" || typeof requestId === "number") {
+    data.request_id = requestId;
+  }
+  copyString(data, p, "server_name");
+  copyString(data, p, "prompt");
+  const request = sanitizedElicitationRequest(p.request);
+  if (request !== undefined) data.request = request;
+  copyArray(data, p, "available_decisions");
+  return {
+    kind: "permission_request",
+    rawType: "event_msg.elicitation_request",
+    data,
+    linkedCallId: callId,
   };
 });
 
@@ -1062,7 +1273,11 @@ export const codexMappings: MappingDef<Raw>[] = [
   taskStarted,
   taskCompleted,
   execCommandEnd,
+  execApprovalRequest,
+  requestPermissions,
   patchApplyEnd,
+  applyPatchApprovalRequest,
+  elicitationRequest,
   mcpToolCallEnd,
   threadGoalUpdated,
   webSearchEnd,

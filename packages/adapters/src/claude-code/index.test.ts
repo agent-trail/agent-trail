@@ -1277,6 +1277,318 @@ test("parseSession() maps Claude Code capability attachment deltas", async () =>
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps command_permissions attachments to permission_request", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000173",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1731",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1731",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1732",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "command_permissions",
+        allowed_tools: ["Bash(npm test)", "Bash(bun test)"],
+        model: "claude-opus-4-7",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.source?.original_type).toBe("attachment.command_permissions");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    allowed_tools: ["Bash(npm test)", "Bash(bun test)"],
+    model: "claude-opus-4-7",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps top-level command_permissions to permission_request", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000177",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1771",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1771",
+      type: "command_permissions",
+      uuid: "00000000-0000-0000-0000-cccccccc1772",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      allowed_tools: ["Bash(npm test)", "Bash(bun test)"],
+      model: "claude-opus-4-7",
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.source?.original_type).toBe("command_permissions");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    allowed_tools: ["Bash(npm test)", "Bash(bun test)"],
+    model: "claude-opus-4-7",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() preserves empty command_permissions allowed_tools", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000179",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1791",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1791",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1792",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "command_permissions",
+        allowedTools: [],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_request",
+  );
+
+  expect(evt).toBeDefined();
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    allowed_tools: [],
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps hook_permission_decision attachments to permission_decision", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000174",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1741",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1741",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1742",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "hook_permission_decision",
+        decision: "allow",
+        tool_call_id: "tooluse-bash-1",
+        hook_event: "PreToolUse",
+        capability: "Bash",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_decision",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("tooluse-bash-1");
+  expect(evt?.source?.original_type).toBe("attachment.hook_permission_decision");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    decision: "allow",
+    tool_call_id: "tooluse-bash-1",
+    hook_event: "PreToolUse",
+    capability: "Bash",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() maps top-level hook_permission_decision to permission_decision", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000178",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1781",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1781",
+      type: "hook_permission_decision",
+      uuid: "00000000-0000-0000-0000-cccccccc1782",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      decision: "allow",
+      tool_call_id: "tooluse-bash-1",
+      hook_event: "PreToolUse",
+      capability: "Bash",
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_decision",
+  );
+
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("tooluse-bash-1");
+  expect(evt?.source?.original_type).toBe("hook_permission_decision");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    decision: "allow",
+    tool_call_id: "tooluse-bash-1",
+    hook_event: "PreToolUse",
+    capability: "Bash",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() treats blank hook_permission_decision tool_call_id as missing", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000175",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1751",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1751",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1752",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "hook_permission_decision",
+        decision: "deny",
+        tool_call_id: "   ",
+        hook_event: "PreToolUse",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_decision",
+  );
+
+  expect(evt?.semantic?.call_id).toBeUndefined();
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    decision: "deny",
+    hook_event: "PreToolUse",
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not coerce hook_permission_decision abort into deny", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000176",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-0000-0000-cccccccc1761",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      message: { role: "user", content: "run tests" },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1761",
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-cccccccc1762",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      attachment: {
+        type: "hook_permission_decision",
+        decision: "abort",
+        tool_call_id: "tooluse-bash-1",
+        hook_event: "PreToolUse",
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      (entry.payload as { kind?: string }).kind === "permission_decision",
+  );
+
+  expect(evt).toBeUndefined();
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() fans out mixed assistant blocks and multiple tool calls in source order", async () => {
   const trail = await parseFidelityFixture();
   // Multi-block envelopes mint fresh UUIDs per block (see entry-metadata.ts);

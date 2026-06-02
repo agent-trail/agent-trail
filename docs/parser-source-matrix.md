@@ -199,6 +199,7 @@ Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`a
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
 and enrichment `system_event` records (`task_started`, `task_completed`, `x-codex/exec_command_end`,
 `x-codex/patch_apply_end`, `x-codex/mcp_tool_call_end`, `x-codex/web_search_end`),
+with unit-test coverage for permission request records from Codex approval gates,
 `session_metadata_update` from `thread_goal_updated` and `session_index.thread_name`, custom-channel tool calls (`apply_patch` single/multi-file dispatch,
 `tool_search` round-trip), `web_search_call` mapping, argv-form shell argument quoting, and
 spinner-glyph stripping. `user_interrupt` synthesis remains deferred — see the deferred-shapes
@@ -347,6 +348,13 @@ Lifecycle-vocabulary `system_event` emissions:
   `semantic.call_id` linking to the originating `exec_command` tool_call. `data` carries
   `turn_id`, `command`, `cwd`, `exit_code`, `duration_ms`, truncated `stdout_excerpt` /
   `stderr_excerpt` (capped to ~2KB per side), `status`, and the parsed-command structure.
+- `event_msg.exec_approval_request` / `event_msg.request_permissions` /
+  `event_msg.apply_patch_approval_request` / `event_msg.elicitation_request` →
+  `system_event{kind:"permission_request"}`. `semantic.call_id` links when the source carries a
+  `call_id`; `data` preserves source pairing ids (`tool_call_id`, `approval_id`, `request_id`) and
+  request context such as `turn_id`, `started_at_ms`, `reason`, `prompt`, `command`, `cwd`,
+  `permissions`, `changes`, `grant_root`, `server_name`, and sanitized elicitation `request`
+  metadata.
 - `event_msg.patch_apply_end` → `system_event{kind:"x-codex/patch_apply_end"}` with
   `semantic.call_id` linking to the originating `apply_patch` tool_call. `data` carries
   `success`, `changes`, `stdout_excerpt`, `stderr_excerpt`, `status`.
@@ -405,6 +413,9 @@ Capability-registry emissions:
 - `event_msg.task_started` / `event_msg.task_complete` — lifecycle bookends.
 - `event_msg.exec_command_end` / `event_msg.patch_apply_end` /
   `event_msg.mcp_tool_call_end` / `event_msg.web_search_end` — paired enrichment events.
+- `event_msg.exec_approval_request` / `event_msg.request_permissions` /
+  `event_msg.apply_patch_approval_request` / `event_msg.elicitation_request` — approval and
+  permission request markers.
 - `event_msg.thread_goal_updated` — goal change marker.
 - `event_msg.turn_aborted` — user interrupt marker.
 - `event_msg.item_completed` — completed turn item marker.
@@ -462,6 +473,9 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `pre_tool_use` — `progress` envelope with `data.hookEvent == "PreToolUse"`.
 - `post_tool_use` — `progress` envelope with `data.hookEvent == "PostToolUse"`.
 - `permission_request` — `progress` envelope with `data.hookEvent == "Notification"`.
+- `permission_request` — `attachment.command_permissions`, preserving `allowed_tools` and `model`.
+- `permission_decision` — `attachment.hook_permission_decision`, preserving explicit
+  allow/deny decisions and `tool_call_id` when present.
 - `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 - `permission_mode_change` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `data.to` carries the new mode (e.g., `plan`, `bypassPermissions`); `data.from` carries the previous mode when a prior mode is known.

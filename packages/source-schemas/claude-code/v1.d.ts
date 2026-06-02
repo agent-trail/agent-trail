@@ -20,6 +20,8 @@ export interface ClaudeCodeV1Record {
     | "file-history-snapshot"
     | "permission-mode"
     | "pr-link"
-    | "worktree-state";
+    | "worktree-state"
+    | "command_permissions"
+    | "hook_permission_decision";
   [k: string]: unknown;
 }
