@@ -6,6 +6,8 @@
 // `session_meta`, `response_item`, `event_msg`, `turn_context`, `compacted`.
 // Forward-compat: unknown top-level types are preserved verbatim under
 // `source.raw`.
+import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
+
 export type CodexRecord = {
   timestamp?: string;
   type: string;
@@ -16,6 +18,10 @@ export type CodexRecord = {
 // Strict numeric coercion is identical to the kit's coerceInt; re-export under
 // the adapter-local name. isObject/stringValue are shared verbatim.
 export { coerceInt as numericValue, isObject, stringValue } from "@agent-trail/adapter-kit";
+
+export function sanitizeSourceRaw(raw: Record<string, unknown>): Record<string, unknown> {
+  return enforceSourceRawSize(redactValue(raw)).value as Record<string, unknown>;
+}
 
 export function parseLines(text: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];

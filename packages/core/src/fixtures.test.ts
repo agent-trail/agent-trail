@@ -67,6 +67,13 @@ test("valid/context-compact-replaced-message-ids.trail.jsonl validates clean", a
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/context-compact-provenance-only-ids.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/context-compact-provenance-only-ids.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/capability-change.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/capability-change.trail.jsonl"),

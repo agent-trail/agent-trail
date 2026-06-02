@@ -82,19 +82,16 @@ function isCompactBoundary(entry: Entry): boolean {
   );
 }
 
-function isMessageEntry(entry: Entry): boolean {
-  return entry.type === "user_message" || entry.type === "agent_message";
-}
-
 export const ccCompactBoundaryProvenance: ReconcilerRule = (entries) => {
   const out: Entry[] = [];
-  let messagesSinceLastCompact: string[] = [];
+  let entryIdsSinceLastCompact: string[] = [];
   let pendingReplacedMessageIds: string[] | undefined;
 
   for (const entry of entries) {
     if (isCompactBoundary(entry)) {
       pendingReplacedMessageIds =
-        messagesSinceLastCompact.length > 0 ? [...messagesSinceLastCompact] : undefined;
+        entryIdsSinceLastCompact.length > 0 ? [...entryIdsSinceLastCompact] : undefined;
+      entryIdsSinceLastCompact = [];
       out.push(entry);
       continue;
     }
@@ -109,13 +106,11 @@ export const ccCompactBoundaryProvenance: ReconcilerRule = (entries) => {
         out.push(entry);
       }
       pendingReplacedMessageIds = undefined;
-      messagesSinceLastCompact = [];
+      entryIdsSinceLastCompact = [];
       continue;
     }
 
-    if (isMessageEntry(entry)) {
-      messagesSinceLastCompact.push(entry.id);
-    }
+    entryIdsSinceLastCompact.push(entry.id);
     out.push(entry);
   }
 

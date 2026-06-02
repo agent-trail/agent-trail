@@ -118,12 +118,17 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
       parentBySourceId.set(edge.sid, edge.pid);
     }
     const hint = hintOf(entry);
+    const provenanceSourceId = hint?.sid ?? edge?.sid;
+    if (provenanceSourceId !== undefined) {
+      const sourceEntryIds = sourceIdToEntryIds.get(provenanceSourceId) ?? [];
+      sourceEntryIds.push(entry.id);
+      sourceIdToEntryIds.set(provenanceSourceId, sourceEntryIds);
+    }
     if (hint === undefined) continue;
-    if (!parentBySourceId.has(hint.sid)) parentBySourceId.set(hint.sid, hint.pid);
+    if (hint !== undefined && !parentBySourceId.has(hint.sid)) {
+      parentBySourceId.set(hint.sid, hint.pid);
+    }
     if (!sourceIdToFirstEntryId.has(hint.sid)) sourceIdToFirstEntryId.set(hint.sid, entry.id);
-    const sourceEntryIds = sourceIdToEntryIds.get(hint.sid) ?? [];
-    sourceEntryIds.push(entry.id);
-    sourceIdToEntryIds.set(hint.sid, sourceEntryIds);
     sourceIdToLastEntryId.set(hint.sid, entry.id);
   }
 

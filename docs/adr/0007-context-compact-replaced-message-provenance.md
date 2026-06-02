@@ -22,11 +22,12 @@ immutable public snapshot. No version bump is made.
 - Pi compaction uses `CompactionEntry.firstKeptEntryId`: entries emitted from source records before
   that source id populate `replaced_message_ids`; empty or unresolved cases omit the field.
 - Claude Code keeps `summary.isCompactSummary === true` as the canonical `context_compact` entry.
-  A preceding `system.subtype === "compact_boundary"` marker supplies the folded message ids for
-  the next compact summary when deterministic entry ids exist.
-- Codex keeps `compacted.replacement_history` under `source.raw`. The adapter does not synthesize
-  canonical `replaced_message_ids` for nested history items unless they can be mapped to emitted
-  Agent Trail entry ids deterministically.
+  A preceding `system.subtype === "compact_boundary"` marker supplies the folded emitted entry ids
+  for the next compact summary when deterministic entry ids exist.
+- Codex keeps an elided `compacted.replacement_history` marker under `source.raw` so raw trails
+  record that folded history existed without inlining the folded transcript text. The adapter does
+  not synthesize canonical `replaced_message_ids` for nested history items unless they can be
+  mapped to emitted Agent Trail entry ids deterministically.
 
 ## Consequences
 
