@@ -319,7 +319,7 @@ export interface AgentMessage {
   [k: string]: unknown;
 }
 /**
- * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories (Anthropic and OpenAI Responses API semantics): input_tokens counts non-cached input only and total billed input = input_tokens + cache_read_tokens + cache_creation_tokens. Required-when-present field presence is enforced semantically by the validator.
+ * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. Required-when-present field presence is enforced semantically by the validator.
  */
 export interface AgentMessageUsage {
   input_tokens?: number;
@@ -329,6 +329,8 @@ export interface AgentMessageUsage {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   reasoning_tokens?: number;
+  context_input_tokens?: number;
+  context_window_tokens?: number;
 }
 export interface TaskPlanUpdate {
   type?: "task_plan_update";

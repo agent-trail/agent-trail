@@ -1200,8 +1200,14 @@ test("parseSession() emits an agent_message for assistant text records with mode
     usage: {
       input_tokens: 18,
       output_tokens: 12,
+      cache_read_tokens: 6,
+      cache_creation_tokens: 2,
+      context_input_tokens: 26,
     },
   });
+  expect((agentMsg?.payload as { usage?: Record<string, unknown> }).usage).not.toHaveProperty(
+    "context_window_tokens",
+  );
 });
 
 test("parseSession() emits a session_summary for summary records", async () => {

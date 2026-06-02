@@ -16,6 +16,7 @@ export type PiMessage = {
   toolCallId?: string | number;
   toolName?: string;
   isError?: boolean;
+  details?: unknown;
 };
 
 export type PiEnvelope = {

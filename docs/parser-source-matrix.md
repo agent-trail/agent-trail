@@ -153,6 +153,13 @@ compactions and is preserved under `metadata["dev.pi.compaction"]`). `model_chan
 `model_change` envelope (`provider`, `modelId`); `payload.from_model` is resolved from the last
 assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
 
+Pi usage telemetry: assistant `message.usage` maps `input` → `input_tokens`, `output` →
+`output_tokens`, `cacheRead` → `cache_read_tokens`, `cacheWrite` → `cache_creation_tokens`, and
+`context_input_tokens = input + cacheRead + cacheWrite`. `totalTokens` is intentionally not mapped to
+`context_input_tokens` because it includes output tokens; `cost` remains source-only under
+`source.raw`. Tool-result `message.details.toolMetadata.contextAtCompletion` is preserved exactly at
+`meta["dev.pi.context_at_completion"]` and is not promoted to assistant `context_window_tokens`.
+
 Cross-cutting hardenings on the Pi adapter:
 - Polymorphic timestamp parsing accepts ISO strings AND Unix ms numbers (or numeric strings) at
   the envelope boundary; canonical entry `ts` is always ISO. Pi top-level envelopes use ISO today,
@@ -306,9 +313,10 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `payload.info.total_token_usage` (cumulative); the adapter translates Codex field names to
   spec slots: `cached_input_tokens` → `cache_read_tokens` (delta only — spec has no cumulative
   slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
-  `{input,output}_tokens` → `{input,output}_tokens`, `total_token_usage` `{input,output}_tokens`
-  → `{input,output}_tokens_cumulative`. Codex's `total_tokens` field is dropped (recoverable
-  from input+output). `payload.info: null` rate-limit-only snapshots emit no usage; multiple
+  `{input,output}_tokens` → `{input,output}_tokens`, `last_token_usage.input_tokens` →
+  `context_input_tokens`, `total_token_usage` `{input,output}_tokens` →
+  `{input,output}_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when
+  present. Codex's `total_tokens` field is dropped (recoverable from input+output). `payload.info: null` rate-limit-only snapshots emit no usage; multiple
   `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals
   are monotonic). The `payload.rate_limits` slot is intentionally not rolled up — see deferred
   shapes below.
@@ -490,6 +498,14 @@ model switches (emitted as synthetic `model_change` entries with `source.synthes
 assistant `message.model` shifts).
 `AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
 `tool_use_id` are converted to `user_query_response`.
+
+Claude Code assistant `message.usage` maps Anthropic-style token counters to
+`agent_message.payload.usage`: `input_tokens` / `output_tokens` pass through,
+`cache_read_input_tokens` → `cache_read_tokens`, `cache_creation_input_tokens` →
+`cache_creation_tokens`, and `context_input_tokens = input_tokens + cache_read_input_tokens +
+cache_creation_input_tokens`. No reliable model context-window size has been observed in Claude Code
+JSONL, so the adapter omits `context_window_tokens`.
+
 Deferred shapes include image attachments, server-tool result blocks, ambiguous prompt-only
 subagent matching hardening, recursive child-session inclusion beyond direct children, and overflow
 blob storage.
