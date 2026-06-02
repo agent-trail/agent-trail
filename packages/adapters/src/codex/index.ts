@@ -255,6 +255,11 @@ function firstTurnContextSnapshot(
 ): Record<string, unknown> | undefined {
   for (const record of records) {
     if (record.type !== "turn_context") continue;
+    // Match the overrides' contract: a turn_context with an unparseable
+    // timestamp is skipped (it sets no baseline state and emits no events), so
+    // the header snapshot must skip it too or the baseline would disagree with
+    // the event stream.
+    if (timestampToIso(record.timestamp) === undefined) continue;
     const payload = isObject(record.payload) ? record.payload : {};
     const snapshot = turnContextSnapshot(payload);
     return Object.keys(snapshot).length > 0 ? snapshot : undefined;

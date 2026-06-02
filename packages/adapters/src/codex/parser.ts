@@ -504,13 +504,24 @@ export function permissionModeLabel(p: Record<string, unknown>): string | undefi
   return undefined;
 }
 
-// Deterministic key over an axis object for change detection (stable key order).
-export function stableAxisKey(axis: Record<string, unknown>): string {
-  return JSON.stringify(
-    Object.keys(axis)
+// Recursively canonicalize a value to a key-order-independent form: objects
+// become sorted [key, value] pairs at every depth, arrays keep order. Avoids
+// false-positive change detection when a nested policy object (e.g. network
+// `{allowed_domains, denied_domains}`) is serialized with a different key order.
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>)
       .sort()
-      .map((k) => [k, axis[k]]),
-  );
+      .map((k) => [k, canonicalize((value as Record<string, unknown>)[k])]);
+  }
+  return value;
+}
+
+// Deterministic key over an axis object for change detection, stable across key
+// ordering at any nesting depth.
+export function stableAxisKey(axis: Record<string, unknown>): string {
+  return JSON.stringify(canonicalize(axis));
 }
 
 // Lifecycle-vocabulary system_event builder. `kind` is the reserved §9.3 token

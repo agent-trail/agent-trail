@@ -6,7 +6,7 @@ import { formatDiagnosticsText, validateWriterStrictRecord } from "@agent-trail/
 import type { Entry, Header } from "@agent-trail/types";
 import { codexAdapter } from "./index.ts";
 import { parseCodexEntries } from "./kit.ts";
-import { buildHeader, vcsFromGitInfo } from "./parser.ts";
+import { buildHeader, stableAxisKey, vcsFromGitInfo } from "./parser.ts";
 
 // Synthetic JSONL exercising the #124 capture gaps. `git` is a sibling of the
 // flattened SessionMeta fields inside the session_meta payload.
@@ -246,6 +246,103 @@ describe("#124 — exec semantic time", () => {
       1717236008000,
     );
     expect(exec?.ts).toBe("2026-06-02T10:00:08.000Z");
+  });
+});
+
+describe("#124 — change detection is key-order independent", () => {
+  test("stableAxisKey canonicalizes nested objects (network) regardless of key order", () => {
+    const a = stableAxisKey({
+      approval_policy: "never",
+      network: { allowed_domains: ["a.com"], denied_domains: ["b.com"] },
+    });
+    const b = stableAxisKey({
+      network: { denied_domains: ["b.com"], allowed_domains: ["a.com"] },
+      approval_policy: "never",
+    });
+    expect(a).toBe(b);
+  });
+
+  test("a turn_context that only reorders nested network keys emits no permission_mode_change", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t1",
+          model: "gpt-5-codex",
+          approval_policy: "on-request",
+          network: { allowed_domains: ["a.com"], denied_domains: ["b.com"] },
+        },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          model: "gpt-5-codex",
+          approval_policy: "on-request",
+          network: { denied_domains: ["b.com"], allowed_domains: ["a.com"] },
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-net"));
+    expect(
+      all.filter(
+        (e) =>
+          e.type === "system_event" &&
+          (e.payload as { kind?: string }).kind === "permission_mode_change",
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+describe("#124 — snapshot skips non-emittable baseline", () => {
+  test("timestamp-less first turn_context is not snapshotted into header.meta", async () => {
+    const records = [
+      SESSION_META,
+      {
+        // no timestamp → the override skips it; the header snapshot must too.
+        type: "turn_context",
+        payload: { turn_id: "t1", approval_policy: "on-request", sandbox_policy: "read-only" },
+      },
+    ];
+    const header = await withFixture(records, async (path) => {
+      const trail = await codexAdapter.parseSession({
+        id: SESSION_META.payload.id,
+        adapter: "codex",
+        path,
+      });
+      return trail.groups[0]?.header;
+    });
+    expect(header?.meta?.["dev.codex.turn_context"]).toBeUndefined();
+  });
+
+  test("first emittable turn_context becomes the snapshot when an earlier one is timestamp-less", async () => {
+    const records = [
+      SESSION_META,
+      {
+        type: "turn_context",
+        payload: { turn_id: "t1", approval_policy: "on-request", sandbox_policy: "read-only" },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: { turn_id: "t2", approval_policy: "never", sandbox_policy: "danger-full-access" },
+      },
+    ];
+    const header = await withFixture(records, async (path) => {
+      const trail = await codexAdapter.parseSession({
+        id: SESSION_META.payload.id,
+        adapter: "codex",
+        path,
+      });
+      return trail.groups[0]?.header;
+    });
+    expect(header?.meta?.["dev.codex.turn_context"]).toEqual({
+      approval_policy: "never",
+      sandbox_policy: "danger-full-access",
+    });
   });
 });
 
