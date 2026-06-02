@@ -3,7 +3,9 @@ import type { Entry, Header, TrailEnvelope } from "@agent-trail/types";
 
 export type { Diagnostic, ValidationProfile } from "@agent-trail/core";
 
-export type TrailFile = { envelope?: TrailEnvelope; header: Header; entries: Entry[] };
+export type TrailSessionGroup = { header: Header; entries: Entry[] };
+
+export type TrailFile = { envelope?: TrailEnvelope; groups: TrailSessionGroup[] };
 
 export type SessionRef = {
   id: string;
@@ -43,13 +45,19 @@ export type { BuildTrailEnvelopeOptions } from "./envelope.ts";
 export { buildTrailEnvelope } from "./envelope.ts";
 export { piAdapter } from "./pi/index.ts";
 
+export function trailRecords(trail: TrailFile): object[] {
+  const records: object[] = [];
+  if (trail.envelope !== undefined) records.push(trail.envelope);
+  for (const group of trail.groups) {
+    records.push(group.header, ...group.entries);
+  }
+  return records;
+}
+
 export async function validateAdapterTrail(
   trail: TrailFile,
   options: ValidateAdapterTrailOptions = {},
 ): Promise<Diagnostic[]> {
-  const records: object[] = [];
-  if (trail.envelope !== undefined) records.push(trail.envelope);
-  records.push(trail.header, ...trail.entries);
-  const lines = records.map((record) => JSON.stringify(record));
+  const lines = trailRecords(trail).map((record) => JSON.stringify(record));
   return validateTrailString(`${lines.join("\n")}\n`, { profile: options.profile });
 }

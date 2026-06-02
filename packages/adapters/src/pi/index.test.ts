@@ -158,7 +158,7 @@ test("piAdapter parseSession emits a trail envelope", async () => {
   expect(trail.envelope?.producer).toMatch(/^@agent-trail\/adapters-pi\//);
   expect(typeof trail.envelope?.id).toBe("string");
   expect(typeof trail.envelope?.ts).toBe("string");
-  expect(trail.envelope?.id).not.toBe(trail.header.id);
+  expect(trail.envelope?.id).not.toBe(trail.groups[0]!.header.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -173,14 +173,14 @@ test("piAdapter implements TrailAdapter method surface", () => {
 // TDD step 2: header building
 test("parseSession() builds a header from session record id, ts, version (int->string), cwd", async () => {
   const trail = await parseFixture();
-  const { session_uid, ...header } = trail.header;
+  const { session_uid, ...header } = trail.groups[0]!.header;
   expect(typeof session_uid).toBe("string");
   expect(session_uid).toMatch(
     /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/,
   );
   // session_uid is deterministic — re-parsing the same source yields the same uid.
   const reparsed = await parseFixture();
-  expect(reparsed.header.session_uid).toBe(session_uid);
+  expect(reparsed.groups[0]!.header.session_uid).toBe(session_uid);
   expect(header).toEqual({
     type: "session",
     schema_version: "0.1.0",
@@ -198,7 +198,7 @@ test("parseSession() builds a header from session record id, ts, version (int->s
 // TDD step 3: user_message mapping
 test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
   const trail = await parseFixture();
-  const userMessage = trail.entries.find((e) => e.type === "user_message");
+  const userMessage = trail.groups[0]!.entries.find((e) => e.type === "user_message");
   expect(userMessage).toBeDefined();
   expect(userMessage?.ts).toBe("2026-05-21T14:00:01.000Z");
   expect(userMessage?.payload).toEqual({ text: "please read spec.md" });
@@ -209,8 +209,8 @@ test("parseSession() emits a user_message for user role records with no parent_i
 // TDD step 4: agent_message text mapping
 test("parseSession() emits an agent_message for assistant text blocks with model and stop_reason", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.type === "agent_message");
-  const toolResult = trail.entries.find((e) => e.type === "tool_result");
+  const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
+  const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
   expect(agentMsg).toBeDefined();
   // linear-flow chains user -> tool_call -> tool_result -> agent_message
   expect(agentMsg?.parent_id).toBe(toolResult?.id);
@@ -223,7 +223,7 @@ test("parseSession() emits an agent_message for assistant text blocks with model
 
 test("parseSession() populates agent_message.payload.usage from message.usage on Pi assistant envelopes", async () => {
   const trail = await parseUsageFixture();
-  const agentMsg = trail.entries.find((e) => e.type === "agent_message");
+  const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
   expect(agentMsg?.type).toBe("agent_message");
   // Real Pi `message.usage` keys (input/output/cacheRead/cacheWrite) map to the
   // spec usage fields. Pi has no cumulative/reasoning counters; `totalTokens` and
@@ -246,15 +246,15 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
 
 test("parseSession() omits payload.usage on agent_message when Pi envelope has no usage", async () => {
   const trail = await parseFixture();
-  const agentMsg = trail.entries.find((e) => e.type === "agent_message");
+  const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
   expect(agentMsg?.payload).not.toHaveProperty("usage");
 });
 
 // TDD step 5: tool_call mapping (read -> file_read)
 test("parseSession() emits a tool_call for assistant toolCall blocks with semantic.call_id preserving toolCall.id", async () => {
   const trail = await parseFixture();
-  const toolCall = trail.entries.find((e) => e.type === "tool_call");
-  const userMessage = trail.entries.find((e) => e.type === "user_message");
+  const toolCall = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
+  const userMessage = trail.groups[0]!.entries.find((e) => e.type === "user_message");
   expect(toolCall).toBeDefined();
   expect(toolCall?.parent_id).toBe(userMessage?.id);
   expect(toolCall?.payload).toEqual({
@@ -270,8 +270,8 @@ test("parseSession() emits a tool_call for assistant toolCall blocks with semant
 // TDD step 6: tool_result pairing via toolCallId
 test("parseSession() emits a tool_result for toolResult envelopes linked via toolCallId to the tool_call event id", async () => {
   const trail = await parseFixture();
-  const toolResult = trail.entries.find((e) => e.type === "tool_result");
-  const toolCall = trail.entries.find((e) => e.type === "tool_call");
+  const toolResult = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  const toolCall = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   expect(toolResult).toBeDefined();
   expect(toolResult?.parent_id).toBe(toolCall?.id);
   expect(toolResult?.payload).toEqual({
@@ -297,7 +297,7 @@ test("linear-flow fixture round-trips through validateAdapterTrail with zero err
 // TDD step 9: canonical entry types only
 test("linear-flow fixture emits only canonical event types in source order", async () => {
   const trail = await parseFixture();
-  expect(trail.entries.map((e) => e.type)).toEqual([
+  expect(trail.groups[0]!.entries.map((e) => e.type)).toEqual([
     "user_message",
     "tool_call",
     "tool_result",
@@ -308,20 +308,24 @@ test("linear-flow fixture emits only canonical event types in source order", asy
 test("parseSession() emits v0.1-shaped deterministic entry ids across representative fixtures", async () => {
   const first = await parseFixture();
   const second = await parseFixture();
-  expect(first.entries.map((e) => e.id)).toEqual(second.entries.map((e) => e.id));
-  for (const entry of first.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(first.groups[0]!.entries.map((e) => e.id)).toEqual(
+    second.groups[0]!.entries.map((e) => e.id),
+  );
+  for (const entry of first.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
 
   const stateful = await parseReasoningFixture();
   const statefulAgain = await parseReasoningFixture();
-  expect(stateful.entries.map((e) => e.id)).toEqual(statefulAgain.entries.map((e) => e.id));
-  for (const entry of stateful.entries) expect(entry.id).toMatch(ID_PATTERN);
-  expect(stateful.entries.some((e) => e.type === "user_interrupt")).toBe(true);
-  expect(stateful.entries.some((e) => e.type === "session_terminated")).toBe(true);
+  expect(stateful.groups[0]!.entries.map((e) => e.id)).toEqual(
+    statefulAgain.groups[0]!.entries.map((e) => e.id),
+  );
+  for (const entry of stateful.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
+  expect(stateful.groups[0]!.entries.some((e) => e.type === "user_interrupt")).toBe(true);
+  expect(stateful.groups[0]!.entries.some((e) => e.type === "session_terminated")).toBe(true);
 });
 
 test("every entry carries source metadata: agent='pi', original_type set, schema_version stringified, raw preserved", async () => {
   const trail = await parseFixture();
-  for (const entry of trail.entries) {
+  for (const entry of trail.groups[0]!.entries) {
     expect(entry.source?.agent).toBe("pi");
     expect(typeof entry.source?.original_type).toBe("string");
     expect(entry.source?.schema_version).toBe("3");
@@ -506,7 +510,7 @@ test("parseSession() stamps timestamp-less drift quarantine from the session hea
     adapter: "pi",
     path: file,
   });
-  const quarantine = trail.entries.find(
+  const quarantine = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/unknown_record",
   );
@@ -517,15 +521,15 @@ test("parseSession() stamps timestamp-less drift quarantine from the session hea
 
 test("parseSession() preserves Pi tree parenting through quarantined source records", async () => {
   const trail = await parseQuarantineFixture();
-  expect(trail.entries.map((e) => e.type)).toEqual([
+  expect(trail.groups[0]!.entries.map((e) => e.type)).toEqual([
     "user_message",
     "system_event",
     "agent_message",
   ]);
 
-  const user = trail.entries[0];
-  const quarantine = trail.entries[1];
-  const agent = trail.entries[2];
+  const user = trail.groups[0]!.entries[0];
+  const quarantine = trail.groups[0]!.entries[1];
+  const agent = trail.groups[0]!.entries[2];
 
   expect(user?.parent_id).toBeUndefined();
   expect((quarantine?.payload as { kind?: string }).kind).toBe("x-pi/unknown_record");
@@ -578,9 +582,9 @@ test("parseSession() preserves Pi tree parenting through dropped known source re
     adapter: "pi",
     path: file,
   });
-  expect(trail.entries.map((e) => e.type)).toEqual(["user_message", "agent_message"]);
-  const user = trail.entries[0];
-  const agent = trail.entries[1];
+  expect(trail.groups[0]!.entries.map((e) => e.type)).toEqual(["user_message", "agent_message"]);
+  const user = trail.groups[0]!.entries[0];
+  const agent = trail.groups[0]!.entries[1];
   expect(agent?.parent_id).toBe(user?.id);
 
   const diagnostics = await validateAdapterTrail(trail);
@@ -822,8 +826,10 @@ test("Pi extension-like tool calls do not synthesize capability_change events", 
       adapter: "pi",
       path,
     });
-    expect(trail.entries.some((entry) => entry.type === "capability_change")).toBe(false);
-    const call = trail.entries.find((entry) => entry.type === "tool_call");
+    expect(trail.groups[0]!.entries.some((entry) => entry.type === "capability_change")).toBe(
+      false,
+    );
+    const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
     expect(call?.payload).toEqual({
       tool: "other",
       args: { name: "custom_mcp_tool", args: { foo: "bar" } },
@@ -848,8 +854,9 @@ test("branch-flow fixture round-trips through validateAdapterTrail with zero err
 // TDD step 2: forked parentId graph produces multiple entries sharing one parent_id
 test("branch-flow produces a fork at pi-a1: two user_messages share it as parent_id", async () => {
   const trail = await parseBranchFixture();
-  const byParent = new Map<string, typeof trail.entries>();
-  for (const e of trail.entries) {
+  const entries = trail.groups[0]!.entries;
+  const byParent = new Map<string, typeof entries>();
+  for (const e of entries) {
     if (typeof e.parent_id !== "string") continue;
     const group = byParent.get(e.parent_id) ?? [];
     group.push(e);
@@ -866,7 +873,7 @@ test("branch-flow produces a fork at pi-a1: two user_messages share it as parent
 // TDD step 3: branch_summary envelope produces a branch_summary entry with payload.summary
 test("branch-flow emits a branch_summary entry carrying payload.summary from the Pi envelope", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.type === "branch_summary");
+  const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
   expect(branchSummary).toBeDefined();
   expect((branchSummary?.payload as { summary?: string }).summary).toBe(
     "Explored X, switching to Y.",
@@ -876,10 +883,11 @@ test("branch-flow emits a branch_summary entry carrying payload.summary from the
 // TDD step 4: branch_summary entry's parent_id is the fork point (pi-a1), same as the user messages.
 test("branch-flow branch_summary entry has parent_id resolved to the fork point (pi-a1)", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.type === "branch_summary");
+  const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
   // The fork point is the parent shared by the two user_message children.
-  const byParent = new Map<string, typeof trail.entries>();
-  for (const e of trail.entries) {
+  const entries = trail.groups[0]!.entries;
+  const byParent = new Map<string, typeof entries>();
+  for (const e of entries) {
     if (typeof e.parent_id !== "string") continue;
     const group = byParent.get(e.parent_id) ?? [];
     group.push(e);
@@ -896,9 +904,9 @@ test("branch-flow branch_summary entry has parent_id resolved to the fork point 
 // one of the fork's user_message children, and a real emitted entry.
 test("branch-flow branch_summary.abandoned_branch_id resolves to a fork-child user_message", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.type === "branch_summary");
+  const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
   const payload = branchSummary?.payload as { abandoned_branch_id?: string };
-  const abandoned = trail.entries.find((e) => e.id === payload.abandoned_branch_id);
+  const abandoned = trail.groups[0]!.entries.find((e) => e.id === payload.abandoned_branch_id);
   expect(abandoned).toBeDefined();
   expect(abandoned?.type).toBe("user_message");
   // It is one of the two forked children (the abandoned side, not the active path).
@@ -908,7 +916,7 @@ test("branch-flow branch_summary.abandoned_branch_id resolves to a fork-child us
 // TDD step 6: source.raw preserves the original Pi envelope (fromId, summary, details)
 test("branch-flow branch_summary entry preserves the original envelope under source.raw", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.type === "branch_summary");
+  const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
   const raw = branchSummary?.source?.raw as Record<string, unknown>;
   expect(raw?.type).toBe("branch_summary");
   expect(raw?.fromId).toBe("00000000-0000-0000-0000-bbbbbbbb0002");
@@ -919,7 +927,7 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
 // TDD step 7: Pi branch_summary.details surface in entry.meta under reverse-domain key (spec §8.0.3 / §11)
 test("branch-flow branch_summary entry mirrors Pi details into meta['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
-  const branchSummary = trail.entries.find((e) => e.type === "branch_summary");
+  const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
   const meta = branchSummary?.meta as Record<string, unknown> | undefined;
   expect(meta).toBeDefined();
   expect(meta?.["dev.pi.branch_details"]).toEqual({
@@ -1032,12 +1040,12 @@ test("reasoning-and-interrupt fixture round-trips through validateAdapterTrail w
 
 test("reasoning-and-interrupt fixture emits agent_thinking, agent_message, and synthesized user_interrupt", async () => {
   const trail = await parseReasoningFixture();
-  const types = trail.entries.map((e) => e.type);
+  const types = trail.groups[0]!.entries.map((e) => e.type);
   expect(types).toContain("agent_thinking");
   expect(types).toContain("user_interrupt");
-  const interrupt = trail.entries.find((e) => e.type === "user_interrupt");
+  const interrupt = trail.groups[0]!.entries.find((e) => e.type === "user_interrupt");
   expect(interrupt?.source?.synthesized).toBe(true);
-  const redacted = trail.entries.find(
+  const redacted = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "agent_thinking" &&
       (e.payload as { text?: string }).text === "[redacted thinking]",
@@ -1055,8 +1063,9 @@ test("compaction-and-model-change fixture round-trips through validateAdapterTra
 
 test("compaction-and-model-change fixture emits context_compact and model_change with from_model from prior assistant", async () => {
   const trail = await parseCompactFixture();
-  const compact = trail.entries.find((e) => e.type === "context_compact");
-  const foldedUser = trail.entries.find(
+  const entries = trail.groups[0]!.entries;
+  const compact = entries.find((e) => e.type === "context_compact");
+  const foldedUser = entries.find(
     (e) => e.type === "user_message" && (e.payload as { text?: string }).text === "long ramble",
   );
   expect(compact).toBeDefined();
@@ -1066,7 +1075,7 @@ test("compaction-and-model-change fixture emits context_compact and model_change
   expect((compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids).toEqual([
     foldedUser!.id,
   ]);
-  const mc = trail.entries.find((e) => e.type === "model_change");
+  const mc = entries.find((e) => e.type === "model_change");
   expect(mc?.payload).toEqual({
     from_model: "claude-sonnet-4-5",
     to_model: "claude-opus-4-7",
@@ -1128,9 +1137,10 @@ test("compaction provenance includes quarantined entries before firstKeptEntryId
       path,
     });
 
-    const compact = trail.entries.find((e) => e.type === "context_compact");
-    const user = trail.entries.find((e) => e.type === "user_message");
-    const quarantine = trail.entries.find(
+    const entries = trail.groups[0]!.entries;
+    const compact = entries.find((e) => e.type === "context_compact");
+    const user = entries.find((e) => e.type === "user_message");
+    const quarantine = entries.find(
       (e) =>
         e.type === "system_event" &&
         (e.payload as { kind?: string }).kind === "x-pi/unknown_record",
@@ -1182,7 +1192,7 @@ test("compaction omits replaced_message_ids when firstKeptEntryId does not resol
       adapter: "pi",
       path,
     });
-    const compact = trail.entries.find((e) => e.type === "context_compact");
+    const compact = trail.groups[0]!.entries.find((e) => e.type === "context_compact");
     expect(
       (compact?.payload as { replaced_message_ids?: string[] }).replaced_message_ids,
     ).toBeUndefined();
@@ -1235,10 +1245,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       adapter: "pi",
       path: fixturePath,
     });
-    expect(trail.header.vcs).toBeDefined();
-    expect(trail.header.vcs?.type).toBe("git");
-    expect(trail.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
-    expect(trail.header.vcs?.remote_url).toBe("https://github.com/agent-trail/agent-trail");
+    expect(trail.groups[0]!.header.vcs).toBeDefined();
+    expect(trail.groups[0]!.header.vcs?.type).toBe("git");
+    expect(trail.groups[0]!.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
+    expect(trail.groups[0]!.header.vcs?.remote_url).toBe(
+      "https://github.com/agent-trail/agent-trail",
+    );
   } finally {
     rmSync(repoDir, { recursive: true, force: true });
   }
@@ -1246,12 +1258,12 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
 
 test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
   const trail = await parseFixture();
-  expect(trail.header.vcs).toBeUndefined();
+  expect(trail.groups[0]!.header.vcs).toBeUndefined();
 });
 
 test("session_info emits session_metadata_update name instead of x-pi/session_info", async () => {
   const trail = await parseSystemEventsFixture();
-  const update = trail.entries.find(
+  const update = trail.groups[0]!.entries.find(
     (e) => e.type === "session_metadata_update" && e.payload?.field === "name",
   );
   expect(update?.payload).toEqual({
@@ -1260,7 +1272,7 @@ test("session_info emits session_metadata_update name instead of x-pi/session_in
     reason: "ai_generated",
   });
   expect(
-    trail.entries.some(
+    trail.groups[0]!.entries.some(
       (e) =>
         e.type === "system_event" && (e.payload as { kind?: unknown }).kind === "x-pi/session_info",
     ),

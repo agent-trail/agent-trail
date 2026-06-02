@@ -2,10 +2,15 @@ import type { Header } from "@agent-trail/types";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { type CcEnvelope, isTracerEnvelope } from "./source.ts";
 
-export function buildHeader(envelopes: CcEnvelope[]): Header {
-  const first = envelopes.find((env) => isTracerEnvelope(env) && env.timestamp !== undefined);
+export function buildHeader(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean } = {},
+): Header {
+  const first = envelopes.find(
+    (env) => isTracerEnvelope(env, options) && env.timestamp !== undefined,
+  );
   const firstSession = envelopes.find(
-    (env) => isTracerEnvelope(env) && env.sessionId !== undefined,
+    (env) => isTracerEnvelope(env, options) && env.sessionId !== undefined,
   );
   const firstTs = first?.timestamp;
   if (first === undefined || firstTs === undefined || firstSession?.sessionId === undefined) {

@@ -22,6 +22,6 @@ Writers stamp the session hash first, then the file hash. Share/transport toolin
 - `packages/core/src/hash.ts` exposes `computeContentHash` / `verifyContentHash` (session scope, slices off the envelope) and `computeTrailEnvelopeContentHash` / `verifyTrailEnvelopeContentHash` (file scope).
 - `packages/redact` extends `vcs.remote_url` stripping to envelope records.
 - `packages/cli/src/share.ts` stamps both hashes when an envelope is present.
-- Deferred for follow-up work: `signature`, `license`, `encryption` envelope fields; multi-session trail files (the `sessions` manifest is validated for length 1 in this draft); writer-side default to emit envelopes is left to per-adapter policy.
+- Deferred for follow-up work: `signature`, `license`, `encryption` envelope fields; writer-side default to emit envelopes is left to per-adapter policy. The earlier single-session `sessions` manifest constraint was superseded by ADR-0007's session-bundle model.
 
 Closes #90.
