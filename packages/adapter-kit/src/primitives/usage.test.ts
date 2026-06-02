@@ -74,6 +74,17 @@ test("mapAgentMessageUsage: renames cache_*_input_tokens to spec names", () => {
   });
 });
 
+test("mapAgentMessageUsage: derives context input from canonical cache token aliases", () => {
+  expect(
+    mapAgentMessageUsage({ input_tokens: 10, cache_read_tokens: 8, cache_creation_tokens: 2 }),
+  ).toEqual({
+    input_tokens: 10,
+    cache_read_tokens: 8,
+    cache_creation_tokens: 2,
+    context_input_tokens: 20,
+  });
+});
+
 test("mapAgentMessageUsage: maps cumulative + reasoning tokens", () => {
   expect(
     mapAgentMessageUsage({

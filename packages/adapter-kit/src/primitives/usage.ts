@@ -75,11 +75,7 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   const contextInput = pick(src, ["context_input_tokens", "contextInputTokens"]);
   if (contextInput !== undefined) usage.context_input_tokens = contextInput;
   else {
-    const contextComponents = [
-      inputTokens,
-      pick(src, ["cache_read_input_tokens", "cacheReadInputTokens", "cacheRead"]),
-      pick(src, ["cache_creation_input_tokens", "cacheCreationInputTokens", "cacheWrite"]),
-    ];
+    const contextComponents = [inputTokens, cacheRead, cacheCreate];
     if (contextComponents.some((value) => value !== undefined)) {
       let total = 0;
       for (const value of contextComponents) total += value ?? 0;

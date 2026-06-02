@@ -400,6 +400,7 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
 // `total_*` counterparts map to `*_cumulative`. Codex's `total_tokens`,
 // `cached_input_tokens` cumulative, and `reasoning_output_tokens` cumulative
 // have no spec slot and are dropped (input+output remain recoverable). Codex
+// `last_token_usage.input_tokens` also maps to `context_input_tokens`;
 // `model_context_window`, when present, maps to `context_window_tokens`.
 //
 // Returns `undefined` when `payload.info` is null/missing or every translated
@@ -413,7 +414,10 @@ export function codexUsageFromTokenCount(
   const total = isObject(info.total_token_usage) ? info.total_token_usage : {};
   const merged: Record<string, unknown> = {};
   const inputDelta = numericValue(last.input_tokens);
-  if (inputDelta !== undefined) merged.input_tokens = inputDelta;
+  if (inputDelta !== undefined) {
+    merged.input_tokens = inputDelta;
+    merged.context_input_tokens = inputDelta;
+  }
   const outputDelta = numericValue(last.output_tokens);
   if (outputDelta !== undefined) merged.output_tokens = outputDelta;
   const cacheReadDelta = numericValue(last.cached_input_tokens);
