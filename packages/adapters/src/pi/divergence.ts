@@ -15,7 +15,11 @@ function pathToRootInSourceIds(
   return path.reverse();
 }
 
-function nearestMappedAncestor(
+// Walk the source-id parent chain from `startSourceId` (inclusive) to the root,
+// returning the first source id that emitted an entry. Used both by the
+// divergence walk and by leaf/label target resolution (reconcile-rules) when a
+// target points at a source id that emitted no entry of its own.
+export function nearestMappedAncestor(
   startSourceId: string,
   parentBySourceId: Map<string, string | null>,
   sourceIdToFirstEntryId: Map<string, string>,

@@ -93,6 +93,18 @@ const SYSTEM_EVENTS_FIXTURE_PATH = new URL(
   "../../tests/fixtures/pi/system-events.jsonl",
   import.meta.url,
 ).pathname;
+const LEAF_AND_LABEL_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/leaf-and-label.jsonl",
+  import.meta.url,
+).pathname;
+const BASH_EXECUTION_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/bash-execution.jsonl",
+  import.meta.url,
+).pathname;
+const CUSTOM_VARIANTS_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/custom-message-variants.jsonl",
+  import.meta.url,
+).pathname;
 
 async function parseFixture() {
   return piAdapter.parseSession({
@@ -1346,3 +1358,314 @@ test("session_info emits session_metadata_update name instead of x-pi/session_in
 // Issue #88: custom_message without `content` must still produce a non-empty
 // text — the synthesized fallback uses customType so the timeline never carries
 // a payload with an empty text field.
+
+// Issue #125 #1/#2: LeafEntry and LabelEntry are now in the pi/v1 source-schema
+// enum, so they route to typed mappings (x-pi/leaf_change, x-pi/label) instead of
+// generic x-pi/unknown_record quarantine. piParentResolution resolves the raw Pi
+// target ids to mapped entry ids.
+async function parseLeafLabelFixture() {
+  return piAdapter.parseSession({
+    id: "leaf-and-label",
+    adapter: "pi",
+    path: LEAF_AND_LABEL_FIXTURE_PATH,
+  });
+}
+
+test("LeafEntry maps to x-pi/leaf_change with data.leaf_id resolved to the target entry id", async () => {
+  const trail = await parseLeafLabelFixture();
+  const entries = trail.groups[0]!.entries;
+  const assistant = entries.find((e) => e.type === "agent_message");
+  const leaf = entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/leaf_change",
+  );
+  expect(leaf).toBeDefined();
+  expect((leaf?.payload as { data?: { leaf_id?: string } }).data?.leaf_id).toBe(assistant?.id);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("LabelEntry maps to x-pi/label with data.target_id resolved and label preserved", async () => {
+  const trail = await parseLeafLabelFixture();
+  const entries = trail.groups[0]!.entries;
+  const user = entries.find((e) => e.type === "user_message");
+  const label = entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string; label?: string } }).data).toEqual({
+    target_id: user?.id,
+    label: "important",
+  });
+});
+
+// Issue #125 #3: BashExecutionMessage (user `!`/`!!` shell prefix) maps to a
+// shell_command tool_call + tool_result pair, with user origin and the bash-only
+// fields recorded in dev.pi.* meta (truncated stays out of payload because the
+// spec requires output_size alongside it, which Pi does not provide).
+async function parseBashFixture() {
+  return piAdapter.parseSession({
+    id: "bash-execution",
+    adapter: "pi",
+    path: BASH_EXECUTION_FIXTURE_PATH,
+  });
+}
+
+test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_result pair", async () => {
+  const trail = await parseBashFixture();
+  const entries = trail.groups[0]!.entries;
+  const calls = entries.filter((e) => e.type === "tool_call");
+  const results = entries.filter((e) => e.type === "tool_result");
+  expect(calls).toHaveLength(2);
+  expect(results).toHaveLength(2);
+
+  const okCall = calls[0]!;
+  expect((okCall.payload as { tool?: string; args?: { command?: string } }).tool).toBe(
+    "shell_command",
+  );
+  expect((okCall.payload as { args?: { command?: string } }).args?.command).toBe("ls -1");
+  expect((okCall.meta as Record<string, unknown>)["dev.pi.user_shell"]).toBe(true);
+  const okResult = results.find((r) => (r.payload as { for_id?: string }).for_id === okCall.id);
+  expect((okResult?.payload as { ok?: boolean }).ok).toBe(true);
+  expect(
+    (okResult?.payload as { meta?: { shell_command?: { exit_code?: number } } }).meta?.shell_command
+      ?.exit_code,
+  ).toBe(0);
+
+  const cancelledResult = results.find(
+    (r) => (r.payload as { error?: string }).error === "command cancelled",
+  );
+  expect((cancelledResult?.payload as { ok?: boolean }).ok).toBe(false);
+  const cancelledMeta = cancelledResult?.meta as Record<string, unknown>;
+  expect(cancelledMeta["dev.pi.truncated"]).toBe(true);
+  expect(cancelledMeta["dev.pi.full_output_path"]).toBe("/tmp/full-output.txt");
+  const cancelledCall = calls.find(
+    (c) => c.id === (cancelledResult?.payload as { for_id?: string }).for_id,
+  );
+  expect((cancelledCall?.meta as Record<string, unknown>)["dev.pi.exclude_from_context"]).toBe(
+    true,
+  );
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+// Issue #125 #4: message-channel variants (role:"branchSummary"/"compactionSummary"/
+// "custom") route to the same trail entries as their tree-entry counterparts.
+async function parseCustomVariantsFixture() {
+  return piAdapter.parseSession({
+    id: "custom-message-variants",
+    adapter: "pi",
+    path: CUSTOM_VARIANTS_FIXTURE_PATH,
+  });
+}
+
+test("message-channel branchSummary/compactionSummary/custom route to their entry types", async () => {
+  const trail = await parseCustomVariantsFixture();
+  const entries = trail.groups[0]!.entries;
+
+  const branch = entries.find((e) => e.type === "branch_summary");
+  expect((branch?.payload as { summary?: string }).summary).toBe("Explored X, switching to Y.");
+
+  const compact = entries.find((e) => e.type === "context_compact");
+  expect((compact?.payload as { summary?: string; tokens_before?: number }).tokens_before).toBe(
+    12000,
+  );
+
+  const custom = entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/custom_message",
+  );
+  expect((custom?.payload as { data?: { custom_type?: string } }).data?.custom_type).toBe("note");
+  // #12: display:false surfaces in meta without dropping the event.
+  expect((custom?.meta as Record<string, unknown>)["dev.pi.display"]).toBe(false);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+// Issue #125 #14: PiMessage.toolName surfaces in tool_result meta.
+test("tool_result surfaces the source toolName in dev.pi.tool_name", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "toolname.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-700100000001", timestamp: "2026-05-21T23:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-700100000002", parentId: null, timestamp: "2026-05-21T23:00:01.000Z", message: { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "x" } }] } })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-700100000003", parentId: "00000000-0000-0000-0000-700100000002", timestamp: "2026-05-21T23:00:02.000Z", message: { role: "toolResult", toolCallId: "call-1", toolName: "read", content: "ok" } })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "toolname", adapter: "pi", path: file });
+  const result = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  expect((result?.meta as Record<string, unknown>)["dev.pi.tool_name"]).toBe("read");
+});
+
+// Issue #125 #5: BranchSummaryEntry.fromHook surfaces in dev.pi.branch_from_hook
+// (distinguishes a hook-triggered branch return from a user one).
+test("branch_summary entry surfaces fromHook in dev.pi.branch_from_hook", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "branch-fromhook.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-b00100000001", timestamp: "2026-05-22T00:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-b00100000002", parentId: null, timestamp: "2026-05-22T00:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "branch_summary", id: "00000000-0000-0000-0000-b00100000003", parentId: "00000000-0000-0000-0000-b00100000002", timestamp: "2026-05-22T00:00:02.000Z", fromId: "00000000-0000-0000-0000-b00100000002", summary: "hook-driven return", fromHook: true })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "branch-fromhook", adapter: "pi", path: file });
+  const branch = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
+  expect((branch?.meta as Record<string, unknown>)["dev.pi.branch_from_hook"]).toBe(true);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+// Issue #125 #1: LeafEntry.targetId is `string | null`; a null tip clears the
+// active pointer — emit x-pi/leaf_change with no data.leaf_id.
+test("LeafEntry with null targetId emits x-pi/leaf_change without data", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "leaf-null.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1ea000000001", timestamp: "2026-05-22T01:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1ea000000002", parentId: null, timestamp: "2026-05-22T01:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-1ea000000003", parentId: "00000000-0000-0000-0000-1ea000000002", timestamp: "2026-05-22T01:00:02.000Z", targetId: null })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "leaf-null", adapter: "pi", path: file });
+  const leaf = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/leaf_change",
+  );
+  expect(leaf).toBeDefined();
+  expect((leaf?.payload as { data?: unknown }).data).toBeUndefined();
+  expect((leaf?.payload as { text?: string }).text).toBe("Active branch tip cleared");
+});
+
+// Issue #125 #2: LabelEntry.label is optional; a label-less annotation still
+// emits x-pi/label with the resolved target_id and no label key.
+test("LabelEntry with no label emits x-pi/label with target_id only", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "label-bare.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1ab000000001", timestamp: "2026-05-22T02:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1ab000000002", parentId: null, timestamp: "2026-05-22T02:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "label", id: "00000000-0000-0000-0000-1ab000000003", parentId: "00000000-0000-0000-0000-1ab000000002", timestamp: "2026-05-22T02:00:02.000Z", targetId: "00000000-0000-0000-0000-1ab000000002" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "label-bare", adapter: "pi", path: file });
+  const entries = trail.groups[0]!.entries;
+  const user = entries.find((e) => e.type === "user_message");
+  const label = entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string; label?: string } }).data).toEqual({
+    target_id: user?.id,
+  });
+  expect((label?.payload as { text?: string }).text).toBe("Label");
+});
+
+// Issue #125 #12: display surfaces for the custom_message *entry* form (not only
+// the message-channel variant).
+test("custom_message entry surfaces display:false in dev.pi.display", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "custom-display.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-d15000000001", timestamp: "2026-05-22T03:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "custom_message", id: "00000000-0000-0000-0000-d15000000002", parentId: null, timestamp: "2026-05-22T03:00:01.000Z", customType: "note", content: "hidden note", display: false })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "custom-display", adapter: "pi", path: file });
+  const custom = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/custom_message",
+  );
+  expect((custom?.meta as Record<string, unknown>)["dev.pi.display"]).toBe(false);
+});
+
+// Issue #125 #1: the explicit LeafEntry tip feeds branch_summary resolution.
+// fromId points to an abandoned sibling; with the active leaf at the assistant,
+// the divergence walk resolves abandoned_branch_id to the abandoned child.
+test("explicit leaf feeds branch_summary.abandoned_branch_id resolution", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "leaf-branch.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1eafb0000001", timestamp: "2026-05-22T04:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1eafb0000002", parentId: null, timestamp: "2026-05-22T04:00:01.000Z", message: { role: "user", content: "root" } })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1eafb0000003", parentId: "00000000-0000-0000-0000-1eafb0000002", timestamp: "2026-05-22T04:00:02.000Z", message: { role: "assistant", model: "claude-sonnet-4-5", stopReason: "stop", content: "active path" } })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1eafb0000004", parentId: "00000000-0000-0000-0000-1eafb0000002", timestamp: "2026-05-22T04:00:03.000Z", message: { role: "user", content: "abandoned branch" } })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-1eafb0000005", parentId: "00000000-0000-0000-0000-1eafb0000003", timestamp: "2026-05-22T04:00:04.000Z", targetId: "00000000-0000-0000-0000-1eafb0000003" })}\n${JSON.stringify({ type: "branch_summary", id: "00000000-0000-0000-0000-1eafb0000006", parentId: "00000000-0000-0000-0000-1eafb0000003", timestamp: "2026-05-22T04:00:05.000Z", fromId: "00000000-0000-0000-0000-1eafb0000004", summary: "came back from the abandoned branch" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "leaf-branch", adapter: "pi", path: file });
+  const entries = trail.groups[0]!.entries;
+  const leaf = entries.find(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/leaf_change",
+  );
+  const assistant = entries.find((e) => e.type === "agent_message");
+  // leaf resolves to the active assistant entry id.
+  expect((leaf?.payload as { data?: { leaf_id?: string } }).data?.leaf_id).toBe(assistant?.id);
+  // abandoned_branch_id resolves to the abandoned sibling (the second user_message).
+  const branch = entries.find((e) => e.type === "branch_summary");
+  const abandoned = entries.find(
+    (e) => e.id === (branch?.payload as { abandoned_branch_id?: string }).abandoned_branch_id,
+  );
+  expect(abandoned?.type).toBe("user_message");
+  expect((abandoned?.payload as { text?: string }).text).toBe("abandoned branch");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+// Issue #125 #1/#2: when a leaf/label targetId points at a source id that emitted
+// no entry, resolution climbs to the nearest mapped ancestor (mirrors
+// abandoned_branch_id). A target with no mapped ancestor keeps the raw id.
+test("label target resolves to nearest mapped ancestor when the target emitted nothing", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "label-ancestor.jsonl");
+  // The compaction has no summary → emits nothing; the label targets it, so
+  // resolution must climb to the user_message parent.
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1abc00000001", timestamp: "2026-05-22T05:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1abc00000002", parentId: null, timestamp: "2026-05-22T05:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "compaction", id: "00000000-0000-0000-0000-1abc00000003", parentId: "00000000-0000-0000-0000-1abc00000002", timestamp: "2026-05-22T05:00:02.000Z" })}\n${JSON.stringify({ type: "label", id: "00000000-0000-0000-0000-1abc00000004", parentId: "00000000-0000-0000-0000-1abc00000002", timestamp: "2026-05-22T05:00:03.000Z", targetId: "00000000-0000-0000-0000-1abc00000003", label: "tag" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "label-ancestor", adapter: "pi", path: file });
+  const entries = trail.groups[0]!.entries;
+  const user = entries.find((e) => e.type === "user_message");
+  const label = entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string } }).data?.target_id).toBe(user?.id);
+});
+
+test("label target with no mapped ancestor keeps the raw Pi id", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "label-unresolved.jsonl");
+  // targetId references an id that appears nowhere → no mapped ancestor exists.
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1abd00000001", timestamp: "2026-05-22T06:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-1abd00000002", parentId: null, timestamp: "2026-05-22T06:00:01.000Z", message: { role: "user", content: "start" } })}\n${JSON.stringify({ type: "label", id: "00000000-0000-0000-0000-1abd00000003", parentId: "00000000-0000-0000-0000-1abd00000002", timestamp: "2026-05-22T06:00:02.000Z", targetId: "00000000-0000-0000-0000-deadbeef0000", label: "dangling" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({ id: "label-unresolved", adapter: "pi", path: file });
+  const label = trail.groups[0]!.entries.find(
+    (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/label",
+  );
+  expect((label?.payload as { data?: { target_id?: string } }).data?.target_id).toBe(
+    "00000000-0000-0000-0000-deadbeef0000",
+  );
+});
+
+// Issue #125 #1: a cleared leaf (targetId:null) resets the tracked active tip so
+// a following branch_summary falls back to its own parent rather than a stale
+// leaf. Exercises the reset branch + fallback.
+test("a cleared leaf resets the active tip before a later branch_summary", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "leaf-clear-branch.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-c1ea00000001", timestamp: "2026-05-22T07:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000002", parentId: null, timestamp: "2026-05-22T07:00:01.000Z", message: { role: "user", content: "root" } })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000003", parentId: "00000000-0000-0000-0000-c1ea00000002", timestamp: "2026-05-22T07:00:02.000Z", message: { role: "assistant", model: "claude-sonnet-4-5", stopReason: "stop", content: "active" } })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-c1ea00000004", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:03.000Z", targetId: "00000000-0000-0000-0000-c1ea00000003" })}\n${JSON.stringify({ type: "leaf", id: "00000000-0000-0000-0000-c1ea00000005", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:04.000Z", targetId: null })}\n${JSON.stringify({ type: "message", id: "00000000-0000-0000-0000-c1ea00000006", parentId: "00000000-0000-0000-0000-c1ea00000002", timestamp: "2026-05-22T07:00:05.000Z", message: { role: "user", content: "abandoned" } })}\n${JSON.stringify({ type: "branch_summary", id: "00000000-0000-0000-0000-c1ea00000007", parentId: "00000000-0000-0000-0000-c1ea00000003", timestamp: "2026-05-22T07:00:06.000Z", fromId: "00000000-0000-0000-0000-c1ea00000006", summary: "back from abandoned" })}\n`,
+  );
+  const trail = await piAdapter.parseSession({
+    id: "leaf-clear-branch",
+    adapter: "pi",
+    path: file,
+  });
+  const entries = trail.groups[0]!.entries;
+  const leafChanges = entries.filter(
+    (e) =>
+      e.type === "system_event" && (e.payload as { kind?: string }).kind === "x-pi/leaf_change",
+  );
+  expect(leafChanges).toHaveLength(2);
+  // The clearing leaf carries no data.leaf_id.
+  expect((leafChanges[1]?.payload as { data?: unknown }).data).toBeUndefined();
+  // branch_summary still resolves to the abandoned sibling via the parent fallback.
+  const branch = entries.find((e) => e.type === "branch_summary");
+  const abandoned = entries.find(
+    (e) => e.id === (branch?.payload as { abandoned_branch_id?: string }).abandoned_branch_id,
+  );
+  expect((abandoned?.payload as { text?: string }).text).toBe("abandoned");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});

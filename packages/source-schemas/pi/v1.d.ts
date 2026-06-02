@@ -16,6 +16,8 @@ export interface PiV1Record {
     | "custom"
     | "custom_message"
     | "session_info"
-    | "thinking_level_change";
+    | "thinking_level_change"
+    | "label"
+    | "leaf";
   [k: string]: unknown;
 }

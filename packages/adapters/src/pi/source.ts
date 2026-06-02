@@ -17,6 +17,25 @@ export type PiMessage = {
   toolName?: string;
   isError?: boolean;
   details?: unknown;
+  // Coding-agent message-channel variants (declaration-merged CustomAgentMessages
+  // in pi-mono `packages/coding-agent/src/core/messages.ts`). These arrive as
+  // `type:"message"` envelopes discriminated by `role`; fields live directly on
+  // the message, not in `content`.
+  // role:"bashExecution" — user `!`/`!!` shell prefix.
+  command?: string;
+  output?: string;
+  exitCode?: number;
+  cancelled?: boolean;
+  truncated?: boolean;
+  fullOutputPath?: string;
+  excludeFromContext?: boolean;
+  // role:"custom" — extension-injected message.
+  customType?: string;
+  display?: boolean;
+  // role:"branchSummary" / "compactionSummary".
+  summary?: string;
+  fromId?: string;
+  tokensBefore?: number;
 };
 
 export type PiEnvelope = {

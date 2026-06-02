@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"00000000-0000-0000-0000-1eaf00000000","timestamp":"2026-05-21T20:00:00.000Z","cwd":"/tmp/synthetic-project"}
+{"type":"message","id":"00000000-0000-0000-0000-1eaf00000001","parentId":null,"timestamp":"2026-05-21T20:00:01.000Z","message":{"role":"user","content":"please read spec.md"}}
+{"type":"message","id":"00000000-0000-0000-0000-1eaf00000002","parentId":"00000000-0000-0000-0000-1eaf00000001","timestamp":"2026-05-21T20:00:02.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","content":"done"}}
+{"type":"label","id":"00000000-0000-0000-0000-1eaf00000003","parentId":"00000000-0000-0000-0000-1eaf00000002","timestamp":"2026-05-21T20:00:03.000Z","targetId":"00000000-0000-0000-0000-1eaf00000001","label":"important"}
+{"type":"leaf","id":"00000000-0000-0000-0000-1eaf00000004","parentId":"00000000-0000-0000-0000-1eaf00000002","timestamp":"2026-05-21T20:00:04.000Z","targetId":"00000000-0000-0000-0000-1eaf00000002"}
