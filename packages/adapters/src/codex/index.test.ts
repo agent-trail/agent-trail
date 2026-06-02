@@ -876,6 +876,37 @@ test("event_msg.thread_goal_updated emits session_metadata_update description", 
   ).toBe(false);
 });
 
+test("event_msg.thread_goal_updated emits vendor session_metadata_update when summary is absent", async () => {
+  const id = "019d8900-bbbb-7000-e000-00000000000b";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T11:00:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "thread_goal_updated",
+          goal: { summary: null, items: ["finish"] },
+        },
+      },
+    ],
+  });
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const evt = trail.entries.find(
+    (e) =>
+      e.type === "session_metadata_update" &&
+      (e.payload as { field?: unknown }).field === "x-codex/thread_goal",
+  );
+
+  expect(evt?.payload).toEqual({
+    field: "x-codex/thread_goal",
+    value: { summary: null, items: ["finish"] },
+    reason: "ai_generated",
+  });
+});
+
 test("web_search_end emits x-codex/web_search_end system_event with query-based pairing", async () => {
   const trail = await parseWebSearchFixture();
   const evt = trail.entries.find((e) => e.type === "system_event");

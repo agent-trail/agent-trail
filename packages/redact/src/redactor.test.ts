@@ -123,6 +123,43 @@ test("redactTrail redacts session_metadata_update values but preserves field and
   expect(summary.counts.user_secret).toBe(2);
 });
 
+test("redactTrail walks nested session_metadata_update value objects", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "session_metadata_update",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        field: "x-codex/thread_goal",
+        value: { summary: "secret-alpha", steps: ["keep", "secret-beta"] },
+        previous_value: { nested: { summary: "secret-gamma" } },
+        reason: "ai_generated",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    userSecrets: ["secret-alpha", "secret-beta", "secret-gamma", "ai_generated"],
+  });
+
+  const value = out[1]?.value as {
+    payload: {
+      field: string;
+      value: { summary: string; steps: string[] };
+      previous_value: { nested: { summary: string } };
+      reason: string;
+    };
+  };
+  expect(value.payload).toEqual({
+    field: "x-codex/thread_goal",
+    value: { summary: "[USER_SECRET]", steps: ["keep", "[USER_SECRET]"] },
+    previous_value: { nested: { summary: "[USER_SECRET]" } },
+    reason: "ai_generated",
+  });
+  expect(summary.counts.user_secret).toBe(3);
+});
+
 test("redactTrail walks entry source.raw and redacts nested string secrets", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

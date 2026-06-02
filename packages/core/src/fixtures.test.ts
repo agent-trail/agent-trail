@@ -81,6 +81,27 @@ test("valid/session-metadata-update-tags.trail.jsonl validates clean", async () 
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/session-metadata-update-agent-model-default.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-agent-model-default.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-vcs-branch.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-vcs-branch.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-metadata-update-vendor.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-metadata-update-vendor.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl reports pattern at /payload/attachments/0/uri", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/agent-message-attachment-bad-uri.trail.jsonl"),
