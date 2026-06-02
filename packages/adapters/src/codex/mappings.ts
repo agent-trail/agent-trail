@@ -789,8 +789,23 @@ function hookRunData(value: unknown): Raw | undefined {
   copyTruncatedNumber(data, value, "started_at");
   copyTruncatedNumber(data, value, "completed_at");
   copyTruncatedNumber(data, value, "duration_ms");
-  copyArray(data, value, "entries");
+  const entries = hookRunEntries(value.entries);
+  if (entries !== undefined) data.entries = entries;
   return Object.keys(data).length > 0 ? data : undefined;
+}
+
+function hookRunEntries(value: unknown): Raw[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((entry) => {
+    if (!isObject(entry)) return [];
+    const out: Raw = {};
+    copyString(out, entry, "stream");
+    copyString(out, entry, "type");
+    copyString(out, entry, "level");
+    const text = excerpt(stringValue(entry.text));
+    if (text !== undefined) out.text = text;
+    return Object.keys(out).length > 0 ? [out] : [];
+  });
 }
 
 const taskStarted = lifecycle("task_started", (p) => {
@@ -812,7 +827,7 @@ const itemStarted = lifecycle("item_started", (p) => {
   copyString(data, p, "turn_id");
   copyTruncatedNumber(data, p, "started_at_ms");
   copyObject(data, p, "item");
-  return { kind: "task_started", rawType: "event_msg.item_started", data };
+  return { kind: "x-codex/item_started", rawType: "event_msg.item_started", data };
 });
 
 const taskCompleted = lifecycle("task_complete", (p) => {
@@ -1046,7 +1061,6 @@ const webSearchBegin = lifecycle("web_search_begin", (p) => {
     kind: "x-codex/web_search_begin",
     rawType: "event_msg.web_search_begin",
     data,
-    linkedCallId: stringValue(p.call_id),
   };
 });
 
@@ -1057,7 +1071,6 @@ const imageGenerationBegin = lifecycle("image_generation_begin", (p) => {
     kind: "x-codex/image_generation_begin",
     rawType: "event_msg.image_generation_begin",
     data,
-    linkedCallId: stringValue(p.call_id),
   };
 });
 
@@ -1072,7 +1085,6 @@ const imageGenerationEnd = lifecycle("image_generation_end", (p) => {
     kind: "x-codex/image_generation_end",
     rawType: "event_msg.image_generation_end",
     data,
-    linkedCallId: stringValue(p.call_id),
   };
 });
 

@@ -1671,13 +1671,13 @@ test("event_msg.task_started emits system_event with reserved kind task_started"
   expect(errors).toEqual([]);
 });
 
-test("event_msg.item_started emits task_started without inventing plan state", async () => {
+test("event_msg.item_started emits vendor item marker without inventing plan state", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.groups[0]!.entries.find(
     (e) =>
       e.type === "system_event" &&
       e.source?.original_type === "event_msg.item_started" &&
-      (e.payload as { kind?: string }).kind === "task_started",
+      (e.payload as { kind?: string }).kind === "x-codex/item_started",
   );
   expect(evt).toBeDefined();
   const data = (evt?.payload as { data?: Record<string, unknown> }).data;
@@ -1760,6 +1760,58 @@ test("event_msg hook_started and hook_completed emit hook_fired with run data", 
       entries: [{ stream: "stdout", text: "ok" }],
     },
   });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg hook lifecycle truncates run entry text", async () => {
+  const path = join(tmpCwd, "codex-hook-output.jsonl");
+  const largeText = "x".repeat(3000);
+  const records = [
+    {
+      timestamp: "2026-05-28T11:00:02.000Z",
+      type: "session_meta",
+      payload: {
+        id: "00000000-0000-0000-0000-0000000000ac",
+        timestamp: "2026-05-28T11:00:02.000Z",
+        cwd: tmpCwd,
+        originator: "codex-tui",
+        cli_version: "0.135.0",
+        source: "interactive",
+        model_provider: "openai",
+      },
+    },
+    {
+      timestamp: "2026-05-28T11:00:02.750Z",
+      type: "event_msg",
+      payload: {
+        type: "hook_completed",
+        turn_id: "turn-life",
+        run: {
+          id: "hook-run-1",
+          event_name: "PreToolUse",
+          status: "completed",
+          entries: [{ stream: "stdout", text: largeText, ignored: "not-curated" }],
+        },
+      },
+    },
+  ];
+  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+
+  const trail = await codexAdapter.parseSession({
+    id: "00000000-0000-0000-0000-0000000000ac",
+    adapter: "codex",
+    path,
+  });
+  const evt = trail.groups[0]!.entries.find(
+    (e) => e.type === "system_event" && e.source?.original_type === "event_msg.hook_completed",
+  );
+  const data = (evt?.payload as { data?: { run?: { entries?: Record<string, unknown>[] } } }).data;
+  const entry = data?.run?.entries?.[0];
+
+  expect(entry?.stream).toBe("stdout");
+  expect((entry?.text as string).length).toBeLessThan(largeText.length);
+  expect(entry?.ignored).toBeUndefined();
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -2422,19 +2474,19 @@ test("web and image generation begin/end events emit vendor lifecycle markers", 
   const imageBegin = byKind("x-codex/image_generation_begin");
   const imageEnd = byKind("x-codex/image_generation_end");
 
-  expect(webBegin?.semantic?.call_id).toBe("ws-life");
+  expect(webBegin?.semantic?.call_id).toBeUndefined();
   expect(webBegin?.source?.original_type).toBe("event_msg.web_search_begin");
   expect((webBegin?.payload as { data?: Record<string, unknown> }).data).toEqual({
     call_id: "ws-life",
   });
 
-  expect(imageBegin?.semantic?.call_id).toBe("img-life");
+  expect(imageBegin?.semantic?.call_id).toBeUndefined();
   expect(imageBegin?.source?.original_type).toBe("event_msg.image_generation_begin");
   expect((imageBegin?.payload as { data?: Record<string, unknown> }).data).toEqual({
     call_id: "img-life",
   });
 
-  expect(imageEnd?.semantic?.call_id).toBe("img-life");
+  expect(imageEnd?.semantic?.call_id).toBeUndefined();
   expect(imageEnd?.source?.original_type).toBe("event_msg.image_generation_end");
   expect((imageEnd?.payload as { data?: Record<string, unknown> }).data).toEqual({
     call_id: "img-life",

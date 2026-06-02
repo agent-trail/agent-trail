@@ -677,6 +677,13 @@ function hookSuccessText(hookEvent: string | undefined, hookName: string | undef
   return hookName?.trim() ? `Hook success: ${event} (${hookName})` : `Hook success: ${event}`;
 }
 
+const OUTPUT_EXCERPT_MAX_CHARS = 2048;
+function outputExcerpt(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  if (text.length <= OUTPUT_EXCERPT_MAX_CHARS) return text;
+  return `${text.slice(0, OUTPUT_EXCERPT_MAX_CHARS)}…`;
+}
+
 function hookSuccessData(attachment: Record<string, unknown>): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
@@ -695,9 +702,9 @@ function hookSuccessData(attachment: Record<string, unknown>): Record<string, un
   if (durationMs !== undefined) data.duration_ms = Math.trunc(durationMs);
   const command = stringValue(attachment.command);
   if (command !== undefined) data.command = command;
-  const stdout = stringValue(attachment.stdout);
+  const stdout = outputExcerpt(stringValue(attachment.stdout));
   if (stdout !== undefined) data.stdout_excerpt = stdout;
-  const stderr = stringValue(attachment.stderr);
+  const stderr = outputExcerpt(stringValue(attachment.stderr));
   if (stderr !== undefined) data.stderr_excerpt = stderr;
   return data;
 }

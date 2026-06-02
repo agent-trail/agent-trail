@@ -340,7 +340,7 @@ Lifecycle-vocabulary `system_event` emissions:
 - `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §9.3). `data`
   carries `turn_id`, `started_at`, `model_context_window`, `collaboration_mode_kind` when
   present.
-- `event_msg.item_started` → `system_event{kind:"task_started"}`. `data` carries
+- `event_msg.item_started` → `system_event{kind:"x-codex/item_started"}`. `data` carries
   `thread_id`, `turn_id`, `started_at_ms`, and the source `item` object without inventing
   task-plan status snapshots.
 - `event_msg.task_complete` (singular in the source — `task_completed` is the canonical
@@ -378,7 +378,8 @@ Lifecycle-vocabulary `system_event` emissions:
   `semantic.call_id`. `data` carries `plugin_id`, `invocation`, `duration_ms`, and a
   flattened `result_ok` boolean derived from the Rust-style `{Ok|Err: …}` enum.
 - `event_msg.web_search_begin` → `system_event{kind:"x-codex/web_search_begin"}` with
-  `semantic.call_id` and `data.call_id`.
+  `data.call_id`; the vendor id is not surfaced as `semantic.call_id` unless paired to a
+  registered source tool call.
 - `event_msg.web_search_end` → `system_event{kind:"x-codex/web_search_end"}`. Pairing is
   query-based: consumers join by matching `data.query` against the `web_search` tool_call's
   `args.query`. The source `ws_*` vendor id is preserved verbatim under `data.call_id` for
@@ -386,8 +387,9 @@ Lifecycle-vocabulary `system_event` emissions:
   registered against it (`web_search_call` carries no `call_id` in the response_item channel).
 - `event_msg.image_generation_begin` / `event_msg.image_generation_end` →
   `system_event{kind:"x-codex/image_generation_begin"}` /
-  `system_event{kind:"x-codex/image_generation_end"}` with `semantic.call_id`. `data`
-  preserves source `call_id`, status, revised prompt, result, and saved path when present.
+  `system_event{kind:"x-codex/image_generation_end"}`. `data` preserves source `call_id`,
+  status, revised prompt, result, and saved path when present; the vendor id is not surfaced as
+  `semantic.call_id` unless paired to a registered source tool call.
 - `event_msg.thread_goal_updated` → `session_metadata_update`. When `goal.summary` is a non-empty
   string, it updates `description`; otherwise the raw goal object is preserved under
   `x-codex/thread_goal`.

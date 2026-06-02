@@ -1253,6 +1253,51 @@ test("parseSession() maps hook_success attachments to hook lifecycle markers", a
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() truncates hook_success stdout and stderr excerpts", async () => {
+  const stdout = "o".repeat(3000);
+  const stderr = "e".repeat(3000);
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000aa",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "run hook" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000ab",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-cccccccccc12",
+      attachment: {
+        type: "hook_success",
+        hookEvent: "PostToolUse",
+        hookName: "PostToolUse:Bash",
+        toolUseID: "tooluse-large",
+        stdout,
+        stderr,
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" && entry.source?.original_type === "attachment.hook_success",
+  );
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+
+  expect((data?.stdout_excerpt as string).length).toBeLessThan(stdout.length);
+  expect((data?.stdout_excerpt as string).startsWith("o".repeat(2048))).toBe(true);
+  expect((data?.stderr_excerpt as string).length).toBeLessThan(stderr.length);
+  expect((data?.stderr_excerpt as string).startsWith("e".repeat(2048))).toBe(true);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
   const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
