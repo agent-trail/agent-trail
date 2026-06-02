@@ -10,7 +10,12 @@ import {
   taskPlanItemId,
 } from "../task-plan.ts";
 import { sourceFor } from "./entry-metadata.ts";
-import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
+import {
+  hookEventToKind,
+  systemEventData,
+  systemEventKind,
+  systemEventText,
+} from "./envelope-mappers.ts";
 import {
   asBlocks,
   type CcBlock,
@@ -663,6 +668,77 @@ function listingText(attachment: Record<string, unknown>): string | undefined {
   return jsonString(content);
 }
 
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function hookSuccessText(hookEvent: string | undefined, hookName: string | undefined): string {
+  const event = hookEvent ?? "hook";
+  return hookName?.trim() ? `Hook success: ${event} (${hookName})` : `Hook success: ${event}`;
+}
+
+const OUTPUT_EXCERPT_MAX_CHARS = 2048;
+function outputExcerpt(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  if (text.length <= OUTPUT_EXCERPT_MAX_CHARS) return text;
+  return `${text.slice(0, OUTPUT_EXCERPT_MAX_CHARS)}…`;
+}
+
+function hookSuccessSourceRecord(
+  record: CcEnvelope,
+  attachment: Record<string, unknown>,
+  isLegacyAttachment: boolean,
+): CcEnvelope {
+  const sanitizedAttachment = hookSuccessSourceAttachment(attachment);
+  if (isLegacyAttachment) return { ...record, attachment: sanitizedAttachment };
+  return { ...record, ...sanitizedAttachment };
+}
+
+function hookSuccessSourceAttachment(attachment: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...attachment };
+  summarizeHookOutput(out, "stdout");
+  summarizeHookOutput(out, "stderr");
+  return out;
+}
+
+function summarizeHookOutput(out: Record<string, unknown>, key: "stdout" | "stderr"): void {
+  const value = stringValue(out[key]);
+  if (value === undefined) return;
+  delete out[key];
+  out[`${key}_elided`] = true;
+  out[`${key}_chars`] = value.length;
+}
+
+function hookToolCallId(attachment: Record<string, unknown>): string | undefined {
+  const rawToolCallId =
+    stringValue(attachment.tool_call_id) ??
+    stringValue(attachment.toolCallId) ??
+    stringValue(attachment.tool_use_id) ??
+    stringValue(attachment.toolUseID);
+  return isNonEmptyString(rawToolCallId) ? rawToolCallId.trim() : undefined;
+}
+
+function hookSuccessData(attachment: Record<string, unknown>): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+  if (hookEvent !== undefined) data.hook_event = hookEvent;
+  const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
+  if (hookName !== undefined) data.hook_name = hookName;
+  const toolCallId = hookToolCallId(attachment);
+  if (toolCallId !== undefined) data.tool_call_id = toolCallId;
+  const exitCode = numberValue(attachment.exit_code) ?? numberValue(attachment.exitCode);
+  if (exitCode !== undefined) data.exit_code = Math.trunc(exitCode);
+  const durationMs = numberValue(attachment.duration_ms) ?? numberValue(attachment.durationMs);
+  if (durationMs !== undefined) data.duration_ms = Math.trunc(durationMs);
+  const command = stringValue(attachment.command);
+  if (command !== undefined) data.command = command;
+  const stdout = outputExcerpt(stringValue(attachment.stdout));
+  if (stdout !== undefined) data.stdout_excerpt = stdout;
+  const stderr = outputExcerpt(stringValue(attachment.stderr));
+  if (stderr !== undefined) data.stderr_excerpt = stderr;
+  return data;
+}
+
 function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
   if (!gate(record)) return [];
   const isLegacyAttachment = record.type === "attachment";
@@ -761,16 +837,30 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     ];
   }
 
+  if (subtype === "hook_success") {
+    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+    const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
+    const toolCallId = hookToolCallId(attachment);
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: hookEventToKind(hookEvent),
+          text: hookSuccessText(hookEvent, hookName),
+          data: hookSuccessData(attachment),
+        },
+        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
+        source: src(hookSuccessSourceRecord(record, attachment, isLegacyAttachment), originalType),
+        meta: meta(record, { callId: toolCallId }),
+      },
+    ];
+  }
+
   if (subtype === "hook_permission_decision") {
     const decision = permissionDecision(attachment.decision);
     if (decision === undefined) return [];
     const data: Record<string, unknown> = { decision };
-    const rawToolCallId =
-      stringValue(attachment.tool_call_id) ??
-      stringValue(attachment.toolCallId) ??
-      stringValue(attachment.tool_use_id) ??
-      stringValue(attachment.toolUseID);
-    const toolCallId = isNonEmptyString(rawToolCallId) ? rawToolCallId : undefined;
+    const toolCallId = hookToolCallId(attachment);
     if (toolCallId !== undefined) data.tool_call_id = toolCallId;
     const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
     if (hookEvent !== undefined) data.hook_event = hookEvent;

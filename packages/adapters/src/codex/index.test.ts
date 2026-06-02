@@ -1691,6 +1691,29 @@ test("event_msg.task_started emits system_event with reserved kind task_started"
   expect(errors).toEqual([]);
 });
 
+test("event_msg.item_started emits vendor item marker without inventing plan state", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      e.source?.original_type === "event_msg.item_started" &&
+      (e.payload as { kind?: string }).kind === "x-codex/item_started",
+  );
+  expect(evt).toBeDefined();
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data).toEqual({
+    thread_id: "thread-1",
+    turn_id: "turn-life",
+    started_at_ms: 1748430002250,
+    item: {
+      type: "Plan",
+      id: "plan-life",
+      steps: [{ step: "do the thing", status: "in_progress" }],
+    },
+  });
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.item_started");
+});
+
 test("event_msg.task_complete emits system_event with canonical task_completed kind", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.groups[0]!.entries.find(
@@ -1704,6 +1727,113 @@ test("event_msg.task_complete emits system_event with canonical task_completed k
   // Raw source payload uses singular `task_complete`; preserve the original
   // wording on the audit tag while the canonical schema kind is `task_completed`.
   expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.task_complete");
+});
+
+test("event_msg hook_started and hook_completed emit hook_fired with run data", async () => {
+  const trail = await parseLifecycleFixture();
+  const byRawType = (rawType: string) =>
+    trail.groups[0]!.entries.find(
+      (e) =>
+        e.type === "system_event" &&
+        e.source?.original_type === rawType &&
+        (e.payload as { kind?: string }).kind === "hook_fired",
+    );
+  const started = byRawType("event_msg.hook_started");
+  const completed = byRawType("event_msg.hook_completed");
+
+  expect(started).toBeDefined();
+  expect((started?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    turn_id: "turn-life",
+    run: {
+      id: "hook-run-1",
+      event_name: "PreToolUse",
+      handler_type: "command",
+      execution_mode: "blocking",
+      scope: "project",
+      source_path: "/proj/codex-lifecycle/.codex/hooks/pre.sh",
+      source: "config",
+      display_order: 1,
+      status: "running",
+      status_message: "running hook",
+      started_at: 1748430002500,
+      entries: [],
+    },
+  });
+
+  expect(completed).toBeDefined();
+  expect((completed?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    turn_id: "turn-life",
+    run: {
+      id: "hook-run-1",
+      event_name: "PreToolUse",
+      handler_type: "command",
+      execution_mode: "blocking",
+      scope: "project",
+      source_path: "/proj/codex-lifecycle/.codex/hooks/pre.sh",
+      source: "config",
+      display_order: 1,
+      status: "completed",
+      status_message: "hook ok",
+      started_at: 1748430002500,
+      completed_at: 1748430002750,
+      duration_ms: 250,
+      entries: [{ stream: "stdout", text: "ok" }],
+    },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("event_msg hook lifecycle truncates run entry text", async () => {
+  const path = join(tmpCwd, "codex-hook-output.jsonl");
+  const largeText = "x".repeat(3000);
+  const records = [
+    {
+      timestamp: "2026-05-28T11:00:02.000Z",
+      type: "session_meta",
+      payload: {
+        id: "00000000-0000-0000-0000-0000000000ac",
+        timestamp: "2026-05-28T11:00:02.000Z",
+        cwd: tmpCwd,
+        originator: "codex-tui",
+        cli_version: "0.135.0",
+        source: "interactive",
+        model_provider: "openai",
+      },
+    },
+    {
+      timestamp: "2026-05-28T11:00:02.750Z",
+      type: "event_msg",
+      payload: {
+        type: "hook_completed",
+        turn_id: "turn-life",
+        run: {
+          id: "hook-run-1",
+          event_name: "PreToolUse",
+          status: "completed",
+          entries: [{ stream: "stdout", text: largeText, ignored: "not-curated" }],
+        },
+      },
+    },
+  ];
+  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+
+  const trail = await codexAdapter.parseSession({
+    id: "00000000-0000-0000-0000-0000000000ac",
+    adapter: "codex",
+    path,
+  });
+  const evt = trail.groups[0]!.entries.find(
+    (e) => e.type === "system_event" && e.source?.original_type === "event_msg.hook_completed",
+  );
+  const data = (evt?.payload as { data?: { run?: { entries?: Record<string, unknown>[] } } }).data;
+  const entry = data?.run?.entries?.[0];
+
+  expect(entry?.stream).toBe("stdout");
+  expect((entry?.text as string).length).toBeLessThan(largeText.length);
+  expect(entry?.ignored).toBeUndefined();
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_id", async () => {
@@ -1721,6 +1851,34 @@ test("event_msg.exec_command_end emits x-codex/exec_command_end linked by call_i
   expect(data?.command).toBe("ls");
   expect(data?.stdout_excerpt).toBe("file.txt\n");
   expect(data?.stderr_excerpt).toBe("");
+});
+
+test("event_msg.exec_command_begin emits x-codex/exec_command_begin linked by call_id", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/exec_command_begin",
+  );
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-exec-life");
+  expect(evt?.source?.original_type).toBe("event_msg.exec_command_begin");
+  expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.exec_command_begin");
+  const data = (evt?.payload as { data?: Record<string, unknown> }).data;
+  expect(data).toEqual({
+    call_id: "call-exec-life",
+    turn_id: "turn-life",
+    process_id: "proc-exec-life",
+    started_at_ms: 1748430003500,
+    command: ["ls"],
+    cwd: "/proj/codex-lifecycle",
+    parsed_cmd: [{ type: "ls", cmd: "ls" }],
+    source: "agent",
+    has_interaction_input: true,
+    interaction_input_chars: 15,
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("event_msg.exec_approval_request emits permission_request linked by call_id", async () => {
@@ -1926,6 +2084,36 @@ test("event_msg.patch_apply_end emits x-codex/patch_apply_end linked by call_id"
   const data = (evt?.payload as { data?: Record<string, unknown> }).data;
   expect(data?.success).toBe(true);
   expect(data?.changes).toEqual({ "src/x.ts": { type: "modify" } });
+});
+
+test("event_msg patch apply begin and update emit linked vendor lifecycle markers", async () => {
+  const trail = await parseLifecycleFixture();
+  const byKind = (kind: string) =>
+    trail.groups[0]!.entries.find(
+      (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === kind,
+    );
+  const begin = byKind("x-codex/patch_apply_begin");
+  const updated = byKind("x-codex/patch_apply_updated");
+
+  expect(begin).toBeDefined();
+  expect(begin?.semantic?.call_id).toBe("call-patch-life");
+  expect(begin?.source?.original_type).toBe("event_msg.patch_apply_begin");
+  expect((begin?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "call-patch-life",
+    turn_id: "turn-life",
+    auto_approved: true,
+    changes: { "src/x.ts": { type: "modify" } },
+  });
+
+  expect(updated).toBeDefined();
+  expect(updated?.semantic?.call_id).toBe("call-patch-life");
+  expect(updated?.source?.original_type).toBe("event_msg.patch_apply_updated");
+  expect((updated?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "call-patch-life",
+    turn_id: "turn-life",
+    auto_approved: true,
+    changes: { "src/x.ts": { type: "modify" } },
+  });
 });
 
 test("event_msg.apply_patch_approval_request emits permission_request linked by call_id", async () => {
@@ -2206,6 +2394,24 @@ test("event_msg.mcp_tool_call_end emits x-codex/mcp_tool_call_end linked by call
   expect(data?.result_ok).toBe(true);
 });
 
+test("event_msg.mcp_tool_call_begin emits x-codex/mcp_tool_call_begin linked by call_id", async () => {
+  const trail = await parseLifecycleFixture();
+  const evt = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind: string }).kind === "x-codex/mcp_tool_call_begin",
+  );
+  expect(evt).toBeDefined();
+  expect(evt?.semantic?.call_id).toBe("call-mcp-life");
+  expect(evt?.source?.original_type).toBe("event_msg.mcp_tool_call_begin");
+  expect((evt?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "call-mcp-life",
+    invocation: { server: "openai-bundled", tool: "computer.click" },
+    plugin_id: "computer-use@openai-bundled",
+    mcp_app_resource_uri: "app://computer-use",
+  });
+});
+
 test("event_msg.thread_goal_updated emits session_metadata_update description", async () => {
   const trail = await parseLifecycleFixture();
   const evt = trail.groups[0]!.entries.find(
@@ -2280,6 +2486,39 @@ test("web_search_end emits x-codex/web_search_end system_event with query-based 
     "site:example.com api docs",
   );
   expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.web_search_end");
+});
+
+test("web and image generation begin/end events emit vendor lifecycle markers", async () => {
+  const trail = await parseLifecycleFixture();
+  const byKind = (kind: string) =>
+    trail.groups[0]!.entries.find(
+      (e) => e.type === "system_event" && (e.payload as { kind?: string }).kind === kind,
+    );
+  const webBegin = byKind("x-codex/web_search_begin");
+  const imageBegin = byKind("x-codex/image_generation_begin");
+  const imageEnd = byKind("x-codex/image_generation_end");
+
+  expect(webBegin?.semantic?.call_id).toBeUndefined();
+  expect(webBegin?.source?.original_type).toBe("event_msg.web_search_begin");
+  expect((webBegin?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "ws-life",
+  });
+
+  expect(imageBegin?.semantic?.call_id).toBeUndefined();
+  expect(imageBegin?.source?.original_type).toBe("event_msg.image_generation_begin");
+  expect((imageBegin?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "img-life",
+  });
+
+  expect(imageEnd?.semantic?.call_id).toBeUndefined();
+  expect(imageEnd?.source?.original_type).toBe("event_msg.image_generation_end");
+  expect((imageEnd?.payload as { data?: Record<string, unknown> }).data).toEqual({
+    call_id: "img-life",
+    status: "completed",
+    revised_prompt: "draw lifecycle",
+    result: "created",
+    saved_path: "/proj/codex-lifecycle/out.png",
+  });
 });
 
 test("web_search_call with action.type='search' maps to tool_call{tool:'web_search'}", async () => {

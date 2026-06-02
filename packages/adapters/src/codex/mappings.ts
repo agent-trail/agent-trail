@@ -773,6 +773,41 @@ function permissionRequestBaseData(p: Raw): { data: Raw; callId?: string } {
   return { data, callId };
 }
 
+function hookRunData(value: unknown): Raw | undefined {
+  if (!isObject(value)) return undefined;
+  const data: Raw = {};
+  copyString(data, value, "id");
+  copyString(data, value, "event_name");
+  copyString(data, value, "handler_type");
+  copyString(data, value, "execution_mode");
+  copyString(data, value, "scope");
+  copyString(data, value, "source_path");
+  copyString(data, value, "source");
+  copyTruncatedNumber(data, value, "display_order");
+  copyString(data, value, "status");
+  copyString(data, value, "status_message");
+  copyTruncatedNumber(data, value, "started_at");
+  copyTruncatedNumber(data, value, "completed_at");
+  copyTruncatedNumber(data, value, "duration_ms");
+  const entries = hookRunEntries(value.entries);
+  if (entries !== undefined) data.entries = entries;
+  return Object.keys(data).length > 0 ? data : undefined;
+}
+
+function hookRunEntries(value: unknown): Raw[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((entry) => {
+    if (!isObject(entry)) return [];
+    const out: Raw = {};
+    copyString(out, entry, "stream");
+    copyString(out, entry, "type");
+    copyString(out, entry, "level");
+    const text = excerpt(stringValue(entry.text));
+    if (text !== undefined) out.text = text;
+    return Object.keys(out).length > 0 ? [out] : [];
+  });
+}
+
 const taskStarted = lifecycle("task_started", (p) => {
   const data: Raw = {};
   const turnId = stringValue(p.turn_id);
@@ -784,6 +819,15 @@ const taskStarted = lifecycle("task_started", (p) => {
   const collabMode = stringValue(p.collaboration_mode_kind);
   if (collabMode !== undefined) data.collaboration_mode_kind = collabMode;
   return { kind: "task_started", rawType: "event_msg.task_started", data };
+});
+
+const itemStarted = lifecycle("item_started", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "thread_id");
+  copyString(data, p, "turn_id");
+  copyTruncatedNumber(data, p, "started_at_ms");
+  copyObject(data, p, "item");
+  return { kind: "x-codex/item_started", rawType: "event_msg.item_started", data };
 });
 
 const taskCompleted = lifecycle("task_complete", (p) => {
@@ -801,12 +845,49 @@ const taskCompleted = lifecycle("task_complete", (p) => {
   return { kind: "task_completed", rawType: "event_msg.task_complete", data };
 });
 
+function hookLifecycle(payloadType: "hook_started" | "hook_completed"): MappingDef<Raw> {
+  const rawType = `event_msg.${payloadType}`;
+  return lifecycle(payloadType, (p) => {
+    const data: Raw = {};
+    copyString(data, p, "turn_id");
+    const run = hookRunData(p.run);
+    if (run !== undefined) data.run = run;
+    return { kind: "hook_fired", rawType, data };
+  });
+}
+
+const hookStarted = hookLifecycle("hook_started");
+const hookCompleted = hookLifecycle("hook_completed");
+
 const execCommandEnd = lifecycle("exec_command_end", (p) => ({
   kind: "x-codex/exec_command_end",
   rawType: "event_msg.exec_command_end",
   data: buildExecCommandEndData(p),
   linkedCallId: stringValue(p.call_id),
 }));
+
+const execCommandBegin = lifecycle("exec_command_begin", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  copyString(data, p, "turn_id");
+  copyString(data, p, "process_id");
+  copyTruncatedNumber(data, p, "started_at_ms");
+  copyArray(data, p, "command");
+  copyString(data, p, "cwd");
+  copyArray(data, p, "parsed_cmd");
+  copyString(data, p, "source");
+  const interactionInput = stringValue(p.interaction_input);
+  if (interactionInput !== undefined) {
+    data.has_interaction_input = true;
+    data.interaction_input_chars = interactionInput.length;
+  }
+  return {
+    kind: "x-codex/exec_command_begin",
+    rawType: "event_msg.exec_command_begin",
+    data,
+    linkedCallId: stringValue(p.call_id),
+  };
+});
 
 const execApprovalRequest = lifecycle("exec_approval_request", (p) => {
   const { data, callId } = permissionRequestBaseData(p);
@@ -852,6 +933,34 @@ const patchApplyEnd = lifecycle("patch_apply_end", (p) => {
   return {
     kind: "x-codex/patch_apply_end",
     rawType: "event_msg.patch_apply_end",
+    data,
+    linkedCallId: stringValue(p.call_id),
+  };
+});
+
+const patchApplyBegin = lifecycle("patch_apply_begin", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  copyString(data, p, "turn_id");
+  if (typeof p.auto_approved === "boolean") data.auto_approved = p.auto_approved;
+  copyObject(data, p, "changes");
+  return {
+    kind: "x-codex/patch_apply_begin",
+    rawType: "event_msg.patch_apply_begin",
+    data,
+    linkedCallId: stringValue(p.call_id),
+  };
+});
+
+const patchApplyUpdated = lifecycle("patch_apply_updated", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  copyString(data, p, "turn_id");
+  if (typeof p.auto_approved === "boolean") data.auto_approved = p.auto_approved;
+  copyObject(data, p, "changes");
+  return {
+    kind: "x-codex/patch_apply_updated",
+    rawType: "event_msg.patch_apply_updated",
     data,
     linkedCallId: stringValue(p.call_id),
   };
@@ -904,6 +1013,20 @@ const mcpToolCallEnd = lifecycle("mcp_tool_call_end", (p) => {
   };
 });
 
+const mcpToolCallBegin = lifecycle("mcp_tool_call_begin", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  copyString(data, p, "plugin_id");
+  copyObject(data, p, "invocation");
+  copyString(data, p, "mcp_app_resource_uri");
+  return {
+    kind: "x-codex/mcp_tool_call_begin",
+    rawType: "event_msg.mcp_tool_call_begin",
+    data,
+    linkedCallId: stringValue(p.call_id),
+  };
+});
+
 const threadGoalUpdated = defineMapping<Raw>({
   match: { type: "event_msg", payload: { type: "thread_goal_updated" } },
   emit: (record) => {
@@ -934,6 +1057,40 @@ const webSearchEnd = lifecycle("web_search_end", (p) => {
   const sourceCallId = stringValue(p.call_id);
   if (sourceCallId !== undefined) data.call_id = sourceCallId;
   return { kind: "x-codex/web_search_end", rawType: "event_msg.web_search_end", data };
+});
+
+const webSearchBegin = lifecycle("web_search_begin", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  return {
+    kind: "x-codex/web_search_begin",
+    rawType: "event_msg.web_search_begin",
+    data,
+  };
+});
+
+const imageGenerationBegin = lifecycle("image_generation_begin", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  return {
+    kind: "x-codex/image_generation_begin",
+    rawType: "event_msg.image_generation_begin",
+    data,
+  };
+});
+
+const imageGenerationEnd = lifecycle("image_generation_end", (p) => {
+  const data: Raw = {};
+  copyString(data, p, "call_id");
+  copyString(data, p, "status");
+  copyString(data, p, "revised_prompt");
+  copyString(data, p, "result");
+  copyString(data, p, "saved_path");
+  return {
+    kind: "x-codex/image_generation_end",
+    rawType: "event_msg.image_generation_end",
+    data,
+  };
 });
 
 // Codex 0.135 `turn_aborted` reports an interrupted/cancelled turn — the same
@@ -1271,16 +1428,26 @@ export const codexMappings: MappingDef<Raw>[] = [
   deprecationNotice,
   streamError,
   taskStarted,
+  itemStarted,
   taskCompleted,
+  hookStarted,
+  hookCompleted,
+  execCommandBegin,
   execCommandEnd,
   execApprovalRequest,
   requestPermissions,
+  patchApplyBegin,
+  patchApplyUpdated,
   patchApplyEnd,
   applyPatchApprovalRequest,
   elicitationRequest,
+  mcpToolCallBegin,
   mcpToolCallEnd,
   threadGoalUpdated,
+  webSearchBegin,
   webSearchEnd,
+  imageGenerationBegin,
+  imageGenerationEnd,
   turnAborted,
   itemCompleted,
   mcpStartupUpdate,
