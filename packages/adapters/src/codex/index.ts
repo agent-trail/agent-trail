@@ -10,6 +10,7 @@ import type {
   TrailFile,
   TrailSessionGroup,
 } from "../index.ts";
+import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { readGitVcs } from "../vcs.ts";
 import { parseCodexSnapshotEntries } from "./kit.ts";
@@ -297,6 +298,7 @@ async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<Trai
     sessionUid,
   );
   if (sessionIndexUpdate !== undefined) entries.push(sessionIndexUpdate);
+  applyParseFidelity(header, entries);
   return { header, entries };
 }
 

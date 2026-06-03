@@ -316,6 +316,10 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "redacted_from": {                            // optional; redacted artifacts only
     "content_hash": "<raw-artifact-content-hash>"
   },
+  "parse_fidelity": {                           // optional; at-a-glance parse summary
+    "quarantined_count": 0,
+    "termination_reason": "truncated"           // optional; when session_terminated exists
+  },
   "source": {                                   // optional
     "agent": "<canonical-agent-name>",
     "path": "<original-file-path>",
@@ -355,8 +359,13 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `vcs.worktree.original_head_commit` | no | string | commit the worktree was forked from (lowercase hex, 7–64 chars) |
 | `fork_from` | no | object | reference to a parent session if forked |
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
+| `parse_fidelity` | no | object | at-a-glance parse fidelity summary; absence means the writer did not provide a summary |
+| `parse_fidelity.quarantined_count` | yes (if `parse_fidelity` present) | integer | number of `system_event` entries whose `payload.kind` is `x-*/unknown_record` in this session group |
+| `parse_fidelity.termination_reason` | no | enum | final `session_terminated.payload.reason`, when a `session_terminated` event is present |
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
 | `meta` | no | object | vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention (§8.0.3 / §11) |
+
+When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 

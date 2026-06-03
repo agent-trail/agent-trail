@@ -123,6 +123,11 @@ test("codexSessionsDir is <codexHome>/sessions", () => {
   expect(codexSessionsDir()).toBe(join(tmpHome, ".codex", "sessions"));
 });
 
+test("parseSession summarizes clean parse fidelity on the header", async () => {
+  const trail = await parseDesktopFixture();
+  expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 0 });
+});
+
 test("isAvailable() is false when sessions dir does not exist", async () => {
   expect(await codexAdapter.isAvailable()).toBe(false);
 });
@@ -1658,6 +1663,7 @@ test("parseSession stamps timestamp-less drift quarantine from the session heade
       (e.payload as { kind?: string }).kind === "x-codex/unknown_record",
   );
   expect(quarantine?.ts).toBe(ts);
+  expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 1 });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

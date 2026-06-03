@@ -230,6 +230,7 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
       agent: "claude-code",
       format_version: "1.0.0-synthetic",
     },
+    parse_fidelity: { quarantined_count: 0 },
   });
 });
 
@@ -3169,6 +3170,7 @@ test("parseSession stamps timestamp-less drift quarantine from the nearest sourc
         (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
     );
     expect(quarantine?.ts).toBe(ts);
+    expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 1 });
     const diagnostics = await validateAdapterTrail(trail);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
   } finally {
