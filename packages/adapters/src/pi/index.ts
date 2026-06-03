@@ -4,7 +4,6 @@ import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
-import { readGitVcs } from "../vcs.ts";
 import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
