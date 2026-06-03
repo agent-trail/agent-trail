@@ -977,6 +977,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `hook_fired` | Generic adapter-emitted hook trace. |
 | `permission_request` | Agent asked the user for tool approval. |
 | `permission_decision` | User allowed/denied a specific tool invocation. |
+| `permission_mode_change` | Deprecated compatibility value for v0.1.0 trails. New writers MUST emit `mode_change` with `scope:"permission"` instead. |
 | `cwd_change` | Working directory shifted. |
 | `env_snapshot` | Shell/env state capture. |
 
@@ -1020,6 +1021,7 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 | --- | --- |
 | `permission_request` | `{ tool_call_id?: string, capability?: string, prompt?: string }` |
 | `permission_decision` | `{ decision: "allow" \| "deny", tool_call_id?: string, capability?: string }` |
+| `permission_mode_change` | Deprecated v0.1.0 compatibility shape `{ to: string, from?: string }`. New writers MUST use `mode_change{scope:"permission"}`. |
 
 ##### Extension policy and promotion
 

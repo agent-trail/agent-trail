@@ -459,11 +459,15 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
 // These pure helpers extract the shapes both call sites share.
 const PERMISSION_FIELDS = [
   "approval_policy",
+  "permission_profile",
+  "active_permission_profile",
+] as const;
+
+const TURN_CONTEXT_POLICY_FIELDS = [
+  ...PERMISSION_FIELDS,
   "sandbox_policy",
   "network",
   "file_system_sandbox_policy",
-  "permission_profile",
-  "active_permission_profile",
 ] as const;
 
 const FLAVOR_FIELDS = ["personality", "collaboration_mode", "effort"] as const;
@@ -480,11 +484,20 @@ function pickPresent(p: Record<string, unknown>, keys: readonly string[]): Recor
 // Full policy tuple for the header.meta snapshot, including the environment
 // fields (current_date / timezone) that get no change events of their own.
 export function turnContextSnapshot(p: Record<string, unknown>): Record<string, unknown> {
-  return pickPresent(p, [...PERMISSION_FIELDS, ...FLAVOR_FIELDS, "current_date", "timezone"]);
+  return pickPresent(p, [
+    ...TURN_CONTEXT_POLICY_FIELDS,
+    ...FLAVOR_FIELDS,
+    "current_date",
+    "timezone",
+  ]);
 }
 
 export function turnContextPermissionAxis(p: Record<string, unknown>): Record<string, unknown> {
   return pickPresent(p, PERMISSION_FIELDS);
+}
+
+export function turnContextExecutionAxis(p: Record<string, unknown>): Record<string, unknown> {
+  return pickPresent(p, ["sandbox_policy", "network", "file_system_sandbox_policy"]);
 }
 
 export function turnContextFlavorAxis(p: Record<string, unknown>): Record<string, unknown> {

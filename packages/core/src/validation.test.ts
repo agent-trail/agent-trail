@@ -1001,6 +1001,7 @@ test.each([
   "hook_fired",
   "permission_request",
   "permission_decision",
+  "permission_mode_change",
   "cwd_change",
   "env_snapshot",
   "task_started",

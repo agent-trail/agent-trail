@@ -4,6 +4,7 @@ import {
   permissionModeLabel,
   reasoningDedupKey,
   stableAxisKey,
+  turnContextExecutionAxis,
   turnContextPermissionAxis,
 } from "./parser.ts";
 import { isObject, stringValue, timestampToIso } from "./source.ts";
@@ -205,9 +206,9 @@ const turnContext: OverrideDef<Raw, CodexState> = {
       ctx.state.lastPermissionKey = permKey;
       ctx.state.lastPermissionMode = permissionModeLabel(p);
     }
-    const executionMode = stringValue(p.sandbox_policy);
-    if (executionMode !== undefined) {
-      const executionAxis: Raw = { sandbox_policy: p.sandbox_policy };
+    const executionAxis = turnContextExecutionAxis(p);
+    if (Object.keys(executionAxis).length > 0) {
+      const executionMode = stringValue(p.sandbox_policy) ?? "execution-policy";
       const executionKey = stableAxisKey(executionAxis);
       if (ctx.state.lastExecutionKey === undefined) {
         drafts.push(
@@ -224,7 +225,7 @@ const turnContext: OverrideDef<Raw, CodexState> = {
         drafts.push(
           modeChangeDraft(
             "execution",
-            ctx.state.lastExecutionMode,
+            ctx.state.lastExecutionMode !== executionMode ? ctx.state.lastExecutionMode : undefined,
             executionMode,
             "runtime_inferred",
             { ...executionAxis, turn_id: p.turn_id },

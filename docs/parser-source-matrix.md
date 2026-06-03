@@ -572,6 +572,8 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 - `mode_change{scope:"permission"}` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `payload.to_mode` carries the new mode (e.g., `plan`, `bypassPermissions`); `payload.from_mode` carries the previous mode when a prior mode is known.
 
+Note: `system_event.kind:"permission_mode_change"` remains schema-accepted as a deprecated v0.1.0 compatibility value. Current adapters do not emit it.
+
 Reserved diagnostic vocabulary (cross-agent portable):
 
 - `api_error` — `system` envelope with `subtype == "api_error"`. `data` carries

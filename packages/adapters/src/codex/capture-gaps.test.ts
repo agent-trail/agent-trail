@@ -195,7 +195,6 @@ describe("#124 — turn_context policy", () => {
       turn_id: "t1",
       data: {
         approval_policy: "on-request",
-        sandbox_policy: "workspace-write",
       },
     });
     expect(perm[1]?.payload).toMatchObject({
@@ -378,6 +377,135 @@ describe("#124 — change detection is key-order independent", () => {
       to_mode: "on-request",
       trigger: "initial",
       turn_id: "t1",
+    });
+  });
+
+  test("a sandbox-only change emits execution change but no permission change", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t1",
+          approval_policy: "on-request",
+          sandbox_policy: "workspace-write",
+        },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          approval_policy: "on-request",
+          sandbox_policy: "danger-full-access",
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-sandbox"));
+    const perm = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
+    );
+    const exec = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "execution",
+    );
+    expect(perm).toHaveLength(1);
+    expect(perm[0]?.payload).toMatchObject({
+      to_mode: "on-request",
+      trigger: "initial",
+      turn_id: "t1",
+    });
+    expect(exec).toHaveLength(2);
+    expect(exec[1]?.payload).toMatchObject({
+      to_mode: "danger-full-access",
+      from_mode: "workspace-write",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+    });
+  });
+
+  test("network-only change emits execution change but no permission change", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t1",
+          approval_policy: "on-request",
+          sandbox_policy: "workspace-write",
+          network: { allowed_domains: ["a.com"] },
+        },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          approval_policy: "on-request",
+          sandbox_policy: "workspace-write",
+          network: { allowed_domains: ["a.com", "b.com"] },
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-network"));
+    const perm = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
+    );
+    const exec = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "execution",
+    );
+    expect(perm).toHaveLength(1);
+    expect(exec).toHaveLength(2);
+    expect(exec[1]?.payload).toMatchObject({
+      scope: "execution",
+      to_mode: "workspace-write",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+      data: {
+        network: { allowed_domains: ["a.com", "b.com"] },
+      },
+    });
+    expect((exec[1]?.payload as { from_mode?: string }).from_mode).toBeUndefined();
+  });
+
+  test("file-system sandbox policy change emits execution change", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t1",
+          approval_policy: "on-request",
+          sandbox_policy: "workspace-write",
+          file_system_sandbox_policy: { writable_roots: ["/repo"] },
+        },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          approval_policy: "on-request",
+          sandbox_policy: "workspace-write",
+          file_system_sandbox_policy: { writable_roots: ["/repo", "/tmp"] },
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-fs"));
+    const exec = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "execution",
+    );
+    expect(exec).toHaveLength(2);
+    expect(exec[1]?.payload).toMatchObject({
+      scope: "execution",
+      to_mode: "workspace-write",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+      data: {
+        file_system_sandbox_policy: { writable_roots: ["/repo", "/tmp"] },
+      },
     });
   });
 });

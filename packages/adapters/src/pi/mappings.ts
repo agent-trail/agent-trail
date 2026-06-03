@@ -423,11 +423,12 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     emit: (record) => {
       if (emittableTs(record) === null) return [];
       const level = stringValue(record.thinkingLevel);
+      if (level === undefined) return [];
       return [
         {
           type: "thinking_level_change",
           payload: {
-            ...(level !== undefined ? { to_level: level } : { to_level: "unknown" }),
+            to_level: level,
             trigger: "runtime_inferred",
           },
           source: src(record, "thinking_level_change"),
