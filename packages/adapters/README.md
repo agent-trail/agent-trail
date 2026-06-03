@@ -1,7 +1,7 @@
 # @agent-trail/adapters
 
 Per-source-agent parsers that convert native session files into Agent Trail
-entries. Verified adapters: `claude-code`, `pi`. Pending: Codex CLI, Cursor,
+entries. Verified adapters: `claude-code`, `codex`, `pi`. Pending: Cursor,
 OpenCode, Aider (see `docs/parser-source-matrix.md`).
 
 ## Shared seam
@@ -53,3 +53,43 @@ casing the option.
 - `bun test` (from repo root or this package) runs the adapter test suite,
   including the shared-seam unit tests in `src/parenting.test.ts` and
   `src/source-raw.test.ts`.
+- `tests/fixtures/real-sessions` contains manually redacted real source-session
+  fixtures and matching expected Agent Trail JSONL output. The fixture test
+  parses each committed source file and byte-compares the emitted trail to the
+  matching golden file, so source-schema drift is caught without needing local
+  real sessions.
+- Real-session smoke tests are local checks only. They are hard-skipped whenever
+  `CI` is set, even if a real-session env var is present. Locally, they use the
+  adapter default session roots (`~/.pi/agent/sessions`, `~/.codex/sessions`,
+  `~/.claude/projects`) and the agents' own root overrides (`PI_CODING_AGENT_DIR`,
+  `PI_CODING_AGENT_SESSION_DIR`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`). Real local
+  session files must stay out of git.
+
+  From the repository root:
+
+  ```bash
+  bun test packages/adapters/src/pi/real-session.test.ts \
+    packages/adapters/src/codex/real-session.test.ts \
+    packages/adapters/src/claude-code/real-session.test.ts
+  ```
+
+  From `packages/adapters`:
+
+  ```bash
+  bun test src/pi/real-session.test.ts \
+    src/codex/real-session.test.ts \
+    src/claude-code/real-session.test.ts
+  ```
+
+  Use `AGENT_TRAIL_REAL_*_SESSION` only when testing a specific custom session
+  file:
+
+  ```bash
+  AGENT_TRAIL_REAL_PI_SESSION=/abs/path/to/pi-session.jsonl bun test packages/adapters
+  AGENT_TRAIL_REAL_CODEX_SESSION=/abs/path/to/rollout-...jsonl bun test packages/adapters
+  AGENT_TRAIL_REAL_CLAUDE_CODE_SESSION=/abs/path/to/claude-session.jsonl bun test packages/adapters
+  ```
+
+  Smoke tests parse the real session, validate emitted Agent Trail records, and
+  check broad feature invariants when event families are present. They do not
+  require a specific transcript shape.

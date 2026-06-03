@@ -649,9 +649,9 @@ Session metadata from non-message envelopes:
 
 Agent Trail adapter work distinguishes two kinds of fixtures:
 
-1. **Committed fixtures** must be synthetic or redacted. They live under `tests/fixtures/` and are reviewed in PRs. No real session content, no PII, no secrets, no API keys, no real user identifiers, no real file paths from contributors' machines. See [`tests/fixtures/validation/README.md`](../tests/fixtures/validation/README.md) for the canonical example: synthetic ids, synthetic agent names, synthetic timestamps, one scenario per file, documented expected diagnostics.
+1. **Committed fixtures** must be synthetic or manually redacted real-source fixtures. They live under `tests/fixtures/` and are reviewed in PRs. No raw transcript text, no PII, no secrets, no API keys, no real user identifiers, no contributor-local file paths, no private repository URLs, and no opaque encrypted reasoning blobs. Synthetic fixtures should use synthetic ids, agent names, timestamps, and one scenario per file. Redacted real-source fixtures may preserve source ids, source schema structure, event types, safe enum values, model ids, and tool or schema field names when they do not identify a person, local machine, private repository, or transcript text. Their source text and matching expected Agent Trail output must both be redacted and covered by leak checks.
 
-2. **Real local sessions** stay out of git. Adapters may include opt-in ignored tests that load a path from an environment variable (e.g. `AGENT_TRAIL_REAL_CLAUDE_CODE_DIR`) and skip when unset. These tests run on the contributor's machine, never in CI, and never check fixture data into the repo.
+2. **Real local sessions** stay out of git. Adapters may include opt-in real-session smoke tests that load default agent session roots or a custom path from an environment variable and skip in CI. These tests run on the contributor's machine, never in CI, and never check raw local session data into the repo.
 
 An adapter PR is not eligible to move its matrix row from `pending verification` to `verified` until:
 
@@ -659,7 +659,7 @@ An adapter PR is not eligible to move its matrix row from `pending verification`
 - The verification date and source-agent version are filled in.
 - Observed entry types and fixture names columns reflect the committed fixtures.
 
-If real-session debugging produces a fixture worth committing, redact it (strip PII, replace ids with synthetic ones, normalize timestamps) and add it under `tests/fixtures/`. The redacted fixture, not the raw session, is what locks behavior.
+If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
 
 ## Update procedure
 
