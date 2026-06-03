@@ -10,12 +10,16 @@ import type {
   TrailFile,
   TrailSessionGroup,
 } from "../index.ts";
-import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
-import { readGitVcs } from "../vcs.ts";
+import {
+  CLAUDE_CODE_SESSION_UID_NAMESPACE,
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+} from "../session-uid.ts";
+import { sourceFor } from "./entry-metadata.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
-import { isObject, parseLines } from "./source.ts";
+import { type CcEnvelope, isObject, parseLines } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-claude-code/${pkg.version}`;
 
@@ -163,6 +167,34 @@ function childBelongsToParent(envelopes: unknown[], parentSessionId: string): bo
   return true;
 }
 
+function firstGitBranchUpdate(
+  envelopes: CcEnvelope[],
+  sessionUid: string,
+  fallbackTs: string,
+): Entry | undefined {
+  for (const envelope of envelopes) {
+    if (envelope.isSidechain === true || envelope.isMeta === true) continue;
+    const branch = envelope.gitBranch;
+    if (typeof branch !== "string" || branch.length === 0) continue;
+    const ts = typeof envelope.timestamp === "string" ? envelope.timestamp : undefined;
+    const originalType = typeof envelope.type === "string" ? envelope.type : "unknown";
+    return {
+      type: "session_metadata_update",
+      id: deriveSynthesizedEntryId(CLAUDE_CODE_SESSION_UID_NAMESPACE, [
+        sessionUid,
+        "gitBranch",
+        branch,
+      ]),
+      ts: ts ?? fallbackTs,
+      payload: { field: "vcs.branch", value: branch, reason: "runtime_inferred" },
+      source: sourceFor(envelope, `${originalType}.gitBranch`, undefined, undefined, {
+        synthesized: true,
+      }),
+    };
+  }
+  return undefined;
+}
+
 async function parseGroup(
   path: string,
   options: {
@@ -185,14 +217,18 @@ async function parseGroup(
     header.meta = { ...header.meta, "dev.claudecode.agent_id": options.childKey };
   }
   if (options.forkFrom !== undefined) header.fork_from = options.forkFrom;
-  if (header.vcs === undefined && typeof header.cwd === "string") {
-    const vcs = await readGitVcs(header.cwd);
-    if (vcs !== undefined) header.vcs = vcs;
-  }
   const sessionUid = header.session_uid ?? header.id;
   const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
     includeSidechain: options.includeSidechain === true,
   });
+  if (
+    !entries.some(
+      (entry) => entry.type === "session_metadata_update" && entry.payload.field === "vcs.branch",
+    )
+  ) {
+    const gitBranchUpdate = firstGitBranchUpdate(envelopes, sessionUid, header.ts);
+    if (gitBranchUpdate !== undefined) entries.push(gitBranchUpdate);
+  }
   return { header, entries };
 }
 

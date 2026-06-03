@@ -175,6 +175,10 @@ Pi usage telemetry: assistant `message.usage` maps `input` → `input_tokens`, `
 `source.raw`. Tool-result `message.details.toolMetadata.contextAtCompletion` is preserved exactly at
 `meta["dev.pi.context_at_completion"]` and is not promoted to assistant `context_window_tokens`.
 
+Pi carries no session-time VCS signal. The adapter leaves `header.vcs` undefined instead of reading
+live git state from `header.cwd`, because parse-time `cwd` may be stale or reused by another
+repository.
+
 Cross-cutting hardenings on the Pi adapter:
 - Polymorphic timestamp parsing accepts ISO strings AND Unix ms numbers (or numeric strings) at
   the envelope boundary; canonical entry `ts` is always ISO. Pi top-level envelopes use ISO today,
@@ -624,8 +628,15 @@ Session metadata from non-message envelopes:
 - `ai-title` → `session_metadata_update{field:"name", reason:"ai_generated"}`.
 - `agent-name` → `session_metadata_update{field:"x-claudecode/agent_name", reason:"ai_generated"}`.
 - `worktree-state` → `session_metadata_update` for `vcs.branch` and `vcs.worktree`.
-  These records no longer mutate `envelope.name`, `envelope.meta`, or `header.vcs`; live git
-  discovery from `header.cwd` remains the source for session-start `header.vcs`.
+  When `worktreeSession.originalHeadCommit` is present, the same transcript record seeds
+  session-time `header.vcs.revision` / `head_commit`; `header.vcs.branch` comes only from the first
+  tracer `gitBranch`. Field provenance is recorded in
+  `header.meta["dev.agent-trail.vcs_provenance"]`. Live git discovery from `header.cwd` is not used
+  for Claude Code headers.
+- `gitBranch` on normal tracer records → one synthesized
+  `session_metadata_update{field:"vcs.branch", reason:"runtime_inferred"}` when no
+  `worktree-state` branch update exists. This preserves Claude Code's observed session-time branch
+  signal without inventing a `header.vcs` block when no session-time commit is available.
 
 ## Fixture policy
 

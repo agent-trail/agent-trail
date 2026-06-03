@@ -221,7 +221,23 @@ describe("claude-code v2 stateful behaviors", () => {
       });
       expect(trail.envelope?.name).toBeUndefined();
       expect(trail.envelope?.meta).toBeUndefined();
-      expect(trail.groups[0]!.header.vcs).toBeUndefined();
+      expect(trail.groups[0]!.header.vcs).toEqual({
+        type: "git",
+        revision: "abcdef0123456789abcdef0123456789abcdef01",
+        head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+        worktree: {
+          name: "topic",
+          path: "/orig/repo/.worktrees/topic",
+          original_cwd: "/orig/repo",
+          original_branch: "main",
+          original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+        },
+      });
+      expect(trail.groups[0]!.header.meta?.["dev.agent-trail.vcs_provenance"]).toEqual({
+        revision: "claude-code.worktree-state.originalHeadCommit",
+        head_commit: "claude-code.worktree-state.originalHeadCommit",
+        worktree: "claude-code.worktree-state",
+      });
       const updates = trail.groups[0]!.entries.filter(
         (entry) => entry.type === "session_metadata_update",
       ).map((entry) => entry.payload);

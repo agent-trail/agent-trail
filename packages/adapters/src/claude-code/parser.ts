@@ -1,6 +1,9 @@
 import type { Header } from "@agent-trail/types";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
-import { type CcEnvelope, isTracerEnvelope, stringValue } from "./source.ts";
+import { type CcEnvelope, isObject, isTracerEnvelope, stringValue } from "./source.ts";
+
+const GIT_COMMIT_PATTERN = /^[a-f0-9]{7,64}$/;
+const VCS_PROVENANCE_META_KEY = "dev.agent-trail.vcs_provenance";
 
 // Session-level provenance constants carried on every record. Captured into
 // header.meta under the adapter's reverse-DNS namespace for corpus filtering.
@@ -28,6 +31,65 @@ function firstString(
     if (value !== undefined) return value;
   }
   return undefined;
+}
+
+function firstWorktreeSession(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean },
+  sessionId: string,
+): Record<string, unknown> | undefined {
+  for (const env of envelopes) {
+    if (env.type !== "worktree-state") continue;
+    if (env.isSidechain === true && options.includeSidechain !== true) continue;
+    if (env.isMeta === true) continue;
+    if (env.sessionId !== undefined && env.sessionId !== sessionId) continue;
+    const worktreeSession = env.worktreeSession;
+    if (isObject(worktreeSession)) return worktreeSession;
+  }
+  return undefined;
+}
+
+function sessionTimeVcs(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean },
+  sessionId: string,
+): { vcs: NonNullable<Header["vcs"]>; provenance: Record<string, string> } | undefined {
+  const worktreeSession = firstWorktreeSession(envelopes, options, sessionId);
+  const originalHeadCommit = stringValue(worktreeSession?.originalHeadCommit);
+  if (originalHeadCommit === undefined || !GIT_COMMIT_PATTERN.test(originalHeadCommit)) {
+    return undefined;
+  }
+
+  const vcs: NonNullable<Header["vcs"]> = {
+    type: "git",
+    revision: originalHeadCommit,
+    head_commit: originalHeadCommit,
+  };
+  const provenance: Record<string, string> = {
+    revision: "claude-code.worktree-state.originalHeadCommit",
+    head_commit: "claude-code.worktree-state.originalHeadCommit",
+  };
+
+  const branch = firstString(envelopes, options, "gitBranch");
+  if (branch !== undefined) {
+    vcs.branch = branch;
+    provenance.branch = "claude-code.gitBranch";
+  }
+
+  const name = stringValue(worktreeSession?.worktreeName);
+  const path = stringValue(worktreeSession?.worktreePath);
+  if (name !== undefined && path !== undefined) {
+    const worktree: NonNullable<NonNullable<Header["vcs"]>["worktree"]> = { name, path };
+    const originalCwd = stringValue(worktreeSession?.originalCwd);
+    const originalBranch = stringValue(worktreeSession?.originalBranch);
+    if (originalCwd !== undefined) worktree.original_cwd = originalCwd;
+    if (originalBranch !== undefined) worktree.original_branch = originalBranch;
+    worktree.original_head_commit = originalHeadCommit;
+    vcs.worktree = worktree;
+    provenance.worktree = "claude-code.worktree-state";
+  }
+
+  return { vcs, provenance };
 }
 
 export function buildHeader(
@@ -59,6 +121,14 @@ export function buildHeader(
   if (first.cwd !== undefined) header.cwd = first.cwd;
   const meta = provenanceMeta(envelopes, options);
   if (Object.keys(meta).length > 0) header.meta = meta;
+  const transcriptVcs = sessionTimeVcs(envelopes, options, firstSession.sessionId);
+  if (transcriptVcs !== undefined) {
+    header.vcs = transcriptVcs.vcs;
+    header.meta = {
+      ...(header.meta ?? {}),
+      [VCS_PROVENANCE_META_KEY]: transcriptVcs.provenance,
+    };
+  }
   header.source = {
     agent: "claude-code",
     ...(firstVersion !== undefined ? { format_version: firstVersion } : {}),

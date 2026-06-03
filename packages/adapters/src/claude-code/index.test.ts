@@ -1416,8 +1416,8 @@ test("parseSession() emits a session_summary for summary records", async () => {
 
 test("parseSession() filters attachment, sidechain, and isMeta records", async () => {
   const trail = await parseFixture();
-  // 5 message-derived entries + queue-operation + hook_success lifecycle marker.
-  expect(trail.groups[0]!.entries).toHaveLength(7);
+  // 5 message-derived entries + queue-operation + hook_success lifecycle marker + gitBranch metadata.
+  expect(trail.groups[0]!.entries).toHaveLength(8);
   const ids = trail.groups[0]!.entries.map((e) => e.id);
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccaa11");
   expect(ids).not.toContain("00000000-0000-0000-0000-ccccccccdc11");
@@ -3029,6 +3029,7 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
     "model_change",
     "agent_message",
     "agent_message",
+    "session_metadata_update",
   ]);
 
   // Indices follow the sequence asserted above; assert linkage via those entries'
@@ -3264,7 +3265,7 @@ test("detectSessions({ allCwds: true }) walks every project dir under projects r
   ]);
 });
 
-test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git working tree with an origin remote", async () => {
+test("parseSession() does not populate vcs from live git state at header.cwd", async () => {
   const repoDir = mkdtempSync(join(tmpdir(), "cc-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
@@ -3310,12 +3311,7 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.groups[0]!.header.vcs).toBeDefined();
-    expect(trail.groups[0]!.header.vcs?.type).toBe("git");
-    expect(trail.groups[0]!.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
-    expect(trail.groups[0]!.header.vcs?.remote_url).toBe(
-      "https://github.com/agent-trail/agent-trail",
-    );
+    expect(trail.groups[0]!.header.vcs).toBeUndefined();
   } finally {
     rmSync(repoDir, { recursive: true, force: true });
   }
@@ -3324,6 +3320,138 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
 test("parseSession() leaves vcs undefined when cwd is not a git working tree", async () => {
   const trail = await parseFixture();
   expect(trail.groups[0]!.header.vcs).toBeUndefined();
+});
+
+test("parseSession() emits vcs.branch metadata from Claude Code gitBranch without header vcs", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      parentUuid: null,
+      isSidechain: false,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "00000000-0000-0000-0000-0ea0d628f3cd",
+      timestamp: "2026-05-17T14:00:05.000Z",
+      sessionId: "sess-cc-branch-only",
+      version: "1.0.0-synthetic",
+      cwd: "/this/path/does/not/exist",
+      gitBranch: "feature/session-branch",
+    },
+    {
+      parentUuid: "00000000-0000-0000-0000-0ea0d628f3cd",
+      isSidechain: false,
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "hello" }],
+      },
+      uuid: "00000000-0000-0000-0000-0ea0d628f3ce",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "sess-cc-branch-only",
+      version: "1.0.0-synthetic",
+      cwd: "/this/path/does/not/exist",
+      gitBranch: "feature/session-branch",
+    },
+  ]);
+  expect(trail.groups[0]!.header.vcs).toBeUndefined();
+  const updates = trail.groups[0]!.entries.filter(
+    (entry) => entry.type === "session_metadata_update" && entry.payload.field === "vcs.branch",
+  );
+  expect(updates).toHaveLength(1);
+  expect(updates[0]?.payload).toEqual({
+    field: "vcs.branch",
+    value: "feature/session-branch",
+    reason: "runtime_inferred",
+  });
+});
+
+test("parseSession() derives header vcs from Claude Code transcript git signals", async () => {
+  const liveRepoDir = mkdtempSync(join(tmpdir(), "cc-vcs-reused-cwd-"));
+  const sessionDir = mkdtempSync(join(tmpdir(), "cc-vcs-transcript-"));
+  try {
+    async function git(args: string[]): Promise<void> {
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: liveRepoDir,
+        env: cleanGitEnv(),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`git ${args.join(" ")} exited ${code}`);
+    }
+    await git(["init", "-q"]);
+    await git([
+      "-c",
+      "user.email=a@b",
+      "-c",
+      "user.name=Tester",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "live-now",
+    ]);
+    await git(["remote", "add", "origin", "https://github.com/wrong/reused.git"]);
+
+    const transcriptCommit = "abcdef0123456789abcdef0123456789abcdef01";
+    const fixturePath = join(sessionDir, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: "user",
+        message: { role: "user", content: "hi" },
+        uuid: "00000000-0000-0000-0000-0ea0d628f3cc",
+        timestamp: "2026-05-17T14:00:05.000Z",
+        sessionId: "sess-cc-transcript-vcs",
+        version: "1.0.0-synthetic",
+        cwd: liveRepoDir,
+        gitBranch: "feature/session-time",
+      }),
+      JSON.stringify({
+        type: "worktree-state",
+        sessionId: "sess-cc-transcript-vcs",
+        worktreeSession: {
+          originalCwd: "/original/repo",
+          worktreePath: "/original/repo/.worktrees/session-time",
+          worktreeName: "session-time",
+          worktreeBranch: "feature/session-time",
+          originalBranch: "main",
+          originalHeadCommit: transcriptCommit,
+        },
+      }),
+    ];
+    writeFileSync(fixturePath, `${lines.join("\n")}\n`);
+
+    const trail = await claudeCodeAdapter.parseSession({
+      id: "sess-cc-transcript-vcs",
+      adapter: "claude-code",
+      path: fixturePath,
+    });
+
+    expect(trail.groups[0]!.header.vcs).toEqual({
+      type: "git",
+      revision: transcriptCommit,
+      head_commit: transcriptCommit,
+      branch: "feature/session-time",
+      worktree: {
+        name: "session-time",
+        path: "/original/repo/.worktrees/session-time",
+        original_cwd: "/original/repo",
+        original_branch: "main",
+        original_head_commit: transcriptCommit,
+      },
+    });
+    expect(trail.groups[0]!.header.meta?.["dev.agent-trail.vcs_provenance"]).toEqual({
+      revision: "claude-code.worktree-state.originalHeadCommit",
+      head_commit: "claude-code.worktree-state.originalHeadCommit",
+      branch: "claude-code.gitBranch",
+      worktree: "claude-code.worktree-state",
+    });
+  } finally {
+    rmSync(liveRepoDir, { recursive: true, force: true });
+    rmSync(sessionDir, { recursive: true, force: true });
+  }
 });
 
 // Issue #88: lifecycle vocabulary mapping. Each progress hookEvent routes to a
@@ -3463,7 +3591,23 @@ test("parseSession() maps worktree-state to session_metadata_update when cwd is 
       adapter: "claude-code",
       path: fixturePath,
     });
-    expect(trail.groups[0]!.header.vcs).toBeUndefined();
+    expect(trail.groups[0]!.header.vcs).toEqual({
+      type: "git",
+      revision: "abcdef0123456789abcdef0123456789abcdef01",
+      head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+      worktree: {
+        name: "topic",
+        path: "/orig/repo/.worktrees/topic",
+        original_cwd: "/orig/repo",
+        original_branch: "main",
+        original_head_commit: "abcdef0123456789abcdef0123456789abcdef01",
+      },
+    });
+    expect(trail.groups[0]!.header.meta?.["dev.agent-trail.vcs_provenance"]).toEqual({
+      revision: "claude-code.worktree-state.originalHeadCommit",
+      head_commit: "claude-code.worktree-state.originalHeadCommit",
+      worktree: "claude-code.worktree-state",
+    });
     const updates = trail.groups[0]!.entries.filter(
       (entry) => entry.type === "session_metadata_update",
     ).map((entry) => entry.payload);
