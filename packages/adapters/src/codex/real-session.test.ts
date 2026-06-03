@@ -12,7 +12,11 @@ runRealSessionSmoke({
   envVar: "AGENT_TRAIL_REAL_CODEX_SESSION",
   expectedAgentName: "codex-cli",
   fallbackSessionId: "real-codex-session",
-  defaultSessionPath: () => firstJsonlFile(codexSessionsDir()),
+  defaultSessionPath: () =>
+    firstJsonlFile(
+      codexSessionsDir(),
+      (path) => path.split(/[\\/]/).at(-1) === "session_index.jsonl",
+    ),
   testName:
     "real Codex session (AGENT_TRAIL_REAL_CODEX_SESSION) parses, validates, and exposes feature coverage",
 });

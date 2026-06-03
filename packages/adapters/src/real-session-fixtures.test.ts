@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ const PROJECT_LEAK =
   /LabelLens|label-lens|role-radar|jazzy-pond|hopperpymcp|dflatline|cotypist-analysis|developer_instructions":"#|user_instructions":"#|encrypted_content":"[^[]/;
 const REDACTED_VALUE = /^(?:\[REDACTED_[A-Z0-9_]+\]|\s)+$/;
 const SENSITIVE_VALUE_KEYS = new Set([
+  "activeForm",
   "agentName",
   "addedBlocks",
   "aiTitle",
@@ -30,15 +32,19 @@ const SENSITIVE_VALUE_KEYS = new Set([
   "body",
   "cmd",
   "command",
+  "confirmCommand",
   "content",
   "cwd",
+  "data",
   "description",
   "details",
   "developer_instructions",
   "encrypted_content",
   "error",
   "filename",
+  "fullOutputPath",
   "gitBranch",
+  "inference_geo",
   "input",
   "instructions",
   "last_agent_message",
@@ -47,6 +53,7 @@ const SENSITIVE_VALUE_KEYS = new Set([
   "lines",
   "message",
   "newText",
+  "nightKey",
   "path",
   "oldText",
   "planContent",
@@ -55,6 +62,9 @@ const SENSITIVE_VALUE_KEYS = new Set([
   "prRepository",
   "prUrl",
   "prompt",
+  "quietHours",
+  "queries",
+  "query",
   "readFiles",
   "remote_url",
   "repository_url",
@@ -74,6 +84,42 @@ const SENSITIVE_VALUE_KEYS = new Set([
   "user_instructions",
   "modifiedFiles",
   "value",
+]);
+const SAFE_METADATA_KEYS_IN_SENSITIVE_CONTEXT = new Set([
+  "api",
+  "code",
+  "completedAtLabel",
+  "detail",
+  "durationLabel",
+  "enum",
+  "errorMessage",
+  "id",
+  "image_url",
+  "isError",
+  "kind",
+  "localTime",
+  "media_type",
+  "model",
+  "name",
+  "phase",
+  "provider",
+  "responseId",
+  "role",
+  "service_tier",
+  "speed",
+  "stopReason",
+  "startedAtLabel",
+  "stop_reason",
+  "status",
+  "textSignature",
+  "timestamp",
+  "toolCallId",
+  "toolName",
+  "tool_use_id",
+  "tool_name",
+  "truncatedBy",
+  "type",
+  "uri",
 ]);
 
 type Fixture = {
@@ -165,7 +211,7 @@ let isolatedCodexHome: string;
 
 beforeEach(async () => {
   previousCodexHome = process.env.CODEX_HOME;
-  isolatedCodexHome = join(tmpdir(), `agent-trail-codex-home-${crypto.randomUUID()}`);
+  isolatedCodexHome = join(tmpdir(), `agent-trail-codex-home-${randomUUID()}`);
   await mkdir(isolatedCodexHome, { recursive: true });
   process.env.CODEX_HOME = isolatedCodexHome;
 });
@@ -268,7 +314,12 @@ function assertNoSensitiveValue(
   filePath: string,
   lineNumber: number,
   key = "",
+  inSensitiveContext = false,
 ): void {
+  const keyIsSensitive =
+    SENSITIVE_VALUE_KEYS.has(key) &&
+    (key !== "data" || typeof value === "string" || Array.isArray(value));
+  const sensitiveContext = inSensitiveContext || keyIsSensitive;
   if (typeof value === "string") {
     if (SECRET_OR_LOCAL_PATH.test(value)) {
       throw new Error(`${filePath}:${lineNumber} has unredacted local path/secret at ${key}`);
@@ -276,18 +327,25 @@ function assertNoSensitiveValue(
     if (PROJECT_LEAK.test(value)) {
       throw new Error(`${filePath}:${lineNumber} has unredacted project identity at ${key}`);
     }
-    if (SENSITIVE_VALUE_KEYS.has(key) && value.length > 0 && !REDACTED_VALUE.test(value)) {
+    if (
+      sensitiveContext &&
+      !SAFE_METADATA_KEYS_IN_SENSITIVE_CONTEXT.has(key) &&
+      value.length > 0 &&
+      !REDACTED_VALUE.test(value)
+    ) {
       throw new Error(`${filePath}:${lineNumber} has unredacted sensitive value at ${key}`);
     }
     return;
   }
   if (Array.isArray(value)) {
-    for (const item of value) assertNoSensitiveValue(item, filePath, lineNumber, key);
+    for (const item of value) {
+      assertNoSensitiveValue(item, filePath, lineNumber, key, sensitiveContext);
+    }
     return;
   }
   if (value !== null && typeof value === "object") {
     for (const [childKey, childValue] of Object.entries(value)) {
-      assertNoSensitiveValue(childValue, filePath, lineNumber, childKey);
+      assertNoSensitiveValue(childValue, filePath, lineNumber, childKey, sensitiveContext);
     }
   }
 }
