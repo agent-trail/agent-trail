@@ -1,5 +1,6 @@
 import { canonicalizeRecords, stampTrail } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { parseFidelityForEvents } from "./parse-fidelity.ts";
 import { splitSessionGroups } from "./session-groups.ts";
 
 /**
@@ -423,49 +424,6 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function isOpenStream(stream: unknown): boolean {
   return isObject(stream) && (stream as Record<string, unknown>).state === "open";
-}
-
-function parseFidelityForEvents(events: JsonlRecord[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    quarantined_count: events.filter(isQuarantinedUnknownRecord).length,
-  };
-  const terminationReason = finalSessionTerminatedReason(events);
-  if (terminationReason !== undefined) out.termination_reason = terminationReason;
-  return out;
-}
-
-function isQuarantinedUnknownRecord(record: JsonlRecord): boolean {
-  if (record.value.type !== "system_event") return false;
-  const payload = record.value.payload;
-  if (!isObject(payload)) return false;
-  const kind = payload.kind;
-  return typeof kind === "string" && /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/.test(kind);
-}
-
-function finalSessionTerminatedReason(
-  events: JsonlRecord[],
-): "eof_with_open_tool_calls" | "process_terminated" | "truncated" | "user_abort" | undefined {
-  let reason:
-    | "eof_with_open_tool_calls"
-    | "process_terminated"
-    | "truncated"
-    | "user_abort"
-    | undefined;
-  for (const record of events) {
-    if (record.value.type !== "session_terminated") continue;
-    const payload = record.value.payload;
-    if (!isObject(payload)) continue;
-    const rawReason = payload.reason;
-    if (
-      rawReason === "eof_with_open_tool_calls" ||
-      rawReason === "process_terminated" ||
-      rawReason === "truncated" ||
-      rawReason === "user_abort"
-    ) {
-      reason = rawReason;
-    }
-  }
-  return reason;
 }
 
 function shallowEqual(a: unknown, b: unknown): boolean {

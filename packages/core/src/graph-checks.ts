@@ -1,5 +1,6 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./parse-fidelity.ts";
 import type { SessionGroup } from "./session-groups.ts";
 
 /**
@@ -12,14 +13,6 @@ import type { SessionGroup } from "./session-groups.ts";
  * Lives in its own module so adding or removing a whole-file rule is a
  * one-file edit instead of a patch in the middle of `validateTrailGraph`.
  */
-
-const UNKNOWN_RECORD_KIND = /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/;
-const SESSION_TERMINATION_REASONS = new Set([
-  "eof_with_open_tool_calls",
-  "process_terminated",
-  "truncated",
-  "user_abort",
-]);
 
 // Checks header stream state against file content (spec §16.4 rule 9): a live
 // header (stream.state == "open") must not carry a populated content_hash and
@@ -784,26 +777,4 @@ function readSemanticCallId(value: Record<string, unknown>): string | undefined 
   }
   const callId = (semantic as { call_id?: unknown }).call_id;
   return typeof callId === "string" ? callId : undefined;
-}
-
-function isQuarantinedUnknownRecord(entry: JsonlRecord): boolean {
-  if (entry.value.type !== "system_event") return false;
-  const payload = entry.value.payload;
-  if (typeof payload !== "object" || payload === null) return false;
-  const kind = (payload as { kind?: unknown }).kind;
-  return typeof kind === "string" && UNKNOWN_RECORD_KIND.test(kind);
-}
-
-function finalSessionTerminatedReason(entries: JsonlRecord[]): string | undefined {
-  let reason: string | undefined;
-  for (const entry of entries) {
-    if (entry.value.type !== "session_terminated") continue;
-    const payload = entry.value.payload;
-    if (typeof payload !== "object" || payload === null) continue;
-    const rawReason = (payload as { reason?: unknown }).reason;
-    if (typeof rawReason === "string" && SESSION_TERMINATION_REASONS.has(rawReason)) {
-      reason = rawReason;
-    }
-  }
-  return reason;
 }
