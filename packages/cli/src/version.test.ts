@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import pkg from "../package.json" with { type: "json" };
 
 async function runTrail(
   args: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", "packages/cli/src/bin.ts", ...args], {
-    cwd: new URL("../../..", import.meta.url).pathname,
+    cwd: fileURLToPath(new URL("../../..", import.meta.url)),
     stderr: "pipe",
     stdout: "pipe",
   });
