@@ -6,6 +6,8 @@ export type SessionTerminationReason =
   | "truncated"
   | "user_abort";
 
+// Keep in sync with packages/adapters/src/parse-fidelity.ts. This core helper
+// works on parsed JsonlRecord values; the adapter helper works on typed Entry values.
 const UNKNOWN_RECORD_KIND = /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/;
 const SESSION_TERMINATION_REASONS = new Set<string>([
   "eof_with_open_tool_calls",

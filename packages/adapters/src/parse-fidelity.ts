@@ -1,6 +1,14 @@
 import type { Entry, Header, ParseFidelity } from "@agent-trail/types";
 
+// Keep in sync with packages/core/src/parse-fidelity.ts. This adapter helper
+// works on typed Entry values; the core helper works on parsed JsonlRecord values.
 const UNKNOWN_RECORD_KIND = /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/;
+const SESSION_TERMINATION_REASONS = new Set<string>([
+  "eof_with_open_tool_calls",
+  "process_terminated",
+  "truncated",
+  "user_abort",
+]);
 
 export function applyParseFidelity(header: Header, entries: Entry[]): Header {
   const parseFidelity: ParseFidelity = {
@@ -23,13 +31,8 @@ function finalSessionTerminatedReason(entries: Entry[]): ParseFidelity["terminat
   for (const entry of entries) {
     if (entry.type !== "session_terminated") continue;
     const rawReason = entry.payload.reason;
-    if (
-      rawReason === "eof_with_open_tool_calls" ||
-      rawReason === "process_terminated" ||
-      rawReason === "truncated" ||
-      rawReason === "user_abort"
-    ) {
-      reason = rawReason;
+    if (typeof rawReason === "string" && SESSION_TERMINATION_REASONS.has(rawReason)) {
+      reason = rawReason as ParseFidelity["termination_reason"];
     }
   }
   return reason;
