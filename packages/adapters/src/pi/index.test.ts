@@ -1486,7 +1486,7 @@ test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_
   ).toBe(0);
 
   const cancelledAbort = aborts[0];
-  const cancelledAbortForId = (cancelledAbort?.payload as { for_id?: string }).for_id;
+  const cancelledAbortForId = (cancelledAbort?.payload as { for_id?: string } | undefined)?.for_id;
   expect(typeof cancelledAbortForId).toBe("string");
   expect(cancelledAbort?.payload).toEqual({
     scope: "tool_call",
