@@ -1,5 +1,13 @@
 import { isObject, jsonObjectValue, maybeNumber, stringValue } from "./source.ts";
 
+const AGENT_TRAIL_ID_RE =
+  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
+
+function agentTrailId(value: unknown): string | undefined {
+  const id = stringValue(value);
+  return id !== undefined && AGENT_TRAIL_ID_RE.test(id) ? id : undefined;
+}
+
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -127,8 +135,8 @@ export function toolKindAndArgs(
             ...(stringValue(args.subagent_type) !== undefined
               ? { agent_type: stringValue(args.subagent_type) }
               : {}),
-            ...(stringValue(args.session_id) !== undefined
-              ? { session_id: stringValue(args.session_id) }
+            ...(agentTrailId(args.session_id) !== undefined
+              ? { session_id: agentTrailId(args.session_id) }
               : {}),
           },
         };

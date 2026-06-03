@@ -2255,6 +2255,25 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     tool: "subagent_invoke",
     args: { task: "Review this", agent_type: "reviewer" },
   });
+  expect(
+    toolKindAndArgs("Agent", {
+      prompt: "Review this",
+      subagent_type: "reviewer",
+      session_id: "review",
+    }),
+  ).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "Review this", agent_type: "reviewer" },
+  });
+  expect(
+    toolKindAndArgs("Agent", {
+      prompt: "Review this",
+      session_id: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+    }),
+  ).toEqual({
+    tool: "subagent_invoke",
+    args: { task: "Review this", session_id: "01HZZZZZZZZZZZZZZZZZZZZZ01" },
+  });
   expect(toolKindAndArgs("Bash", { command: "bun test" })).toEqual({
     tool: "shell_command",
     args: { command: "bun test" },
