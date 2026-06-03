@@ -5,6 +5,20 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function hasInputCoverage(usage: Record<string, unknown>): boolean {
+  return (
+    numberOrUndefined(usage.input_tokens) !== undefined ||
+    numberOrUndefined(usage.input_tokens_cumulative) !== undefined
+  );
+}
+
+function hasOutputCoverage(usage: Record<string, unknown>): boolean {
+  return (
+    numberOrUndefined(usage.output_tokens) !== undefined ||
+    numberOrUndefined(usage.output_tokens_cumulative) !== undefined
+  );
+}
+
 /**
  * Compute session-cumulative token counts for `agent_message` entries whose
  * `payload.usage` carries per-turn `input_tokens`/`output_tokens` but no
@@ -25,6 +39,7 @@ export function cumulativeTokens(entries: Entry[]): Entry[] {
     if (entry.type !== "agent_message") return entry;
     const usage = (entry.payload as { usage?: unknown }).usage;
     if (!isObject(usage)) return entry;
+    if (!hasInputCoverage(usage) || !hasOutputCoverage(usage)) return entry;
     if (
       usage.input_tokens_cumulative !== undefined ||
       usage.output_tokens_cumulative !== undefined
@@ -43,10 +58,10 @@ export function cumulativeTokens(entries: Entry[]): Entry[] {
 
     const input = numberOrUndefined(usage.input_tokens);
     const output = numberOrUndefined(usage.output_tokens);
-    if (input === undefined && output === undefined) return entry;
+    if (input === undefined || output === undefined) return entry;
 
-    runningInput += input ?? 0;
-    runningOutput += output ?? 0;
+    runningInput += input;
+    runningOutput += output;
     return {
       ...entry,
       payload: {
