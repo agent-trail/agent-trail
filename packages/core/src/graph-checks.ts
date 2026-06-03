@@ -71,7 +71,13 @@ export function streamConsistencyWarnings(
 // heuristic rule is reader-only and not implemented here.
 export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] {
   type Call = { id: string; line: number; semanticCallId?: string; matched: boolean };
-  type Result = { forId?: string; semanticCallId?: string; callIndex: number; matched: boolean };
+  type Result = {
+    forId?: string;
+    semanticCallId?: string;
+    callIndex: number;
+    matched: boolean;
+    canFallback: boolean;
+  };
 
   const calls: Call[] = [];
   const callById = new Map<string, Call>();
@@ -94,7 +100,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
       };
       calls.push(call);
       callById.set(id, call);
-    } else if (type === "tool_result") {
+    } else if (type === "tool_result" || type === "tool_call_aborted") {
       const payload = entry.value.payload;
       const forIdRaw =
         typeof payload === "object" && payload !== null
@@ -102,9 +108,10 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
           : undefined;
       results.push({
         forId: typeof forIdRaw === "string" ? forIdRaw : undefined,
-        semanticCallId: readSemanticCallId(entry.value),
+        semanticCallId: type === "tool_result" ? readSemanticCallId(entry.value) : undefined,
         callIndex: calls.length, // for sequential pairing: results pair only with calls prior to this entry
         matched: false,
+        canFallback: type === "tool_result",
       });
     } else if (type === "session_end") {
       hasSessionEnd = true;
@@ -160,7 +167,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     }
   }
   for (const result of results) {
-    if (result.matched || result.semanticCallId === undefined) {
+    if (result.matched || !result.canFallback || result.semanticCallId === undefined) {
       continue;
     }
     const bucket = callsBySemanticCallId.get(result.semanticCallId);
@@ -176,7 +183,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
   // Pass C: sequential — spec §9.5 fallback rule 2. Each remaining unmatched
   // result pairs with the most recent prior unmatched tool_call.
   for (const result of results) {
-    if (result.matched) {
+    if (result.matched || !result.canFallback) {
       continue;
     }
     for (let i = result.callIndex - 1; i >= 0; i -= 1) {

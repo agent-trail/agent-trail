@@ -192,6 +192,86 @@ generated = generated.replace(
   "$1field: `x-$" + "{string}/$" + "{string}`;$2",
 );
 
+const toolCallAbortedScopeEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        tool_call_aborted?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                scope?: { oneOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.tool_call_aborted?.properties?.payload?.properties?.scope?.oneOf?.find((branch) =>
+  Array.isArray(branch.enum),
+)?.enum;
+if (toolCallAbortedScopeEnum === undefined || toolCallAbortedScopeEnum.length === 0) {
+  throw new Error(
+    "generate-types: could not read tool_call_aborted.payload.scope enum from schema.",
+  );
+}
+const toolCallAbortedReasonEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        tool_call_aborted?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                reason?: { oneOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.tool_call_aborted?.properties?.payload?.properties?.reason?.oneOf?.find((branch) =>
+  Array.isArray(branch.enum),
+)?.enum;
+if (toolCallAbortedReasonEnum === undefined || toolCallAbortedReasonEnum.length === 0) {
+  throw new Error(
+    "generate-types: could not read tool_call_aborted.payload.reason enum from schema.",
+  );
+}
+const TOOL_CALL_ABORTED_RE =
+  /export interface ToolCallAborted \{\n {2}type\?: "tool_call_aborted";\n {2}payload\?: \{\n {4}\[k: string\]: unknown;\n {2}\};\n {2}\[k: string\]: unknown;\n\}/;
+if (!TOOL_CALL_ABORTED_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the ToolCallAborted payload to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const toolCallAbortedScope = [
+  ...toolCallAbortedScopeEnum.map((value) => JSON.stringify(value)),
+  "`x-$" + "{string}/$" + "{string}`",
+].join(" | ");
+const toolCallAbortedReasonLines = [
+  ...toolCallAbortedReasonEnum.map((value) => `      | ${JSON.stringify(value)}`),
+  "      | `x-$" + "{string}/$" + "{string}`",
+];
+generated = generated.replace(
+  TOOL_CALL_ABORTED_RE,
+  [
+    "export interface ToolCallAborted {",
+    '  type?: "tool_call_aborted";',
+    "  payload?: {",
+    `    scope: ${toolCallAbortedScope};`,
+    "    for_id?: string;",
+    "    reason:",
+    `${toolCallAbortedReasonLines.join("\n")};`,
+    "    blocked_by?: string;",
+    "  };",
+    "  [k: string]: unknown;",
+    "}",
+  ].join("\n"),
+);
+
 // json-schema-to-typescript can mistake the `task_plan_update.payload.items`
 // property name for the schema `items` keyword and leak `minItems?: 0` into the
 // generated payload type. The schema has `additionalProperties:false`; this

@@ -2983,6 +2983,78 @@ test("parseSession() maps hook error attachments to hook_failed events", async (
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps hook blocking errors with tool ids to tool_call_aborted", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000178",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      message: { role: "user", content: "run command" },
+      uuid: "00000000-0000-0000-0000-cccccccc1781",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1781",
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tooluse-blocked-1",
+            name: "Bash",
+            input: { command: "npm test" },
+          },
+        ],
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1782",
+      timestamp: "2026-05-17T14:00:06.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1782",
+      type: "attachment",
+      attachment: {
+        type: "hook_blocking_error",
+        hookName: "PreToolUse:Bash",
+        toolUseID: "tooluse-blocked-1",
+        message: "blocked command",
+        code: "exit_2",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1783",
+      timestamp: "2026-05-17T14:00:07.000Z",
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  const call = entries.find((entry) => entry.type === "tool_call");
+  const abort = entries.find((entry) => entry.type === "tool_call_aborted");
+  expect(call).toBeDefined();
+  expect(abort?.payload).toEqual({
+    scope: "tool_call",
+    reason: "hook_blocked",
+    for_id: call!.id,
+    blocked_by: "PreToolUse:Bash",
+  });
+  expect(
+    entries.some(
+      (entry) =>
+        entry.type === "system_event" &&
+        (entry.payload as { kind?: string }).kind === "hook_failed",
+    ),
+  ).toBe(false);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits v0.1-shaped deterministic entry ids across synthesized-entry fixtures", async () => {
   const first = await parseFixture();
   const second = await parseFixture();

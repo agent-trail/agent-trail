@@ -28,8 +28,8 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, thinking_level_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, thinking_level_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, mode_change, thinking_level_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -51,8 +51,9 @@ trail entry id (nearest mapped ancestor when the target itself emitted nothing).
 `x-pi/leaf_change` at or before a `branch_summary` (its contemporaneous active tip, not a
 file-global final leaf) feeds that summary's divergence resolution; a cleared tip resets it so the
 summary falls back to its own parent. `BashExecutionMessage` (user `!`/`!!` shell prefix)
-maps to a `shell_command` `tool_call` + `tool_result` pair marked `dev.pi.user_shell`, with
-exit/cancel/truncate/full-output-path carried in `dev.pi.*` meta. The message-channel variants
+maps to a `shell_command` `tool_call` plus either a `tool_result` or, when
+`bashExecution.cancelled === true`, `tool_call_aborted{scope:"tool_call", reason:"user_interrupt"}`.
+Exit/truncate/full-output-path metadata stays under `dev.pi.*` meta. The message-channel variants
 (`message.role` of `bashExecution` / `custom` / `branchSummary` / `compactionSummary`) route to the
 same trail entries as their tree-entry counterparts.
 
@@ -78,7 +79,8 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   `AdapterDef.schemaAgent` separates the schema-registry key from the emitted `AgentName`.
   Two source-schema versions: `codex/v0.128` (`>=0.128.0 <0.129.0`) and `codex/v0.135` (`>=0.129.0`,
   a superset adding the subtypes 0.135 introduced). The 0.135 additions are handled as:
-  `event_msg.turn_aborted` → `user_interrupt`; `event_msg.item_completed` (wraps the agent's `Plan`)
+  `event_msg.turn_aborted` → `user_interrupt` because the verified source evidence is turn-level,
+  not call-level; `event_msg.item_completed` (wraps the agent's `Plan`)
   → `system_event` preserving the item (a dedicated task-plan event is **#131**);
   `event_msg.context_compacted` is **recognized but intentionally suppressed** (duplicate of the
   top-level `compacted` record). `response_item.message` is text-only-suppressed (its text duplicates
@@ -210,6 +212,7 @@ Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
 
 - `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
 - `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`. `display` surfaces as `meta["dev.pi.display"]` (display:false events are kept, not dropped).
+- `x-pi/interactive_shell_transfer` — pi-mono `custom_message.customType == "interactive-shell-transfer"`. This is an external interactive-shell lifecycle record, not a linkable `tool_call`; the adapter keeps it as a vendor `system_event` and preserves `session_id`, `duration`, `exit_code`, `timed_out`, `cancelled`, and output truncation counts under `payload.data`.
 - `x-pi/leaf_change` — pi-mono `leaf` envelope (active branch-tip pointer). `payload.data.leaf_id` carries the referenced trail entry id; a null `targetId` clears the pointer (no `data`).
 - `x-pi/label` — pi-mono `label` envelope (targetId+label annotation). `payload.data.target_id` carries the referenced trail entry id; `payload.data.label` preserves the source label when present.
 
@@ -452,7 +455,8 @@ Lifecycle-vocabulary `system_event` emissions:
   `updated_at` supplies the event timestamp. Rows without a non-empty `thread_name` or valid
   timestamp are ignored.
 - `event_msg.turn_aborted` → `user_interrupt`, preserving the observed `reason` string
-  (for example, `"interrupted"`).
+  (for example, `"interrupted"`). The adapter does not fabricate
+  `tool_call_aborted.for_id` because current source evidence is turn-level.
 - `event_msg.item_completed` → `system_event{kind:"x-codex/item_completed"}`. `data`
   carries `turn_id` and the completed `item` (currently observed for task-plan `Plan`
   items; a dedicated task-plan event is tracked separately).
@@ -584,8 +588,9 @@ Reserved diagnostic vocabulary (cross-agent portable):
 
 - `api_error` — `system` envelope with `subtype == "api_error"`. `data` carries
   `severity:"error"` and the source content as `details` when present.
-- `hook_failed` — `system.subtype == "stop_hook_summary"` `hookErrors[]` and
-  `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error`. `data`
+- `hook_failed` — `system.subtype == "stop_hook_summary"` `hookErrors[]`,
+  `attachment.hook_non_blocking_error`, and `attachment.hook_blocking_error` without a usable
+  tool call id. `data`
   carries `severity:"error"`, `blocking`, `hook_name`, `code`, and `details` when
   present.
 
@@ -616,8 +621,10 @@ Capability-registry attachments:
   text without inventing skill names.
 - `attachment.mcp_instructions_delta` →
   `capability_change{scope:"mcp_server", reason:"instructions_updated"}`.
-- `attachment.hook_blocking_error` / `attachment.hook_non_blocking_error` →
-  `system_event{kind:"hook_failed"}`.
+- `attachment.hook_blocking_error` with a usable tool call id →
+  `tool_call_aborted{scope:"tool_call", reason:"hook_blocked"}` linked to the matching
+  `tool_call`. Without a usable id it remains `system_event{kind:"hook_failed"}`.
+- `attachment.hook_non_blocking_error` → `system_event{kind:"hook_failed"}`.
 
 Session metadata from non-message envelopes:
 

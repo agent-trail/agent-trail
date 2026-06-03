@@ -155,11 +155,51 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
     rawType: string,
   ): TrailEntryDraft[] => {
     const { customType, isMessage } = args;
+    const inner = isObject(args.data) ? args.data : undefined;
+    const content = stringValue(args.content);
+    if (isMessage && customType === "interactive-shell-transfer") {
+      const data: Record<string, unknown> = { custom_type: customType };
+      const sessionId = stringValue(inner?.sessionId);
+      if (sessionId !== undefined) data.session_id = sessionId;
+      const duration = stringValue(inner?.duration);
+      if (duration !== undefined) data.duration = duration;
+      if ("exitCode" in (inner ?? {})) data.exit_code = inner?.exitCode ?? null;
+      if (typeof inner?.timedOut === "boolean") data.timed_out = inner.timedOut;
+      if (typeof inner?.cancelled === "boolean") data.cancelled = inner.cancelled;
+      const completionOutput = isObject(inner?.completionOutput)
+        ? inner.completionOutput
+        : undefined;
+      const totalLines = numericValue(completionOutput?.totalLines);
+      if (totalLines !== undefined) data.output_total_lines = totalLines;
+      if (typeof completionOutput?.truncated === "boolean") {
+        data.output_truncated = completionOutput.truncated;
+      }
+      if (Array.isArray(completionOutput?.lines)) {
+        data.output_line_count = completionOutput.lines.length;
+      }
+      return [
+        {
+          type: "system_event",
+          payload: {
+            kind: "x-pi/interactive_shell_transfer",
+            text:
+              content !== undefined && content.trim().length > 0
+                ? content
+                : "Interactive shell transfer",
+            data,
+          },
+          source: src(record, originalType),
+          meta: metaFor(
+            record,
+            rawType,
+            typeof args.display === "boolean" ? { "dev.pi.display": args.display } : undefined,
+          ),
+        },
+      ];
+    }
     const data: Record<string, unknown> = {};
     if (customType !== undefined) data.custom_type = customType;
-    const inner = isObject(args.data) ? args.data : undefined;
     if (inner !== undefined) data.custom_data = inner;
-    const content = stringValue(args.content);
     const text =
       content !== undefined && content.trim().length > 0
         ? content
@@ -525,23 +565,41 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       if (cancelled) resultMeta["dev.pi.cancelled"] = true;
       const fullOutputPath = stringValue(msg?.fullOutputPath);
       if (fullOutputPath !== undefined) resultMeta["dev.pi.full_output_path"] = fullOutputPath;
-      return [
-        {
-          type: "tool_call",
-          payload: { tool: "shell_command", args: { command } },
-          semantic: { call_id: callId, tool_kind: "shell_command" },
-          source: src(record, "bashExecution"),
-          meta: {
-            linker: { call_id: callId },
-            ...metaFor(record, "bash_execution", callMeta),
-          },
+      const call: TrailEntryDraft = {
+        type: "tool_call",
+        payload: { tool: "shell_command", args: { command } },
+        semantic: { call_id: callId, tool_kind: "shell_command" },
+        source: src(record, "bashExecution"),
+        meta: {
+          linker: { call_id: callId },
+          ...metaFor(record, "bash_execution", callMeta),
         },
+      };
+      if (cancelled) {
+        return [
+          call,
+          {
+            type: "tool_call_aborted",
+            payload: { scope: "tool_call", reason: "user_interrupt" },
+            source: src(record, "bashExecution"),
+            meta: {
+              linker: { call_id: callId },
+              ...metaFor(
+                record,
+                "bash_execution",
+                Object.keys(resultMeta).length > 0 ? resultMeta : undefined,
+              ),
+            },
+          },
+        ];
+      }
+      return [
+        call,
         {
           type: "tool_result",
           payload: {
             ok,
             ...(output !== undefined && output.length > 0 ? { output } : {}),
-            ...(cancelled ? { error: "command cancelled" } : {}),
             ...(Object.keys(shellMeta).length > 0 ? { meta: { shell_command: shellMeta } } : {}),
           },
           semantic: { call_id: callId, tool_kind: "shell_command" },

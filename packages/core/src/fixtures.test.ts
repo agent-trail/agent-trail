@@ -363,6 +363,40 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-call-aborted-closes-call.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-aborted-closes-call.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-aborted-turn-scope.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-aborted-turn-scope.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl reports required /payload/for_id", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/for_id",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'for_id'",
+  });
+});
+
+test("invalid-schema/tool-call-aborted-bad-reason.trail.jsonl rejects bare unknown reason", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-aborted-bad-reason.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.line === 2 && d.path === "/payload/reason")).toBe(true);
+});
+
 test("valid/tool-result-attachments.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/tool-result-attachments.trail.jsonl"),

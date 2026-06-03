@@ -8,6 +8,7 @@ import type {
   SessionMetadataUpdate,
   SystemEvent,
   ThinkingLevelChange,
+  ToolCallAborted,
 } from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
@@ -122,4 +123,26 @@ test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes
   expect(tags.payload?.field).toBe("tags");
   expect(worktree.payload?.field).toBe("vcs.worktree");
   expect(vendor.payload?.field).toBe("x-codex/thread_goal");
+});
+
+test("ToolCallAborted exposes reserved and x-<adapter>/<name> reason/scope shapes", () => {
+  const reserved = {
+    type: "tool_call_aborted",
+    payload: {
+      scope: "tool_call",
+      reason: "hook_blocked",
+      for_id: "call1",
+      blocked_by: "PreToolUse:Bash",
+    },
+  } satisfies ToolCallAborted;
+  const extension = {
+    type: "tool_call_aborted",
+    payload: {
+      scope: "x-codex/turn_scope",
+      reason: "x-codex/interrupted",
+    },
+  } satisfies ToolCallAborted;
+
+  expect(reserved.payload?.reason).toBe("hook_blocked");
+  expect(extension.payload?.scope).toBe("x-codex/turn_scope");
 });

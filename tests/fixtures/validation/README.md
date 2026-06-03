@@ -74,6 +74,18 @@ Expected: no diagnostics under either profile.
 
 Expected: no diagnostics under either profile.
 
+#### `valid/tool-call-aborted-closes-call.trail.jsonl`
+
+`tool_call` closed by a call-scoped `tool_call_aborted` with explicit `payload.for_id` reference (spec §9.5).
+
+Expected: no diagnostics under either profile.
+
+#### `valid/tool-call-aborted-turn-scope.trail.jsonl`
+
+Turn-scoped `tool_call_aborted` without `for_id`. It is valid, but does not close any specific `tool_call`.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/tool-call-matched-by-semantic-call-id.trail.jsonl`
 
 `tool_call` and `tool_result` both carry matching `semantic.call_id`; `tool_result` omits `for_id` (spec §9.5 fallback rule 1, semantic match).
@@ -193,6 +205,18 @@ Expected (strict, subset): `error enum /payload/reason line 2`.
 `capability_change` carries `scope` and `reason` but no non-empty `added`, `removed`, `changed`, or `snapshot` array.
 
 Expected (strict, subset): `error anyOf /payload line 2`.
+
+#### `invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl`
+
+`tool_call_aborted.payload.scope` is `tool_call` but `payload.for_id` is omitted.
+
+Expected (strict, subset): `error required /payload line 2`.
+
+#### `invalid-schema/tool-call-aborted-bad-reason.trail.jsonl`
+
+`tool_call_aborted.payload.reason` is a bare unknown value instead of a reserved reason or `x-<adapter>/<reason>` extension.
+
+Expected (strict, subset): `error anyOf /payload/reason line 2`.
 
 ### invalid-graph/
 

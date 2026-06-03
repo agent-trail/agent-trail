@@ -872,10 +872,34 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
   if (subtype === undefined) return [];
   const originalType = isLegacyAttachment ? `attachment.${subtype}` : subtype;
 
-  if (subtype === "hook_blocking_error" || subtype === "hook_non_blocking_error") {
+  if (subtype === "hook_blocking_error") {
+    const toolCallId = hookToolCallId(attachment);
+    if (toolCallId !== undefined) {
+      const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
+      return [
+        {
+          type: "tool_call_aborted",
+          payload: {
+            scope: "tool_call",
+            reason: "hook_blocked",
+            ...(hookName !== undefined ? { blocked_by: hookName } : {}),
+          },
+          source: src(record, originalType),
+          meta: meta(record, { callId: toolCallId }),
+        },
+      ];
+    }
     return [
       hookFailureDraft(record, originalType, attachment, {
-        fallbackBlocking: subtype === "hook_blocking_error",
+        fallbackBlocking: true,
+      }),
+    ];
+  }
+
+  if (subtype === "hook_non_blocking_error") {
+    return [
+      hookFailureDraft(record, originalType, attachment, {
+        fallbackBlocking: false,
       }),
     ];
   }
