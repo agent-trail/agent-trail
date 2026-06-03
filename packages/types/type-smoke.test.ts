@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type {
+  AgentMessageUsage,
   AgentTrailV010,
   CapabilityChange,
   Header,
@@ -25,6 +26,31 @@ test("@agent-trail/types exposes generated schema types", () => {
   const record: AgentTrailV010 = header;
 
   expect(record.type).toBe("session");
+});
+
+test("AgentMessageUsage requires input/output coverage and rejects extra fields", () => {
+  const delta = {
+    input_tokens: 1,
+    output_tokens: 2,
+  } satisfies AgentMessageUsage;
+  const cumulative = {
+    input_tokens_cumulative: 10,
+    output_tokens_cumulative: 20,
+    context_window_tokens: 200000,
+  } satisfies AgentMessageUsage;
+
+  // @ts-expect-error writer schema rejects extra usage fields.
+  const extra = { input_tokens: 1, output_tokens: 2, cost_usd: 0.01 } satisfies AgentMessageUsage;
+  // @ts-expect-error writer schema requires an output counter when usage is present.
+  const missingOutput = { input_tokens: 1 } satisfies AgentMessageUsage;
+  // @ts-expect-error writer schema requires an input counter when usage is present.
+  const missingInput = { output_tokens: 2 } satisfies AgentMessageUsage;
+
+  expect(delta.input_tokens).toBe(1);
+  expect(cumulative.output_tokens_cumulative).toBe(20);
+  expect(extra.cost_usd).toBe(0.01);
+  expect(missingOutput.input_tokens).toBe(1);
+  expect(missingInput.output_tokens).toBe(2);
 });
 
 // Regression: SystemEvent.payload.kind must accept both reserved values and

@@ -76,6 +76,10 @@ test("mapAgentMessageUsage: drops input-only usage without output counters", () 
   ).toBeUndefined();
 });
 
+test("mapAgentMessageUsage: drops output-only usage without input counters", () => {
+  expect(mapAgentMessageUsage({ output_tokens: 10, reasoning_tokens: 2 })).toBeUndefined();
+});
+
 test("mapAgentMessageUsage: preserves direct context usage fields", () => {
   expect(
     mapAgentMessageUsage({

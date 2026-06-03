@@ -155,6 +155,19 @@ test("invalid-schema/agent-message-usage-missing-required.trail.jsonl rejects us
   });
 });
 
+test("invalid-schema/agent-message-usage-missing-output.trail.jsonl rejects usage missing output pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-message-usage-missing-output.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/usage",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
 test("invalid-schema/agent-message-usage-zero-context-window.trail.jsonl rejects zero context window", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/agent-message-usage-zero-context-window.trail.jsonl"),

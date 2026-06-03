@@ -310,6 +310,12 @@ Expected (subset, both profiles): `warning unknown_final_message_id /payload/fin
 
 Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the missing input pair.
 
+#### `invalid-schema/agent-message-usage-missing-output.trail.jsonl`
+
+`agent_message.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`. Spec §9.2 requires at least one of each pair when `usage` is present.
+
+Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the missing output pair.
+
 #### `invalid-schema/agent-message-usage-zero-context-window.trail.jsonl`
 
 `agent_message.payload.usage.context_window_tokens` is `0`. Spec §9.2 only allows a positive context-window size when the source exposes it.

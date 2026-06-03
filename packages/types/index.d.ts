@@ -152,36 +152,32 @@ export type ToolKind =
 /**
  * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
  */
-export type AgentMessageUsage = (
+export type AgentMessageUsage = {
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+  context_input_tokens?: number;
+  context_window_tokens?: number;
+} & (
   | {
-      input_tokens: unknown;
-      [k: string]: unknown;
+      input_tokens: number;
+      input_tokens_cumulative?: number;
     }
   | {
-      input_tokens_cumulative: unknown;
-      [k: string]: unknown;
+      input_tokens?: number;
+      input_tokens_cumulative: number;
     }
 ) &
   (
     | {
-        output_tokens: unknown;
-        [k: string]: unknown;
+        output_tokens: number;
+        output_tokens_cumulative?: number;
       }
     | {
-        output_tokens_cumulative: unknown;
-        [k: string]: unknown;
+        output_tokens?: number;
+        output_tokens_cumulative: number;
       }
-  ) & {
-    input_tokens?: number;
-    output_tokens?: number;
-    input_tokens_cumulative?: number;
-    output_tokens_cumulative?: number;
-    cache_read_tokens?: number;
-    cache_creation_tokens?: number;
-    reasoning_tokens?: number;
-    context_input_tokens?: number;
-    context_window_tokens?: number;
-  };
+  );
 export type TaskPlanStatus = "pending" | "in_progress" | "completed" | "cancelled" | "blocked";
 export type TaskPlanDelta =
   | {

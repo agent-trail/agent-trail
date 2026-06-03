@@ -297,6 +297,50 @@ if (!TASK_PLAN_MIN_ITEMS_RE.test(generated)) {
 }
 generated = generated.replace(TASK_PLAN_MIN_ITEMS_RE, "$1");
 
+// The schema expresses required-when-present usage counters with presence-only
+// anyOf branches layered over `additionalProperties:false`. json-schema-to-
+// typescript lowers those branches to `[k:string]: unknown`, which widens
+// AgentMessageUsage and accepts fields the writer schema rejects. Rewrite this
+// one public type to the exact structural contract from schema.json.
+const AGENT_MESSAGE_USAGE_RE =
+  /export type AgentMessageUsage = \([\s\S]*?\n {2}\) & \{\n(?: {4}[a-z_]+\?: number;\n)+ {2}\};/;
+if (!AGENT_MESSAGE_USAGE_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the AgentMessageUsage anyOf block to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+generated = generated.replace(
+  AGENT_MESSAGE_USAGE_RE,
+  [
+    "export type AgentMessageUsage = {",
+    "  cache_read_tokens?: number;",
+    "  cache_creation_tokens?: number;",
+    "  reasoning_tokens?: number;",
+    "  context_input_tokens?: number;",
+    "  context_window_tokens?: number;",
+    "} & (",
+    "  | {",
+    "      input_tokens: number;",
+    "      input_tokens_cumulative?: number;",
+    "    }",
+    "  | {",
+    "      input_tokens?: number;",
+    "      input_tokens_cumulative: number;",
+    "    }",
+    ") &",
+    "  (",
+    "    | {",
+    "        output_tokens: number;",
+    "        output_tokens_cumulative?: number;",
+    "      }",
+    "    | {",
+    "        output_tokens?: number;",
+    "        output_tokens_cumulative: number;",
+    "      }",
+    "  );",
+  ].join("\n"),
+);
+
 if (checkOnly) {
   const existing = await readFile(outputUrl, "utf8").catch(() => "");
 
