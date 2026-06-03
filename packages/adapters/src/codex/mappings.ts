@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { decodeCappedBase64, INLINE_MEDIA_MAX_DECODED_BYTES, sha256Ref } from "../inline-media.ts";
 import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
 import {
   isNonEmptyString,
@@ -1147,22 +1147,20 @@ const itemCompleted = lifecycle("item_completed", (p) => {
 // `codexImageRollup` folds the attachments into the matching user/agent message
 // (whose text is the duplicate `event_msg` echo) and drops the carrier.
 export const IMAGE_CARRIER = "x-codex/_images";
-export const INLINE_IMAGE_MAX_DECODED_BYTES = 1024 * 1024;
+export const INLINE_IMAGE_MAX_DECODED_BYTES = INLINE_MEDIA_MAX_DECODED_BYTES;
 
 type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
 
 type ParsedDataUri = { mediaType?: string; bytes?: Buffer; oversized?: true };
 
 function parseBase64Image(mediaType: string | undefined, data: string): ParsedDataUri {
-  const compact = data.replace(/\s+/g, "");
-  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
-  const decodedBytes = Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
-  if (decodedBytes > INLINE_IMAGE_MAX_DECODED_BYTES) {
+  const decoded = decodeCappedBase64(data);
+  if (decoded.oversized === true) {
     return { ...(mediaType !== undefined ? { mediaType } : {}), oversized: true };
   }
   return {
     ...(mediaType !== undefined ? { mediaType } : {}),
-    bytes: Buffer.from(compact, "base64"),
+    bytes: decoded.bytes,
   };
 }
 
@@ -1192,10 +1190,6 @@ function parseDataUri(uri: string): ParsedDataUri | undefined {
     }
     return { ...(mediaType !== undefined ? { mediaType } : {}), bytes: Buffer.from(data, "utf8") };
   }
-}
-
-function sha256Ref(bytes: Buffer): string {
-  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
 function attachmentRef(uri: string): { mediaType?: string; uri?: string } | undefined {

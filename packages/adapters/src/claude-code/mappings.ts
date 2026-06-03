@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
-import type { Entry, ToolKind } from "@agent-trail/types";
+import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { decodeCappedBase64, INLINE_MEDIA_MAX_DECODED_BYTES, sha256Ref } from "../inline-media.ts";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -41,6 +42,8 @@ type UserQueryOption = { label: string; description?: string };
  */
 export const HINT = "x-claudecode/_h";
 export const INCLUDE_SIDECHAIN = Symbol.for("agent-trail.claude-code.include-sidechain");
+export const INLINE_ATTACHMENT_MAX_DECODED_BYTES = INLINE_MEDIA_MAX_DECODED_BYTES;
+const HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS = 16 * 1024;
 
 export interface CcHint {
   sid?: string;
@@ -49,16 +52,95 @@ export interface CcHint {
 
 function meta(
   record: CcEnvelope,
-  opts?: { model?: string; callId?: string },
+  opts?: { model?: string; callId?: string; extra?: Record<string, unknown> },
 ): Record<string, unknown> {
   const hint: CcHint = {
     ...(typeof record.uuid === "string" ? { sid: record.uuid } : {}),
     ...(opts?.model !== undefined ? { model: opts.model } : {}),
   };
   return {
+    // Real meta keys survive hint stripping (see ccEnvelopeRefBackfill); the
+    // HINT is transient.
+    ...(opts?.extra ?? {}),
     ...(opts?.callId !== undefined ? { linker: { call_id: opts.callId } } : {}),
     [HINT]: hint,
   };
+}
+
+// Subagent attribution carried on a parent-side user record: which subagent
+// produced this tool_result. Sidechain inner records are dropped, so this is
+// the only trace a subagent ran. Namespaced under entry.meta. See issue #126.
+function attributionMeta(record: CcEnvelope): Record<string, unknown> | undefined {
+  const tur = isObject(record.toolUseResult) ? record.toolUseResult : undefined;
+  const out: Record<string, unknown> = {};
+  const agentId = stringValue(record.agentId) ?? stringValue(tur?.agentId);
+  if (agentId !== undefined) out["dev.claudecode.agent_id"] = agentId;
+  const agentType = stringValue(tur?.agentType);
+  if (agentType !== undefined) out["dev.claudecode.agent_type"] = agentType;
+  const sourceUuid = stringValue(record.sourceToolAssistantUUID);
+  if (sourceUuid !== undefined) out["dev.claudecode.source_tool_assistant_uuid"] = sourceUuid;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+// Pasted images/documents arrive as inline content blocks
+// `{ type:"image"|"document", source:{ type:"base64", media_type, data } }`.
+// Hash the decoded bytes to a content-addressed sha256 ref (v0.1 has no inline
+// data: URIs); the blob store resolves it at share time. Mirrors the Codex
+// adapter's image rollup (#160). See issue #126.
+function imageAttachments(content: unknown): Attachment[] {
+  const out: Attachment[] = [];
+  for (const block of asBlocks(content)) {
+    if (block.type !== "image" && block.type !== "document") continue;
+    const source = isObject(block.source) ? block.source : undefined;
+    const data = stringValue(source?.data);
+    if (stringValue(source?.type) !== "base64" || data === undefined) continue;
+    const mediaType = stringValue(source?.media_type) ?? stringValue(source?.mediaType);
+    const att: Attachment = {
+      kind: block.type === "image" ? "image" : "file",
+    };
+    if (mediaType !== undefined) att.media_type = mediaType;
+    const decoded = decodeCappedBase64(data);
+    if (decoded.bytes !== undefined) att.uri = sha256Ref(decoded.bytes);
+    out.push(att);
+  }
+  return out;
+}
+
+type HookAdditionalContextContent = {
+  text?: string;
+  content?: unknown;
+  attachments?: Attachment[];
+};
+
+function hookAdditionalContextContent(content: unknown): HookAdditionalContextContent {
+  if (typeof content === "string") {
+    return { text: truncateHookContextText(content), content: truncateHookContextText(content) };
+  }
+  const blocks = asBlocks(content);
+  if (blocks.length === 0) return {};
+  let remaining = HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS;
+  const textBlocks: Array<{ type: "text"; text: string }> = [];
+  for (const block of blocks) {
+    if (block.type !== "text" || typeof block.text !== "string" || remaining <= 0) continue;
+    const separatorLength = textBlocks.length > 0 ? 1 : 0;
+    const budget = remaining - separatorLength;
+    if (budget <= 0) break;
+    const text = block.text.slice(0, budget);
+    remaining -= separatorLength + text.length;
+    textBlocks.push({ type: "text", text });
+  }
+  const text = textBlocks.map((block) => block.text).join("\n");
+  const attachments = imageAttachments(content);
+  return {
+    ...(text.length > 0 ? { text, content: textBlocks } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function truncateHookContextText(text: string): string {
+  return text.length > HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS
+    ? text.slice(0, HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS)
+    : text;
 }
 
 function questionId(question: string, occurrence: number): string {
@@ -231,102 +313,130 @@ const userMessage = defineMapping<Raw>({
   emit: (raw) => {
     const record = raw as CcEnvelope;
     if (!gate(record)) return [];
-    if (record.isCompactSummary === true) {
-      const text =
-        stringValue(record.summary) ??
-        stringValue(record.message?.content) ??
-        jsonString(record.message?.content);
-      if (text === undefined) return [];
-      return [
-        {
-          type: "context_compact",
-          payload: { summary: text, trigger: "auto" },
-          source: src(record, "user"),
-          meta: meta(record),
-        },
-      ];
-    }
-    const content = record.message?.content;
-    if (typeof content === "string") {
-      const interrupt = isInterruptMarker(content);
-      if (interrupt !== undefined) {
+    const attribution = attributionMeta(record);
+    const drafts = ((): TrailEntryDraft[] => {
+      if (record.isCompactSummary === true) {
+        const text =
+          stringValue(record.summary) ??
+          stringValue(record.message?.content) ??
+          jsonString(record.message?.content);
         return [
           {
-            type: "user_interrupt",
-            payload: { reason: interrupt.reason },
+            type: "context_compact",
+            payload: { summary: text, trigger: "auto" },
             source: src(record, "user"),
             meta: meta(record),
           },
         ];
       }
-      if (isContinuationPreamble(content)) {
-        return [
-          {
-            type: "system_event",
-            payload: { kind: "session_start", text: content },
-            source: src(record, "user"),
-            meta: meta(record),
-          },
-        ];
-      }
-      return [
-        {
-          type: "user_message",
-          payload: { text: content },
-          source: src(record, "user"),
-          meta: meta(record),
-        },
-      ];
-    }
-    const blocks = asBlocks(content).filter((b) => b.type === "text" || b.type === "tool_result");
-    return blocks.flatMap((block, i): TrailEntryDraft[] => {
-      const envelopeRef = i > 0 ? "" : undefined;
-      const source = src(record, String(block.type), block, i, { envelopeRef });
-      if (block.type === "text" && typeof block.text === "string") {
-        const interrupt = isInterruptMarker(block.text);
+      const content = record.message?.content;
+      if (typeof content === "string") {
+        const interrupt = isInterruptMarker(content);
         if (interrupt !== undefined) {
           return [
             {
               type: "user_interrupt",
               payload: { reason: interrupt.reason },
-              source,
+              source: src(record, "user"),
               meta: meta(record),
             },
           ];
         }
-        if (isContinuationPreamble(block.text)) {
+        if (isContinuationPreamble(content)) {
           return [
             {
               type: "system_event",
-              payload: { kind: "x-claudecode/system", text: block.text },
-              source,
+              payload: { kind: "session_start", text: content },
+              source: src(record, "user"),
               meta: meta(record),
             },
           ];
         }
         return [
-          { type: "user_message", payload: { text: block.text }, source, meta: meta(record) },
-        ];
-      }
-      if (block.type === "tool_result") {
-        const callId = stringValue(block.tool_use_id);
-        const ok = block.is_error !== true;
-        const output = textFromToolResultContent(block.content);
-        return [
           {
-            type: "tool_result",
-            payload: {
-              ok,
-              ...(output.length > 0 ? { output } : {}),
-              ...(!ok && output.length > 0 ? { error: output } : {}),
-            },
-            source,
-            meta: meta(record, { callId }),
+            type: "user_message",
+            payload: { text: content },
+            source: src(record, "user"),
+            meta: meta(record),
           },
         ];
       }
-      return [];
-    });
+      const images = imageAttachments(content);
+      const blocks = asBlocks(content).filter((b) => b.type === "text" || b.type === "tool_result");
+      const blockDrafts = blocks.flatMap((block, i): TrailEntryDraft[] => {
+        const envelopeRef = i > 0 ? "" : undefined;
+        const source = src(record, String(block.type), block, i, { envelopeRef });
+        if (block.type === "text" && typeof block.text === "string") {
+          const interrupt = isInterruptMarker(block.text);
+          if (interrupt !== undefined) {
+            return [
+              {
+                type: "user_interrupt",
+                payload: { reason: interrupt.reason },
+                source,
+                meta: meta(record),
+              },
+            ];
+          }
+          if (isContinuationPreamble(block.text)) {
+            return [
+              {
+                type: "system_event",
+                payload: { kind: "x-claudecode/system", text: block.text },
+                source,
+                meta: meta(record),
+              },
+            ];
+          }
+          return [
+            { type: "user_message", payload: { text: block.text }, source, meta: meta(record) },
+          ];
+        }
+        if (block.type === "tool_result") {
+          const callId = stringValue(block.tool_use_id);
+          const ok = block.is_error !== true;
+          const output = textFromToolResultContent(block.content);
+          return [
+            {
+              type: "tool_result",
+              payload: {
+                ok,
+                ...(output.length > 0 ? { output } : {}),
+                ...(!ok && output.length > 0 ? { error: output } : {}),
+              },
+              source,
+              meta: meta(record, { callId }),
+            },
+          ];
+        }
+        return [];
+      });
+      if (images.length === 0) return blockDrafts;
+      // Fold pasted images onto the owning user turn. Attach to the first
+      // user_message; if the turn carried no text block, synthesize one.
+      const idx = blockDrafts.findIndex((d) => d.type === "user_message");
+      if (idx >= 0) {
+        const owner = blockDrafts[idx];
+        if (owner !== undefined) {
+          blockDrafts[idx] = {
+            ...owner,
+            payload: { ...(owner.payload ?? {}), attachments: images },
+          };
+        }
+        return blockDrafts;
+      }
+      return [
+        {
+          type: "user_message",
+          payload: { text: "", attachments: images },
+          source: src(record, "user"),
+          meta: meta(record),
+        },
+        ...blockDrafts,
+      ];
+    })();
+    if (attribution === undefined) return drafts;
+    return drafts.map((d) => ({ ...d, meta: { ...attribution, ...(d.meta ?? {}) } }));
   },
 });
 
@@ -345,12 +455,21 @@ const assistantMessage = defineMapping<Raw>({
     const model = stringValue(record.message?.model);
     const usage = mapAgentMessageUsage(record.message?.usage);
     let usageEmitted = false;
+    // requestId groups all entries split out of one LLM request envelope. See
+    // issue #126; matches the spec's semantic.group_id ("one LLM request's
+    // events"). The reconciler preserves it when adding tool_kind to tool_calls.
+    const groupId = stringValue(record.requestId);
+    const sem = (extra?: Record<string, unknown>): Record<string, unknown> | undefined => {
+      const s = { ...(groupId !== undefined ? { group_id: groupId } : {}), ...(extra ?? {}) };
+      return Object.keys(s).length > 0 ? s : undefined;
+    };
     return blocks.flatMap((block, i): TrailEntryDraft[] => {
       const envelopeRef = i > 0 ? "" : undefined;
       const source = src(record, String(block.type), block, i, { envelopeRef });
       if (block.type === "text" && typeof block.text === "string") {
         const blockUsage = !usageEmitted ? usage : undefined;
         if (blockUsage !== undefined) usageEmitted = true;
+        const semantic = sem();
         return [
           {
             type: "agent_message",
@@ -362,6 +481,7 @@ const assistantMessage = defineMapping<Raw>({
                 : {}),
               ...(blockUsage !== undefined ? { usage: blockUsage } : {}),
             },
+            ...(semantic !== undefined ? { semantic } : {}),
             source,
             meta: meta(record, { model }),
           },
@@ -372,10 +492,12 @@ const assistantMessage = defineMapping<Raw>({
           stringValue(block.thinking) ??
           stringValue(block.data) ??
           (block.type === "redacted_thinking" ? "[redacted thinking]" : "");
+        const semantic = sem();
         return [
           {
             type: "agent_thinking",
             payload: { text, ...(model !== undefined ? { model } : {}) },
+            ...(semantic !== undefined ? { semantic } : {}),
             source,
             meta: meta(record, { model }),
           },
@@ -388,11 +510,14 @@ const assistantMessage = defineMapping<Raw>({
           toolName === "TodoWrite" ? taskPlanItemsFromTodoWrite(block.input) : undefined;
         if (taskPlanItems !== undefined) {
           const taskPlanCallId = isNonEmptyString(callId) ? callId : undefined;
+          const semantic = sem(
+            taskPlanCallId !== undefined ? { call_id: taskPlanCallId } : undefined,
+          );
           return [
             {
               type: "task_plan_update",
               payload: { items: taskPlanItems },
-              ...(taskPlanCallId !== undefined ? { semantic: { call_id: taskPlanCallId } } : {}),
+              ...(semantic !== undefined ? { semantic } : {}),
               source,
               meta: meta(record, { model, callId: taskPlanCallId }),
             } as TrailEntryDraft,
@@ -402,11 +527,12 @@ const assistantMessage = defineMapping<Raw>({
           const payload = userQueryPayload(block.input);
           if (payload !== undefined) {
             const queryCallId = isNonEmptyString(callId) ? callId : undefined;
+            const semantic = sem(queryCallId !== undefined ? { call_id: queryCallId } : undefined);
             return [
               {
                 type: "user_query",
                 payload,
-                ...(queryCallId !== undefined ? { semantic: { call_id: queryCallId } } : {}),
+                ...(semantic !== undefined ? { semantic } : {}),
                 source,
                 meta: meta(record, { model, callId: queryCallId }),
               },
@@ -418,10 +544,10 @@ const assistantMessage = defineMapping<Raw>({
           {
             type: "tool_call",
             payload: mapped,
-            semantic: {
+            semantic: sem({
               ...(callId !== undefined ? { call_id: callId } : {}),
               tool_kind: mapped.tool as ToolKind,
-            },
+            }),
             source,
             meta: meta(record, { model, callId }),
           },
@@ -872,6 +998,38 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
         payload: {
           kind: "permission_decision",
           data,
+        },
+        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
+        source: src(record, originalType),
+        meta: meta(record, { callId: toolCallId }),
+      },
+    ];
+  }
+
+  if (subtype === "hook_additional_context") {
+    // Text a hook injects into the user turn — input the model actually
+    // received. Represented as a system_event (not user_message) so it is not
+    // misattributed as user-typed. See issue #126.
+    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
+    const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
+    const toolCallId = hookToolCallId(attachment);
+    const content = attachment.content;
+    const data: Record<string, unknown> = {};
+    if (hookEvent !== undefined) data.hook_event = hookEvent;
+    if (hookName !== undefined) data.hook_name = hookName;
+    if (toolCallId !== undefined) data.tool_call_id = toolCallId;
+    const safeContent = hookAdditionalContextContent(content);
+    if (safeContent.content !== undefined) data.content = safeContent.content;
+    if (safeContent.attachments !== undefined) data.attachments = safeContent.attachments;
+    return [
+      {
+        type: "system_event",
+        payload: {
+          kind: "x-claudecode/hook_additional_context",
+          ...(safeContent.text !== undefined && safeContent.text.length > 0
+            ? { text: safeContent.text }
+            : {}),
+          ...(Object.keys(data).length > 0 ? { data } : {}),
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
         source: src(record, originalType),
