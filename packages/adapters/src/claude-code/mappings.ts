@@ -118,13 +118,21 @@ function hookAdditionalContextContent(content: unknown): HookAdditionalContextCo
   }
   const blocks = asBlocks(content);
   if (blocks.length === 0) return {};
-  const textBlocks = blocks
-    .filter((block) => block.type === "text" && typeof block.text === "string")
-    .map((block) => ({ type: "text", text: truncateHookContextText(block.text as string) }));
+  let remaining = HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS;
+  const textBlocks: Array<{ type: "text"; text: string }> = [];
+  for (const block of blocks) {
+    if (block.type !== "text" || typeof block.text !== "string" || remaining <= 0) continue;
+    const separatorLength = textBlocks.length > 0 ? 1 : 0;
+    const budget = remaining - separatorLength;
+    if (budget <= 0) break;
+    const text = block.text.slice(0, budget);
+    remaining -= separatorLength + text.length;
+    textBlocks.push({ type: "text", text });
+  }
   const text = textBlocks.map((block) => block.text).join("\n");
   const attachments = imageAttachments(content);
   return {
-    ...(text.length > 0 ? { text: truncateHookContextText(text), content: textBlocks } : {}),
+    ...(text.length > 0 ? { text, content: textBlocks } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
   };
 }

@@ -1813,8 +1813,17 @@ test("parseSession() truncates concatenated hook_additional_context text blocks"
       entry.type === "system_event" &&
       entry.source?.original_type === "attachment.hook_additional_context",
   );
-  const payload = evt?.payload as { text?: string };
+  const payload = evt?.payload as {
+    text?: string;
+    data?: { content?: Array<{ type: string; text: string }> };
+  };
   expect(payload.text).toHaveLength(16 * 1024);
+  const content = payload.data?.content;
+  expect(content).toEqual([
+    { type: "text", text: "a".repeat(10_000) },
+    { type: "text", text: "b".repeat(16 * 1024 - 10_001) },
+  ]);
+  expect(content?.map((block) => block.text).join("\n")).toHaveLength(16 * 1024);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
