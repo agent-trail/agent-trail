@@ -15,11 +15,19 @@ test("classifies representative tool names through the public core export", () =
   expect(classifyToolName("unknown_tool")).toBe("other");
 });
 
+test("treats object prototype names as unknown tool names", () => {
+  expect(classifyToolName("toString")).toBe("other");
+  expect(classifyToolName("constructor")).toBe("other");
+  expect(classifyToolName("hasOwnProperty")).toBe("other");
+  expect(classifyToolName("__proto__")).toBe("other");
+});
+
 test("classifies live adapter tool vocabularies", () => {
   expectToolNameClasses([
     ["Read", "read"],
     ["Edit", "edit"],
     ["Write", "write"],
+    ["MultiEdit", "edit"],
     ["NotebookEdit", "write"],
     ["Bash", "bash"],
     ["Grep", "grep"],
