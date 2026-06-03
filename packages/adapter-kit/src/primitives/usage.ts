@@ -14,6 +14,10 @@ function nonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : undefined;
+}
+
 // Returns the first non-negative-integer value across the candidate key list.
 // Token-counting fields are always non-negative integers, so non-integers and
 // negatives are treated as "absent" rather than coerced.
@@ -33,7 +37,7 @@ export function pick(record: Record<string, unknown>, keys: readonly string[]): 
 export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const src = raw as Record<string, unknown>;
-  const usage: AgentMessageUsage = {};
+  const usage: Partial<AgentMessageUsage> = {};
   const inputTokens = pick(src, ["input_tokens", "inputTokens", "input"]);
   if (inputTokens !== undefined) usage.input_tokens = inputTokens;
   const outputTokens = pick(src, ["output_tokens", "outputTokens", "output"]);
@@ -82,7 +86,11 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
       usage.context_input_tokens = total;
     }
   }
-  const contextWindow = pick(src, ["context_window_tokens", "contextWindowTokens"]);
+  const contextWindow =
+    positiveInteger(src.context_window_tokens) ?? positiveInteger(src.contextWindowTokens);
   if (contextWindow !== undefined) usage.context_window_tokens = contextWindow;
-  return Object.keys(usage).length > 0 ? usage : undefined;
+  const hasInput = usage.input_tokens !== undefined || usage.input_tokens_cumulative !== undefined;
+  const hasOutput =
+    usage.output_tokens !== undefined || usage.output_tokens_cumulative !== undefined;
+  return hasInput && hasOutput ? (usage as AgentMessageUsage) : undefined;
 }

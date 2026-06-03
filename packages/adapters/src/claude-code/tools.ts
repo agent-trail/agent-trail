@@ -1,5 +1,14 @@
 import { isObject, jsonObjectValue, maybeNumber, stringValue } from "./source.ts";
 
+// Mirrors schema.json#/$defs/sessionUid; keep in sync with schema id rules.
+const AGENT_TRAIL_ID_RE =
+  /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
+
+function agentTrailId(value: unknown): string | undefined {
+  const id = stringValue(value);
+  return id !== undefined && AGENT_TRAIL_ID_RE.test(id) ? id : undefined;
+}
+
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -120,6 +129,7 @@ export function toolKindAndArgs(
       const task =
         stringValue(args.prompt) ?? stringValue(args.description) ?? stringValue(args.name);
       if (task !== undefined) {
+        const sessionId = agentTrailId(args.session_id);
         return {
           tool: "subagent_invoke",
           args: {
@@ -127,9 +137,7 @@ export function toolKindAndArgs(
             ...(stringValue(args.subagent_type) !== undefined
               ? { agent_type: stringValue(args.subagent_type) }
               : {}),
-            ...(stringValue(args.session_id) !== undefined
-              ? { session_id: stringValue(args.session_id) }
-              : {}),
+            ...(sessionId !== undefined ? { session_id: sessionId } : {}),
           },
         };
       }

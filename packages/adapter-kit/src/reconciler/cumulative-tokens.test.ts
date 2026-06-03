@@ -42,7 +42,7 @@ describe("cumulativeTokens reconciler rule", () => {
     });
   });
 
-  test("leaves usage untouched when cumulative fields already present", () => {
+  test("leaves partial cumulative usage untouched for schema validation", () => {
     const out = reconcile(
       [agentMsg("a", { input_tokens: 10, input_tokens_cumulative: 999 })],
       { cumulativeTokens: true },
@@ -50,6 +50,17 @@ describe("cumulativeTokens reconciler rule", () => {
     );
 
     expect(usageOf(out[0])).toEqual({ input_tokens: 10, input_tokens_cumulative: 999 });
+  });
+
+  test("leaves partial delta usage untouched instead of fabricating missing counters", () => {
+    const out = reconcile(
+      [agentMsg("a", { input_tokens: 10 }), agentMsg("b", { output_tokens: 5 })],
+      { cumulativeTokens: true },
+      ctx,
+    );
+
+    expect(usageOf(out[0])).toEqual({ input_tokens: 10 });
+    expect(usageOf(out[1])).toEqual({ output_tokens: 5 });
   });
 
   test("advances running totals through entries that already carry cumulative counts", () => {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agent-trail.dev/schema/v0.1.0.json",
   "title": "Agent Trail v0.1.0",
-  "description": "Validates a single JSONL line: either a header (line 1) or an event (lines 2+). Top-level oneOf chooses header vs entry; per-event-type payload shapes are enforced via the events subschemas.",
+  "description": "Validates a single Agent Trail JSONL record: trail envelope, session header, or event entry. File layout rules such as envelope position and multi-session grouping are enforced by whole-file validation; per-event payload shapes are enforced via the events subschemas.",
 
   "oneOf": [
     { "$ref": "#/$defs/trailEnvelope" },
@@ -277,7 +277,7 @@
 
     "agentMessageUsage": {
       "type": "object",
-      "description": "Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. Required-when-present field presence is enforced semantically by the validator.",
+      "description": "Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.",
       "properties": {
         "input_tokens": { "type": "integer", "minimum": 0 },
         "output_tokens": { "type": "integer", "minimum": 0 },
@@ -287,8 +287,34 @@
         "cache_creation_tokens": { "type": "integer", "minimum": 0 },
         "reasoning_tokens": { "type": "integer", "minimum": 0 },
         "context_input_tokens": { "type": "integer", "minimum": 0 },
-        "context_window_tokens": { "type": "integer", "minimum": 0 }
+        "context_window_tokens": { "type": "integer", "minimum": 1 }
       },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": { "input_tokens": {} },
+              "required": ["input_tokens"]
+            },
+            {
+              "properties": { "input_tokens_cumulative": {} },
+              "required": ["input_tokens_cumulative"]
+            }
+          ]
+        },
+        {
+          "anyOf": [
+            {
+              "properties": { "output_tokens": {} },
+              "required": ["output_tokens"]
+            },
+            {
+              "properties": { "output_tokens_cumulative": {} },
+              "required": ["output_tokens_cumulative"]
+            }
+          ]
+        }
+      ],
       "additionalProperties": false
     },
 
@@ -443,9 +469,9 @@
           "type": "object",
           "required": ["session_id"],
           "properties": {
-            "session_id": { "type": "string" },
+            "session_id": { "$ref": "#/$defs/id" },
             "content_hash": { "$ref": "#/$defs/sha256Hex" },
-            "entry_id": { "type": "string" }
+            "entry_id": { "$ref": "#/$defs/id" }
           },
           "additionalProperties": false
         },
@@ -557,8 +583,7 @@
             { "$ref": "#/$defs/events/session_end" },
             { "$ref": "#/$defs/events/command_invoke" },
             { "$ref": "#/$defs/events/capability_change" },
-            { "$ref": "#/$defs/events/session_metadata_update" },
-            { "$ref": "#/$defs/events/unknown" }
+            { "$ref": "#/$defs/events/session_metadata_update" }
           ]
         }
       ]
@@ -855,8 +880,8 @@
                       "properties": {
                         "task": { "type": "string" },
                         "agent_type": { "type": "string" },
-                        "session_id": { "type": "string" }
-                      },
+                      "session_id": { "$ref": "#/$defs/id" }
+                    },
                       "additionalProperties": false
                     }
                   }
@@ -1773,45 +1798,6 @@
               }
             ]
           }
-        }
-      },
-
-      "unknown": {
-        "type": "object",
-        "description": "Catch-all for unrecognized event types. Readers must tolerate these.",
-        "properties": {
-          "type": {
-            "type": "string",
-            "not": {
-              "enum": [
-                "session",
-                "user_message",
-                "agent_message",
-                "task_plan_update",
-                "tool_call",
-                "tool_result",
-                "tool_call_aborted",
-                "user_query",
-                "user_query_response",
-                "session_summary",
-                "system_event",
-                "agent_thinking",
-                "user_interrupt",
-                "context_compact",
-                "branch_point",
-                "branch_summary",
-                "model_change",
-                "mode_change",
-                "thinking_level_change",
-                "session_terminated",
-                "session_end",
-                "command_invoke",
-                "capability_change",
-                "session_metadata_update"
-              ]
-            }
-          },
-          "payload": { "type": "object" }
         }
       }
     },

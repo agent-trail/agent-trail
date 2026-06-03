@@ -4,7 +4,7 @@
  */
 
 /**
- * Validates a single JSONL line: either a header (line 1) or an event (lines 2+). Top-level oneOf chooses header vs entry; per-event-type payload shapes are enforced via the events subschemas.
+ * Validates a single Agent Trail JSONL record: trail envelope, session header, or event entry. File layout rules such as envelope position and multi-session grouping are enforced by whole-file validation; per-event payload shapes are enforced via the events subschemas.
  */
 export type AgentTrailV010 = TrailEnvelope | Header | Entry;
 /**
@@ -71,8 +71,14 @@ export type Header = {
   cwd?: string;
   vcs?: Vcs;
   fork_from?: {
+    /**
+     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     */
     session_id: string;
     content_hash?: Sha256Hex;
+    /**
+     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     */
     entry_id?: string;
   };
   redacted_from?: {
@@ -127,7 +133,6 @@ export type Entry = EntryBase &
     | CommandInvoke
     | CapabilityChange
     | SessionMetadataUpdate
-    | Unknown
   );
 export type ToolKind =
   | "file_read"
@@ -144,6 +149,35 @@ export type ToolKind =
   | "notebook_edit"
   | "subagent_invoke"
   | "other";
+/**
+ * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
+ */
+export type AgentMessageUsage = {
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+  context_input_tokens?: number;
+  context_window_tokens?: number;
+} & (
+  | {
+      input_tokens: number;
+      input_tokens_cumulative?: number;
+    }
+  | {
+      input_tokens?: number;
+      input_tokens_cumulative: number;
+    }
+) &
+  (
+    | {
+        output_tokens: number;
+        output_tokens_cumulative?: number;
+      }
+    | {
+        output_tokens?: number;
+        output_tokens_cumulative: number;
+      }
+  );
 export type TaskPlanStatus = "pending" | "in_progress" | "completed" | "cancelled" | "blocked";
 export type TaskPlanDelta =
   | {
@@ -343,20 +377,6 @@ export interface AgentMessage {
     attachments?: Attachment[];
   };
   [k: string]: unknown;
-}
-/**
- * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. Required-when-present field presence is enforced semantically by the validator.
- */
-export interface AgentMessageUsage {
-  input_tokens?: number;
-  output_tokens?: number;
-  input_tokens_cumulative?: number;
-  output_tokens_cumulative?: number;
-  cache_read_tokens?: number;
-  cache_creation_tokens?: number;
-  reasoning_tokens?: number;
-  context_input_tokens?: number;
-  context_window_tokens?: number;
 }
 export interface TaskPlanUpdate {
   type?: "task_plan_update";
@@ -913,15 +933,5 @@ export interface SessionMetadataUpdate {
         previous_value?: unknown;
         reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
       };
-  [k: string]: unknown;
-}
-/**
- * Catch-all for unrecognized event types. Readers must tolerate these.
- */
-export interface Unknown {
-  type?: string;
-  payload?: {
-    [k: string]: unknown;
-  };
   [k: string]: unknown;
 }

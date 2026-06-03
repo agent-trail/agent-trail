@@ -106,7 +106,10 @@ export const codexImageRollup: ReconcilerRule = (entries) => {
     }
     const carrier = assignments.get(index);
     if (carrier !== undefined) {
-      out.push({ ...entry, payload: { ...entry.payload, attachments: carrier.attachments } });
+      out.push({
+        ...entry,
+        payload: { ...entry.payload, attachments: carrier.attachments },
+      } as Entry);
       continue;
     }
     out.push(entry);
@@ -130,7 +133,10 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
       if (lastAgentMessageIndex !== undefined) {
         const target = out[lastAgentMessageIndex];
         if (target !== undefined) {
-          out[lastAgentMessageIndex] = { ...target, payload: { ...target.payload, usage } };
+          out[lastAgentMessageIndex] = {
+            ...target,
+            payload: { ...target.payload, usage },
+          } as Entry;
         }
       }
       continue; // drop the carrier
