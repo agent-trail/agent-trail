@@ -607,7 +607,6 @@ const permissionMode = defineMapping<Raw>({
         payload: {
           scope: "permission",
           to_mode: mode,
-          trigger: "runtime_inferred",
         },
         source: src(record, "permission-mode", undefined, undefined, { synthesized: true }),
         meta: meta(record),

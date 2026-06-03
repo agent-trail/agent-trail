@@ -960,7 +960,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types (§9.3, §9.2). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types (§9.3). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 

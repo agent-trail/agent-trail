@@ -104,6 +104,10 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   child first-user prompt matches the parent task text. Child group ids are deterministic, derived
   from the parent session id plus child `agentId` or filename stem; sidechain child messages, tool
   calls, and tool results remain in the child group transcript.
+  `permission-mode` envelopes emit first-class `mode_change{scope:"permission"}` entries. Both id
+  and timestamp are synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherits
+  from the most recent prior envelope. `payload.to_mode` carries the new mode (for example, `plan`
+  or `bypassPermissions`); `payload.from_mode` carries the previous mode when known.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
@@ -570,7 +574,6 @@ Reserved lifecycle vocabulary (cross-agent portable):
   allow/deny decisions and `tool_call_id` when present.
 - `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
-- `mode_change{scope:"permission"}` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `payload.to_mode` carries the new mode (e.g., `plan`, `bypassPermissions`); `payload.from_mode` carries the previous mode when a prior mode is known.
 
 Note: `system_event.kind:"permission_mode_change"` remains schema-accepted as a deprecated v0.1.0 compatibility value. Current adapters do not emit it.
 

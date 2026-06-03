@@ -3048,7 +3048,7 @@ test("parseSession() emits permission mode_change with inherited timestamp + fro
     expect(first?.payload).toEqual({
       scope: "permission",
       to_mode: "plan",
-      trigger: "runtime_inferred",
+      trigger: "initial",
     });
     expect(first?.source?.synthesized).toBe(true);
     expect(second?.ts).toBe("2026-05-17T22:00:05.000Z");

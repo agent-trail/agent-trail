@@ -247,19 +247,16 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
   return entries.map((entry) => {
     if (entry.type !== "mode_change") return entry;
     const payload = entry.payload;
-    if (payload.scope !== "permission") return entry;
+    if (!payload || payload.scope !== "permission") return entry;
     const mode = typeof payload.to_mode === "string" ? payload.to_mode : undefined;
     if (mode === undefined) return entry;
     let next = entry;
-    if (prevMode !== undefined && prevMode !== mode) {
-      next = {
-        ...entry,
-        payload: {
-          ...payload,
-          from_mode: prevMode,
-        },
-      };
-    }
+    const nextPayload = {
+      ...payload,
+      trigger: prevMode === undefined ? "initial" : "runtime_inferred",
+      ...(prevMode !== undefined && prevMode !== mode ? { from_mode: prevMode } : {}),
+    } as typeof payload;
+    next = { ...entry, payload: nextPayload };
     prevMode = mode;
     return next;
   });

@@ -190,7 +190,7 @@ const turnContext: OverrideDef<Raw, CodexState> = {
               "turn_context.permission",
             ),
           );
-        } else if (ctx.state.lastPermissionKey !== permKey) {
+        } else if (ctx.state.lastPermissionMode !== nextMode) {
           drafts.push(
             modeChangeDraft(
               "permission",
@@ -204,7 +204,7 @@ const turnContext: OverrideDef<Raw, CodexState> = {
         }
       }
       ctx.state.lastPermissionKey = permKey;
-      ctx.state.lastPermissionMode = permissionModeLabel(p);
+      ctx.state.lastPermissionMode = nextMode;
     }
     const executionAxis = turnContextExecutionAxis(p);
     if (Object.keys(executionAxis).length > 0) {

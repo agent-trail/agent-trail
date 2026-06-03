@@ -506,13 +506,13 @@ export function turnContextFlavorAxis(p: Record<string, unknown>): Record<string
 
 // Cross-adapter permission-mode label for `mode_change.payload.to_mode`:
 // prefer the named preset (active_permission_profile / permission_profile), else
-// the raw approval policy. Object policies (e.g. granular approval) serialize.
+// the raw approval policy. Object policies (e.g. granular approval) canonicalize.
 export function permissionModeLabel(p: Record<string, unknown>): string | undefined {
   const preset = stringValue(p.active_permission_profile) ?? stringValue(p.permission_profile);
   if (preset !== undefined) return preset;
   const approval = p.approval_policy;
   if (typeof approval === "string") return approval;
-  if (approval !== undefined && approval !== null) return JSON.stringify(approval);
+  if (approval !== undefined && approval !== null) return JSON.stringify(canonicalize(approval));
   return undefined;
 }
 

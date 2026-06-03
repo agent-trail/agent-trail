@@ -621,6 +621,38 @@ describe("#124 — permission mode label fallback", () => {
       turn_id: "t2",
     });
   });
+
+  test("object approval_policy labels are canonicalized by key order", async () => {
+    const policy = { mode: "granular", allow: ["read"], deny: ["write"] };
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: { turn_id: "t1", approval_policy: policy },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          approval_policy: { deny: ["write"], allow: ["read"], mode: "granular" },
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) =>
+      parseCodexEntries(path, "unit-124-label-object"),
+    );
+    const perm = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
+    );
+    expect(perm).toHaveLength(1);
+    expect(perm[0]?.payload).toMatchObject({
+      to_mode: stableAxisKey(policy),
+      trigger: "initial",
+      turn_id: "t1",
+    });
+  });
 });
 
 describe("#124 — header.meta hygiene", () => {

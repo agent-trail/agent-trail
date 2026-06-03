@@ -64,7 +64,7 @@ describe("claude-code v2 stateful behaviors", () => {
     expect(pms[0]?.payload).toEqual({
       scope: "permission",
       to_mode: "default",
-      trigger: "runtime_inferred",
+      trigger: "initial",
     });
     expect(pms[1]?.ts).toBe("2026-05-18T10:00:02.000Z");
     expect(pms[1]?.payload).toEqual({
