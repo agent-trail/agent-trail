@@ -425,11 +425,10 @@ export function makePiMappings(sessionVersion: string | undefined): MappingDef<P
       const level = stringValue(record.thinkingLevel);
       return [
         {
-          type: "system_event",
+          type: "thinking_level_change",
           payload: {
-            kind: "x-pi/thinking_level_change",
-            text: level !== undefined ? `Thinking level set to ${level}` : "Thinking level change",
-            ...(level !== undefined ? { data: { thinking_level: level } } : {}),
+            ...(level !== undefined ? { to_level: level } : { to_level: "unknown" }),
+            trigger: "runtime_inferred",
           },
           source: src(record, "thinking_level_change"),
           meta: metaFor(record, "thinking_level_change_envelope"),

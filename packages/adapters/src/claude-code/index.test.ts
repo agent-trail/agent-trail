@@ -2567,9 +2567,7 @@ test("parseSession() emits v0.1-shaped deterministic entry ids across synthesize
   for (const entry of permission.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
   expect(
     permission.groups[0]!.entries.some(
-      (e) =>
-        e.type === "system_event" &&
-        (e.payload as { kind?: string }).kind === "permission_mode_change",
+      (e) => e.type === "mode_change" && e.payload.scope === "permission",
     ),
   ).toBe(true);
 });
@@ -2997,10 +2995,9 @@ test("parseSession() maps worktree-state to session_metadata_update when cwd is 
   }
 });
 
-// Issue #88: permission-mode envelopes synthesize a system_event with kind
-// permission_mode_change. Timestamp inherited from prior envelope, prev mode
-// surfaces under data.from on subsequent transitions.
-test("parseSession() emits permission_mode_change with inherited timestamp + from/to data", async () => {
+// Issue #88: permission-mode envelopes synthesize a first-class mode_change.
+// Timestamp inherited from prior envelope; prev mode surfaces on subsequent transitions.
+test("parseSession() emits permission mode_change with inherited timestamp + from/to payload", async () => {
   const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -3042,22 +3039,24 @@ test("parseSession() emits permission_mode_change with inherited timestamp + fro
       path: fixturePath,
     });
     const pmEvents = trail.groups[0]!.entries.filter(
-      (e) =>
-        e.type === "system_event" &&
-        (e.payload as { kind?: string }).kind === "permission_mode_change",
+      (e) => e.type === "mode_change" && e.payload.scope === "permission",
     );
     expect(pmEvents).toHaveLength(2);
     const first = pmEvents[0];
     const second = pmEvents[1];
     expect(first?.ts).toBe("2026-05-17T22:00:00.000Z");
-    expect((first?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
-      to: "plan",
+    expect(first?.payload).toEqual({
+      scope: "permission",
+      to_mode: "plan",
+      trigger: "runtime_inferred",
     });
     expect(first?.source?.synthesized).toBe(true);
     expect(second?.ts).toBe("2026-05-17T22:00:05.000Z");
-    expect((second?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
-      to: "bypassPermissions",
-      from: "plan",
+    expect(second?.payload).toEqual({
+      scope: "permission",
+      to_mode: "bypassPermissions",
+      from_mode: "plan",
+      trigger: "runtime_inferred",
     });
   } finally {
     rmSync(tmp, { recursive: true, force: true });

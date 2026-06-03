@@ -1,8 +1,8 @@
 // Codex CLI rollout-JSONL parser (issue #32).
 //
 // Scope: mapping for `user_message`, `agent_message`, `tool_call`,
-// `tool_result`, `agent_thinking`, `context_compact`, `model_change`, and
-// lifecycle / enrichment `system_event` records. Codex 0.135
+// `tool_result`, `agent_thinking`, `context_compact`, `model_change`, mode /
+// thinking-level settings, and lifecycle / enrichment `system_event` records. Codex 0.135
 // `event_msg.turn_aborted` maps to `user_interrupt`, and image-bearing
 // `response_item.message` records fold into message attachments. See
 // `docs/parser-source-matrix.md` for the full mapping table and deferred shapes.
@@ -454,9 +454,8 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
 
 // ── TurnContextItem policy capture (Codex protocol.rs TurnContextItem) ──
 // Policy context is recorded once per real turn. The initial tuple is
-// snapshotted into `header.meta["dev.codex.turn_context"]`; mid-session changes
-// emit system_events (overrides.ts) — the permission axis as the reserved
-// `permission_mode_change` kind, the flavor axis as `x-codex/turn_context`.
+// snapshotted into `header.meta["dev.codex.turn_context"]`; setting changes
+// emit first-class mode/thinking events from overrides.ts.
 // These pure helpers extract the shapes both call sites share.
 const PERMISSION_FIELDS = [
   "approval_policy",
@@ -492,7 +491,7 @@ export function turnContextFlavorAxis(p: Record<string, unknown>): Record<string
   return pickPresent(p, FLAVOR_FIELDS);
 }
 
-// Cross-adapter permission-mode label for `permission_mode_change.data.to`:
+// Cross-adapter permission-mode label for `mode_change.payload.to_mode`:
 // prefer the named preset (active_permission_profile / permission_profile), else
 // the raw approval policy. Object policies (e.g. granular approval) serialize.
 export function permissionModeLabel(p: Record<string, unknown>): string | undefined {

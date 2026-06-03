@@ -960,7 +960,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, and `model_change` are first-class record types (§9.3, §9.2). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types (§9.3, §9.2). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 
@@ -977,7 +977,6 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `hook_fired` | Generic adapter-emitted hook trace. |
 | `permission_request` | Agent asked the user for tool approval. |
 | `permission_decision` | User allowed/denied a specific tool invocation. |
-| `permission_mode_change` | Agent's tool-permission mode shifted (e.g., Claude Code: `default` / `acceptEdits` / `plan` / `bypassPermissions`). Distinct from per-tool `permission_decision`. |
 | `cwd_change` | Working directory shifted. |
 | `env_snapshot` | Shell/env state capture. |
 
@@ -1021,7 +1020,6 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 | --- | --- |
 | `permission_request` | `{ tool_call_id?: string, capability?: string, prompt?: string }` |
 | `permission_decision` | `{ decision: "allow" \| "deny", tool_call_id?: string, capability?: string }` |
-| `permission_mode_change` | `{ to: string, from?: string }` — `to` is the new mode (e.g., `default`, `acceptEdits`, `plan`, `bypassPermissions` for Claude Code). Adapters MAY use vendor-specific mode strings; cross-agent consumers SHOULD treat them as opaque tokens. |
 
 ##### Extension policy and promotion
 
@@ -1225,7 +1223,12 @@ Active model changed mid-session.
   "type": "model_change",
   "id": "...",
   "ts": "...",
-  "payload": { "from_model": "<id>", "to_model": "<id>" }
+  "payload": {
+    "from_model": "<id>",
+    "to_model": "<id>",
+    "trigger": "runtime_inferred",
+    "turn_id": "<source-turn-id>"
+  }
 }
 ```
 
@@ -1233,6 +1236,67 @@ Active model changed mid-session.
 |---|---|---|---|
 | `from_model` | no | string | previous model id; omit when the source did not track the prior model |
 | `to_model` | yes | string | new active model id |
+| `from_provider` | no | string | previous model provider when known |
+| `to_provider` | no | string | new model provider when known |
+| `reason` | no | string | source-provided or adapter-inferred reason |
+| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `turn_id` | no | string | source turn id associated with the observation |
+
+#### `mode_change`
+
+Active runtime mode changed or was first observed. Use this for common mode axes such as collaboration mode (`plan`, `auto`), permission mode, execution/sandbox mode, or UI mode. Per-tool approval still uses `system_event.kind:"permission_request"` / `"permission_decision"`.
+
+```jsonc
+{
+  "type": "mode_change",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "scope": "permission",
+    "from_mode": "default",
+    "to_mode": "acceptEdits",
+    "trigger": "runtime_inferred",
+    "turn_id": "<source-turn-id>"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `scope` | yes | enum or `x-*` | `collaboration`, `permission`, `execution`, `ui`, or adapter extension |
+| `from_mode` | no | string | previous mode token |
+| `to_mode` | yes | string | new or initially observed mode token |
+| `reason` | no | string | source-provided or adapter-inferred reason |
+| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `turn_id` | no | string | source turn id associated with the observation |
+| `data` | no | object | curated adapter metadata for this mode axis |
+
+#### `thinking_level_change`
+
+Active reasoning/thinking level changed or was first observed. This records the selected thinking budget/effort level, not the model's private chain of thought. Reasoning text remains `agent_thinking`.
+
+```jsonc
+{
+  "type": "thinking_level_change",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "from_level": "medium",
+    "to_level": "high",
+    "trigger": "runtime_inferred",
+    "turn_id": "<source-turn-id>"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `from_level` | no | string | previous thinking-level token |
+| `to_level` | yes | string | new or initially observed thinking-level token |
+| `reason` | no | string | source-provided or adapter-inferred reason |
+| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `turn_id` | no | string | source turn id associated with the observation |
+| `data` | no | object | curated adapter metadata for this level axis |
 
 #### `session_terminated`
 

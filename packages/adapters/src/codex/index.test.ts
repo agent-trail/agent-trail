@@ -1556,10 +1556,17 @@ test("source raw policy elides oversized codex raw arguments", async () => {
 test("compact fixture emits synthesized model_change at the in-session model switch", async () => {
   const trail = await parseCompactFixture();
   const modelChanges = trail.groups[0]!.entries.filter((e) => e.type === "model_change");
-  expect(modelChanges).toHaveLength(1);
-  const [mc] = modelChanges;
-  expect((mc?.payload as { from_model?: string; to_model: string }).from_model).toBe("gpt-5-codex");
-  expect((mc?.payload as { to_model: string }).to_model).toBe("gpt-5-codex-mini");
+  expect(modelChanges).toHaveLength(2);
+  expect(modelChanges[0]?.payload).toMatchObject({
+    to_model: "gpt-5-codex",
+    trigger: "initial",
+  });
+  const mc = modelChanges[1];
+  expect(mc?.payload).toMatchObject({
+    from_model: "gpt-5-codex",
+    to_model: "gpt-5-codex-mini",
+    trigger: "runtime_inferred",
+  });
   expect(mc?.source?.synthesized).toBe(true);
   expect(mc?.meta?.["dev.codex.raw_type"]).toBe("turn_context.model_change");
 });

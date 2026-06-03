@@ -118,6 +118,8 @@ export type Entry = EntryBase &
     | BranchPoint
     | BranchSummary
     | ModelChange
+    | ModeChange
+    | ThinkingLevelChange
     | SessionTerminated
     | SessionEnd
     | CommandInvoke
@@ -502,7 +504,6 @@ export interface SystemEvent {
       | "hook_fired"
       | "permission_request"
       | "permission_decision"
-      | "permission_mode_change"
       | "cwd_change"
       | "env_snapshot"
       | "task_started"
@@ -587,6 +588,64 @@ export interface ModelChange {
   payload?: {
     from_model?: string;
     to_model: string;
+    from_provider?: string;
+    to_provider?: string;
+    reason?: string;
+    trigger?: (
+      | ("initial" | "user_set" | "agent_set" | "runtime_inferred" | "auto_reroute" | "external")
+      | {
+          [k: string]: unknown;
+        }
+    ) &
+      string;
+    turn_id?: string;
+  };
+  [k: string]: unknown;
+}
+export interface ModeChange {
+  type?: "mode_change";
+  payload?: {
+    scope: (
+      | ("collaboration" | "permission" | "execution" | "ui")
+      | {
+          [k: string]: unknown;
+        }
+    ) &
+      string;
+    from_mode?: string;
+    to_mode: string;
+    reason?: string;
+    trigger?: (
+      | ("initial" | "user_set" | "agent_set" | "runtime_inferred" | "auto_reroute" | "external")
+      | {
+          [k: string]: unknown;
+        }
+    ) &
+      string;
+    turn_id?: string;
+    data?: {
+      [k: string]: unknown;
+    };
+  };
+  [k: string]: unknown;
+}
+export interface ThinkingLevelChange {
+  type?: "thinking_level_change";
+  payload?: {
+    from_level?: string;
+    to_level: string;
+    reason?: string;
+    trigger?: (
+      | ("initial" | "user_set" | "agent_set" | "runtime_inferred" | "auto_reroute" | "external")
+      | {
+          [k: string]: unknown;
+        }
+    ) &
+      string;
+    turn_id?: string;
+    data?: {
+      [k: string]: unknown;
+    };
   };
   [k: string]: unknown;
 }

@@ -526,6 +526,8 @@
             { "$ref": "#/$defs/events/branch_point" },
             { "$ref": "#/$defs/events/branch_summary" },
             { "$ref": "#/$defs/events/model_change" },
+            { "$ref": "#/$defs/events/mode_change" },
+            { "$ref": "#/$defs/events/thinking_level_change" },
             { "$ref": "#/$defs/events/session_terminated" },
             { "$ref": "#/$defs/events/session_end" },
             { "$ref": "#/$defs/events/command_invoke" },
@@ -1095,7 +1097,6 @@
                       "hook_fired",
                       "permission_request",
                       "permission_decision",
-                      "permission_mode_change",
                       "cwd_change",
                       "env_snapshot",
                       "task_started",
@@ -1223,7 +1224,104 @@
             "required": ["to_model"],
             "properties": {
               "from_model": { "type": "string" },
-              "to_model": { "type": "string" }
+              "to_model": { "type": "string" },
+              "from_provider": { "type": "string" },
+              "to_provider": { "type": "string" },
+              "reason": { "type": "string" },
+              "trigger": {
+                "type": "string",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "initial",
+                      "user_set",
+                      "agent_set",
+                      "runtime_inferred",
+                      "auto_reroute",
+                      "external"
+                    ]
+                  },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
+              },
+              "turn_id": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "mode_change": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "mode_change" },
+          "payload": {
+            "type": "object",
+            "required": ["scope", "to_mode"],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "anyOf": [
+                  { "enum": ["collaboration", "permission", "execution", "ui"] },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
+              },
+              "from_mode": { "type": "string", "minLength": 1 },
+              "to_mode": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string" },
+              "trigger": {
+                "type": "string",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "initial",
+                      "user_set",
+                      "agent_set",
+                      "runtime_inferred",
+                      "auto_reroute",
+                      "external"
+                    ]
+                  },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
+              },
+              "turn_id": { "type": "string", "minLength": 1 },
+              "data": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+
+      "thinking_level_change": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "thinking_level_change" },
+          "payload": {
+            "type": "object",
+            "required": ["to_level"],
+            "properties": {
+              "from_level": { "type": "string", "minLength": 1 },
+              "to_level": { "type": "string", "minLength": 1 },
+              "reason": { "type": "string" },
+              "trigger": {
+                "type": "string",
+                "anyOf": [
+                  {
+                    "enum": [
+                      "initial",
+                      "user_set",
+                      "agent_set",
+                      "runtime_inferred",
+                      "auto_reroute",
+                      "external"
+                    ]
+                  },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
+              },
+              "turn_id": { "type": "string", "minLength": 1 },
+              "data": { "type": "object" }
             },
             "additionalProperties": false
           }
@@ -1605,6 +1703,8 @@
                 "branch_point",
                 "branch_summary",
                 "model_change",
+                "mode_change",
+                "thinking_level_change",
                 "session_terminated",
                 "session_end",
                 "command_invoke",

@@ -600,14 +600,14 @@ const permissionMode = defineMapping<Raw>({
     if (!gate(record, true)) return [];
     const mode = stringValue(record.permissionMode);
     if (mode === undefined) return [];
-    // Base entry; ccPermissionModeDelta fills data.from + delta text from the prior mode.
+    // Base entry; ccPermissionModeDelta fills from_mode from the prior mode.
     return [
       {
-        type: "system_event",
+        type: "mode_change",
         payload: {
-          kind: "permission_mode_change",
-          text: `Permission mode: ${mode}`,
-          data: { to: mode },
+          scope: "permission",
+          to_mode: mode,
+          trigger: "runtime_inferred",
         },
         source: src(record, "permission-mode", undefined, undefined, { synthesized: true }),
         meta: meta(record),

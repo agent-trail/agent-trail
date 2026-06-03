@@ -79,7 +79,9 @@ describe("codex v2 stateful behaviors", () => {
 
   test("model_change synth: from/to across a turn_context model switch", async () => {
     const all = await entries("compact-and-model-change.jsonl");
-    const change = all.find((e) => e.type === "model_change");
+    const change = all.find(
+      (e) => e.type === "model_change" && typeof e.payload.from_model === "string",
+    );
     expect(change).toBeDefined();
     expect(typeof (change?.payload as { to_model?: unknown }).to_model).toBe("string");
     expect(typeof (change?.payload as { from_model?: unknown }).from_model).toBe("string");

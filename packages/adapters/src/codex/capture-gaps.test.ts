@@ -37,6 +37,8 @@ const TURN_BASELINE = {
     approval_policy: "on-request",
     sandbox_policy: "workspace-write",
     active_permission_profile: "auto",
+    collaboration_mode: "auto",
+    effort: "medium",
     personality: "concise",
     current_date: "2026-06-02",
     timezone: "UTC",
@@ -52,6 +54,8 @@ const TURN_CHANGED = {
     approval_policy: "never",
     sandbox_policy: "danger-full-access",
     active_permission_profile: "full-access",
+    collaboration_mode: "plan",
+    effort: "high",
     personality: "verbose",
     current_date: "2026-06-02",
     timezone: "UTC",
@@ -170,26 +174,99 @@ describe("#124 — turn_context policy", () => {
       approval_policy: "on-request",
       sandbox_policy: "workspace-write",
       active_permission_profile: "auto",
+      collaboration_mode: "auto",
+      effort: "medium",
       personality: "concise",
       current_date: "2026-06-02",
       timezone: "UTC",
     });
   });
 
-  test("permission change → permission_mode_change (baseline emits nothing)", async () => {
+  test("permission snapshot and change → mode_change scope permission", async () => {
     const all = await parseEntries();
     const perm = all.filter(
-      (e) =>
-        e.type === "system_event" &&
-        (e.payload as { kind?: string }).kind === "permission_mode_change",
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
     );
-    expect(perm).toHaveLength(1);
-    const data = (perm[0]?.payload as { data?: Record<string, unknown> }).data;
-    expect(data).toMatchObject({
-      to: "full-access",
-      from: "auto",
-      approval_policy: "never",
-      sandbox_policy: "danger-full-access",
+    expect(perm).toHaveLength(2);
+    expect(perm[0]?.payload).toMatchObject({
+      scope: "permission",
+      to_mode: "auto",
+      trigger: "initial",
+      turn_id: "t1",
+      data: {
+        approval_policy: "on-request",
+        sandbox_policy: "workspace-write",
+      },
+    });
+    expect(perm[1]?.payload).toMatchObject({
+      scope: "permission",
+      to_mode: "full-access",
+      from_mode: "auto",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+    });
+  });
+
+  test("sandbox snapshot and change → mode_change scope execution", async () => {
+    const all = await parseEntries();
+    const exec = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "execution",
+    );
+    expect(exec).toHaveLength(2);
+    expect(exec[0]?.payload).toMatchObject({
+      scope: "execution",
+      to_mode: "workspace-write",
+      trigger: "initial",
+      turn_id: "t1",
+      data: {
+        sandbox_policy: "workspace-write",
+      },
+    });
+    expect(exec[1]?.payload).toMatchObject({
+      scope: "execution",
+      to_mode: "danger-full-access",
+      from_mode: "workspace-write",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+    });
+  });
+
+  test("collaboration snapshot and change → mode_change scope collaboration", async () => {
+    const all = await parseEntries();
+    const collab = all.filter(
+      (e) =>
+        e.type === "mode_change" && (e.payload as { scope?: string }).scope === "collaboration",
+    );
+    expect(collab).toHaveLength(2);
+    expect(collab[0]?.payload).toMatchObject({
+      scope: "collaboration",
+      to_mode: "auto",
+      trigger: "initial",
+      turn_id: "t1",
+    });
+    expect(collab[1]?.payload).toMatchObject({
+      scope: "collaboration",
+      to_mode: "plan",
+      from_mode: "auto",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+    });
+  });
+
+  test("effort snapshot and change → thinking_level_change", async () => {
+    const all = await parseEntries();
+    const levels = all.filter((e) => e.type === "thinking_level_change");
+    expect(levels).toHaveLength(2);
+    expect(levels[0]?.payload).toEqual({
+      to_level: "medium",
+      trigger: "initial",
+      turn_id: "t1",
+    });
+    expect(levels[1]?.payload).toEqual({
+      to_level: "high",
+      from_level: "medium",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
     });
   });
 
@@ -206,9 +283,15 @@ describe("#124 — turn_context policy", () => {
     );
   });
 
-  test("model unchanged across turns → no model_change", async () => {
+  test("model snapshot across unchanged turns → initial model_change only", async () => {
     const all = await parseEntries();
-    expect(all.filter((e) => e.type === "model_change")).toHaveLength(0);
+    const models = all.filter((e) => e.type === "model_change");
+    expect(models).toHaveLength(1);
+    expect(models[0]?.payload).toEqual({
+      to_model: "gpt-5-codex",
+      trigger: "initial",
+      turn_id: "t1",
+    });
   });
 });
 
@@ -262,7 +345,7 @@ describe("#124 — change detection is key-order independent", () => {
     expect(a).toBe(b);
   });
 
-  test("a turn_context that only reorders nested network keys emits no permission_mode_change", async () => {
+  test("a turn_context that only reorders nested network keys emits no permission change", async () => {
     const records = [
       SESSION_META,
       {
@@ -287,13 +370,15 @@ describe("#124 — change detection is key-order independent", () => {
       },
     ];
     const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-net"));
-    expect(
-      all.filter(
-        (e) =>
-          e.type === "system_event" &&
-          (e.payload as { kind?: string }).kind === "permission_mode_change",
-      ),
-    ).toHaveLength(0);
+    const perm = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
+    );
+    expect(perm).toHaveLength(1);
+    expect(perm[0]?.payload).toMatchObject({
+      to_mode: "on-request",
+      trigger: "initial",
+      turn_id: "t1",
+    });
   });
 });
 
@@ -377,7 +462,7 @@ describe("#124 — reasoning dedup across both channels (bug #2)", () => {
 });
 
 describe("#124 — permission mode label fallback", () => {
-  test("with no preset, permission_mode_change to/from use approval_policy", async () => {
+  test("with no preset, permission mode_change to/from use approval_policy", async () => {
     const records = [
       SESSION_META,
       {
@@ -393,14 +478,19 @@ describe("#124 — permission mode label fallback", () => {
     ];
     const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-label"));
     const perm = all.filter(
-      (e) =>
-        e.type === "system_event" &&
-        (e.payload as { kind?: string }).kind === "permission_mode_change",
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
     );
-    expect(perm).toHaveLength(1);
-    expect((perm[0]?.payload as { data?: Record<string, unknown> }).data).toMatchObject({
-      to: "never",
-      from: "on-request",
+    expect(perm).toHaveLength(2);
+    expect(perm[0]?.payload).toMatchObject({
+      to_mode: "on-request",
+      trigger: "initial",
+      turn_id: "t1",
+    });
+    expect(perm[1]?.payload).toMatchObject({
+      to_mode: "never",
+      from_mode: "on-request",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
     });
   });
 });

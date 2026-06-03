@@ -4,7 +4,6 @@ import {
   permissionModeLabel,
   reasoningDedupKey,
   stableAxisKey,
-  turnContextFlavorAxis,
   turnContextPermissionAxis,
 } from "./parser.ts";
 import { isObject, stringValue, timestampToIso } from "./source.ts";
@@ -15,7 +14,7 @@ type Raw = Record<string, unknown>;
  * Shared pass-1 state for the Codex overrides (mirrors v1 `buildEntries` locals):
  * the last turn_context model (for synthesized model_change), the current turn id,
  * the set of normalized reasoning keys already emitted this turn (for dedup), and
- * the last-seen permission / flavor policy axes (for change-only system_events).
+ * the last-seen mode / thinking axes.
  */
 export interface CodexState {
   lastModel: string | undefined;
@@ -23,6 +22,10 @@ export interface CodexState {
   seen: Set<string>;
   lastPermissionKey: string | undefined;
   lastPermissionMode: string | undefined;
+  lastExecutionKey: string | undefined;
+  lastExecutionMode: string | undefined;
+  lastCollaborationMode: string | undefined;
+  lastThinkingLevel: string | undefined;
   lastFlavorKey: string | undefined;
 }
 
@@ -33,6 +36,10 @@ export function initialCodexState(): CodexState {
     seen: new Set<string>(),
     lastPermissionKey: undefined,
     lastPermissionMode: undefined,
+    lastExecutionKey: undefined,
+    lastExecutionMode: undefined,
+    lastCollaborationMode: undefined,
+    lastThinkingLevel: undefined,
     lastFlavorKey: undefined,
   };
 }
@@ -45,10 +52,22 @@ function emittable(record: Raw): boolean {
   return timestampToIso(record.timestamp) !== undefined;
 }
 
-function modelChangeDraft(fromModel: string | undefined, toModel: string): TrailEntryDraft {
+type SettingTrigger = "initial" | "runtime_inferred";
+
+function modelChangeDraft(
+  fromModel: string | undefined,
+  toModel: string,
+  trigger: SettingTrigger,
+  turnId: string | undefined,
+): TrailEntryDraft {
   return {
     type: "model_change",
-    payload: { to_model: toModel, ...(fromModel !== undefined ? { from_model: fromModel } : {}) },
+    payload: {
+      to_model: toModel,
+      ...(fromModel !== undefined ? { from_model: fromModel } : {}),
+      trigger,
+      ...(turnId !== undefined ? { turn_id: turnId } : {}),
+    },
     source: {
       agent: AGENT_NAME,
       original_type: "turn_context.model_change",
@@ -58,31 +77,57 @@ function modelChangeDraft(fromModel: string | undefined, toModel: string): Trail
   };
 }
 
-// Permission axis change → reserved `permission_mode_change` so cross-adapter
-// renderers surface Codex autonomy changes uniformly. `data.to`/`from` use the
-// named preset (active_permission_profile / permission_profile) when present,
-// else the raw approval policy; the full axis (sandbox / network / fs policy)
-// rides alongside for fidelity.
-function permissionModeChangeDraft(
+function modeChangeDraft(
+  scope: "permission" | "execution" | "collaboration",
   fromMode: string | undefined,
-  axis: Raw,
+  toMode: string,
+  trigger: SettingTrigger,
   payload: Raw,
+  originalType: string,
 ): TrailEntryDraft {
-  const to = permissionModeLabel(payload);
-  const data: Raw = { ...axis };
-  if (to !== undefined) data.to = to;
-  if (fromMode !== undefined) data.from = fromMode;
   return {
-    type: "system_event",
-    payload: { kind: "permission_mode_change", data },
-    source: { agent: AGENT_NAME, original_type: "turn_context.permission", synthesized: true },
-    meta: { "dev.codex.raw_type": "turn_context.permission" },
+    type: "mode_change",
+    payload: {
+      scope,
+      to_mode: toMode,
+      ...(fromMode !== undefined ? { from_mode: fromMode } : {}),
+      trigger,
+      ...(typeof payload.turn_id === "string" ? { turn_id: payload.turn_id } : {}),
+      data: { ...payload },
+    },
+    source: { agent: AGENT_NAME, original_type: originalType, synthesized: true },
+    meta: { "dev.codex.raw_type": originalType },
   };
 }
 
-// Flavor axis change (personality / collaboration_mode / effort) → vendor
-// `x-codex/turn_context`; not a permission concern, so it stays out of the
-// reserved kind.
+function thinkingLevelChangeDraft(
+  fromLevel: string | undefined,
+  toLevel: string,
+  trigger: SettingTrigger,
+  turnId: string | undefined,
+): TrailEntryDraft {
+  return {
+    type: "thinking_level_change",
+    payload: {
+      to_level: toLevel,
+      ...(fromLevel !== undefined ? { from_level: fromLevel } : {}),
+      trigger,
+      ...(turnId !== undefined ? { turn_id: turnId } : {}),
+    },
+    source: {
+      agent: AGENT_NAME,
+      original_type: "turn_context.thinking_level_change",
+      synthesized: true,
+    },
+    meta: { "dev.codex.raw_type": "turn_context.thinking_level_change" },
+  };
+}
+
+function pickPersonalityAxis(p: Raw): Raw {
+  return p.personality !== undefined ? { personality: p.personality } : {};
+}
+
+// Remaining flavor axis changes (currently personality) stay vendor-specific.
 function turnContextFlavorDraft(axis: Raw): TrailEntryDraft {
   return {
     type: "system_event",
@@ -103,10 +148,8 @@ function thinkingDraft(text: string, rawType: string): TrailEntryDraft {
 
 // turn_context emits no entry of its own beyond synthesized signals: it resets
 // the per-turn reasoning dedup set on a turn_id change, synthesizes a
-// model_change when the model differs, and emits permission_mode_change /
-// x-codex/turn_context system_events when those policy axes change. The first
-// turn_context establishes each baseline silently (its full tuple is snapshotted
-// into header.meta in index.ts), so only mid-session changes surface as events.
+// model_change and first-class mode/thinking changes when observed settings
+// initialize or change. Header meta still snapshots the first full turn_context.
 const turnContext: OverrideDef<Raw, CodexState> = {
   match: { type: "turn_context" },
   emit: (record, ctx) => {
@@ -123,21 +166,114 @@ const turnContext: OverrideDef<Raw, CodexState> = {
     const drafts: TrailEntryDraft[] = [];
     const model = stringValue(p.model);
     if (model !== undefined) {
-      if (ctx.state.lastModel !== undefined && ctx.state.lastModel !== model) {
-        drafts.push(modelChangeDraft(ctx.state.lastModel, model));
+      if (ctx.state.lastModel === undefined) {
+        drafts.push(modelChangeDraft(undefined, model, "initial", turnId));
+      } else if (ctx.state.lastModel !== model) {
+        drafts.push(modelChangeDraft(ctx.state.lastModel, model, "runtime_inferred", turnId));
       }
       ctx.state.lastModel = model;
     }
     const permAxis = turnContextPermissionAxis(p);
     if (Object.keys(permAxis).length > 0) {
       const permKey = stableAxisKey(permAxis);
-      if (ctx.state.lastPermissionKey !== undefined && ctx.state.lastPermissionKey !== permKey) {
-        drafts.push(permissionModeChangeDraft(ctx.state.lastPermissionMode, permAxis, p));
+      const nextMode = permissionModeLabel(p);
+      if (nextMode !== undefined) {
+        if (ctx.state.lastPermissionKey === undefined) {
+          drafts.push(
+            modeChangeDraft(
+              "permission",
+              undefined,
+              nextMode,
+              "initial",
+              { ...permAxis, turn_id: p.turn_id },
+              "turn_context.permission",
+            ),
+          );
+        } else if (ctx.state.lastPermissionKey !== permKey) {
+          drafts.push(
+            modeChangeDraft(
+              "permission",
+              ctx.state.lastPermissionMode,
+              nextMode,
+              "runtime_inferred",
+              { ...permAxis, turn_id: p.turn_id },
+              "turn_context.permission",
+            ),
+          );
+        }
       }
       ctx.state.lastPermissionKey = permKey;
       ctx.state.lastPermissionMode = permissionModeLabel(p);
     }
-    const flavorAxis = turnContextFlavorAxis(p);
+    const executionMode = stringValue(p.sandbox_policy);
+    if (executionMode !== undefined) {
+      const executionAxis: Raw = { sandbox_policy: p.sandbox_policy };
+      const executionKey = stableAxisKey(executionAxis);
+      if (ctx.state.lastExecutionKey === undefined) {
+        drafts.push(
+          modeChangeDraft(
+            "execution",
+            undefined,
+            executionMode,
+            "initial",
+            { ...executionAxis, turn_id: p.turn_id },
+            "turn_context.execution",
+          ),
+        );
+      } else if (ctx.state.lastExecutionKey !== executionKey) {
+        drafts.push(
+          modeChangeDraft(
+            "execution",
+            ctx.state.lastExecutionMode,
+            executionMode,
+            "runtime_inferred",
+            { ...executionAxis, turn_id: p.turn_id },
+            "turn_context.execution",
+          ),
+        );
+      }
+      ctx.state.lastExecutionKey = executionKey;
+      ctx.state.lastExecutionMode = executionMode;
+    }
+    const collaborationMode = stringValue(p.collaboration_mode);
+    if (collaborationMode !== undefined) {
+      if (ctx.state.lastCollaborationMode === undefined) {
+        drafts.push(
+          modeChangeDraft(
+            "collaboration",
+            undefined,
+            collaborationMode,
+            "initial",
+            { collaboration_mode: p.collaboration_mode, turn_id: p.turn_id },
+            "turn_context.collaboration",
+          ),
+        );
+      } else if (ctx.state.lastCollaborationMode !== collaborationMode) {
+        drafts.push(
+          modeChangeDraft(
+            "collaboration",
+            ctx.state.lastCollaborationMode,
+            collaborationMode,
+            "runtime_inferred",
+            { collaboration_mode: p.collaboration_mode, turn_id: p.turn_id },
+            "turn_context.collaboration",
+          ),
+        );
+      }
+      ctx.state.lastCollaborationMode = collaborationMode;
+    }
+    const effort = stringValue(p.effort);
+    if (effort !== undefined) {
+      if (ctx.state.lastThinkingLevel === undefined) {
+        drafts.push(thinkingLevelChangeDraft(undefined, effort, "initial", turnId));
+      } else if (ctx.state.lastThinkingLevel !== effort) {
+        drafts.push(
+          thinkingLevelChangeDraft(ctx.state.lastThinkingLevel, effort, "runtime_inferred", turnId),
+        );
+      }
+      ctx.state.lastThinkingLevel = effort;
+    }
+    const flavorAxis = pickPersonalityAxis(p);
     if (Object.keys(flavorAxis).length > 0) {
       const flavorKey = stableAxisKey(flavorAxis);
       if (ctx.state.lastFlavorKey !== undefined && ctx.state.lastFlavorKey !== flavorKey) {
