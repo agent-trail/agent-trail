@@ -105,9 +105,10 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   from the parent session id plus child `agentId` or filename stem; sidechain child messages, tool
   calls, and tool results remain in the child group transcript.
   `permission-mode` envelopes emit first-class `mode_change{scope:"permission"}` entries. Both id
-  and timestamp are synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherits
-  from the most recent prior envelope. `payload.to_mode` carries the new mode (for example, `plan`
-  or `bypassPermissions`); `payload.from_mode` carries the previous mode when known.
+  and timestamp are synthesized (`source.synthesized: true`): id is deterministically derived and
+  stable across re-parses, timestamp inherits from the most recent prior envelope. `payload.to_mode`
+  carries the new mode (for example, `plan` or `bypassPermissions`); `payload.from_mode` carries the
+  previous mode when known.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
