@@ -62,6 +62,8 @@ export {
 export type { SessionGroup, SplitSessionGroupsResult } from "./session-groups.ts";
 export { splitSessionGroups } from "./session-groups.ts";
 export { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
+export type { ToolNameClass } from "./tool-name-class.ts";
+export { classifyToolName } from "./tool-name-class.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
   validateTrailStream,

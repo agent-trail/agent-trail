@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@agent-trail/schema": "workspace:*",
+    "@agent-trail/types": "workspace:*",
     "ajv": "catalog:",
     "canonicalize": "catalog:"
   },
