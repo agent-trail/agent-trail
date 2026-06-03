@@ -1467,8 +1467,10 @@ test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_
   const entries = trail.groups[0]!.entries;
   const calls = entries.filter((e) => e.type === "tool_call");
   const results = entries.filter((e) => e.type === "tool_result");
+  const aborts = entries.filter((e) => e.type === "tool_call_aborted");
   expect(calls).toHaveLength(2);
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(1);
+  expect(aborts).toHaveLength(1);
 
   const okCall = calls[0]!;
   expect((okCall.payload as { tool?: string; args?: { command?: string } }).tool).toBe(
@@ -1483,19 +1485,22 @@ test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_
       ?.exit_code,
   ).toBe(0);
 
-  const cancelledResult = results.find(
-    (r) => (r.payload as { error?: string }).error === "command cancelled",
-  );
-  expect((cancelledResult?.payload as { ok?: boolean }).ok).toBe(false);
-  const cancelledMeta = cancelledResult?.meta as Record<string, unknown>;
+  const cancelledAbort = aborts[0];
+  expect(cancelledAbort?.payload).toEqual({
+    scope: "tool_call",
+    reason: "user_interrupt",
+    for_id: (cancelledAbort?.payload as { for_id?: string }).for_id,
+  });
+  const cancelledMeta = cancelledAbort?.meta as Record<string, unknown>;
   expect(cancelledMeta["dev.pi.truncated"]).toBe(true);
   expect(cancelledMeta["dev.pi.full_output_path"]).toBe("/tmp/full-output.txt");
   const cancelledCall = calls.find(
-    (c) => c.id === (cancelledResult?.payload as { for_id?: string }).for_id,
+    (c) => c.id === (cancelledAbort?.payload as { for_id?: string }).for_id,
   );
   expect((cancelledCall?.meta as Record<string, unknown>)["dev.pi.exclude_from_context"]).toBe(
     true,
   );
+  expect(entries.some((e) => e.type === "session_terminated")).toBe(false);
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -1530,6 +1535,66 @@ test("message-channel branchSummary/compactionSummary/custom route to their entr
   expect((custom?.payload as { data?: { custom_type?: string } }).data?.custom_type).toBe("note");
   // #12: display:false surfaces in meta without dropping the event.
   expect((custom?.meta as Record<string, unknown>)["dev.pi.display"]).toBe(false);
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("interactive-shell-transfer custom_message emits a dedicated Pi system_event", async () => {
+  const dir = createProjectDir();
+  const file = join(dir, "interactive-shell-transfer.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: "00000000-0000-0000-0000-1e5000000001", timestamp: "2026-05-22T03:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify(
+      {
+        type: "custom_message",
+        customType: "interactive-shell-transfer",
+        content: "Session review was killed (17s). 40 lines of output.",
+        display: true,
+        details: {
+          sessionId: "review",
+          duration: "17s",
+          exitCode: null,
+          timedOut: false,
+          cancelled: true,
+          completionOutput: {
+            lines: ["line 1", "line 2"],
+            totalLines: 40,
+            truncated: true,
+          },
+        },
+        id: "00000000-0000-0000-0000-1e5000000002",
+        parentId: null,
+        timestamp: "2026-05-22T03:00:01.000Z",
+      },
+    )}\n`,
+  );
+  const trail = await piAdapter.parseSession({
+    id: "interactive-shell-transfer",
+    adapter: "pi",
+    path: file,
+  });
+  const entry = trail.groups[0]!.entries.find(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-pi/interactive_shell_transfer",
+  );
+  expect(entry?.payload).toEqual({
+    kind: "x-pi/interactive_shell_transfer",
+    text: "Session review was killed (17s). 40 lines of output.",
+    data: {
+      custom_type: "interactive-shell-transfer",
+      session_id: "review",
+      duration: "17s",
+      exit_code: null,
+      timed_out: false,
+      cancelled: true,
+      output_total_lines: 40,
+      output_truncated: true,
+      output_line_count: 2,
+    },
+  });
+  expect((entry?.meta as Record<string, unknown>)["dev.pi.display"]).toBe(true);
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);

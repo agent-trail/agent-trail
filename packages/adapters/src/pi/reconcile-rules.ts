@@ -307,7 +307,7 @@ export const piModelChangeFromModel: ReconcilerRule = (entries) => {
 
 /**
  * Append a synthesized `session_terminated` when the file ends with `tool_call`s
- * that never got a paired `tool_result` (spec §9.3 / §16.4). Ports v1
+ * that never got a paired `tool_result` or call-scoped `tool_call_aborted` (spec §9.3 / §16.4). Ports v1
  * `buildSynthesizedSessionTerminated`; pairing uses rules A (`for_id`) and B
  * (`semantic.call_id`), matching the validator's blocking subset.
  */
@@ -324,9 +324,16 @@ export const piSessionTerminatedEof: ReconcilerRule = (entries) => {
 
   const matched = new Set<string>();
   for (const entry of entries) {
-    if (entry.type !== "tool_result") continue;
+    if (entry.type !== "tool_result" && entry.type !== "tool_call_aborted") continue;
+    if (
+      entry.type === "tool_call_aborted" &&
+      (entry.payload as { scope?: unknown }).scope !== "tool_call"
+    ) {
+      continue;
+    }
     const forId = (entry.payload as { for_id?: unknown }).for_id;
     if (typeof forId === "string" && toolCallEntryIds.has(forId)) matched.add(forId);
+    if (entry.type !== "tool_result") continue;
     const callId = entry.semantic?.call_id;
     if (typeof callId === "string") {
       const eid = callIdToEntryId.get(callId);

@@ -774,6 +774,33 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 
 `attachments[]` on `tool_result` carries image or binary results from tools whose output `output` (a display string) cannot represent — typically `tool: "other"` kinds such as a screenshot or plotting tool. MCP tools instead preserve their native block structure in `meta.mcp_call.content_blocks` (below); `attachments[]` is the generic escape hatch for everything else.
 
+#### `tool_call_aborted`
+
+The agent attempted or began a tool invocation, but the invocation was cancelled, blocked, timed out, denied, or otherwise stopped without a normal `tool_result`. Use this instead of inventing a failed `tool_result` when the source evidence says no result was produced.
+
+```jsonc
+{
+  "type": "tool_call_aborted",
+  "id": "...",
+  "ts": "...",
+  "payload": {
+    "scope": "tool_call",
+    "reason": "hook_blocked",
+    "for_id": "<tool-call-id>",
+    "blocked_by": "PreToolUse:Bash"
+  }
+}
+```
+
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `scope` | yes | enum or extension | `tool_call` when a specific call is known; `turn` when the source only proves a turn-level abort. Adapter extensions must use `x-<adapter>/<scope>`. |
+| `reason` | yes | enum or extension | One of `user_interrupt`, `hook_blocked`, `timeout`, `permission_denied`, `runtime_error`, or `x-<adapter>/<reason>`. |
+| `for_id` | when `scope:"tool_call"` | string | id of the matching `tool_call`; omitted for `scope:"turn"` and other non-call-specific scopes. |
+| `blocked_by` | no | string | hook, policy, permission system, or runtime component that stopped the call. |
+
+Bare unknown `scope` and `reason` values are writer-strict errors. Readers are tolerant of unknown `x-*` extension values.
+
 ##### `tool_result.payload.meta` — structured outputs
 
 `output` is a display string. When the source tool returned structured data, writers MAY also
@@ -1363,17 +1390,19 @@ The `semantic` block on an event provides linking metadata when explicit `id` / 
 
 Adapters should populate `semantic.call_id` on tool_call/tool_result pairs when the source has its own IDs (especially Claude Code's `tool_use_id`, which can be null).
 
-### 9.5 Tool call/result pairing
+### 9.5 Tool call terminal pairing
 
-`tool_result.payload.for_id` should reference the matching `tool_call`. When it's null, missing, or refers to a non-existent event, readers use these fallback rules in order:
+`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
+
+When `tool_result.payload.for_id` is null, missing, or refers to a non-existent event, readers use these fallback rules in order:
 
 1. **Semantic match.** If both events have `semantic.call_id` and they're equal, pair them.
 2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call`.
 3. **Heuristic match.** Readers may use further heuristics (timestamp proximity, payload shape) but must flag the pairing as uncertain in rendered output.
 
-Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`.
+Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
 
-Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` reference first, then fallback rules 1 and 2 above (semantic match, sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when any of these deterministic methods pairs it with a `tool_result`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
 
 ### 9.6 Unknown event types
 

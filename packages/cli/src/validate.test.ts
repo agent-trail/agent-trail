@@ -198,7 +198,8 @@ test("unmatched tool_call at EOF fixture surfaces warning via trail validate --j
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
+    message:
+      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
   });
 });
 

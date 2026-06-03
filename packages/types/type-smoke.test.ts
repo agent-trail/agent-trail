@@ -8,6 +8,7 @@ import type {
   SessionMetadataUpdate,
   SystemEvent,
   ThinkingLevelChange,
+  ToolCallAborted,
 } from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
@@ -122,4 +123,39 @@ test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes
   expect(tags.payload?.field).toBe("tags");
   expect(worktree.payload?.field).toBe("vcs.worktree");
   expect(vendor.payload?.field).toBe("x-codex/thread_goal");
+});
+
+test("ToolCallAborted exposes reserved and x-<adapter>/<name> reason/scope shapes", () => {
+  const reserved = {
+    type: "tool_call_aborted",
+    payload: {
+      scope: "tool_call",
+      reason: "hook_blocked",
+      for_id: "call1",
+      blocked_by: "PreToolUse:Bash",
+    },
+  } satisfies ToolCallAborted;
+  const extension = {
+    type: "tool_call_aborted",
+    payload: {
+      scope: "x-codex/turn_scope",
+      reason: "x-codex/interrupted",
+    },
+  } satisfies ToolCallAborted;
+  // @ts-expect-error call-scoped aborts must carry for_id.
+  const missingForIdPayload: NonNullable<ToolCallAborted["payload"]> = {
+    scope: "tool_call",
+    reason: "hook_blocked",
+  };
+  // @ts-expect-error non-call-scoped aborts must not carry for_id.
+  const turnWithForIdPayload: NonNullable<ToolCallAborted["payload"]> = {
+    scope: "turn",
+    reason: "user_interrupt",
+    for_id: "call1",
+  };
+
+  expect(reserved.payload?.reason).toBe("hook_blocked");
+  expect(extension.payload?.scope).toBe("x-codex/turn_scope");
+  expect(missingForIdPayload.reason).toBe("hook_blocked");
+  expect(turnWithForIdPayload.scope).toBe("turn");
 });

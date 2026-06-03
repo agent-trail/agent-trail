@@ -92,6 +92,7 @@ const HANDLED_EVENT_TYPES = new Set<string>([
   "branch_summary",
   "tool_call",
   "tool_result",
+  "tool_call_aborted",
   "user_query",
   "user_query_response",
   "capability_change",
@@ -256,6 +257,10 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
           `records[${index}].payload.meta`,
         );
       }
+    }
+
+    if (payload && type === "tool_call_aborted" && typeof payload.blocked_by === "string") {
+      yield keyVisit(payload, "blocked_by", index, `records[${index}].payload.blocked_by`);
     }
 
     if (payload && type === "capability_change") {

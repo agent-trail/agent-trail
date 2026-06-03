@@ -540,6 +540,7 @@
             { "$ref": "#/$defs/events/task_plan_update" },
             { "$ref": "#/$defs/events/tool_call" },
             { "$ref": "#/$defs/events/tool_result" },
+            { "$ref": "#/$defs/events/tool_call_aborted" },
             { "$ref": "#/$defs/events/user_query" },
             { "$ref": "#/$defs/events/user_query_response" },
             { "$ref": "#/$defs/events/session_summary" },
@@ -1002,6 +1003,78 @@
                 }
               }
             }
+          }
+        }
+      },
+
+      "tool_call_aborted": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "tool_call_aborted" },
+          "payload": {
+            "type": "object",
+            "required": ["scope", "reason"],
+            "properties": {
+              "scope": {
+                "description": "Abort granularity. tool_call aborts reference a specific tool_call by for_id; turn aborts describe a broader turn-level stop when the source cannot identify one call.",
+                "oneOf": [
+                  { "type": "string", "enum": ["tool_call", "turn"] },
+                  {
+                    "type": "string",
+                    "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$"
+                  }
+                ]
+              },
+              "for_id": { "$ref": "#/$defs/id" },
+              "reason": {
+                "description": "Why execution stopped before a normal tool_result.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "user_interrupt",
+                      "hook_blocked",
+                      "timeout",
+                      "permission_denied",
+                      "runtime_error"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$"
+                  }
+                ]
+              },
+              "blocked_by": { "type": "string" }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "scope": { "const": "tool_call" }
+                  },
+                  "required": ["scope"]
+                },
+                "then": {
+                  "required": ["for_id"],
+                  "properties": {
+                    "for_id": { "$ref": "#/$defs/id" }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "scope": { "not": { "const": "tool_call" } }
+                  },
+                  "required": ["scope"]
+                },
+                "then": {
+                  "not": { "required": ["for_id"] }
+                }
+              }
+            ]
           }
         }
       },
@@ -1717,6 +1790,7 @@
                 "task_plan_update",
                 "tool_call",
                 "tool_result",
+                "tool_call_aborted",
                 "user_query",
                 "user_query_response",
                 "session_summary",

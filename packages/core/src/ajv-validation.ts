@@ -34,6 +34,7 @@ export const implementedEventTypes = [
   "task_plan_update",
   "tool_call",
   "tool_result",
+  "tool_call_aborted",
   "user_query",
   "user_query_response",
   "session_summary",

@@ -160,6 +160,38 @@ test("redactTrail walks nested session_metadata_update value objects", () => {
   expect(summary.counts.user_secret).toBe(3);
 });
 
+test("redactTrail redacts tool_call_aborted blocked_by but preserves control fields", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call_aborted",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        scope: "tool_call",
+        reason: "hook_blocked",
+        for_id: "call1",
+        blocked_by: "secret-policy",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    userSecrets: ["secret-policy", "hook_blocked", "tool_call", "call1"],
+  });
+
+  const value = out[1]?.value as {
+    payload: { scope: string; reason: string; for_id: string; blocked_by: string };
+  };
+  expect(value.payload).toEqual({
+    scope: "tool_call",
+    reason: "hook_blocked",
+    for_id: "call1",
+    blocked_by: "[USER_SECRET]",
+  });
+  expect(summary.counts.user_secret).toBe(1);
+});
+
 test("redactTrail walks entry source.raw and redacts nested string secrets", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

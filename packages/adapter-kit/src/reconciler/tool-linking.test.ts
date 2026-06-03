@@ -39,6 +39,38 @@ describe("toolLinking reconciler rule", () => {
     expect(out[0]?.semantic?.call_id).toBe("orphan");
   });
 
+  test("sets for_id on a tool_call_aborted that shares a linker call_id", () => {
+    const out = reconcile(
+      [
+        entry("tool_call", "call-entry", "c1"),
+        entry("tool_call_aborted", "abort-entry", "c1", {
+          payload: { scope: "tool_call", reason: "hook_blocked" },
+        }),
+      ],
+      { toolLinking: true },
+      ctx,
+    );
+
+    expect((out[1]?.payload as { for_id?: string }).for_id).toBe("call-entry");
+    expect(out[1]?.semantic?.call_id).toBeUndefined();
+  });
+
+  test("does not set for_id on a non-call-scoped tool_call_aborted", () => {
+    const out = reconcile(
+      [
+        entry("tool_call", "call-entry", "c1"),
+        entry("tool_call_aborted", "abort-entry", "c1", {
+          payload: { scope: "turn", reason: "user_interrupt" },
+        }),
+      ],
+      { toolLinking: true },
+      ctx,
+    );
+
+    expect((out[1]?.payload as { for_id?: string }).for_id).toBeUndefined();
+    expect(out[1]?.semantic?.call_id).toBeUndefined();
+  });
+
   test("no-op when toolLinking disabled", () => {
     const out = reconcile([entry("tool_result", "result-entry", "c1")], {}, ctx);
     expect((out[0]?.payload as { for_id?: string }).for_id).toBeUndefined();

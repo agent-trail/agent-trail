@@ -363,6 +363,54 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-call-aborted-closes-call.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-aborted-closes-call.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-aborted-turn-scope.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-aborted-turn-scope.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-aborted-extension-scope-reason.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-aborted-extension-scope-reason.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl reports required /payload/for_id", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/for_id",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'for_id'",
+  });
+});
+
+test("invalid-schema/tool-call-aborted-turn-scope-with-for-id.trail.jsonl rejects for_id", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-aborted-turn-scope-with-for-id.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.line === 2 && d.path === "/payload")).toBe(true);
+});
+
+test("invalid-schema/tool-call-aborted-bad-reason.trail.jsonl rejects bare unknown reason", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-aborted-bad-reason.trail.jsonl"),
+  );
+  expect(diagnostics.some((d) => d.line === 2 && d.path === "/payload/reason")).toBe(true);
+});
+
 test("valid/tool-result-attachments.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/tool-result-attachments.trail.jsonl"),
@@ -663,7 +711,22 @@ test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns about unmatched
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
+    message:
+      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
+  });
+});
+
+test("invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl warns about unmatched tool_call", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message:
+      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
   });
 });
 
@@ -692,7 +755,8 @@ test("invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl warns on
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
+      message:
+        'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
     },
   ]);
 });
@@ -708,7 +772,8 @@ test("invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
+    message:
+      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
   });
 });
 
@@ -722,7 +787,8 @@ test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns under reader-to
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "01HEVTA0000000000000000001" has no matching tool_result at EOF',
+    message:
+      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
   });
 });
 
@@ -773,7 +839,8 @@ test("invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl w
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
+      message:
+        'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
     },
   ]);
 });
@@ -803,7 +870,8 @@ test("invalid-graph/duplicate-tool-result-for-id.trail.jsonl resolved for_id doe
       path: "/id",
       severity: "warning",
       code: "unmatched_tool_call_at_eof",
-      message: 'tool_call "01HEVTA0000000000000000002" has no matching tool_result at EOF',
+      message:
+        'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
     },
   ]);
 });
