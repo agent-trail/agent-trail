@@ -312,7 +312,6 @@ const userMessage = defineMapping<Raw>({
           stringValue(record.summary) ??
           stringValue(record.message?.content) ??
           jsonString(record.message?.content);
-        if (text === undefined) return [];
         return [
           {
             type: "context_compact",
