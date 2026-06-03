@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { runDiscover } from "./discover.ts";
+import { runDoctor } from "./doctor.ts";
 import { runExport } from "./export.ts";
 import { runList } from "./list.ts";
 import { runLoad } from "./load.ts";
@@ -11,6 +12,7 @@ const USAGE = `Usage:
   trail validate <file> [--json] [--profile strict|reader-tolerant]
   trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]
   trail discover [--json] [--all] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]
+  trail doctor [--json]
   trail share <path> [--dry-run] [--yes] [--skip-redaction]
   trail load <url> [--out <path>] [--force]
   trail export <id> [--out <path>] [--force]
@@ -45,6 +47,7 @@ const handlers: Record<string, Handler> = Object.assign(Object.create(null), {
   validate: runValidate,
   list: runList,
   discover: runDiscover,
+  doctor: runDoctor,
   share: runShare,
   load: runLoad,
   export: runExport,

@@ -4,6 +4,7 @@ import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type {
+  AdapterSourceHealth,
   DetectOptions,
   SessionRef,
   TrailAdapter,
@@ -110,6 +111,84 @@ async function scanProjectDir(dir: string): Promise<SessionRef[]> {
   return Promise.all(
     jsonlNames.map((name) => buildSessionRef(join(dir, name), name.slice(0, -".jsonl".length))),
   );
+}
+
+async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
+  const configDir = claudeCodeConfigDir();
+  if (configDir === undefined) {
+    return {
+      adapter: "claude-code",
+      path: null,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["home directory not found"],
+    };
+  }
+
+  const root = claudeCodeProjectsRoot(configDir);
+  const rootStat = await stat(root).catch(() => undefined);
+  if (rootStat === undefined || !rootStat.isDirectory()) {
+    return {
+      adapter: "claude-code",
+      path: root,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["source path not found"],
+    };
+  }
+
+  const entriesOrError = await readdir(root, { withFileTypes: true }).catch(
+    (error: unknown) => error,
+  );
+  if (!Array.isArray(entriesOrError)) {
+    const message =
+      entriesOrError instanceof Error ? entriesOrError.message : String(entriesOrError);
+    return {
+      adapter: "claude-code",
+      path: root,
+      present: true,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: [`source path unreadable: ${message}`],
+    };
+  }
+  const entries = entriesOrError;
+
+  const warnings: string[] = [];
+  let sessions: SessionRef[] = [];
+  try {
+    const projectDirs = entries.filter((entry) => entry.isDirectory());
+    const perDir = await Promise.all(
+      projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
+    );
+    sessions = perDir.flat();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`session scan failed: ${message}`);
+  }
+
+  let sourceVersion: string | null = null;
+  try {
+    sourceVersion = await claudeCodeAdapter.sourceVersion();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`source version check failed: ${message}`);
+  }
+
+  return {
+    adapter: "claude-code",
+    path: root,
+    present: true,
+    readable: true,
+    sessionCount: sessions.length,
+    sourceVersion,
+    warnings,
+  };
 }
 
 type ForkFrom = NonNullable<Header["fork_from"]>;
@@ -368,4 +447,5 @@ export const claudeCodeAdapter: TrailAdapter = {
     if (first === undefined) return null;
     return typeof first.version === "string" ? first.version : null;
   },
+  sourceHealth: inspectSourceHealth,
 };

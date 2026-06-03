@@ -36,6 +36,17 @@ const noOpAdapter = {
   async sourceVersion(): Promise<string | null> {
     return null;
   },
+  async sourceHealth() {
+    return {
+      adapter: "no-op",
+      path: null,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: [],
+    };
+  },
 } satisfies TrailAdapter;
 
 test("a no-op adapter satisfies TrailAdapter and exposes name", () => {

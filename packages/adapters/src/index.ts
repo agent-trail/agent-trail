@@ -29,12 +29,23 @@ export type DetectOptions = {
   allCwds?: boolean;
 };
 
+export type AdapterSourceHealth = {
+  adapter: string;
+  path: string | null;
+  present: boolean;
+  readable: boolean;
+  sessionCount: number;
+  sourceVersion: string | null;
+  warnings: string[];
+};
+
 export interface TrailAdapter {
   readonly name: string;
   detectSessions(opts?: DetectOptions): Promise<SessionRef[]>;
   parseSession(ref: SessionRef): Promise<TrailFile>;
   isAvailable(): Promise<boolean>;
   sourceVersion(): Promise<string | null>;
+  sourceHealth(): Promise<AdapterSourceHealth>;
 }
 
 export type ValidateAdapterTrailOptions = { profile?: ValidationProfile };

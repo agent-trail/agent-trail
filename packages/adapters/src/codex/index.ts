@@ -4,6 +4,7 @@ import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type {
+  AdapterSourceHealth,
   DetectOptions,
   SessionRef,
   TrailAdapter,
@@ -27,6 +28,75 @@ async function dirExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
+  const root = codexSessionsDir();
+  if (root === undefined) {
+    return {
+      adapter: "codex",
+      path: null,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["home directory not found"],
+    };
+  }
+
+  const rootStat = await stat(root).catch(() => undefined);
+  if (rootStat === undefined || !rootStat.isDirectory()) {
+    return {
+      adapter: "codex",
+      path: root,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["source path not found"],
+    };
+  }
+
+  const entries = await readdir(root, { withFileTypes: true }).catch((error: unknown) => error);
+  if (!Array.isArray(entries)) {
+    const message = entries instanceof Error ? entries.message : String(entries);
+    return {
+      adapter: "codex",
+      path: root,
+      present: true,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: [`source path unreadable: ${message}`],
+    };
+  }
+
+  const warnings: string[] = [];
+  let sessions: SessionRef[] = [];
+  try {
+    sessions = await codexAdapter.detectSessions({ allCwds: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`session scan failed: ${message}`);
+  }
+
+  let sourceVersion: string | null = null;
+  try {
+    sourceVersion = await codexAdapter.sourceVersion();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`source version check failed: ${message}`);
+  }
+
+  return {
+    adapter: "codex",
+    path: root,
+    present: true,
+    readable: true,
+    sessionCount: sessions.length,
+    sourceVersion,
+    warnings,
+  };
 }
 
 // 64 KiB covers observed Codex 0.128 session_meta records that embed
@@ -561,4 +631,5 @@ export const codexAdapter: TrailAdapter = {
     if (newest === undefined) return null;
     return (await readSessionVersionFromHead(newest.path)) ?? null;
   },
+  sourceHealth: inspectSourceHealth,
 };
