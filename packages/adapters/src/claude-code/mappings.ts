@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { decodeCappedBase64, INLINE_MEDIA_MAX_DECODED_BYTES, sha256Ref } from "../inline-media.ts";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -41,6 +42,8 @@ type UserQueryOption = { label: string; description?: string };
  */
 export const HINT = "x-claudecode/_h";
 export const INCLUDE_SIDECHAIN = Symbol.for("agent-trail.claude-code.include-sidechain");
+export const INLINE_ATTACHMENT_MAX_DECODED_BYTES = INLINE_MEDIA_MAX_DECODED_BYTES;
+const HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS = 16 * 1024;
 
 export interface CcHint {
   sid?: string;
@@ -92,15 +95,44 @@ function imageAttachments(content: unknown): Attachment[] {
     const data = stringValue(source?.data);
     if (stringValue(source?.type) !== "base64" || data === undefined) continue;
     const mediaType = stringValue(source?.media_type) ?? stringValue(source?.mediaType);
-    const bytes = Buffer.from(data, "base64");
     const att: Attachment = {
       kind: block.type === "image" ? "image" : "file",
-      uri: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
     };
     if (mediaType !== undefined) att.media_type = mediaType;
+    const decoded = decodeCappedBase64(data);
+    if (decoded.bytes !== undefined) att.uri = sha256Ref(decoded.bytes);
     out.push(att);
   }
   return out;
+}
+
+type HookAdditionalContextContent = {
+  text?: string;
+  content?: unknown;
+  attachments?: Attachment[];
+};
+
+function hookAdditionalContextContent(content: unknown): HookAdditionalContextContent {
+  if (typeof content === "string") {
+    return { text: truncateHookContextText(content), content: truncateHookContextText(content) };
+  }
+  const blocks = asBlocks(content);
+  if (blocks.length === 0) return {};
+  const textBlocks = blocks
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => ({ type: "text", text: truncateHookContextText(block.text as string) }));
+  const text = textBlocks.map((block) => block.text).join("\n");
+  const attachments = imageAttachments(content);
+  return {
+    ...(text.length > 0 ? { text: truncateHookContextText(text), content: textBlocks } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function truncateHookContextText(text: string): string {
+  return text.length > HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS
+    ? text.slice(0, HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS)
+    : text;
 }
 
 function questionId(question: string, occurrence: number): string {
@@ -979,14 +1011,17 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     if (hookEvent !== undefined) data.hook_event = hookEvent;
     if (hookName !== undefined) data.hook_name = hookName;
     if (toolCallId !== undefined) data.tool_call_id = toolCallId;
-    if (content !== undefined) data.content = content;
-    const text = textFromToolResultContent(content);
+    const safeContent = hookAdditionalContextContent(content);
+    if (safeContent.content !== undefined) data.content = safeContent.content;
+    if (safeContent.attachments !== undefined) data.attachments = safeContent.attachments;
     return [
       {
         type: "system_event",
         payload: {
           kind: "x-claudecode/hook_additional_context",
-          ...(text.length > 0 ? { text } : {}),
+          ...(safeContent.text !== undefined && safeContent.text.length > 0
+            ? { text: safeContent.text }
+            : {}),
           ...(Object.keys(data).length > 0 ? { data } : {}),
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
