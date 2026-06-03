@@ -37,7 +37,7 @@ export function pick(record: Record<string, unknown>, keys: readonly string[]): 
 export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const src = raw as Record<string, unknown>;
-  const usage: AgentMessageUsage = {};
+  const usage: Partial<AgentMessageUsage> = {};
   const inputTokens = pick(src, ["input_tokens", "inputTokens", "input"]);
   if (inputTokens !== undefined) usage.input_tokens = inputTokens;
   const outputTokens = pick(src, ["output_tokens", "outputTokens", "output"]);
@@ -92,5 +92,5 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   const hasInput = usage.input_tokens !== undefined || usage.input_tokens_cumulative !== undefined;
   const hasOutput =
     usage.output_tokens !== undefined || usage.output_tokens_cumulative !== undefined;
-  return hasInput && hasOutput ? usage : undefined;
+  return hasInput && hasOutput ? (usage as AgentMessageUsage) : undefined;
 }

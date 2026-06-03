@@ -1,5 +1,6 @@
 import { isObject, jsonObjectValue, maybeNumber, stringValue } from "./source.ts";
 
+// Mirrors schema.json#/$defs/sessionUid; keep in sync with schema id rules.
 const AGENT_TRAIL_ID_RE =
   /^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$/;
 
@@ -128,6 +129,7 @@ export function toolKindAndArgs(
       const task =
         stringValue(args.prompt) ?? stringValue(args.description) ?? stringValue(args.name);
       if (task !== undefined) {
+        const sessionId = agentTrailId(args.session_id);
         return {
           tool: "subagent_invoke",
           args: {
@@ -135,9 +137,7 @@ export function toolKindAndArgs(
             ...(stringValue(args.subagent_type) !== undefined
               ? { agent_type: stringValue(args.subagent_type) }
               : {}),
-            ...(agentTrailId(args.session_id) !== undefined
-              ? { session_id: agentTrailId(args.session_id) }
-              : {}),
+            ...(sessionId !== undefined ? { session_id: sessionId } : {}),
           },
         };
       }
