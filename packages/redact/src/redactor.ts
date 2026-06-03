@@ -141,8 +141,8 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
         yield keyVisit(value, "cwd", index, `records[${index}].cwd`);
       }
       const vcs = value.vcs as Record<string, unknown> | undefined;
-      if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
+      if (vcs !== undefined) {
+        yield* visitVcsStrings(vcs, index, `records[${index}].vcs`);
       }
       const headerSource = value.source as Record<string, unknown> | undefined;
       if (headerSource && typeof headerSource.path === "string") {
@@ -153,8 +153,8 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     if (type === "trail") {
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
-      if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
+      if (vcs !== undefined) {
+        yield* visitVcsStrings(vcs, index, `records[${index}].vcs`);
       }
     }
 
@@ -206,13 +206,28 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     }
 
     if (payload && type === "session_metadata_update") {
-      yield* visitObjectMember(payload, "value", index, `records[${index}].payload.value`);
-      yield* visitObjectMember(
-        payload,
-        "previous_value",
-        index,
-        `records[${index}].payload.previous_value`,
-      );
+      if (payload.field === "vcs.worktree") {
+        yield* visitWorktreeMetadataMember(
+          payload,
+          "value",
+          index,
+          `records[${index}].payload.value`,
+        );
+        yield* visitWorktreeMetadataMember(
+          payload,
+          "previous_value",
+          index,
+          `records[${index}].payload.previous_value`,
+        );
+      } else {
+        yield* visitObjectMember(payload, "value", index, `records[${index}].payload.value`);
+        yield* visitObjectMember(
+          payload,
+          "previous_value",
+          index,
+          `records[${index}].payload.previous_value`,
+        );
+      }
     }
 
     if (payload && type === "tool_call") {
@@ -281,6 +296,41 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       } else if (typeof raw === "string" && source) {
         yield keyVisit(source, "raw", index, `records[${index}].source.raw`);
       }
+    }
+  }
+}
+
+function* visitVcsStrings(
+  vcs: Record<string, unknown>,
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  if (typeof vcs.branch === "string") yield keyVisit(vcs, "branch", recordIndex, `${path}.branch`);
+  const worktree = vcs.worktree as Record<string, unknown> | undefined;
+  if (worktree === undefined) return;
+  yield* visitWorktreeStrings(worktree, recordIndex, `${path}.worktree`);
+}
+
+function* visitWorktreeMetadataMember(
+  container: Record<string, unknown>,
+  key: "value" | "previous_value",
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  const value = container[key];
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    yield* visitWorktreeStrings(value as Record<string, unknown>, recordIndex, path);
+  }
+}
+
+function* visitWorktreeStrings(
+  worktree: Record<string, unknown>,
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  for (const key of ["name", "path", "original_cwd", "original_branch"] as const) {
+    if (typeof worktree[key] === "string") {
+      yield keyVisit(worktree, key, recordIndex, `${path}.${key}`);
     }
   }
 }

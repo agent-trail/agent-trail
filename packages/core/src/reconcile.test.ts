@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { canonicalizeRecords, computeContentHash, stampTrail } from "./hash.ts";
+import { validateTrailString } from "./index.ts";
 import { parseJsonlString } from "./jsonl.ts";
 import { reconcileSegments, type SegmentInput } from "./reconcile.ts";
 
@@ -18,6 +19,7 @@ function trailHeader(opts: {
   cwd?: string;
   content_hash?: string;
   stream?: { state: "open" | "closed"; started_at?: string };
+  parse_fidelity?: Record<string, unknown>;
 }): string {
   const header: Record<string, unknown> = {
     type: "session",
@@ -31,6 +33,7 @@ function trailHeader(opts: {
   if (opts.cwd !== undefined) header.cwd = opts.cwd;
   if (opts.content_hash !== undefined) header.content_hash = opts.content_hash;
   if (opts.stream !== undefined) header.stream = opts.stream;
+  if (opts.parse_fidelity !== undefined) header.parse_fidelity = opts.parse_fidelity;
   return JSON.stringify(header);
 }
 
@@ -48,6 +51,18 @@ function sessionTerminated(id: string, ts: string, reason: string): string {
     id,
     ts,
     payload: { reason },
+  });
+}
+
+function unknownRecordEvent(id: string, ts: string): string {
+  return JSON.stringify({
+    type: "system_event",
+    id,
+    ts,
+    payload: {
+      kind: "x-codex/unknown_record",
+      data: { raw: "{}" },
+    },
   });
 }
 
@@ -254,6 +269,74 @@ test("intermediate session_terminated{process_terminated} is dropped, terminal o
   expect(intermediateTerminators).toHaveLength(0);
 });
 
+test("multi-segment merge recomputes parse_fidelity from merged records", async () => {
+  const headerId = "01HSESS0000000000000000001";
+  const validSessionUid = "0123456789abcdef0123456789";
+  const seg1Draft = `${[
+    trailHeader({
+      id: headerId,
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: validSessionUid,
+      segment: { seq: 1 },
+      parse_fidelity: { quarantined_count: 1, termination_reason: "process_terminated" },
+    }),
+    unknownRecordEvent("01HEVTA0000000000000000042", "2026-05-26T10:00:05.000Z"),
+    sessionTerminated(
+      "01HEVTA0000000000000000099",
+      "2026-05-26T10:00:30.000Z",
+      "process_terminated",
+    ),
+  ].join("\n")}\n`;
+  const seg1Hash = await hashOf(seg1Draft);
+  const seg1Text = `${[
+    trailHeader({
+      id: headerId,
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: validSessionUid,
+      segment: { seq: 1 },
+      content_hash: seg1Hash,
+      parse_fidelity: { quarantined_count: 1, termination_reason: "process_terminated" },
+    }),
+    unknownRecordEvent("01HEVTA0000000000000000042", "2026-05-26T10:00:05.000Z"),
+    sessionTerminated(
+      "01HEVTA0000000000000000099",
+      "2026-05-26T10:00:30.000Z",
+      "process_terminated",
+    ),
+  ].join("\n")}\n`;
+
+  const seg2Text = `${[
+    trailHeader({
+      id: headerId,
+      ts: "2026-05-26T10:05:00.000Z",
+      session_uid: validSessionUid,
+      segment: { seq: 2, prev_content_hash: seg1Hash },
+      parse_fidelity: { quarantined_count: 0, termination_reason: "user_abort" },
+    }),
+    agentMessage("01HEVTA0000000000000000002", "2026-05-26T10:05:05.000Z"),
+    sessionTerminated("01HEVTA0000000000000000098", "2026-05-26T10:05:30.000Z", "user_abort"),
+  ].join("\n")}\n`;
+
+  const result = reconcileSegments([
+    { source: "seg1", records: await records(seg1Text) },
+    { source: "seg2", records: await records(seg2Text) },
+  ]);
+  expect(result.warnings).toEqual([]);
+  const group = result.groups[0];
+  if (group === undefined) throw new Error("expected one merged group");
+  expect(group.warnings).toEqual([]);
+
+  const header = group.records[0]?.value as Record<string, unknown>;
+  expect(header.parse_fidelity).toEqual({
+    quarantined_count: 1,
+    termination_reason: "user_abort",
+  });
+
+  const mergedText = `${group.records.map((record) => JSON.stringify(record.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(mergedText);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
 test("two different session_uids → two merged groups returned", async () => {
   const trailA = `${[
     trailHeader({
@@ -358,7 +441,12 @@ test("round-trip: 4-segment capture with kills at 3 points reconciles to bytes-e
 
   // Reference: uninterrupted single-segment trail.
   const referenceText = `${[
-    trailHeader({ id: HEADER_ID, ts: START_TS, session_uid: SUID }),
+    trailHeader({
+      id: HEADER_ID,
+      ts: START_TS,
+      session_uid: SUID,
+      parse_fidelity: { quarantined_count: 0 },
+    }),
     e1,
     e2,
     e3,

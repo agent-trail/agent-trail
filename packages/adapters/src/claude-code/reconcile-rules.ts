@@ -76,6 +76,62 @@ export const ccModelChangeSynth: ReconcilerRule = (entries) => {
   return out;
 };
 
+function hasVcsBranchUpdate(entry: Entry): boolean {
+  return (
+    entry.type === "session_metadata_update" &&
+    (entry.payload as { field?: unknown }).field === "vcs.branch"
+  );
+}
+
+function gitBranchSource(entry: Entry): Entry["source"] {
+  const originalType = entry.source?.original_type;
+  return {
+    agent: "claude-code",
+    ...(typeof originalType === "string" ? { original_type: `${originalType}.gitBranch` } : {}),
+    ...(entry.source?.schema_version !== undefined
+      ? { schema_version: entry.source.schema_version }
+      : {}),
+    synthesized: true,
+    ...(entry.source?.raw !== undefined ? { raw: entry.source.raw } : {}),
+  } as Entry["source"];
+}
+
+/**
+ * Claude Code tracer records carry `gitBranch`, but not a session-time commit in
+ * observed local corpora. Preserve the first branch as metadata without emitting
+ * `header.vcs`, and let mapped `worktree-state` branch updates win when present.
+ */
+export const ccGitBranchMetadataSynth: ReconcilerRule = (entries) => {
+  if (entries.some(hasVcsBranchUpdate)) return entries;
+  const out: Entry[] = [];
+  let emitted = false;
+  for (const entry of entries) {
+    if (!emitted) {
+      const branch = hintOf(entry)?.gitBranch;
+      if (branch !== undefined && branch.length > 0) {
+        const id = deriveSynthesizedEntryId(CLAUDE_CODE_ENTRY_ID_NAMESPACE, [
+          "gitBranch",
+          entry.id,
+          branch,
+        ]);
+        out.push({
+          type: "session_metadata_update",
+          id,
+          ts: entry.ts,
+          parent_id: entry.parent_id ?? null,
+          payload: { field: "vcs.branch", value: branch, reason: "runtime_inferred" },
+          source: gitBranchSource(entry),
+        } as Entry);
+        out.push({ ...entry, parent_id: id });
+        emitted = true;
+        continue;
+      }
+    }
+    out.push(entry);
+  }
+  return out;
+};
+
 function isCompactBoundary(entry: Entry): boolean {
   return (
     entry.type === "system_event" &&

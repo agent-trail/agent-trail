@@ -14,6 +14,7 @@ import {
   ccCompactBoundaryProvenance,
   ccDropTaskPlanResults,
   ccEnvelopeRefBackfill,
+  ccGitBranchMetadataSynth,
   ccModelChangeSynth,
   ccPermissionModeDelta,
   ccTaskPlanDeltas,
@@ -111,6 +112,7 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
     parentChain: true, // linear; the parentUuid chain doesn't fork
     cumulativeTokens: false,
     custom: [
+      ccGitBranchMetadataSynth,
       ccModelChangeSynth,
       ccToolKindToResult,
       ccPermissionModeDelta,

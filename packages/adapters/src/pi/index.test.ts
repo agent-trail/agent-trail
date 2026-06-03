@@ -217,6 +217,7 @@ test("parseSession() builds a header from session record id, ts, version (int->s
       agent: "pi",
       format_version: "3",
     },
+    parse_fidelity: { quarantined_count: 0 },
   });
 });
 
@@ -360,6 +361,10 @@ test("parseSession() emits v0.1-shaped deterministic entry ids across representa
   for (const entry of stateful.groups[0]!.entries) expect(entry.id).toMatch(ID_PATTERN);
   expect(stateful.groups[0]!.entries.some((e) => e.type === "user_interrupt")).toBe(true);
   expect(stateful.groups[0]!.entries.some((e) => e.type === "session_terminated")).toBe(true);
+  expect(stateful.groups[0]!.header.parse_fidelity).toEqual({
+    quarantined_count: 0,
+    termination_reason: "eof_with_open_tool_calls",
+  });
 });
 
 test("every entry carries source metadata: agent='pi', original_type set, schema_version stringified, raw preserved", async () => {
@@ -603,6 +608,7 @@ test("parseSession() preserves Pi tree parenting through quarantined source reco
   expect((quarantine?.payload as { kind?: string }).kind).toBe("x-pi/unknown_record");
   expect(quarantine?.parent_id).toBe(user?.id);
   expect(agent?.parent_id).toBe(user?.id);
+  expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 1 });
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -1271,7 +1277,7 @@ test("compaction omits replaced_message_ids when firstKeptEntryId does not resol
   }
 });
 
-test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git working tree with an origin remote", async () => {
+test("parseSession() does not populate vcs from live git state at header.cwd", async () => {
   const repoDir = mkdtempSync(join(tmpdir(), "pi-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
@@ -1313,12 +1319,7 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       adapter: "pi",
       path: fixturePath,
     });
-    expect(trail.groups[0]!.header.vcs).toBeDefined();
-    expect(trail.groups[0]!.header.vcs?.type).toBe("git");
-    expect(trail.groups[0]!.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
-    expect(trail.groups[0]!.header.vcs?.remote_url).toBe(
-      "https://github.com/agent-trail/agent-trail",
-    );
+    expect(trail.groups[0]!.header.vcs).toBeUndefined();
   } finally {
     rmSync(repoDir, { recursive: true, force: true });
   }

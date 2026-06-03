@@ -1,5 +1,6 @@
 import { canonicalizeRecords, stampTrail } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { parseFidelityForEvents } from "./parse-fidelity.ts";
 import { splitSessionGroups } from "./session-groups.ts";
 
 /**
@@ -321,6 +322,8 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
 
   const mergedHeaderRecord = buildMergedHeader(sorted);
   const mergedRecords: JsonlRecord[] = [mergedHeaderRecord, ...mergedEvents];
+  const mergedHeaderValue = mergedHeaderRecord.value as Record<string, unknown>;
+  mergedHeaderValue.parse_fidelity = parseFidelityForEvents(mergedEvents);
   // The merged trail is a fresh artifact whose canonical bytes differ from
   // any single segment. Re-stamp `content_hash` over the merged bytes so the
   // produced trail validates as a finalized v0.1 trail (spec §7.3).
@@ -330,7 +333,6 @@ function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup
   // populated `content_hash` (spec §7.3, validator rule
   // `stream_open_with_content_hash`). Skip stamping and strip any inherited
   // hash so the merged open trail stays valid for downstream live-tail use.
-  const mergedHeaderValue = mergedHeaderRecord.value as Record<string, unknown>;
   if (isOpenStream(mergedHeaderValue.stream)) {
     delete mergedHeaderValue.content_hash;
     mergedHeaderRecord.raw = JSON.stringify(mergedHeaderValue);
