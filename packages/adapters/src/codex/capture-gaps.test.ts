@@ -469,6 +469,44 @@ describe("#124 — change detection is key-order independent", () => {
     expect((exec[1]?.payload as { from_mode?: string }).from_mode).toBeUndefined();
   });
 
+  test("permission data change emits without from_mode when the mode label is unchanged", async () => {
+    const records = [
+      SESSION_META,
+      {
+        timestamp: "2026-06-02T10:00:01.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t1",
+          active_permission_profile: "auto",
+          approval_policy: { mode: "granular", allow: ["read"] },
+        },
+      },
+      {
+        timestamp: "2026-06-02T10:00:05.000Z",
+        type: "turn_context",
+        payload: {
+          turn_id: "t2",
+          active_permission_profile: "auto",
+          approval_policy: { mode: "granular", allow: ["read", "write"] },
+        },
+      },
+    ];
+    const all = await withFixture(records, (path) => parseCodexEntries(path, "unit-124-perm-data"));
+    const perm = all.filter(
+      (e) => e.type === "mode_change" && (e.payload as { scope?: string }).scope === "permission",
+    );
+    expect(perm).toHaveLength(2);
+    expect(perm[1]?.payload).toMatchObject({
+      to_mode: "auto",
+      trigger: "runtime_inferred",
+      turn_id: "t2",
+      data: {
+        approval_policy: { mode: "granular", allow: ["read", "write"] },
+      },
+    });
+    expect((perm[1]?.payload as { from_mode?: string }).from_mode).toBeUndefined();
+  });
+
   test("file-system sandbox policy change emits execution change", async () => {
     const records = [
       SESSION_META,

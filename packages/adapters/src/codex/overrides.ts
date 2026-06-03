@@ -190,11 +190,11 @@ const turnContext: OverrideDef<Raw, CodexState> = {
               "turn_context.permission",
             ),
           );
-        } else if (ctx.state.lastPermissionMode !== nextMode) {
+        } else if (ctx.state.lastPermissionKey !== permKey) {
           drafts.push(
             modeChangeDraft(
               "permission",
-              ctx.state.lastPermissionMode,
+              ctx.state.lastPermissionMode !== nextMode ? ctx.state.lastPermissionMode : undefined,
               nextMode,
               "runtime_inferred",
               { ...permAxis, turn_id: p.turn_id },
