@@ -140,8 +140,8 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
         yield keyVisit(value, "cwd", index, `records[${index}].cwd`);
       }
       const vcs = value.vcs as Record<string, unknown> | undefined;
-      if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
+      if (vcs !== undefined) {
+        yield* walkContainer(vcs, index, `records[${index}].vcs`);
       }
       const headerSource = value.source as Record<string, unknown> | undefined;
       if (headerSource && typeof headerSource.path === "string") {
@@ -152,8 +152,8 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     if (type === "trail") {
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
-      if (vcs && typeof vcs.revision === "string") {
-        yield keyVisit(vcs, "revision", index, `records[${index}].vcs.revision`);
+      if (vcs !== undefined) {
+        yield* walkContainer(vcs, index, `records[${index}].vcs`);
       }
     }
 

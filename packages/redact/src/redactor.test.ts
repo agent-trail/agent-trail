@@ -285,6 +285,48 @@ test("redactTrail keeps vcs.remote_url when keepRemoteUrl: true is passed", () =
   expect(summary.counts.vcs_remote_url).toBeUndefined();
 });
 
+test("redactTrail normalizes vcs worktree paths on headers and trail envelopes", () => {
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "trl-1",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        worktree: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+        },
+      },
+    }),
+    header({
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        worktree: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const trailValue = out[0]?.value as { vcs: { worktree: Record<string, unknown> } };
+  const headerValue = out[1]?.value as { vcs: { worktree: Record<string, unknown> } };
+  expect(trailValue.vcs.worktree.path).toBe("<home>/project/.worktrees/topic");
+  expect(trailValue.vcs.worktree.original_cwd).toBe("<home>/project");
+  expect(headerValue.vcs.worktree.path).toBe("<home>/project/.worktrees/topic");
+  expect(headerValue.vcs.worktree.original_cwd).toBe("<home>/project");
+  expect(summary.counts.home_path).toBe(4);
+});
+
 test("redactTrail normalizes /Users/<name> and /home/<name> paths to <home>", () => {
   const records: JsonlRecord[] = [
     header({ cwd: "/Users/alice/projects/agent-trail" }),

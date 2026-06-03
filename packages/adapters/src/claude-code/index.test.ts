@@ -297,14 +297,18 @@ test("parseSession() sets requestId as semantic.group_id on assistant-derived en
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
-test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
+test("parseSession() emits a user_message for user text records, chained after branch metadata", async () => {
   const trail = await parseFixture();
+  const branchUpdate = trail.groups[0]!.entries.find(
+    (e) => e.type === "session_metadata_update" && e.payload.field === "vcs.branch",
+  );
   const userMessage = trail.groups[0]!.entries.find((e) => e.type === "user_message");
+  expect(branchUpdate).toBeDefined();
+  expect(branchUpdate?.parent_id).toBeNull();
   expect(userMessage).toBeDefined();
   expect(userMessage?.ts).toBe("2026-05-17T14:00:05.000Z");
   expect(userMessage?.payload).toEqual({ text: "please list the files" });
-  // The leading user record has no parentUuid → root of the linear chain.
-  expect(userMessage?.parent_id).toBeNull();
+  expect(userMessage?.parent_id).toBe(branchUpdate?.id);
   expect(userMessage?.source?.original_type).toBe("user");
 });
 
@@ -533,6 +537,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         sessionId: parentId,
         version: "1.0.0-synthetic",
         cwd: process.cwd(),
+        gitBranch: "child/session-branch",
       },
       {
         parentUuid: "00000000-0000-0000-0000-bbbb00000011",
@@ -550,6 +555,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         sessionId: parentId,
         version: "1.0.0-synthetic",
         cwd: process.cwd(),
+        gitBranch: "child/session-branch",
       },
     ]
       .map((record) => JSON.stringify(record))
@@ -577,6 +583,11 @@ test("parseSession() bundles a direct Agent child session from subagents directo
   expect(child.header.id).not.toBe(parent.header.id);
   expect(child.header.fork_from).toEqual({ session_id: parent.header.id, entry_id: invoke?.id });
   expect(child.entries.some((entry) => entry.type === "agent_message")).toBe(true);
+  const childBranchUpdates = child.entries.filter(
+    (entry) => entry.type === "session_metadata_update" && entry.payload.field === "vcs.branch",
+  );
+  expect(childBranchUpdates).toHaveLength(1);
+  expect(childBranchUpdates[0]?.payload.value).toBe("child/session-branch");
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
@@ -2194,8 +2205,9 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
   // Multi-block envelopes mint fresh UUIDs per block (see entry-metadata.ts);
   // assert source order + types instead of specific compound id strings. Block
   // call_ids preserved via semantic.call_id remain stable across runs.
-  const types = trail.groups[0]!.entries.slice(0, 6).map((e) => e.type);
+  const types = trail.groups[0]!.entries.slice(0, 7).map((e) => e.type);
   expect(types).toEqual([
+    "session_metadata_update",
     "user_message",
     "agent_message",
     "agent_thinking",
@@ -2204,12 +2216,12 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
     "tool_call",
   ]);
 
-  const text = trail.groups[0]!.entries[1];
+  const text = trail.groups[0]!.entries[2];
   expect(text?.type).toBe("agent_message");
-  // The first agent block chains off the leading user_message (entries[0]).
-  expect(text?.parent_id).toBe(trail.groups[0]!.entries[0]?.id);
+  // The first agent block chains off the leading user_message.
+  expect(text?.parent_id).toBe(trail.groups[0]!.entries[1]?.id);
 
-  const thinking = trail.groups[0]!.entries[2];
+  const thinking = trail.groups[0]!.entries[3];
   expect(thinking?.type).toBe("agent_thinking");
   expect(thinking?.parent_id).toBe(text?.id);
   expect(thinking?.semantic?.group_id).toBe("req_synthetic_adv_01");
@@ -2659,6 +2671,7 @@ test("parseSession() maps compact_boundary provenance to the next compact summar
   expect(compactBoundaryIndex).toBeGreaterThan(-1);
   const folded = entries.slice(0, compactBoundaryIndex).map((e) => e.id);
   expect(entries.slice(0, compactBoundaryIndex).map((e) => e.type)).toEqual([
+    "session_metadata_update",
     "user_message",
     "agent_message",
     "tool_call",
@@ -3022,6 +3035,7 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
   const trail = await parseInterruptModelFixture();
   const types = trail.groups[0]!.entries.map((e) => e.type);
   expect(types).toEqual([
+    "session_metadata_update",
     "user_message",
     "agent_message",
     "user_interrupt",
@@ -3029,15 +3043,14 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
     "model_change",
     "agent_message",
     "agent_message",
-    "session_metadata_update",
   ]);
 
   // Indices follow the sequence asserted above; assert linkage via those entries'
   // own ids rather than reconstructing the kit's internal id scheme.
-  const interrupt = trail.groups[0]!.entries[2];
+  const interrupt = trail.groups[0]!.entries[3];
   expect(interrupt?.type).toBe("user_interrupt");
   expect(interrupt?.payload).toEqual({ reason: "user for tool use" });
-  expect(interrupt?.parent_id).toBe(trail.groups[0]!.entries[1]?.id);
+  expect(interrupt?.parent_id).toBe(trail.groups[0]!.entries[2]?.id);
 
   const modelChange = trail.groups[0]!.entries.find((e) => e.type === "model_change");
   expect(modelChange?.type).toBe("model_change");
@@ -3047,10 +3060,10 @@ test("interrupt-and-model-change fixture: emits user_interrupt and synthetic mod
   });
   expect(modelChange?.source?.synthesized).toBe(true);
   // model_change is synthesized before the second user_message's agent reply;
-  // its parent is the preceding user_message (entries[3]).
-  expect(modelChange?.parent_id).toBe(trail.groups[0]!.entries[3]?.id);
+  // its parent is the preceding user_message.
+  expect(modelChange?.parent_id).toBe(trail.groups[0]!.entries[4]?.id);
 
-  const sonnetMsg = trail.groups[0]!.entries[5];
+  const sonnetMsg = trail.groups[0]!.entries[6];
   expect(sonnetMsg?.type).toBe("agent_message");
   expect(sonnetMsg?.parent_id).toBe(modelChange?.id);
 
@@ -3184,7 +3197,7 @@ test("fidelity-edge-cases trail output drops below 11 KB after envelope_ref dedu
     ...trail.groups[0]!.entries.map((e) => JSON.stringify(e)),
   ];
   const bytes = Buffer.byteLength(`${lines.join("\n")}\n`, "utf8");
-  expect(bytes).toBeLessThan(13_000);
+  expect(bytes).toBeLessThan(13_100);
 });
 
 test("sourceVersion() is null when no sessions exist", async () => {
