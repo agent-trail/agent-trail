@@ -141,7 +141,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       }
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs !== undefined) {
-        yield* walkContainer(vcs, index, `records[${index}].vcs`);
+        yield* visitVcsStrings(vcs, index, `records[${index}].vcs`);
       }
       const headerSource = value.source as Record<string, unknown> | undefined;
       if (headerSource && typeof headerSource.path === "string") {
@@ -153,7 +153,7 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs !== undefined) {
-        yield* walkContainer(vcs, index, `records[${index}].vcs`);
+        yield* visitVcsStrings(vcs, index, `records[${index}].vcs`);
       }
     }
 
@@ -276,6 +276,21 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
       } else if (typeof raw === "string" && source) {
         yield keyVisit(source, "raw", index, `records[${index}].source.raw`);
       }
+    }
+  }
+}
+
+function* visitVcsStrings(
+  vcs: Record<string, unknown>,
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  if (typeof vcs.branch === "string") yield keyVisit(vcs, "branch", recordIndex, `${path}.branch`);
+  const worktree = vcs.worktree as Record<string, unknown> | undefined;
+  if (worktree === undefined) return;
+  for (const key of ["name", "path", "original_cwd", "original_branch"] as const) {
+    if (typeof worktree[key] === "string") {
+      yield keyVisit(worktree, key, recordIndex, `${path}.worktree.${key}`);
     }
   }
 }
