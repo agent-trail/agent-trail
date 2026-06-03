@@ -300,58 +300,6 @@ export function envelopeRefWarnings(
   return diagnostics;
 }
 
-// Spec §9.2: when payload.usage is present on agent_message, the writer must
-// emit at least one of (input_tokens, input_tokens_cumulative) AND at least
-// one of (output_tokens, output_tokens_cumulative). This is enforced as a
-// whole-file diagnostic rather than via schema `anyOf` so the error code
-// names the specific pair that's missing.
-export function agentMessageUsageWarnings(entries: JsonlRecord[]): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  for (const entry of entries) {
-    if (entry.value.type !== "agent_message") {
-      continue;
-    }
-    const payload = entry.value.payload;
-    if (typeof payload !== "object" || payload === null) {
-      continue;
-    }
-    const usage = (payload as { usage?: unknown }).usage;
-    if (typeof usage !== "object" || usage === null) {
-      continue;
-    }
-    const u = usage as Record<string, unknown>;
-    const hasInput =
-      typeof u.input_tokens === "number" || typeof u.input_tokens_cumulative === "number";
-    const hasOutput =
-      typeof u.output_tokens === "number" || typeof u.output_tokens_cumulative === "number";
-    if (!hasInput) {
-      diagnostics.push(
-        createDiagnostic({
-          line: entry.line,
-          path: "/payload/usage",
-          severity: "warning",
-          code: "usage_missing_required",
-          message:
-            "payload.usage must include at least one of input_tokens or input_tokens_cumulative when present",
-        }),
-      );
-    }
-    if (!hasOutput) {
-      diagnostics.push(
-        createDiagnostic({
-          line: entry.line,
-          path: "/payload/usage",
-          severity: "warning",
-          code: "usage_missing_required",
-          message:
-            "payload.usage must include at least one of output_tokens or output_tokens_cumulative when present",
-        }),
-      );
-    }
-  }
-  return diagnostics;
-}
-
 // Spec §9.4: `user_query_response.payload.for_id` links to a prior
 // `user_query` entry, and each `answers` key names one of that query's
 // `questions[].id` values. The JSON Schema validates the per-record shape;

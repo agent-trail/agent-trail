@@ -304,11 +304,17 @@ Expected (subset, both profiles): single `warning unmatched_tool_call_at_eof /id
 
 Expected (subset, both profiles): `warning unknown_final_message_id /payload/final_message_id line 2`.
 
-#### `invalid-graph/agent-message-usage-missing-required.trail.jsonl`
+#### `invalid-schema/agent-message-usage-missing-required.trail.jsonl`
 
 `agent_message.payload.usage` is present but carries only `output_tokens`, missing both `input_tokens` and `input_tokens_cumulative`. Spec §9.2 requires at least one of each pair when `usage` is present.
 
-Expected (subset, both profiles): `warning usage_missing_required /payload/usage line 3` for the missing input pair.
+Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the missing input pair.
+
+#### `invalid-schema/agent-message-usage-zero-context-window.trail.jsonl`
+
+`agent_message.payload.usage.context_window_tokens` is `0`. Spec §9.2 only allows a positive context-window size when the source exposes it.
+
+Expected (subset, both profiles): `error minimum /payload/usage/context_window_tokens line 3`.
 
 #### `invalid-graph/header-has-parent-id.trail.jsonl`
 
@@ -372,6 +378,7 @@ Unknown `future_field` on a `capability_change` payload.
 
 Event with `type: "future_event"`, an event type not in the implemented set.
 
+- Strict: schema error because v0.1 writer-strict output cannot emit unknown top-level event types.
 - Reader-tolerant: single `warning reader_tolerant_unknown_record /type line 2`.
 
 #### `reader-tolerant/reserved-future-event-type.trail.jsonl`

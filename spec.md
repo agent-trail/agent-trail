@@ -70,12 +70,12 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
 | **Active leaf** | In a tree session, the last event in the file; the "current" position. |
-| **Canonical event** | One of the seven mandatory event types in §9. |
+| **Canonical event** | One of the mandatory or optional event types in §9. |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism such as gist. |
 | **Synthesized event** | An event the adapter constructed from indirect source data (e.g., a git diff), not mapped from a real source event. Flagged with `source.synthesized: true`. |
-| **Content hash** | SHA-256 of the canonical bytes of the exact artifact (§7). |
+| **Content hash** | SHA-256 of the exact artifact's canonical bytes (§7). |
 | **Canonical bytes** | The file content normalized per §7 for hashing. |
 | **Source escape hatch** | The `source.raw` field; preserves verbatim source-format data for lossless round-trip. |
 
@@ -158,7 +158,7 @@ Redacted artifacts may include `redacted_from.content_hash` in the header to rec
 
 ### 7.3 Content hash
 
-Finalized artifacts should populate `content_hash` in the header. This is the SHA-256 of the exact artifact's canonical bytes, not a logical-session identifier shared across raw and redacted variants.
+Finalized artifacts should populate `content_hash` in the header. This is the SHA-256 of the artifact's canonical bytes, not a hash of the physical on-disk serialization and not a logical-session identifier shared across raw and redacted variants.
 
 Canonical bytes are defined as:
 
@@ -488,7 +488,7 @@ Event `id` uniqueness (§7.5) remains **file-scoped**: every `id` (across every 
 
 Each group's session-level `content_hash` is computed over the canonical bytes of that group's slice only (header + its events, envelope and sibling groups excluded). This is the same procedure as §7.3 / §7.4 applied to the slice. As a consequence, extracting one session from a multi-session file (drop the envelope, drop sibling groups, write only that group's canonical bytes) reproduces the same digest as the in-file value.
 
-When an extracted single session's recomputed `content_hash` does not match the value stored in the in-file header, readers SHOULD emit a warning rather than an error — canonicalization differences across writers can cause spurious mismatches that the reader can still display safely.
+When a reader extracts a single session from a multi-session file outside writer-strict validation and the recomputed `content_hash` does not match the value stored in the in-file header, it SHOULD emit a warning rather than an error. Strict validation of a finalized trail file still treats an in-place finalized `content_hash` mismatch as an error (§16.4).
 
 #### 8.6.5 Cross-group references
 
@@ -638,13 +638,13 @@ Captures per-message token accounting emitted by the source agent. Optional. Whe
 | `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
 | `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
 | `context_input_tokens` | no | integer ≥0 | prompt/context tokens submitted to the model for this request; cache-inclusive when the source exposes enough detail |
-| `context_window_tokens` | no | integer ≥0 | model context-window size for this request, only when the source exposes it |
+| `context_window_tokens` | no | integer ≥1 | model context-window size for this request, only when the source exposes it |
 
 When `usage` is present, writers MUST emit at least one of (`input_tokens`, `input_tokens_cumulative`) AND at least one of (`output_tokens`, `output_tokens_cumulative`). Both shapes are supported because sources differ: Anthropic emits deltas, some Codex variants emit only cumulative totals. Readers SHOULD prefer the delta form and fall back to subtracting consecutive cumulative values.
 
 Cache token semantics match Anthropic and OpenAI Responses API: `input_tokens` counts non-cached input only; `cache_read_tokens` and `cache_creation_tokens` are independent billing categories. Total billed input = `input_tokens + cache_read_tokens + cache_creation_tokens`. They are additive, not a subset of `input_tokens`.
 
-Context token semantics are for context-pressure analytics, not billing. Writers MAY emit `context_input_tokens` when the source exposes prompt/context tokens for the request, including cache-read and cache-creation tokens when those count against the context window. Writers MAY emit `context_window_tokens` when the source reports the model's context-window size for the request. Writers MUST NOT estimate either field from raw text or tokenizer assumptions, and MUST NOT fabricate a `context_window_tokens` value from model name alone. Consumers derive context pressure as `context_input_tokens / context_window_tokens` when both fields are present and `context_window_tokens > 0`; otherwise the ratio is unavailable.
+Context token semantics are for context-pressure analytics, not billing. Writers MAY emit `context_input_tokens` when the source exposes prompt/context tokens for the request, including cache-read and cache-creation tokens when those count against the context window. Writers MAY emit `context_window_tokens` when the source reports the model's positive context-window size for the request. Writers MUST NOT estimate either field from raw text or tokenizer assumptions, and MUST NOT fabricate a `context_window_tokens` value from model name alone. Consumers derive context pressure as `context_input_tokens / context_window_tokens` when both fields are present; otherwise the ratio is unavailable.
 
 Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 
@@ -1412,7 +1412,7 @@ Readers must tolerate unknown types:
 - Render with a generic fallback.
 - Do not abort parsing.
 
-Writers should not invent new top-level types. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `meta` (§8.0.3 / §11) for vendor extensions.
+Writers MUST NOT invent new top-level event types in v0.1 writer-strict output. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `meta` (§8.0.3 / §11) for vendor extensions. Reader-tolerant parsing may preserve unknown future event types at runtime; this tolerance is not part of the writer schema.
 
 ### 9.7 Source envelope referencing
 
@@ -1628,7 +1628,7 @@ Validation is layered because JSON Schema validates one line at a time, while se
 
 ### 16.1 Writer schema
 
-`schema.json` is the writer-strict schema for v0.1.0. It validates a single JSON object line and requires header lines to use `schema_version: "0.1.0"`. Writers use this schema for emitted header and event lines.
+`schema.json` is the writer-strict schema for v0.1.0. It validates a single JSON object line and requires header and envelope records to use `schema_version: "0.1.0"`. It rejects unknown top-level event types. Writers use this schema for emitted envelope, header, and event lines.
 
 `schema.json` is the canonical format contract through v1.0. Generated types, validators, and packages must derive from it rather than maintaining a separate manual contract.
 
@@ -1688,7 +1688,7 @@ Streaming rules (§8.4) are evaluated against the *current* header `stream.state
 
 The normative writer-strict JSON Schema lives in `schema.json` and is published at `https://agent-trail.dev/schema/v0.1.0.json`.
 
-This spec intentionally does not duplicate the full schema inline. Implementations should validate each JSONL line against `schema.json`, then run the whole-file checks in §16.4. Reader-tolerant parsing is separate from writer-strict schema validation.
+This spec intentionally does not duplicate the full schema inline. Implementations should validate each JSONL line against `schema.json`, then run the whole-file checks in §16.4. Reader-tolerant parsing, including unknown future event preservation, is separate from writer-strict schema validation.
 
 ---
 
@@ -1761,7 +1761,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 
 Initial public draft. v0.1.0 defines:
 
-- JSONL file layout, session header, core event envelope, seven mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
+- JSONL file layout, session header, core event envelope, mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and the reconciliation algorithm (§8.5).
@@ -1795,7 +1795,7 @@ An envelope at line 1 followed by a session header at line 2 is valid. Events ar
 - **JSONL over JSON:** streamable, append-friendly, line-grep-able, no parser-bomb risk.
 - **Optional `parent_id`:** most agents produce linear sessions; tree complexity should be paid only by sessions that need it.
 - **`source.raw` escape hatch:** lets adapters preserve everything the canonical model loses; enables lossless round-trip for source-aware tools.
-- **Seven mandatory event types:** minimum semantic surface for a useful viewer; everything else is optional.
+- **Mandatory event set:** minimum semantic surface for a useful viewer; everything else is optional.
 - **Fixed tool taxonomy:** cross-agent search and rendering depend on shared tool names.
 - **No runtime fields:** active leaf pointers, in-memory caches, etc. are reader concerns and not in the file.
 - **Header outside the event graph:** the header is metadata about the file, not a participant in the conversation.
@@ -1836,7 +1836,7 @@ Yes, three ways depending on the data:
 2. **Vendor extension with semantics:** put it in `meta` (§8.0.3) with a reverse-domain key (`com.example.field`).
 3. **Source-agent-specific tools:** use `tool: "other"` with `args: { name, args }`.
 
-Don't invent new top-level event types in v0.1.x.
+Don't invent new top-level event types in v0.1.x; writer-strict schema rejects them.
 
 **How do I handle agent updates that change the source format?**
 

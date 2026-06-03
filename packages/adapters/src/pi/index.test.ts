@@ -1486,10 +1486,12 @@ test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_
   ).toBe(0);
 
   const cancelledAbort = aborts[0];
+  const cancelledAbortForId = (cancelledAbort?.payload as { for_id?: string }).for_id;
+  expect(typeof cancelledAbortForId).toBe("string");
   expect(cancelledAbort?.payload).toEqual({
     scope: "tool_call",
     reason: "user_interrupt",
-    for_id: (cancelledAbort?.payload as { for_id?: string }).for_id,
+    for_id: cancelledAbortForId as string,
   });
   const cancelledMeta = cancelledAbort?.meta as Record<string, unknown>;
   expect(cancelledMeta["dev.pi.truncated"]).toBe(true);

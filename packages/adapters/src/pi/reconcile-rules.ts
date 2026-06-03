@@ -180,7 +180,10 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
           activeLeafSourceId = rawLeaf; // raw id captured before resolution below
           const mapped = resolveTargetEntryId(rawLeaf, parentBySourceId, sourceIdToFirstEntryId);
           if (mapped !== undefined) {
-            next = { ...next, payload: { ...payload, data: { ...payload.data, leaf_id: mapped } } };
+            next = {
+              ...next,
+              payload: { ...payload, data: { ...payload.data, leaf_id: mapped } },
+            } as Entry;
           }
         } else {
           // A cleared tip (Pi leaf targetId:null → no data.leaf_id) resets the
@@ -196,7 +199,7 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
             next = {
               ...next,
               payload: { ...payload, data: { ...payload.data, target_id: mapped } },
-            };
+            } as Entry;
           }
         }
       }
@@ -213,7 +216,7 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
       next = {
         ...entry,
         payload: { ...entry.payload, abandoned_branch_id: resolved },
-      };
+      } as Entry;
     }
     if (entry.type === "context_compact") {
       const firstKeptEntryId = firstKeptEntryIdFrom(entry);
@@ -225,7 +228,7 @@ export const piParentResolution: ReconcilerRule = (entries, ctx) => {
         next = {
           ...next,
           payload: { ...next.payload, replaced_message_ids: replaced },
-        };
+        } as Entry;
       }
     }
     next = backfillEnvelopeRef(next, hint, sourceIdToFirstEntryId);
@@ -250,7 +253,7 @@ function backfillEnvelopeRef(
   return {
     ...entry,
     source: { ...source, raw: { ...raw, envelope_ref: firstEntryId } },
-  };
+  } as Entry;
 }
 
 /**

@@ -142,17 +142,29 @@ test("invalid-schema/agent-message-usage-extra-field.trail.jsonl reports additio
   });
 });
 
-test("invalid-graph/agent-message-usage-missing-required.trail.jsonl warns usage_missing_required for input pair", async () => {
+test("invalid-schema/agent-message-usage-missing-required.trail.jsonl rejects usage missing input pair", async () => {
   const diagnostics = await validateTrailString(
-    await loadFixture("invalid-graph/agent-message-usage-missing-required.trail.jsonl"),
+    await loadFixture("invalid-schema/agent-message-usage-missing-required.trail.jsonl"),
   );
   expect(diagnostics).toContainEqual({
     line: 3,
     path: "/payload/usage",
-    severity: "warning",
-    code: "usage_missing_required",
-    message:
-      "payload.usage must include at least one of input_tokens or input_tokens_cumulative when present",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
+test("invalid-schema/agent-message-usage-zero-context-window.trail.jsonl rejects zero context window", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-message-usage-zero-context-window.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/payload/usage/context_window_tokens",
+    severity: "error",
+    code: "minimum",
+    message: "must be >= 1",
   });
 });
 
@@ -1055,6 +1067,17 @@ test("reader-tolerant/capability-change-unknown-payload-field warns at capabilit
 });
 
 test("reader-tolerant/unknown-event-type preserves unknown record with warning", async () => {
+  const strict = await validateTrailString(
+    await loadFixture("reader-tolerant/unknown-event-type.trail.jsonl"),
+  );
+  expect(strict).toContainEqual({
+    line: 2,
+    path: "",
+    severity: "error",
+    code: "oneOf",
+    message: "must match exactly one schema in oneOf",
+  });
+
   const tolerant = await validateTrailString(
     await loadFixture("reader-tolerant/unknown-event-type.trail.jsonl"),
     { profile: "reader-tolerant" },

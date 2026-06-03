@@ -1898,7 +1898,7 @@ function schemaImplementedEventRefs(): string[] {
 
   return eventBranch.oneOf
     .map((branch) => branch.$ref.split("/").at(-1))
-    .filter((eventType): eventType is string => eventType !== undefined && eventType !== "unknown");
+    .filter((eventType): eventType is string => eventType !== undefined);
 }
 
 type SchemaValue = {

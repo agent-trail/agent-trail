@@ -64,40 +64,47 @@ test("mapAgentMessageUsage: derives Claude Code cache-inclusive context input to
   });
 });
 
-test("mapAgentMessageUsage: renames cache_*_input_tokens to spec names", () => {
+test("mapAgentMessageUsage: drops cache-only usage without input/output counters", () => {
   expect(
     mapAgentMessageUsage({ cache_read_input_tokens: 8, cache_creation_input_tokens: 2 }),
-  ).toEqual({
-    cache_read_tokens: 8,
-    cache_creation_tokens: 2,
-    context_input_tokens: 10,
-  });
+  ).toBeUndefined();
 });
 
-test("mapAgentMessageUsage: derives context input from canonical cache token aliases", () => {
+test("mapAgentMessageUsage: drops input-only usage without output counters", () => {
   expect(
     mapAgentMessageUsage({ input_tokens: 10, cache_read_tokens: 8, cache_creation_tokens: 2 }),
-  ).toEqual({
-    input_tokens: 10,
-    cache_read_tokens: 8,
-    cache_creation_tokens: 2,
-    context_input_tokens: 20,
-  });
+  ).toBeUndefined();
 });
 
 test("mapAgentMessageUsage: preserves direct context usage fields", () => {
   expect(
     mapAgentMessageUsage({
       input_tokens: 10,
+      output_tokens: 5,
       cache_read_tokens: 8,
       context_input_tokens: 42,
       contextWindowTokens: 200000,
     }),
   ).toEqual({
     input_tokens: 10,
+    output_tokens: 5,
     cache_read_tokens: 8,
     context_input_tokens: 42,
     context_window_tokens: 200000,
+  });
+});
+
+test("mapAgentMessageUsage: drops zero context window tokens", () => {
+  expect(
+    mapAgentMessageUsage({
+      input_tokens: 10,
+      output_tokens: 5,
+      context_window_tokens: 0,
+    }),
+  ).toEqual({
+    input_tokens: 10,
+    output_tokens: 5,
+    context_input_tokens: 10,
   });
 });
 

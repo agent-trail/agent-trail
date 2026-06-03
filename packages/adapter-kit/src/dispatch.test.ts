@@ -43,7 +43,7 @@ describe("dispatch", () => {
     });
     const broad = defineMapping({
       match: { type: "response_item" },
-      emit: () => [{ type: "unknown" as const }],
+      emit: () => [{ type: "system_event" as const }],
     });
 
     const record = { type: "response_item", payload: { type: "message" } };

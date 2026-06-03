@@ -10,7 +10,7 @@ describe("meta.linker stripping", () => {
       type: "tool_call",
       id: "a",
       ts: "2026-05-29T00:00:00.000Z",
-      payload: {},
+      payload: { tool: "other", args: { name: "test" } },
       meta: { linker: { call_id: "c1" } },
     } as Entry;
 
@@ -24,7 +24,7 @@ describe("meta.linker stripping", () => {
       type: "agent_message",
       id: "a",
       ts: "2026-05-29T00:00:00.000Z",
-      payload: {},
+      payload: { text: "" },
       meta: { linker: { call_id: "c1" }, "x-codex/raw_type": "message" },
     } as Entry;
 
