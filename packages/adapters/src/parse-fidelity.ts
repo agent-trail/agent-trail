@@ -1,13 +1,4 @@
-import type { Entry, Header } from "@agent-trail/types";
-
-type ParseFidelity = {
-  quarantined_count: number;
-  termination_reason?:
-    | "eof_with_open_tool_calls"
-    | "process_terminated"
-    | "truncated"
-    | "user_abort";
-};
+import type { Entry, Header, ParseFidelity } from "@agent-trail/types";
 
 const UNKNOWN_RECORD_KIND = /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/;
 
@@ -17,7 +8,7 @@ export function applyParseFidelity(header: Header, entries: Entry[]): Header {
   };
   const terminationReason = finalSessionTerminatedReason(entries);
   if (terminationReason !== undefined) parseFidelity.termination_reason = terminationReason;
-  (header as Header & { parse_fidelity: ParseFidelity }).parse_fidelity = parseFidelity;
+  header.parse_fidelity = parseFidelity;
   return header;
 }
 
