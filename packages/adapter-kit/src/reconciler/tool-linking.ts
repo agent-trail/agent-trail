@@ -20,7 +20,8 @@ function linkerCallId(entry: Entry): string | undefined {
  * the call gains `semantic.call_id` so the pair shares a grouping key. Unmatched
  * results keep their `semantic.call_id` but get no `for_id`. Aborted calls only
  * gain `payload.for_id`; the abort event itself is not a tool result and does
- * not participate in semantic result pairing.
+ * not participate in semantic result pairing. Only call-scoped aborts may gain
+ * `for_id`; turn-scoped/vendor-scoped aborts remain broader stop markers.
  */
 export function toolLinking(entries: Entry[]): Entry[] {
   const callEntryIdByCallId = new Map<string, string>();
@@ -46,6 +47,7 @@ export function toolLinking(entries: Entry[]): Entry[] {
       } as Entry;
     }
     if (entry.type === "tool_call_aborted") {
+      if ((entry.payload as { scope?: unknown }).scope !== "tool_call") return entry;
       const forId = callEntryIdByCallId.get(callId);
       return {
         ...entry,

@@ -2983,6 +2983,60 @@ test("parseSession() maps hook error attachments to hook_failed events", async (
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() keeps unresolved hook blocking tool ids as hook_failed", async () => {
+  const base = {
+    isSidechain: false,
+    sessionId: "00000000-0000-0000-0000-ccccc0000178",
+    version: "1.0.0-synthetic",
+    cwd: "/tmp/synthetic-project",
+  };
+  const trail = await parseClaudeCodeJsonl([
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      message: { role: "user", content: "run command" },
+      uuid: "00000000-0000-0000-0000-cccccccc1781",
+      timestamp: "2026-05-17T14:00:05.000Z",
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-0000-0000-cccccccc1781",
+      type: "attachment",
+      attachment: {
+        type: "hook_blocking_error",
+        hookName: "PreToolUse:Bash",
+        toolUseID: "missing-tool-use",
+        message: "blocked command",
+        code: "exit_2",
+      },
+      uuid: "00000000-0000-0000-0000-cccccccc1782",
+      timestamp: "2026-05-17T14:00:06.000Z",
+    },
+  ]);
+
+  const entries = trail.groups[0]!.entries;
+  expect(entries.some((entry) => entry.type === "tool_call_aborted")).toBe(false);
+  const hookFailed = entries.find(
+    (entry) =>
+      entry.type === "system_event" && (entry.payload as { kind?: string }).kind === "hook_failed",
+  );
+  expect(hookFailed?.payload).toEqual({
+    kind: "hook_failed",
+    text: "Hook failed: PreToolUse:Bash",
+    data: {
+      severity: "error",
+      blocking: true,
+      hook_name: "PreToolUse:Bash",
+      code: "exit_2",
+      details: "blocked command",
+    },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps hook blocking errors with tool ids to tool_call_aborted", async () => {
   const base = {
     isSidechain: false,

@@ -1038,6 +1038,17 @@
                     "for_id": { "$ref": "#/$defs/id" }
                   }
                 }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "scope": { "not": { "const": "tool_call" } }
+                  },
+                  "required": ["scope"]
+                },
+                "then": {
+                  "not": { "required": ["for_id"] }
+                }
               }
             ]
           }

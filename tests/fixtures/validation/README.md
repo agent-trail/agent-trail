@@ -86,6 +86,12 @@ Turn-scoped `tool_call_aborted` without `for_id`. It is valid, but does not clos
 
 Expected: no diagnostics under either profile.
 
+#### `valid/tool-call-aborted-extension-scope-reason.trail.jsonl`
+
+Vendor extension `tool_call_aborted.payload.scope` and `payload.reason` values using the `x-<vendor>/<value>` pattern.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/tool-call-matched-by-semantic-call-id.trail.jsonl`
 
 `tool_call` and `tool_result` both carry matching `semantic.call_id`; `tool_result` omits `for_id` (spec §9.5 fallback rule 1, semantic match).
@@ -212,6 +218,12 @@ Expected (strict, subset): `error anyOf /payload line 2`.
 
 Expected (strict, subset): `error required /payload line 2`.
 
+#### `invalid-schema/tool-call-aborted-turn-scope-with-for-id.trail.jsonl`
+
+`tool_call_aborted.payload.scope` is `turn` but `payload.for_id` is present. Only call-scoped aborts may carry `for_id`.
+
+Expected (strict, subset): `error not /payload line 2`.
+
 #### `invalid-schema/tool-call-aborted-bad-reason.trail.jsonl`
 
 `tool_call_aborted.payload.reason` is a bare unknown value instead of a reserved reason or `x-<adapter>/<reason>` extension.
@@ -248,7 +260,13 @@ Expected (subset, strict): single `warning stream_open_with_content_hash /conten
 
 Header + one `tool_call` with no matching `tool_result` and no terminal event. Triggers the spec §16.4 whole-file warning.
 
-Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2` ("tool_call \"evta1\" has no matching tool_result at EOF").
+Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2` ("tool_call \"evta1\" has no matching tool_result or call-scoped tool_call_aborted at EOF").
+
+#### `invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl`
+
+`tool_call` open at EOF followed by a turn-scoped `tool_call_aborted`. Turn-scoped aborts are valid events, but they do not close any specific tool call.
+
+Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2`.
 
 #### `invalid-graph/session-end-unknown-final-message-id.trail.jsonl`
 

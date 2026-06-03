@@ -18,6 +18,7 @@ import {
   ccPermissionModeDelta,
   ccTaskPlanDeltas,
   ccToolKindToResult,
+  ccUnresolvedHookAbortFallback,
 } from "./reconcile-rules.ts";
 import { isTracerEnvelope, parseLines, stringValue } from "./source.ts";
 
@@ -116,6 +117,7 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
       ccTaskPlanDeltas,
       ccDropTaskPlanResults,
       ccCompactBoundaryProvenance,
+      ccUnresolvedHookAbortFallback,
       ccEnvelopeRefBackfill,
     ],
   },

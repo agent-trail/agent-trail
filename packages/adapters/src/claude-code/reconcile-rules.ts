@@ -8,6 +8,7 @@ import type { Entry, ToolKind } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { type CcHint, HINT } from "./mappings.ts";
+import { isObject, stringValue } from "./source.ts";
 
 function hintOf(entry: Entry): CcHint | undefined {
   return entry.meta?.[HINT] as CcHint | undefined;
@@ -266,6 +267,45 @@ export const ccTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(
 
 export const ccDropTaskPlanResults: ReconcilerRule = (entries) =>
   dropTaskPlanAckResults(entries, { sourceGroupKey: (entry) => hintOf(entry)?.sid });
+
+function hookFallbackPayload(entry: Entry): Entry["payload"] {
+  const raw = isObject(entry.source?.raw) ? entry.source.raw : undefined;
+  const attachment = isObject(raw?.attachment) ? raw.attachment : raw;
+  const payload = entry.payload as { blocked_by?: unknown };
+  const hookName = stringValue(attachment?.hookName) ?? stringValue(payload.blocked_by);
+  const code = stringValue(attachment?.code);
+  const details = stringValue(attachment?.message);
+  const data: Record<string, unknown> = {
+    severity: "error",
+    blocking: true,
+    ...(hookName !== undefined ? { hook_name: hookName } : {}),
+    ...(code !== undefined ? { code } : {}),
+    ...(details !== undefined ? { details } : {}),
+  };
+  return {
+    kind: "hook_failed",
+    text: hookName !== undefined ? `Hook failed: ${hookName}` : "Hook failed",
+    data,
+  };
+}
+
+export const ccUnresolvedHookAbortFallback: ReconcilerRule = (entries) =>
+  entries.map((entry) => {
+    if (entry.type !== "tool_call_aborted") return entry;
+    const payload = entry.payload as { scope?: unknown; reason?: unknown; for_id?: unknown };
+    if (
+      payload.scope !== "tool_call" ||
+      payload.reason !== "hook_blocked" ||
+      typeof payload.for_id === "string"
+    ) {
+      return entry;
+    }
+    return {
+      ...entry,
+      type: "system_event",
+      payload: hookFallbackPayload(entry),
+    } as Entry;
+  });
 
 function stripHint(entry: Entry): Entry {
   const m = entry.meta as Record<string, unknown> | undefined;

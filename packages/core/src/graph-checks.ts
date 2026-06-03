@@ -77,6 +77,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     callIndex: number;
     matched: boolean;
     canFallback: boolean;
+    canExplicitMatch: boolean;
   };
 
   const calls: Call[] = [];
@@ -106,12 +107,17 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
         typeof payload === "object" && payload !== null
           ? (payload as { for_id?: unknown }).for_id
           : undefined;
+      const scope =
+        typeof payload === "object" && payload !== null
+          ? (payload as { scope?: unknown }).scope
+          : undefined;
       results.push({
         forId: typeof forIdRaw === "string" ? forIdRaw : undefined,
         semanticCallId: type === "tool_result" ? readSemanticCallId(entry.value) : undefined,
         callIndex: calls.length, // for sequential pairing: results pair only with calls prior to this entry
         matched: false,
         canFallback: type === "tool_result",
+        canExplicitMatch: type === "tool_result" || scope === "tool_call",
       });
     } else if (type === "session_end") {
       hasSessionEnd = true;
@@ -140,7 +146,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
   // does not fall through to the fallback cascade. Only a missing or
   // unresolvable `for_id` triggers fallback per §9.5.
   for (const result of results) {
-    if (result.forId === undefined) {
+    if (!result.canExplicitMatch || result.forId === undefined) {
       continue;
     }
     const call = callById.get(result.forId);
@@ -206,7 +212,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
         path: "/id",
         severity: "warning",
         code: "unmatched_tool_call_at_eof",
-        message: `tool_call "${call.id}" has no matching tool_result at EOF`,
+        message: `tool_call "${call.id}" has no matching tool_result or call-scoped tool_call_aborted at EOF`,
       }),
     );
 }

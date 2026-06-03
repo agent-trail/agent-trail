@@ -328,7 +328,8 @@ test("tool_call/tool_result pairing is scoped per session group (no cross-group 
     path: "/id",
     severity: "warning",
     code: "unmatched_tool_call_at_eof",
-    message: 'tool_call "01HCALL0000000000000000001" has no matching tool_result at EOF',
+    message:
+      'tool_call "01HCALL0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
   });
 });
 

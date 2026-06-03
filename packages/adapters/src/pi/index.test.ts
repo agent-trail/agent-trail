@@ -1499,6 +1499,7 @@ test("BashExecutionMessage maps to a user-origin shell_command tool_call + tool_
   expect((cancelledCall?.meta as Record<string, unknown>)["dev.pi.exclude_from_context"]).toBe(
     true,
   );
+  expect(entries.some((e) => e.type === "session_terminated")).toBe(false);
 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
