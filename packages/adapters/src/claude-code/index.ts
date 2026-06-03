@@ -11,7 +11,6 @@ import type {
   TrailSessionGroup,
 } from "../index.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
-import { readGitVcs } from "../vcs.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
@@ -185,10 +184,6 @@ async function parseGroup(
     header.meta = { ...header.meta, "dev.claudecode.agent_id": options.childKey };
   }
   if (options.forkFrom !== undefined) header.fork_from = options.forkFrom;
-  if (header.vcs === undefined && typeof header.cwd === "string") {
-    const vcs = await readGitVcs(header.cwd);
-    if (vcs !== undefined) header.vcs = vcs;
-  }
   const sessionUid = header.session_uid ?? header.id;
   const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
     includeSidechain: options.includeSidechain === true,

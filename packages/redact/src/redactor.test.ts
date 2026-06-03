@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { JsonlRecord } from "@agent-trail/core";
+import { type JsonlRecord, validateTrailString } from "@agent-trail/core";
 import { redactTrail } from "./redactor.ts";
 
 function record(line: number, value: Record<string, unknown>): JsonlRecord {
@@ -232,6 +232,7 @@ test("redactTrail strips vcs.remote_url from the trail envelope by default", () 
 test("redactTrail strips vcs.remote_url from the header by default", () => {
   const records: JsonlRecord[] = [
     header({
+      id: "00000000-0000-0000-0000-00000000d0aa",
       vcs: {
         type: "git",
         revision: "a1b2c3d4",
@@ -283,6 +284,114 @@ test("redactTrail keeps vcs.remote_url when keepRemoteUrl: true is passed", () =
     remote_url: "https://github.com/agent-trail/agent-trail",
   });
   expect(summary.counts.vcs_remote_url).toBeUndefined();
+});
+
+test("redactTrail normalizes vcs worktree paths on headers and trail envelopes", () => {
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "trl-1",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        worktree: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+        },
+      },
+    }),
+    header({
+      vcs: {
+        type: "git",
+        revision: "a1b2c3d4",
+        worktree: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const trailValue = out[0]?.value as { vcs: { worktree: Record<string, unknown> } };
+  const headerValue = out[1]?.value as { vcs: { worktree: Record<string, unknown> } };
+  expect(trailValue.vcs.worktree.path).toBe("<home>/project/.worktrees/topic");
+  expect(trailValue.vcs.worktree.original_cwd).toBe("<home>/project");
+  expect(headerValue.vcs.worktree.path).toBe("<home>/project/.worktrees/topic");
+  expect(headerValue.vcs.worktree.original_cwd).toBe("<home>/project");
+  expect(summary.counts.home_path).toBe(4);
+});
+
+test("redactTrail does not mutate schema-controlled vcs fields", async () => {
+  const commit = "abcdef0123456789abcdef0123456789abcdef01";
+  const records: JsonlRecord[] = [
+    header({
+      id: "00000000-0000-0000-0000-00000000d0aa",
+      vcs: {
+        type: "git",
+        revision: commit,
+        head_commit: commit,
+        worktree: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+          original_head_commit: commit,
+        },
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, { userSecrets: ["git", "abcdef0"] });
+
+  const value = out[0]?.value as {
+    vcs: { type: string; head_commit: string; worktree: Record<string, unknown> };
+  };
+  expect(value.vcs.type).toBe("git");
+  expect(value.vcs.head_commit).toBe(commit);
+  expect(value.vcs.worktree.original_head_commit).toBe(commit);
+  const jsonl = `${out.map((r) => JSON.stringify(r.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(jsonl);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("redactTrail does not mutate schema-controlled vcs.worktree metadata fields", async () => {
+  const commit = "abcdef0123456789abcdef0123456789abcdef01";
+  const records: JsonlRecord[] = [
+    header({ id: "00000000-0000-0000-0000-00000000d0aa" }),
+    record(2, {
+      type: "session_metadata_update",
+      id: "00000000-0000-0000-0000-00000000d0ab",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        field: "vcs.worktree",
+        reason: "runtime_inferred",
+        value: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+          original_head_commit: commit,
+        },
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, { userSecrets: ["abcdef0"] });
+
+  const value = out[1]?.value as {
+    payload: { value: { path: string; original_cwd: string; original_head_commit: string } };
+  };
+  expect(value.payload.value.path).toBe("<home>/project/.worktrees/topic");
+  expect(value.payload.value.original_cwd).toBe("<home>/project");
+  expect(value.payload.value.original_head_commit).toBe(commit);
+  const jsonl = `${out.map((r) => JSON.stringify(r.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(jsonl);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("redactTrail normalizes /Users/<name> and /home/<name> paths to <home>", () => {
