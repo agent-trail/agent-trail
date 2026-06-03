@@ -360,6 +360,40 @@ test("redactTrail does not mutate schema-controlled vcs fields", async () => {
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("redactTrail does not mutate schema-controlled vcs.worktree metadata fields", async () => {
+  const commit = "abcdef0123456789abcdef0123456789abcdef01";
+  const records: JsonlRecord[] = [
+    header({ id: "00000000-0000-0000-0000-00000000d0aa" }),
+    record(2, {
+      type: "session_metadata_update",
+      id: "00000000-0000-0000-0000-00000000d0ab",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        field: "vcs.worktree",
+        reason: "runtime_inferred",
+        value: {
+          name: "topic",
+          path: "/Users/alice/project/.worktrees/topic",
+          original_cwd: "/Users/alice/project",
+          original_head_commit: commit,
+        },
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, { userSecrets: ["abcdef0"] });
+
+  const value = out[1]?.value as {
+    payload: { value: { path: string; original_cwd: string; original_head_commit: string } };
+  };
+  expect(value.payload.value.path).toBe("<home>/project/.worktrees/topic");
+  expect(value.payload.value.original_cwd).toBe("<home>/project");
+  expect(value.payload.value.original_head_commit).toBe(commit);
+  const jsonl = `${out.map((r) => JSON.stringify(r.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(jsonl);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("redactTrail normalizes /Users/<name> and /home/<name> paths to <home>", () => {
   const records: JsonlRecord[] = [
     header({ cwd: "/Users/alice/projects/agent-trail" }),

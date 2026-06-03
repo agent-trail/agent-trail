@@ -205,13 +205,28 @@ function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Gener
     }
 
     if (payload && type === "session_metadata_update") {
-      yield* visitObjectMember(payload, "value", index, `records[${index}].payload.value`);
-      yield* visitObjectMember(
-        payload,
-        "previous_value",
-        index,
-        `records[${index}].payload.previous_value`,
-      );
+      if (payload.field === "vcs.worktree") {
+        yield* visitWorktreeMetadataMember(
+          payload,
+          "value",
+          index,
+          `records[${index}].payload.value`,
+        );
+        yield* visitWorktreeMetadataMember(
+          payload,
+          "previous_value",
+          index,
+          `records[${index}].payload.previous_value`,
+        );
+      } else {
+        yield* visitObjectMember(payload, "value", index, `records[${index}].payload.value`);
+        yield* visitObjectMember(
+          payload,
+          "previous_value",
+          index,
+          `records[${index}].payload.previous_value`,
+        );
+      }
     }
 
     if (payload && type === "tool_call") {
@@ -288,9 +303,29 @@ function* visitVcsStrings(
   if (typeof vcs.branch === "string") yield keyVisit(vcs, "branch", recordIndex, `${path}.branch`);
   const worktree = vcs.worktree as Record<string, unknown> | undefined;
   if (worktree === undefined) return;
+  yield* visitWorktreeStrings(worktree, recordIndex, `${path}.worktree`);
+}
+
+function* visitWorktreeMetadataMember(
+  container: Record<string, unknown>,
+  key: "value" | "previous_value",
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
+  const value = container[key];
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    yield* visitWorktreeStrings(value as Record<string, unknown>, recordIndex, path);
+  }
+}
+
+function* visitWorktreeStrings(
+  worktree: Record<string, unknown>,
+  recordIndex: number,
+  path: string,
+): Generator<Visit> {
   for (const key of ["name", "path", "original_cwd", "original_branch"] as const) {
     if (typeof worktree[key] === "string") {
-      yield keyVisit(worktree, key, recordIndex, `${path}.worktree.${key}`);
+      yield keyVisit(worktree, key, recordIndex, `${path}.${key}`);
     }
   }
 }
