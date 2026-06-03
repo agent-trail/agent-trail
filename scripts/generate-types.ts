@@ -247,26 +247,38 @@ if (!TOOL_CALL_ABORTED_RE.test(generated)) {
     "generate-types: failed to locate the ToolCallAborted payload to post-process; check json-schema-to-typescript output shape.",
   );
 }
-const toolCallAbortedScope = [
-  ...toolCallAbortedScopeEnum.map((value) => JSON.stringify(value)),
+const toolCallAbortedNonCallScope = [
+  ...toolCallAbortedScopeEnum
+    .filter((value) => value !== "tool_call")
+    .map((value) => JSON.stringify(value)),
   "`x-$" + "{string}/$" + "{string}`",
 ].join(" | ");
 const toolCallAbortedReasonLines = [
-  ...toolCallAbortedReasonEnum.map((value) => `      | ${JSON.stringify(value)}`),
-  "      | `x-$" + "{string}/$" + "{string}`",
+  ...toolCallAbortedReasonEnum.map((value) => `          | ${JSON.stringify(value)}`),
+  "          | `x-$" + "{string}/$" + "{string}`",
+];
+const toolCallAbortedReason = [
+  "        reason:",
+  `${toolCallAbortedReasonLines.join("\n")};`,
+  "        blocked_by?: string;",
+  "        [k: string]: unknown;",
 ];
 generated = generated.replace(
   TOOL_CALL_ABORTED_RE,
   [
     "export interface ToolCallAborted {",
     '  type?: "tool_call_aborted";',
-    "  payload?: {",
-    `    scope: ${toolCallAbortedScope};`,
-    "    for_id?: string;",
-    "    reason:",
-    `${toolCallAbortedReasonLines.join("\n")};`,
-    "    blocked_by?: string;",
-    "  };",
+    "  payload?:",
+    "    | {",
+    '        scope: "tool_call";',
+    "        for_id: string;",
+    `${toolCallAbortedReason.join("\n")}`,
+    "      }",
+    "    | {",
+    `        scope: ${toolCallAbortedNonCallScope};`,
+    "        for_id?: never;",
+    `${toolCallAbortedReason.join("\n")}`,
+    "      };",
     "  [k: string]: unknown;",
     "}",
   ].join("\n"),

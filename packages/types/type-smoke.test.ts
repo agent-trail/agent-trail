@@ -142,7 +142,20 @@ test("ToolCallAborted exposes reserved and x-<adapter>/<name> reason/scope shape
       reason: "x-codex/interrupted",
     },
   } satisfies ToolCallAborted;
+  // @ts-expect-error call-scoped aborts must carry for_id.
+  const missingForIdPayload: NonNullable<ToolCallAborted["payload"]> = {
+    scope: "tool_call",
+    reason: "hook_blocked",
+  };
+  // @ts-expect-error non-call-scoped aborts must not carry for_id.
+  const turnWithForIdPayload: NonNullable<ToolCallAborted["payload"]> = {
+    scope: "turn",
+    reason: "user_interrupt",
+    for_id: "call1",
+  };
 
   expect(reserved.payload?.reason).toBe("hook_blocked");
   expect(extension.payload?.scope).toBe("x-codex/turn_scope");
+  expect(missingForIdPayload.reason).toBe("hook_blocked");
+  expect(turnWithForIdPayload.scope).toBe("turn");
 });

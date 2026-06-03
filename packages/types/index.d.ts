@@ -429,18 +429,33 @@ export interface ToolResult {
 }
 export interface ToolCallAborted {
   type?: "tool_call_aborted";
-  payload?: {
-    scope: "tool_call" | "turn" | `x-${string}/${string}`;
-    for_id?: string;
-    reason:
-      | "user_interrupt"
-      | "hook_blocked"
-      | "timeout"
-      | "permission_denied"
-      | "runtime_error"
-      | `x-${string}/${string}`;
-    blocked_by?: string;
-  };
+  payload?:
+    | {
+        scope: "tool_call";
+        for_id: string;
+        reason:
+          | "user_interrupt"
+          | "hook_blocked"
+          | "timeout"
+          | "permission_denied"
+          | "runtime_error"
+          | `x-${string}/${string}`;
+        blocked_by?: string;
+        [k: string]: unknown;
+      }
+    | {
+        scope: "turn" | `x-${string}/${string}`;
+        for_id?: never;
+        reason:
+          | "user_interrupt"
+          | "hook_blocked"
+          | "timeout"
+          | "permission_denied"
+          | "runtime_error"
+          | `x-${string}/${string}`;
+        blocked_by?: string;
+        [k: string]: unknown;
+      };
   [k: string]: unknown;
 }
 export interface UserQuery {
