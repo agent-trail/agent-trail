@@ -10,6 +10,7 @@ import type {
   TrailFile,
   TrailSessionGroup,
 } from "../index.ts";
+import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
@@ -188,6 +189,7 @@ async function parseGroup(
   const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
     includeSidechain: options.includeSidechain === true,
   });
+  applyParseFidelity(header, entries);
   return { header, entries };
 }
 

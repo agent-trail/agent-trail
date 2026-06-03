@@ -7,6 +7,7 @@ import {
   envelopeSessionsManifestWarnings,
   finalMessageIdWarnings,
   outOfOrderSessionHeadersWarnings,
+  parseFidelityConsistencyWarnings,
   streamConsistencyWarnings,
   unmatchedToolCallWarnings,
   userQueryResponseWarnings,
@@ -210,6 +211,7 @@ export function validateTrailGraph(
     diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
     diagnostics.push(...agentMessageUsageWarnings(group.entries));
     diagnostics.push(...userQueryResponseWarnings(group.entries));
+    diagnostics.push(...parseFidelityConsistencyWarnings(group.header, group.entries));
   }
   // File-scoped cross-group warnings compare among valid-header groups only.
   // A malformed header in one group does not silence comparisons among its
