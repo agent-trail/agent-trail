@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
+import { INLINE_ATTACHMENT_MAX_DECODED_BYTES } from "./mappings.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, mangleCwd } from "./paths.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
@@ -221,11 +222,79 @@ test("parseSession() builds a header from sessionId, first ts, version, and cwd"
     ts: "2026-05-17T14:00:05.000Z",
     agent: { name: "claude-code", version: "1.0.0-synthetic" },
     cwd: "/tmp/synthetic-project",
+    meta: {
+      "dev.claudecode.entrypoint": "sdk-cli",
+      "dev.claudecode.user_type": "external",
+    },
     source: {
       agent: "claude-code",
       format_version: "1.0.0-synthetic",
     },
   });
+});
+
+test("parseSession() captures entrypoint and userType provenance into header.meta", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000c0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      entrypoint: "sdk-cli",
+      userType: "external",
+      message: { role: "user", content: "hi" },
+    },
+  ]);
+  const meta = trail.groups[0]!.header.meta;
+  expect(meta?.["dev.claudecode.entrypoint"]).toBe("sdk-cli");
+  expect(meta?.["dev.claudecode.user_type"]).toBe("external");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() sets requestId as semantic.group_id on assistant-derived entries", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000d0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "list files" },
+    },
+    {
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-0000000000d1",
+      timestamp: "2026-05-17T14:00:07.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000d0",
+      requestId: "req-abc",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [
+          { type: "text", text: "on it" },
+          { type: "tool_use", id: "tooluse-x", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+    },
+  ]);
+  const entries = trail.groups[0]!.entries;
+  const am = entries.find((e) => e.type === "agent_message");
+  const tc = entries.find((e) => e.type === "tool_call");
+  expect(am?.semantic?.group_id).toBe("req-abc");
+  expect(tc?.semantic?.group_id).toBe("req-abc");
+  // group_id must not clobber the tool_kind the reconciler relies on.
+  expect(tc?.semantic?.tool_kind).toBeDefined();
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits a user_message for user text records, with no parent_id when parentUuid is null", async () => {
@@ -251,7 +320,126 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
     tool: "shell_command",
     args: { command: "ls" },
   });
-  expect(toolCall?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
+  expect(toolCall?.semantic).toEqual({
+    group_id: "req_synthetic_01",
+    call_id: "tooluse-1",
+    tool_kind: "shell_command",
+  });
+});
+
+test("parseSession() captures inline base64 image blocks as user_message attachments", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000f0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this screenshot" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+          {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: "ZG9j" },
+          },
+        ],
+      },
+    },
+  ]);
+  const um = trail.groups[0]!.entries.find((e) => e.type === "user_message");
+  expect(um?.payload.text).toBe("what is this screenshot");
+  const attachments = (um?.payload as { attachments?: unknown[] }).attachments;
+  expect(attachments).toHaveLength(2);
+  const att = attachments?.[0] as { kind?: string; media_type?: string; uri?: string };
+  expect(att.kind).toBe("image");
+  expect(att.media_type).toBe("image/png");
+  expect(att.uri).toMatch(/^sha256:[0-9a-f]{64}$/);
+  const doc = attachments?.[1] as { kind?: string; media_type?: string; uri?: string };
+  expect(doc.kind).toBe("file");
+  expect(doc.media_type).toBe("application/pdf");
+  expect(doc.uri).toMatch(/^sha256:[0-9a-f]{64}$/);
+  expect(JSON.stringify(um?.source?.raw)).not.toContain("aGVsbG8=");
+  expect(JSON.stringify(um?.source?.raw)).not.toContain("ZG9j");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not decode oversized inline base64 attachments", async () => {
+  const encodedBytesOverCap = Math.ceil((INLINE_ATTACHMENT_MAX_DECODED_BYTES + 1) / 3) * 4;
+  const oversizedBase64 = "A".repeat(encodedBytesOverCap);
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000f1",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "large screenshot" },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: oversizedBase64 },
+          },
+        ],
+      },
+    },
+  ]);
+  const um = trail.groups[0]!.entries.find((e) => e.type === "user_message");
+  expect((um?.payload as { attachments?: unknown }).attachments).toEqual([
+    {
+      kind: "image",
+      media_type: "image/png",
+    },
+  ]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() records subagent attribution on a tool_result entry.meta", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000e0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "review it" },
+    },
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000e1",
+      timestamp: "2026-05-17T14:00:08.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000e0",
+      isSidechain: false,
+      sourceToolAssistantUUID: "asst-sub-1",
+      toolUseResult: { agentId: "agent-7", agentType: "reviewer" },
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tooluse-task", content: "looks good" }],
+      },
+    },
+  ]);
+  const tr = trail.groups[0]!.entries.find((e) => e.type === "tool_result");
+  expect(tr).toBeDefined();
+  expect(tr?.meta?.["dev.claudecode.agent_id"]).toBe("agent-7");
+  expect(tr?.meta?.["dev.claudecode.agent_type"]).toBe("reviewer");
+  expect(tr?.meta?.["dev.claudecode.source_tool_assistant_uuid"]).toBe("asst-sub-1");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits a tool_result for user tool_result blocks linked back to the tool_call", async () => {
@@ -912,6 +1100,7 @@ test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matc
       type: "assistant",
       uuid: "00000000-0000-0000-0000-cccccccc1302",
       timestamp: "2026-05-17T14:00:06.000Z",
+      requestId: "req-plan-1",
       message: {
         role: "assistant",
         model: "claude-opus-4-7",
@@ -951,6 +1140,7 @@ test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matc
       type: "assistant",
       uuid: "00000000-0000-0000-0000-cccccccc1304",
       timestamp: "2026-05-17T14:00:08.000Z",
+      requestId: "req-plan-2",
       message: {
         role: "assistant",
         model: "claude-opus-4-7",
@@ -988,6 +1178,8 @@ test("parseSession() maps TodoWrite snapshots to task_plan_update and drops matc
 
   const plans = trail.groups[0]!.entries.filter((entry) => entry.type === "task_plan_update");
   expect(plans).toHaveLength(2);
+  expect(plans[0]?.semantic?.group_id).toBe("req-plan-1");
+  expect(plans[1]?.semantic?.group_id).toBe("req-plan-2");
   expect(trail.groups[0]!.entries.some((entry) => entry.type === "tool_result")).toBe(false);
   expect(
     trail.groups[0]!.entries.some(
@@ -1389,6 +1581,253 @@ test("parseSession() uses normalized hook_success tool ids for semantic linkage"
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps hook_additional_context attachments to a system_event", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b0",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b1",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b0",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        toolUseID: "tooluse-ctx",
+        content: [{ type: "text", text: "CAVEMAN MODE ACTIVE" }],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+
+  expect(evt).toBeDefined();
+  expect((evt?.payload as { kind?: string }).kind).toBe("x-claudecode/hook_additional_context");
+  const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
+  expect(payload.text).toContain("CAVEMAN MODE ACTIVE");
+  expect(payload.data?.hook_event).toBe("UserPromptSubmit");
+  expect(payload.data?.hook_name).toBe("inject-context");
+  expect(payload.data?.tool_call_id).toBe("tooluse-ctx");
+  expect(payload.data?.content).toEqual([{ type: "text", text: "CAVEMAN MODE ACTIVE" }]);
+  expect(evt?.semantic?.call_id).toBe("tooluse-ctx");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() hashes hook_additional_context inline media instead of preserving base64", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b2",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b3",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b2",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        content: [
+          { type: "text", text: "Analyze the image." },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+          {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: "ZG9j" },
+          },
+        ],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+  const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
+  expect(payload.text).toBe("Analyze the image.");
+  expect(payload.data?.content).toEqual([{ type: "text", text: "Analyze the image." }]);
+  expect(payload.data?.attachments).toEqual([
+    {
+      kind: "image",
+      media_type: "image/png",
+      uri: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    },
+    {
+      kind: "file",
+      media_type: "application/pdf",
+      uri: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    },
+  ]);
+  expect(JSON.stringify(payload)).not.toContain("aGVsbG8=");
+  expect(JSON.stringify(payload)).not.toContain("ZG9j");
+  expect(JSON.stringify(evt?.source?.raw)).not.toContain("aGVsbG8=");
+  expect(JSON.stringify(evt?.source?.raw)).not.toContain("ZG9j");
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() does not decode oversized hook_additional_context inline media", async () => {
+  const encodedBytesOverCap = Math.ceil((INLINE_ATTACHMENT_MAX_DECODED_BYTES + 1) / 3) * 4;
+  const oversizedBase64 = "A".repeat(encodedBytesOverCap);
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b4",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b5",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b4",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        content: [
+          { type: "text", text: "Analyze the image." },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: oversizedBase64 },
+          },
+        ],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+  const payload = evt?.payload as { data?: Record<string, unknown> };
+  expect(payload.data?.attachments).toEqual([{ kind: "image", media_type: "image/png" }]);
+  expect(JSON.stringify(payload)).not.toContain(oversizedBase64);
+  expect(JSON.stringify(evt?.source?.raw)).not.toContain(oversizedBase64);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() truncates hook_additional_context text", async () => {
+  const longText = "x".repeat(20_000);
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b6",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b7",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b6",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        content: longText,
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+  const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
+  expect(payload.text).toHaveLength(16 * 1024);
+  expect(payload.data?.content).toHaveLength(16 * 1024);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("parseSession() truncates concatenated hook_additional_context text blocks", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000b8",
+      timestamp: "2026-05-17T14:00:06.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "build the thing" },
+    },
+    {
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-0000000000b9",
+      timestamp: "2026-05-17T14:00:06.100Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      parentUuid: "00000000-0000-0000-0000-0000000000b8",
+      attachment: {
+        type: "hook_additional_context",
+        hookEvent: "UserPromptSubmit",
+        hookName: "inject-context",
+        content: [
+          { type: "text", text: "a".repeat(10_000) },
+          { type: "text", text: "b".repeat(10_000) },
+        ],
+      },
+    },
+  ]);
+  const evt = trail.groups[0]!.entries.find(
+    (entry) =>
+      entry.type === "system_event" &&
+      entry.source?.original_type === "attachment.hook_additional_context",
+  );
+  const payload = evt?.payload as {
+    text?: string;
+    data?: { content?: Array<{ type: string; text: string }> };
+  };
+  expect(payload.text).toHaveLength(16 * 1024);
+  const content = payload.data?.content;
+  expect(content).toEqual([
+    { type: "text", text: "a".repeat(10_000) },
+    { type: "text", text: "b".repeat(16 * 1024 - 10_001) },
+  ]);
+  expect(content?.map((block) => block.text).join("\n")).toHaveLength(16 * 1024);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() maps Claude Code capability attachment deltas", async () => {
   const trail = await parseCapabilityChangesFixture();
   const changes = trail.groups[0]!.entries.filter((entry) => entry.type === "capability_change");
@@ -1773,13 +2212,18 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
   const thinking = trail.groups[0]!.entries[2];
   expect(thinking?.type).toBe("agent_thinking");
   expect(thinking?.parent_id).toBe(text?.id);
+  expect(thinking?.semantic?.group_id).toBe("req_synthetic_adv_01");
 
   const read = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-read",
   );
   expect(read).toBeDefined();
   expect(read?.payload).toEqual({ tool: "file_read", args: { path: "package.json" } });
-  expect(read?.semantic).toEqual({ call_id: "tooluse-read", tool_kind: "file_read" });
+  expect(read?.semantic).toEqual({
+    group_id: "req_synthetic_adv_01",
+    call_id: "tooluse-read",
+    tool_kind: "file_read",
+  });
 
   const bash = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "tooluse-bash",
@@ -1839,6 +2283,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
         type: "assistant",
         uuid: "00000000-0000-0000-0000-000000000100",
         timestamp: "2026-05-17T16:00:01.000Z",
+        requestId: "req-question-1",
         sessionId,
         version: "1.0.0-synthetic",
       },
@@ -1896,6 +2341,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
         },
       ],
     });
+    expect(query.semantic?.group_id).toBe("req-question-1");
     expect(response.payload).toEqual({
       for_id: query.id,
       answers: { [question.id]: { selected: ["yes"] } },
@@ -2629,6 +3075,51 @@ test("parsed fixture round-trips through validateAdapterTrail with zero error di
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
+});
+
+test("recognizes last-prompt / mode / bridge-session as benign — no quarantine, no entry", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-0000000000a0",
+      parentUuid: null,
+      timestamp: "2026-05-18T10:00:00.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      message: { role: "user", content: "hi" },
+    },
+    {
+      type: "last-prompt",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      lastPrompt: "hi",
+      leafUuid: "00000000-0000-0000-0000-0000000000a0",
+    },
+    {
+      type: "mode",
+      mode: "normal",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+    },
+    {
+      type: "bridge-session",
+      sessionId: "00000000-0000-0000-0000-ccccc0000001",
+      version: "1.0.0-synthetic",
+      bridgeSessionId: "cse_synthetic",
+      lastSequenceNum: 0,
+    },
+  ]);
+  const entries = trail.groups[0]!.entries;
+  const quarantined = entries.filter(
+    (e) =>
+      e.type === "system_event" &&
+      (e.payload as { kind?: string }).kind === "x-claudecode/unknown_record",
+  );
+  expect(quarantined).toEqual([]);
+  // The three benign records map to nothing; only the user_message survives.
+  expect(entries.map((e) => e.type)).toEqual(["user_message"]);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession stamps timestamp-less drift quarantine from the nearest source timestamp", async () => {

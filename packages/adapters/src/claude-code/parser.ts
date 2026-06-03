@@ -1,6 +1,34 @@
 import type { Header } from "@agent-trail/types";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
-import { type CcEnvelope, isTracerEnvelope } from "./source.ts";
+import { type CcEnvelope, isTracerEnvelope, stringValue } from "./source.ts";
+
+// Session-level provenance constants carried on every record. Captured into
+// header.meta under the adapter's reverse-DNS namespace for corpus filtering.
+// See issue #126.
+function provenanceMeta(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean },
+): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  const entrypoint = firstString(envelopes, options, "entrypoint");
+  if (entrypoint !== undefined) meta["dev.claudecode.entrypoint"] = entrypoint;
+  const userType = firstString(envelopes, options, "userType");
+  if (userType !== undefined) meta["dev.claudecode.user_type"] = userType;
+  return meta;
+}
+
+function firstString(
+  envelopes: CcEnvelope[],
+  options: { includeSidechain?: boolean },
+  key: string,
+): string | undefined {
+  for (const env of envelopes) {
+    if (!isTracerEnvelope(env, options)) continue;
+    const value = stringValue(env[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
 
 export function buildHeader(
   envelopes: CcEnvelope[],
@@ -29,6 +57,8 @@ export function buildHeader(
     },
   };
   if (first.cwd !== undefined) header.cwd = first.cwd;
+  const meta = provenanceMeta(envelopes, options);
+  if (Object.keys(meta).length > 0) header.meta = meta;
   header.source = {
     agent: "claude-code",
     ...(firstVersion !== undefined ? { format_version: firstVersion } : {}),

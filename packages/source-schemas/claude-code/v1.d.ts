@@ -22,6 +22,9 @@ export interface ClaudeCodeV1Record {
     | "pr-link"
     | "worktree-state"
     | "command_permissions"
-    | "hook_permission_decision";
+    | "hook_permission_decision"
+    | "last-prompt"
+    | "mode"
+    | "bridge-session";
   [k: string]: unknown;
 }
