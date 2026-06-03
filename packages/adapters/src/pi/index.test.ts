@@ -1271,7 +1271,7 @@ test("compaction omits replaced_message_ids when firstKeptEntryId does not resol
   }
 });
 
-test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git working tree with an origin remote", async () => {
+test("parseSession() does not populate vcs from live git state at header.cwd", async () => {
   const repoDir = mkdtempSync(join(tmpdir(), "pi-vcs-repo-"));
   try {
     async function git(args: string[]): Promise<void> {
@@ -1313,12 +1313,7 @@ test("parseSession() populates vcs.remote_url from header.cwd when cwd is a git 
       adapter: "pi",
       path: fixturePath,
     });
-    expect(trail.groups[0]!.header.vcs).toBeDefined();
-    expect(trail.groups[0]!.header.vcs?.type).toBe("git");
-    expect(trail.groups[0]!.header.vcs?.revision).toMatch(/^[a-f0-9]{40}$/);
-    expect(trail.groups[0]!.header.vcs?.remote_url).toBe(
-      "https://github.com/agent-trail/agent-trail",
-    );
+    expect(trail.groups[0]!.header.vcs).toBeUndefined();
   } finally {
     rmSync(repoDir, { recursive: true, force: true });
   }

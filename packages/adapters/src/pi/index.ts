@@ -3,7 +3,6 @@ import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
-import { readGitVcs } from "../vcs.ts";
 import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
@@ -120,10 +119,6 @@ export const piAdapter: TrailAdapter = {
     const header = buildHeader(envelopes);
     if (header.session_uid === undefined) {
       throw new Error("Pi header missing session_uid (buildHeader invariant)");
-    }
-    if (header.vcs === undefined && typeof header.cwd === "string") {
-      const vcs = await readGitVcs(header.cwd);
-      if (vcs !== undefined) header.vcs = vcs;
     }
     const entries = await parsePiSnapshotEntries(envelopes, header.session_uid);
     const groups = [{ header, entries }];

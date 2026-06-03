@@ -48,6 +48,7 @@ const HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS = 16 * 1024;
 export interface CcHint {
   sid?: string;
   model?: string;
+  gitBranch?: string;
 }
 
 function meta(
@@ -57,6 +58,9 @@ function meta(
   const hint: CcHint = {
     ...(typeof record.uuid === "string" ? { sid: record.uuid } : {}),
     ...(opts?.model !== undefined ? { model: opts.model } : {}),
+    ...(typeof record.gitBranch === "string" && record.gitBranch.length > 0
+      ? { gitBranch: record.gitBranch }
+      : {}),
   };
   return {
     // Real meta keys survive hint stripping (see ccEnvelopeRefBackfill); the
