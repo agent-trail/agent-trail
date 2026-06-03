@@ -341,6 +341,17 @@ function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
     async sourceVersion() {
       return null;
     },
+    async sourceHealth() {
+      return {
+        adapter: name,
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: refs.length,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
   };
 }
 

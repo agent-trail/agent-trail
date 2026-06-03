@@ -1,8 +1,15 @@
+import type { Dirent } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
-import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import type {
+  AdapterSourceHealth,
+  DetectOptions,
+  SessionRef,
+  TrailAdapter,
+  TrailFile,
+} from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
@@ -18,6 +25,81 @@ async function dirExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
+  const root = piSessionsDir();
+  if (root === undefined) {
+    return {
+      adapter: "pi",
+      path: null,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["home directory not found"],
+    };
+  }
+
+  const rootStat = await stat(root).catch(() => undefined);
+  if (rootStat === undefined || !rootStat.isDirectory()) {
+    return {
+      adapter: "pi",
+      path: root,
+      present: false,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: ["source path not found"],
+    };
+  }
+
+  const entriesOrError = await readdir(root, { withFileTypes: true }).catch(
+    (error: unknown) => error,
+  );
+  if (entriesOrError instanceof Error) {
+    return {
+      adapter: "pi",
+      path: root,
+      present: true,
+      readable: false,
+      sessionCount: 0,
+      sourceVersion: null,
+      warnings: [`source path unreadable: ${entriesOrError.message}`],
+    };
+  }
+  const entries = entriesOrError as Dirent[];
+
+  const warnings: string[] = [];
+  let sessions: SessionRef[] = [];
+  try {
+    const projectDirs = entries.filter((entry) => entry.isDirectory());
+    const perDir = await Promise.all(
+      projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
+    );
+    sessions = perDir.flat();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`session scan failed: ${message}`);
+  }
+
+  let sourceVersion: string | null = null;
+  try {
+    sourceVersion = await piAdapter.sourceVersion();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`source version check failed: ${message}`);
+  }
+
+  return {
+    adapter: "pi",
+    path: root,
+    present: true,
+    readable: true,
+    sessionCount: sessions.length,
+    sourceVersion,
+    warnings,
+  };
 }
 
 async function readFirstJsonlLine(path: string): Promise<Record<string, unknown> | undefined> {
@@ -154,4 +236,5 @@ export const piAdapter: TrailAdapter = {
     if (first === undefined) return null;
     return versionString(first.version) ?? null;
   },
+  sourceHealth: inspectSourceHealth,
 };
