@@ -135,6 +135,19 @@ test("doctor --json includes Bun runtime health", async () => {
   });
 });
 
+test("doctor accepts a v-prefixed Bun runtime version", async () => {
+  const result = await runDoctor(["--json"], { adapters: [], bunVersion: "v1.3.11" });
+
+  expect(result.exitCode).toBe(0);
+  const parsed = JSON.parse(result.stdout) as {
+    checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
+  };
+  expect(parsed.checks.find((check) => check.id === "runtime.bun")).toMatchObject({
+    status: "ok",
+    details: { version: "v1.3.11", minimum: "1.3.11" },
+  });
+});
+
 test("doctor exits 1 when redaction smoke check fails", async () => {
   const result = await runDoctor(["--json"], {
     adapters: [],

@@ -1,4 +1,3 @@
-import type { Dirent } from "node:fs";
 import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Entry, Header } from "@agent-trail/types";
@@ -145,7 +144,9 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
   const entriesOrError = await readdir(root, { withFileTypes: true }).catch(
     (error: unknown) => error,
   );
-  if (entriesOrError instanceof Error) {
+  if (!Array.isArray(entriesOrError)) {
+    const message =
+      entriesOrError instanceof Error ? entriesOrError.message : String(entriesOrError);
     return {
       adapter: "claude-code",
       path: root,
@@ -153,10 +154,10 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
       readable: false,
       sessionCount: 0,
       sourceVersion: null,
-      warnings: [`source path unreadable: ${entriesOrError.message}`],
+      warnings: [`source path unreadable: ${message}`],
     };
   }
-  const entries = entriesOrError as Dirent[];
+  const entries = entriesOrError;
 
   const warnings: string[] = [];
   let sessions: SessionRef[] = [];

@@ -1,4 +1,3 @@
-import type { Dirent } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
@@ -57,7 +56,9 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
   const entriesOrError = await readdir(root, { withFileTypes: true }).catch(
     (error: unknown) => error,
   );
-  if (entriesOrError instanceof Error) {
+  if (!Array.isArray(entriesOrError)) {
+    const message =
+      entriesOrError instanceof Error ? entriesOrError.message : String(entriesOrError);
     return {
       adapter: "pi",
       path: root,
@@ -65,10 +66,10 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
       readable: false,
       sessionCount: 0,
       sourceVersion: null,
-      warnings: [`source path unreadable: ${entriesOrError.message}`],
+      warnings: [`source path unreadable: ${message}`],
     };
   }
-  const entries = entriesOrError as Dirent[];
+  const entries = entriesOrError;
 
   const warnings: string[] = [];
   let sessions: SessionRef[] = [];

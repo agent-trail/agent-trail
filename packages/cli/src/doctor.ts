@@ -204,7 +204,8 @@ function compareVersions(left: string, right: string): number {
 }
 
 function numericParts(version: string): number[] {
-  const core = version.split("-")[0] ?? version;
+  const normalized = version.startsWith("v") ? version.slice(1) : version;
+  const core = normalized.split("-")[0] as string;
   return core.split(".").map((part) => {
     const parsed = Number.parseInt(part, 10);
     return Number.isNaN(parsed) ? 0 : parsed;

@@ -58,7 +58,8 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
   }
 
   const entries = await readdir(root, { withFileTypes: true }).catch((error: unknown) => error);
-  if (entries instanceof Error) {
+  if (!Array.isArray(entries)) {
+    const message = entries instanceof Error ? entries.message : String(entries);
     return {
       adapter: "codex",
       path: root,
@@ -66,7 +67,7 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
       readable: false,
       sessionCount: 0,
       sourceVersion: null,
-      warnings: [`source path unreadable: ${entries.message}`],
+      warnings: [`source path unreadable: ${message}`],
     };
   }
 
