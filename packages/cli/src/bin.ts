@@ -5,6 +5,7 @@ import { runList } from "./list.ts";
 import { runLoad } from "./load.ts";
 import { runShare } from "./share.ts";
 import { runValidate } from "./validate.ts";
+import { runVersion } from "./version.ts";
 
 const USAGE = `Usage:
   trail validate <file> [--json] [--profile strict|reader-tolerant]
@@ -13,6 +14,8 @@ const USAGE = `Usage:
   trail share <path> [--dry-run] [--yes] [--skip-redaction]
   trail load <url> [--out <path>] [--force]
   trail export <id> [--out <path>] [--force]
+  trail version [--json]
+  trail --version | -V [--json]
 `;
 
 const [subcommand, ...rest] = Bun.argv.slice(2);
@@ -25,6 +28,13 @@ if (
 ) {
   await Bun.write(Bun.stdout, USAGE);
   process.exit(0);
+}
+
+if (subcommand === "--version" || subcommand === "-V" || subcommand === "version") {
+  const { exitCode, stdout, stderr } = await runVersion(rest);
+  if (stdout.length > 0) await Bun.write(Bun.stdout, stdout);
+  if (stderr.length > 0) await Bun.write(Bun.stderr, stderr);
+  process.exit(exitCode);
 }
 
 type Handler = (argv: string[]) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
