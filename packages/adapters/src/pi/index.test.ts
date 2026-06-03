@@ -1349,9 +1349,60 @@ test("session_info emits session_metadata_update name instead of x-pi/session_in
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
-// Issue #88: Pi `thinking_level_change` is a built-in pi-mono envelope. It maps
-// to x-pi/thinking_level_change because no reserved kind covers thinking-level
-// transitions (model_change is for model id only).
+test("thinking_level_change emits first-class event instead of x-pi/thinking_level_change", async () => {
+  const trail = await parseSystemEventsFixture();
+  const change = trail.groups[0]!.entries.find((e) => e.type === "thinking_level_change");
+  expect(change?.payload).toEqual({
+    to_level: "high",
+    trigger: "runtime_inferred",
+  });
+  expect(
+    trail.groups[0]!.entries.some(
+      (e) =>
+        e.type === "system_event" &&
+        (e.payload as { kind?: unknown }).kind === "x-pi/thinking_level_change",
+    ),
+  ).toBe(false);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
+test("thinking_level_change without thinkingLevel is dropped instead of inventing a level", async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const tmp = mkdtempSync(join(tmpdir(), "pi-thinking-level-"));
+  try {
+    const fixturePath = join(tmp, "session.jsonl");
+    const lines = [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "00000000-0000-0000-0000-ffff00000010",
+        timestamp: "2026-05-21T19:00:00.000Z",
+        cwd: "/tmp/synthetic-project",
+      }),
+      JSON.stringify({
+        type: "thinking_level_change",
+        id: "00000000-0000-0000-0000-ffff00000011",
+        parentId: null,
+        timestamp: "2026-05-21T19:00:01.000Z",
+      }),
+    ].join("\n");
+    writeFileSync(fixturePath, `${lines}\n`);
+    const trail = await piAdapter.parseSession({
+      id: "missing-thinking-level",
+      adapter: "pi",
+      path: fixturePath,
+    });
+    expect(trail.groups[0]!.entries.filter((e) => e.type === "thinking_level_change")).toEqual([]);
+    const diagnostics = await validateAdapterTrail(trail);
+    expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // Issue #88: Pi `custom` / `custom_message` are the plugin extension surface.
 // Adapter collapses every plugin-defined customType into one vendor kind per
 // envelope-type and preserves the source customType under payload.data.custom_type.

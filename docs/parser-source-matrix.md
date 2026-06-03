@@ -28,9 +28,9 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
-| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, thinking_level_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, mode_change, thinking_level_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
@@ -95,8 +95,8 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   `source.schema_version`, static mappings; `agent` == schema key `claude-code`. Eleven pure mappings
   (user/assistant multi-block fanout, summary→session_summary/context_compact,
   ai-title/agent-name/worktree-state→session_metadata_update,
-  system/progress/queue-operation/pr-link→system_event, permission-mode) plus custom rules for
-  synthesized `model_change`, `permission_mode_change` deltas, compact-boundary provenance,
+  system/progress/queue-operation/pr-link→system_event, permission-mode→mode_change) plus custom rules for
+  synthesized `model_change`, `mode_change` deltas, compact-boundary provenance,
   TodoWrite task-plan delta/ack handling, tool-kind propagation to results, and multi-block
   `source.raw.envelope_ref` backfill + hint stripping. Override-ratio 0. `Agent` /
   `Task` calls map to `subagent_invoke`; direct child files under
@@ -104,6 +104,11 @@ Codex's tool/usage helpers, Pi's `divergence.ts`) remain.
   child first-user prompt matches the parent task text. Child group ids are deterministic, derived
   from the parent session id plus child `agentId` or filename stem; sidechain child messages, tool
   calls, and tool results remain in the child group transcript.
+  `permission-mode` envelopes emit first-class `mode_change{scope:"permission"}` entries. Both id
+  and timestamp are synthesized (`source.synthesized: true`): id is deterministically derived and
+  stable across re-parses, timestamp inherits from the most recent prior envelope. `payload.to_mode`
+  carries the new mode (for example, `plan` or `bypassPermissions`); `payload.from_mode` carries the
+  previous mode when known.
 
 Entry ids, `parent_id`, `payload.for_id`/`abandoned_branch_id`/`open_call_ids`, `semantic.call_id`,
 and `source.raw.envelope_ref` are derived by the kit engine and are not byte-identical to the old
@@ -198,9 +203,11 @@ without the adapter claiming to support every plugin shape.
 Pi `session_info` now maps to `session_metadata_update{field:"name", reason:"ai_generated"}`
 instead of a vendor `system_event`.
 
+Pi `thinking_level_change` now maps to first-class `thinking_level_change` with
+`payload.to_level` from `thinkingLevel`.
+
 Emitted Pi `system_event.kind` values (all vendor — `x-pi/*`):
 
-- `x-pi/thinking_level_change` — pi-mono `thinking_level_change` envelope. `payload.data.thinking_level` carries `low | medium | high`. No reserved kind matches (model_change covers model id, not thinking level).
 - `x-pi/custom` — pi-mono `custom` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` and `data` are preserved under `payload.data.custom_type` and `payload.data.custom_data`.
 - `x-pi/custom_message` — pi-mono `custom_message` envelope (plugin extension surface). Single bucket regardless of `customType`. Source `customType` is preserved under `payload.data.custom_type`; freeform `content` becomes `payload.text`. `display` surfaces as `meta["dev.pi.display"]` (display:false events are kept, not dropped).
 - `x-pi/leaf_change` — pi-mono `leaf` envelope (active branch-tip pointer). `payload.data.leaf_id` carries the referenced trail entry id; a null `targetId` clears the pointer (no `data`).
@@ -339,9 +346,10 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals
   are monotonic). The `payload.rate_limits` slot is intentionally not rolled up — see deferred
   shapes below.
-- In-session model switch: synthesized `model_change` is emitted when consecutive
-  `turn_context.payload.model` values differ. `payload.from_model` is the last observed model;
-  `payload.to_model` is the new value. `source.synthesized: true` and
+- In-session model setting: synthesized `model_change` is emitted when
+  `turn_context.payload.model` is first observed (`trigger:"initial"`) and when consecutive
+  values differ (`trigger:"runtime_inferred"`). `payload.from_model` is the last observed model
+  on changes; `payload.to_model` is the new value. `source.synthesized: true` and
   `metadata["dev.codex.raw_type"] = "turn_context.model_change"` flag the synthetic origin.
 - Recorded VCS: the `session_meta` payload's `git { commit_hash, branch, repository_url }`
   (sibling of the flattened SessionMeta fields) populates `header.vcs` and is authoritative —
@@ -355,11 +363,11 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
 - `turn_context` policy context: the initial tuple (`approval_policy`, `sandbox_policy`,
   `network`, `file_system_sandbox_policy`, `permission_profile`, `active_permission_profile`,
   `personality`, `collaboration_mode`, `effort`, `current_date`, `timezone`) snapshots into
-  `header.meta["dev.codex.turn_context"]`. Mid-session changes emit change-only system_events:
-  the permission axis → reserved `permission_mode_change` (`data.to`/`from` = the named preset
-  `active_permission_profile`/`permission_profile`, else `approval_policy`; sandbox/network ride
-  in `data`); the flavor axis (`personality`/`collaboration_mode`/`effort`) →
-  `x-codex/turn_context`. The first `turn_context` establishes the baseline silently.
+  `header.meta["dev.codex.turn_context"]`. First observations and changes emit first-class
+  events: permission axis → `mode_change{scope:"permission"}`; sandbox axis →
+  `mode_change{scope:"execution"}`; `collaboration_mode` →
+  `mode_change{scope:"collaboration"}`; `effort` → `thinking_level_change`. Remaining
+  personality changes use `x-codex/turn_context`.
 
 Diagnostic `system_event` emissions:
 
@@ -569,7 +577,8 @@ Reserved lifecycle vocabulary (cross-agent portable):
   allow/deny decisions and `tool_call_id` when present.
 - `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
-- `permission_mode_change` — `permission-mode` envelope. Both id and timestamp synthesized (`source.synthesized: true`): id is a fresh UUID, timestamp inherited from the most recent prior envelope. `data.to` carries the new mode (e.g., `plan`, `bypassPermissions`); `data.from` carries the previous mode when a prior mode is known.
+
+Note: `system_event.kind:"permission_mode_change"` remains schema-accepted as a deprecated v0.1.0 compatibility value. Current adapters do not emit it.
 
 Reserved diagnostic vocabulary (cross-agent portable):
 

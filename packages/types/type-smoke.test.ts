@@ -3,8 +3,11 @@ import type {
   AgentTrailV010,
   CapabilityChange,
   Header,
+  ModeChange,
+  ModelChange,
   SessionMetadataUpdate,
   SystemEvent,
+  ThinkingLevelChange,
 } from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
@@ -64,6 +67,29 @@ test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
   expect(change.payload.scope).toBe("tool");
   expect(change.payload.snapshot[0]?.metadata?.namespace).toBe("web");
   expect(change.payload.changed[0]?.field).toBe("description");
+});
+
+test("setting change types accept reserved + x-<adapter>/<name> extensions", () => {
+  const model = {
+    type: "model_change",
+    payload: { to_model: "gpt-5", trigger: "x-codex/model_picker" },
+  } satisfies ModelChange;
+  const mode = {
+    type: "mode_change",
+    payload: {
+      scope: "x-codex/local_mode",
+      to_mode: "fast",
+      trigger: "x-codex/user_toggle",
+    },
+  } satisfies ModeChange;
+  const thinking = {
+    type: "thinking_level_change",
+    payload: { to_level: "high", trigger: "x-codex/reasoning_effort" },
+  } satisfies ThinkingLevelChange;
+
+  expect(model.payload?.trigger).toBe("x-codex/model_picker");
+  expect(mode.payload?.scope).toBe("x-codex/local_mode");
+  expect(thinking.payload?.trigger).toBe("x-codex/reasoning_effort");
 });
 
 test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes", () => {

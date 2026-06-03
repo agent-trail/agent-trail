@@ -241,29 +241,22 @@ function answersForQuery(query: Entry, output: unknown): Record<string, unknown>
   return out;
 }
 
-/**
- * Fill `permission_mode_change` `data.from` and the delta `text` from the prior
- * permission mode, in source order. Mappings emit only `data.to` + base text.
- */
+/** Fill permission `mode_change.from_mode` from the prior permission mode. */
 export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
   let prevMode: string | undefined;
   return entries.map((entry) => {
-    if (entry.type !== "system_event") return entry;
-    const payload = entry.payload as { kind?: unknown; data?: Record<string, unknown> };
-    if (payload.kind !== "permission_mode_change") return entry;
-    const mode = typeof payload.data?.to === "string" ? payload.data.to : undefined;
+    if (entry.type !== "mode_change") return entry;
+    const payload = entry.payload;
+    if (!payload || payload.scope !== "permission") return entry;
+    const mode = typeof payload.to_mode === "string" ? payload.to_mode : undefined;
     if (mode === undefined) return entry;
     let next = entry;
-    if (prevMode !== undefined && prevMode !== mode) {
-      next = {
-        ...entry,
-        payload: {
-          ...payload,
-          text: `Permission mode changed: ${prevMode} → ${mode}`,
-          data: { ...payload.data, from: prevMode },
-        },
-      };
-    }
+    const nextPayload = {
+      ...payload,
+      trigger: prevMode === undefined ? "initial" : "runtime_inferred",
+      ...(prevMode !== undefined && prevMode !== mode ? { from_mode: prevMode } : {}),
+    } as typeof payload;
+    next = { ...entry, payload: nextPayload };
     prevMode = mode;
     return next;
   });

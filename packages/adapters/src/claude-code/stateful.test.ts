@@ -56,25 +56,23 @@ describe("claude-code v2 stateful behaviors", () => {
     expect(change?.meta).toBeUndefined();
   });
 
-  test("permission_mode delta: from/to + delta text on the second change", async () => {
+  test("permission_mode delta: from/to mode payload on the second change", async () => {
     const all = await entries("permission-mode.jsonl");
-    const pms = all.filter(
-      (e) =>
-        e.type === "system_event" &&
-        (e.payload as { kind?: string }).kind === "permission_mode_change",
-    );
+    const pms = all.filter((e) => e.type === "mode_change" && e.payload.scope === "permission");
     expect(pms).toHaveLength(2);
     expect(pms[0]?.ts).toBe("2026-05-18T10:00:00.000Z");
-    expect((pms[0]?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
-      to: "default",
+    expect(pms[0]?.payload).toEqual({
+      scope: "permission",
+      to_mode: "default",
+      trigger: "initial",
     });
-    expect(pms[0]?.payload.text).toBe("Permission mode: default");
     expect(pms[1]?.ts).toBe("2026-05-18T10:00:02.000Z");
-    expect((pms[1]?.payload as { data?: { to?: string; from?: string } }).data).toEqual({
-      to: "acceptEdits",
-      from: "default",
+    expect(pms[1]?.payload).toEqual({
+      scope: "permission",
+      to_mode: "acceptEdits",
+      from_mode: "default",
+      trigger: "runtime_inferred",
     });
-    expect(pms[1]?.payload.text).toBe("Permission mode changed: default → acceptEdits");
   });
 
   test("multi-block fanout: envelope_ref backfilled to the first block's entry id", async () => {

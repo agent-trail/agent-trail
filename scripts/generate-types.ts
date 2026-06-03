@@ -108,6 +108,78 @@ const resultActionUnion = [
 ].join("\n");
 generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);
 
+const settingTriggerEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        model_change?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                trigger?: { anyOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.model_change?.properties?.payload?.properties?.trigger?.anyOf?.find((branch) =>
+  Array.isArray(branch.enum),
+)?.enum;
+if (settingTriggerEnum === undefined || settingTriggerEnum.length === 0) {
+  throw new Error("generate-types: could not read setting trigger enum from schema.");
+}
+const SETTING_TRIGGER_BLOCK_RE =
+  / {4}trigger\?: \(\n {6}\| \("[^"]+"(?: \| "[^"]+")+\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/g;
+const settingTriggerReplacement = [
+  "    trigger?:",
+  ...settingTriggerEnum.map((value) => `      | ${JSON.stringify(value)}`),
+  "      | `x-$" + "{string}/$" + "{string}`;",
+].join("\n");
+const triggerMatchCount = generated.match(SETTING_TRIGGER_BLOCK_RE)?.length ?? 0;
+if (triggerMatchCount !== 3) {
+  throw new Error(
+    `generate-types: expected 3 setting trigger anyOf blocks, found ${triggerMatchCount}; check json-schema-to-typescript output shape.`,
+  );
+}
+generated = generated.replace(SETTING_TRIGGER_BLOCK_RE, settingTriggerReplacement);
+
+const modeScopeEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        mode_change?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                scope?: { anyOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.mode_change?.properties?.payload?.properties?.scope?.anyOf?.find((branch) =>
+  Array.isArray(branch.enum),
+)?.enum;
+if (modeScopeEnum === undefined || modeScopeEnum.length === 0) {
+  throw new Error("generate-types: could not read mode_change.payload.scope enum from schema.");
+}
+const MODE_SCOPE_BLOCK_RE =
+  / {4}scope: \(\n {6}\| \("[^"]+"(?: \| "[^"]+")+\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+if (!MODE_SCOPE_BLOCK_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the ModeChange.payload.scope anyOf block to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const modeScopeReplacement = `    scope: ${[
+  ...modeScopeEnum.map((value) => JSON.stringify(value)),
+  "`x-$" + "{string}/$" + "{string}`",
+].join(" | ")};`;
+generated = generated.replace(MODE_SCOPE_BLOCK_RE, modeScopeReplacement);
+
 const SESSION_METADATA_FIELD_RE =
   /(export interface SessionMetadataUpdate \{[\s\S]*?\| \{\n {8})field: string;(\n {8}value: unknown;[\s\S]*?\n {6}\};)/;
 if (!SESSION_METADATA_FIELD_RE.test(generated)) {

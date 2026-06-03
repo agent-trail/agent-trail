@@ -44,6 +44,8 @@ export const implementedEventTypes = [
   "branch_point",
   "branch_summary",
   "model_change",
+  "mode_change",
+  "thinking_level_change",
   "session_terminated",
   // Optional clean-conclusion marker (spec §9.3). Distinct from session_terminated:
   // session_end signals a normal finish, session_terminated an abnormal one.

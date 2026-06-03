@@ -1,8 +1,8 @@
 // Codex CLI rollout-JSONL parser (issue #32).
 //
 // Scope: mapping for `user_message`, `agent_message`, `tool_call`,
-// `tool_result`, `agent_thinking`, `context_compact`, `model_change`, and
-// lifecycle / enrichment `system_event` records. Codex 0.135
+// `tool_result`, `agent_thinking`, `context_compact`, `model_change`, mode /
+// thinking-level settings, and lifecycle / enrichment `system_event` records. Codex 0.135
 // `event_msg.turn_aborted` maps to `user_interrupt`, and image-bearing
 // `response_item.message` records fold into message attachments. See
 // `docs/parser-source-matrix.md` for the full mapping table and deferred shapes.
@@ -454,17 +454,20 @@ export function buildExecCommandEndData(payload: Record<string, unknown>): Recor
 
 // ── TurnContextItem policy capture (Codex protocol.rs TurnContextItem) ──
 // Policy context is recorded once per real turn. The initial tuple is
-// snapshotted into `header.meta["dev.codex.turn_context"]`; mid-session changes
-// emit system_events (overrides.ts) — the permission axis as the reserved
-// `permission_mode_change` kind, the flavor axis as `x-codex/turn_context`.
+// snapshotted into `header.meta["dev.codex.turn_context"]`; setting changes
+// emit first-class mode/thinking events from overrides.ts.
 // These pure helpers extract the shapes both call sites share.
 const PERMISSION_FIELDS = [
   "approval_policy",
+  "permission_profile",
+  "active_permission_profile",
+] as const;
+
+const TURN_CONTEXT_POLICY_FIELDS = [
+  ...PERMISSION_FIELDS,
   "sandbox_policy",
   "network",
   "file_system_sandbox_policy",
-  "permission_profile",
-  "active_permission_profile",
 ] as const;
 
 const FLAVOR_FIELDS = ["personality", "collaboration_mode", "effort"] as const;
@@ -481,26 +484,35 @@ function pickPresent(p: Record<string, unknown>, keys: readonly string[]): Recor
 // Full policy tuple for the header.meta snapshot, including the environment
 // fields (current_date / timezone) that get no change events of their own.
 export function turnContextSnapshot(p: Record<string, unknown>): Record<string, unknown> {
-  return pickPresent(p, [...PERMISSION_FIELDS, ...FLAVOR_FIELDS, "current_date", "timezone"]);
+  return pickPresent(p, [
+    ...TURN_CONTEXT_POLICY_FIELDS,
+    ...FLAVOR_FIELDS,
+    "current_date",
+    "timezone",
+  ]);
 }
 
 export function turnContextPermissionAxis(p: Record<string, unknown>): Record<string, unknown> {
   return pickPresent(p, PERMISSION_FIELDS);
 }
 
+export function turnContextExecutionAxis(p: Record<string, unknown>): Record<string, unknown> {
+  return pickPresent(p, ["sandbox_policy", "network", "file_system_sandbox_policy"]);
+}
+
 export function turnContextFlavorAxis(p: Record<string, unknown>): Record<string, unknown> {
   return pickPresent(p, FLAVOR_FIELDS);
 }
 
-// Cross-adapter permission-mode label for `permission_mode_change.data.to`:
+// Cross-adapter permission-mode label for `mode_change.payload.to_mode`:
 // prefer the named preset (active_permission_profile / permission_profile), else
-// the raw approval policy. Object policies (e.g. granular approval) serialize.
+// the raw approval policy. Object policies (e.g. granular approval) canonicalize.
 export function permissionModeLabel(p: Record<string, unknown>): string | undefined {
   const preset = stringValue(p.active_permission_profile) ?? stringValue(p.permission_profile);
   if (preset !== undefined) return preset;
   const approval = p.approval_policy;
   if (typeof approval === "string") return approval;
-  if (approval !== undefined && approval !== null) return JSON.stringify(approval);
+  if (approval !== undefined && approval !== null) return JSON.stringify(canonicalize(approval));
   return undefined;
 }
 
