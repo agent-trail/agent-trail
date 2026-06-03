@@ -29,6 +29,65 @@ test("accepts the minimal writer-strict session header", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("accepts a writer-strict session header with parse_fidelity", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":0}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      parse_fidelity: { quarantined_count: 0 },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("rejects invalid parse_fidelity header shapes", () => {
+  const invalidCount = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":-1}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      parse_fidelity: { quarantined_count: -1 },
+    },
+  });
+  const invalidReason = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":0,"termination_reason":"clean"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      parse_fidelity: { quarantined_count: 0, termination_reason: "clean" },
+    },
+  });
+
+  expect(invalidCount).toContainEqual({
+    line: 1,
+    path: "/parse_fidelity/quarantined_count",
+    severity: "error",
+    code: "minimum",
+    message: "must be >= 0",
+  });
+  expect(invalidReason).toContainEqual({
+    line: 1,
+    path: "/parse_fidelity/termination_reason",
+    severity: "error",
+    code: "enum",
+    message: "must be equal to one of the allowed values",
+  });
+});
+
 test("accepts a minimal writer-strict event after the header line", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
@@ -110,6 +169,72 @@ test("accepts standardized common tool kinds", async () => {
   );
 
   expect(diagnostics).toEqual([]);
+});
+
+test("validates parse_fidelity against quarantined entries and terminal reason", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":1,"termination_reason":"truncated"}}',
+      '{"type":"system_event","id":"00000000-0000-4000-8000-000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"kind":"x-codex/unknown_record","data":{"raw":{"type":"new_shape"}}}}',
+      '{"type":"session_terminated","id":"00000000-0000-4000-8000-000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"reason":"truncated"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("reports parse_fidelity quarantined_count drift", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":0}}',
+      '{"type":"system_event","id":"00000000-0000-4000-8000-000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"kind":"x-codex/unknown_record","data":{"raw":{"type":"new_shape"}}}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/parse_fidelity/quarantined_count",
+    severity: "error",
+    code: "parse_fidelity_mismatch",
+    message:
+      "parse_fidelity.quarantined_count is 0 but session contains 1 quarantined unknown_record event(s)",
+  });
+});
+
+test("reports parse_fidelity terminal reason drift", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":0,"termination_reason":"truncated"}}',
+      '{"type":"session_terminated","id":"00000000-0000-4000-8000-000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"reason":"process_terminated"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/parse_fidelity/termination_reason",
+    severity: "error",
+    code: "parse_fidelity_mismatch",
+    message:
+      'parse_fidelity.termination_reason is "truncated" but final session_terminated reason is "process_terminated"',
+  });
+});
+
+test("reports missing parse_fidelity terminal reason when session terminated", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"parse_fidelity":{"quarantined_count":0}}',
+      '{"type":"session_terminated","id":"00000000-0000-4000-8000-000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"reason":"user_abort"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/parse_fidelity/termination_reason",
+    severity: "error",
+    code: "parse_fidelity_mismatch",
+    message:
+      'parse_fidelity.termination_reason is absent but final session_terminated reason is "user_abort"',
+  });
 });
 
 test("accepts task_plan_update snapshots with optional deltas", async () => {

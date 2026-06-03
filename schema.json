@@ -308,6 +308,29 @@
       "additionalProperties": false
     },
 
+    "sessionTerminationReason": {
+      "type": "string",
+      "enum": ["eof_with_open_tool_calls", "process_terminated", "truncated", "user_abort"]
+    },
+
+    "parseFidelity": {
+      "type": "object",
+      "description": "At-a-glance session parse fidelity summary. When present, quarantined_count MUST equal the number of x-*/unknown_record system_event entries in the session group; termination_reason MUST match the final session_terminated reason when one exists.",
+      "required": ["quarantined_count"],
+      "properties": {
+        "quarantined_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of quarantined source records emitted as x-*/unknown_record system_event entries in this session group."
+        },
+        "termination_reason": {
+          "$ref": "#/$defs/sessionTerminationReason",
+          "description": "Final abnormal session termination reason, when a session_terminated event is present."
+        }
+      },
+      "additionalProperties": false
+    },
+
     "trailEnvelope": {
       "type": "object",
       "description": "Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.",
@@ -434,6 +457,7 @@
           },
           "additionalProperties": false
         },
+        "parse_fidelity": { "$ref": "#/$defs/parseFidelity" },
         "source": {
           "type": "object",
           "properties": {
@@ -1338,8 +1362,7 @@
             "required": ["reason"],
             "properties": {
               "reason": {
-                "type": "string",
-                "enum": ["eof_with_open_tool_calls", "process_terminated", "truncated", "user_abort"]
+                "$ref": "#/$defs/sessionTerminationReason"
               },
               "open_call_ids": {
                 "type": "array",

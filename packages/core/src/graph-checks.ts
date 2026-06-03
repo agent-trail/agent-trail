@@ -417,6 +417,74 @@ export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] 
   return diagnostics;
 }
 
+export function parseFidelityConsistencyWarnings(
+  headerRecord: JsonlRecord,
+  entries: JsonlRecord[],
+): Diagnostic[] {
+  const parseFidelity = headerRecord.value.parse_fidelity;
+  if (typeof parseFidelity !== "object" || parseFidelity === null) {
+    return [];
+  }
+  const summary = parseFidelity as { quarantined_count?: unknown; termination_reason?: unknown };
+  const claimedQuarantinedCount = summary.quarantined_count;
+  const claimedTerminationReason = summary.termination_reason;
+  const diagnostics: Diagnostic[] = [];
+
+  const actualQuarantinedCount = entries.filter(isQuarantinedUnknownRecord).length;
+  if (
+    typeof claimedQuarantinedCount === "number" &&
+    Number.isInteger(claimedQuarantinedCount) &&
+    claimedQuarantinedCount !== actualQuarantinedCount
+  ) {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/parse_fidelity/quarantined_count",
+        severity: "error",
+        code: "parse_fidelity_mismatch",
+        message: `parse_fidelity.quarantined_count is ${claimedQuarantinedCount} but session contains ${actualQuarantinedCount} quarantined unknown_record event(s)`,
+      }),
+    );
+  }
+
+  const actualTerminationReason = finalSessionTerminatedReason(entries);
+  if (actualTerminationReason === undefined) {
+    if (claimedTerminationReason !== undefined) {
+      diagnostics.push(
+        createDiagnostic({
+          line: headerRecord.line,
+          path: "/parse_fidelity/termination_reason",
+          severity: "error",
+          code: "parse_fidelity_mismatch",
+          message: `parse_fidelity.termination_reason is "${String(claimedTerminationReason)}" but session contains no session_terminated event`,
+        }),
+      );
+    }
+  } else if (claimedTerminationReason === undefined) {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/parse_fidelity/termination_reason",
+        severity: "error",
+        code: "parse_fidelity_mismatch",
+        message: `parse_fidelity.termination_reason is absent but final session_terminated reason is "${actualTerminationReason}"`,
+      }),
+    );
+  } else if (claimedTerminationReason !== actualTerminationReason) {
+    diagnostics.push(
+      createDiagnostic({
+        line: headerRecord.line,
+        path: "/parse_fidelity/termination_reason",
+        severity: "error",
+        code: "parse_fidelity_mismatch",
+        message: `parse_fidelity.termination_reason is "${String(claimedTerminationReason)}" but final session_terminated reason is "${actualTerminationReason}"`,
+      }),
+    );
+  }
+
+  return diagnostics;
+}
+
 function escapeJsonPointer(value: string): string {
   return value.replace(/~/g, "~0").replace(/\//g, "~1");
 }
@@ -708,4 +776,24 @@ function readSemanticCallId(value: Record<string, unknown>): string | undefined 
   }
   const callId = (semantic as { call_id?: unknown }).call_id;
   return typeof callId === "string" ? callId : undefined;
+}
+
+function isQuarantinedUnknownRecord(entry: JsonlRecord): boolean {
+  if (entry.value.type !== "system_event") return false;
+  const payload = entry.value.payload;
+  if (typeof payload !== "object" || payload === null) return false;
+  const kind = (payload as { kind?: unknown }).kind;
+  return typeof kind === "string" && /^x-[a-z0-9]+(?:-[a-z0-9]+)*\/unknown_record$/.test(kind);
+}
+
+function finalSessionTerminatedReason(entries: JsonlRecord[]): string | undefined {
+  let reason: string | undefined;
+  for (const entry of entries) {
+    if (entry.value.type !== "session_terminated") continue;
+    const payload = entry.value.payload;
+    if (typeof payload !== "object" || payload === null) continue;
+    const rawReason = (payload as { reason?: unknown }).reason;
+    if (typeof rawReason === "string") reason = rawReason;
+  }
+  return reason;
 }

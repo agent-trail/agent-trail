@@ -78,6 +78,7 @@ export type Header = {
   redacted_from?: {
     content_hash: Sha256Hex;
   };
+  parse_fidelity?: ParseFidelity;
   source?: {
     agent?: AgentName;
     path?: string;
@@ -170,6 +171,11 @@ export type TaskPlanDelta =
       from_content: string;
       to_content: string;
     };
+export type SessionTerminationReason =
+  | "eof_with_open_tool_calls"
+  | "process_terminated"
+  | "truncated"
+  | "user_abort";
 
 /**
  * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.
@@ -247,6 +253,23 @@ export interface Worktree {
    * Commit hash the worktree was forked from.
    */
   original_head_commit?: string;
+}
+/**
+ * At-a-glance session parse fidelity summary. When present, quarantined_count MUST equal the number of x-* /unknown_record system_event entries in the session group; termination_reason MUST match the final session_terminated reason when one exists.
+ */
+export interface ParseFidelity {
+  /**
+   * Number of quarantined source records emitted as x-* /unknown_record system_event entries in this session group.
+   */
+  quarantined_count: number;
+  /**
+   * Final abnormal session termination reason, when a session_terminated event is present.
+   */
+  termination_reason?:
+    | "eof_with_open_tool_calls"
+    | "process_terminated"
+    | "truncated"
+    | "user_abort";
 }
 export interface EntryBase {
   type: string;
@@ -650,7 +673,7 @@ export interface ThinkingLevelChange {
 export interface SessionTerminated {
   type?: "session_terminated";
   payload?: {
-    reason: "eof_with_open_tool_calls" | "process_terminated" | "truncated" | "user_abort";
+    reason: SessionTerminationReason;
     open_call_ids?: string[];
   };
   [k: string]: unknown;
