@@ -284,7 +284,7 @@ async function loadFileSession(path: string): Promise<LoadedSession> {
   const todoRaw = await readFile(todoPath, "utf8")
     .then((text) => JSON.parse(text) as unknown)
     .catch(() => []);
-  const todos = (Array.isArray(todoRaw) ? todoRaw : [todoRaw]).filter(isObject) as OpenCodeTodo[];
+  const todos: OpenCodeTodo[] = (Array.isArray(todoRaw) ? todoRaw : [todoRaw]).filter(isObject);
   const enrichment = loadDbMetadataForFileSession(id, session);
   return {
     session: { ...session, ...enrichment.session },
@@ -449,10 +449,10 @@ function loadDbSession(pathWithFragment: string): LoadedSession {
       if (messageID === undefined) continue;
       partsByMessage.set(messageID, [...(partsByMessage.get(messageID) ?? []), part]);
     }
-    const todos = db
+    const todos: OpenCodeTodo[] = db
       .query("SELECT * FROM todo WHERE session_id = $id ORDER BY position")
       .all({ $id: id })
-      .filter(isObject) as OpenCodeTodo[];
+      .filter(isObject);
     const sessionMessages = optionalRows(
       db,
       "SELECT * FROM session_message WHERE session_id = $id ORDER BY time_created, id",
@@ -1051,6 +1051,7 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
         );
         const status = stringValue(state.status) ?? stringValue(part.status);
         if (status === "completed" || status === "error" || status === "failed") {
+          openCalls.delete(callID);
           const ok = status === "completed";
           push(
             {
@@ -1095,6 +1096,7 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
             `${part.id}:result`,
           );
         } else if (status === "cancelled" || status === "canceled") {
+          openCalls.delete(callID);
           push(
             {
               ...base,

@@ -694,7 +694,7 @@ An adapter PR is not eligible to move its matrix row from `pending verification`
 - The verification date and source-agent version are filled in.
 - Observed entry types and fixture names columns reflect the committed fixtures or fixture-building tests.
 
-If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
+If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `packages/adapters/tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
 
 ## Update procedure
 
@@ -702,7 +702,7 @@ When an adapter author verifies behavior against a new source-agent version:
 
 1. Run the adapter's fixture tests against the new source-agent release.
 2. Update the row's `Verified on`, `Source-agent version`, `Observed entry types`, and `Fixture names` columns.
-3. If new entry types appeared, add a fixture under `tests/fixtures/` covering each, and reference it in the matrix.
+3. If new entry types appeared, add a fixture under `packages/adapters/tests/fixtures/` or a fixture-building adapter test covering each, and reference it in the matrix.
 4. If existing entry types changed shape, treat as a breaking source-format change: note it in the row, add a fixture for the new shape, keep the prior fixture if older versions remain supported.
 5. Flip status to `verified` once all of the above are in the PR.
 

@@ -685,6 +685,32 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
     },
     1766258477000,
   );
+  insertDbPart(
+    dbPath,
+    {
+      id: "prt_started_then_done",
+      sessionID: "ses_sql_parse",
+      messageID: "msg_sql",
+      type: "tool",
+      callID: "call-started-then-done",
+      tool: "bash",
+      state: { status: "running", input: { command: "echo done" } },
+    },
+    1766258477100,
+  );
+  insertDbPart(
+    dbPath,
+    {
+      id: "prt_done",
+      sessionID: "ses_sql_parse",
+      messageID: "msg_sql",
+      type: "tool",
+      callID: "call-started-then-done",
+      tool: "bash",
+      state: { status: "completed", input: { command: "echo done" }, output: "done" },
+    },
+    1766258477200,
+  );
   insertDbSessionMessage(dbPath, {
     id: "sm_model",
     sessionID: "ses_sql_parse",
@@ -710,6 +736,9 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
     "tool_call",
     "tool_call_aborted",
     "tool_call",
+    "tool_call",
+    "tool_call",
+    "tool_result",
     "model_change",
     "session_terminated",
   ]);
@@ -721,9 +750,12 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
     summary: "Earlier context summarized.",
     trigger: "auto",
   });
-  expect(group.entries.at(-1)?.payload).toMatchObject({
-    reason: "eof_with_open_tool_calls",
-  });
+  expect(group.entries.at(-1)?.payload.reason).toBe("eof_with_open_tool_calls");
+  const openCallIds = group.entries.at(-1)?.payload.open_call_ids;
+  expect(Array.isArray(openCallIds)).toBe(true);
+  if (!Array.isArray(openCallIds)) throw new Error("expected open_call_ids array");
+  expect(openCallIds).toHaveLength(1);
+  expect(String(openCallIds[0])).toMatch(/[0-9a-f-]{36}/);
   expect(group.header.parse_fidelity).toEqual({
     quarantined_count: 0,
     termination_reason: "eof_with_open_tool_calls",
