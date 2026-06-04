@@ -1,9 +1,16 @@
 import { expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
 import { validateTrailString } from "@agent-trail/core";
-import { codexAdapter, type TrailAdapter, trailRecords } from "./index.ts";
+import {
+  claudeCodeAdapter,
+  codexAdapter,
+  piAdapter,
+  type TrailAdapter,
+  trailRecords,
+} from "./index.ts";
 
 const FIXTURES_DIR = new URL("../tests/fixtures/contracts/", import.meta.url);
+const REAL_SESSIONS_DIR = new URL("../tests/fixtures/real-sessions/", import.meta.url);
 const NORMALIZED_TRAIL_ID = "00000000-0000-4000-8000-000000000000";
 const NORMALIZED_TRAIL_TS = "2000-01-01T00:00:00.000Z";
 const SECRET_OR_LOCAL_PATH =
@@ -12,24 +19,34 @@ const SECRET_OR_LOCAL_PATH =
 type ContractFixture = {
   key: string;
   adapter: TrailAdapter;
+  dir?: URL;
 };
 
 const CONTRACT_FIXTURES: ContractFixture[] = [
   { key: "codex-refactor-contract", adapter: codexAdapter },
+  { key: "claude-code-v1", adapter: claudeCodeAdapter, dir: REAL_SESSIONS_DIR },
+  { key: "pi-v1", adapter: piAdapter, dir: REAL_SESSIONS_DIR },
 ];
 
 test("contract fixtures have source and expected trail files", async () => {
   const files = (await readdir(FIXTURES_DIR)).filter((name) => name.endsWith(".jsonl")).sort();
 
-  expect(files).toEqual(
-    CONTRACT_FIXTURES.flatMap(({ key }) => [`${key}.source.jsonl`, `${key}.trail.jsonl`]).sort(),
-  );
+  expect(files).toEqual([
+    "codex-refactor-contract.source.jsonl",
+    "codex-refactor-contract.trail.jsonl",
+  ]);
+  for (const fixture of CONTRACT_FIXTURES) {
+    const dir = fixture.dir ?? FIXTURES_DIR;
+    expect(await Bun.file(new URL(`${fixture.key}.source.jsonl`, dir)).exists()).toBe(true);
+    expect(await Bun.file(new URL(`${fixture.key}.trail.jsonl`, dir)).exists()).toBe(true);
+  }
 });
 
 for (const fixture of CONTRACT_FIXTURES) {
   test(`contract golden ${fixture.key} emits exact trail output`, async () => {
-    const sourceUrl = new URL(`${fixture.key}.source.jsonl`, FIXTURES_DIR);
-    const expectedUrl = new URL(`${fixture.key}.trail.jsonl`, FIXTURES_DIR);
+    const dir = fixture.dir ?? FIXTURES_DIR;
+    const sourceUrl = new URL(`${fixture.key}.source.jsonl`, dir);
+    const expectedUrl = new URL(`${fixture.key}.trail.jsonl`, dir);
     const sourceText = await Bun.file(sourceUrl).text();
     const expectedText = await Bun.file(expectedUrl).text();
 

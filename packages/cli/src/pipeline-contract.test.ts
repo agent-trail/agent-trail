@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   parseJsonlString,
@@ -12,7 +12,7 @@ import {
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
-import { readIndex } from "@agent-trail/store";
+import { readIndex, registerTrail } from "@agent-trail/store";
 import { runExport } from "./export.ts";
 import type { GistFetch } from "./load.ts";
 import { runLoad } from "./load.ts";
@@ -116,6 +116,92 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   expect(stored).toBe(sharedJsonl);
 });
 
+test("load reconciles matching session segments, dedupes events, and reports warnings", async () => {
+  const headerId = "00000000-0000-4000-8000-00000000e001";
+  const duplicateEventId = "00000000-0000-4000-8000-00000000e003";
+  const seg1 = await finalizedSegmentTrail([
+    segmentHeader({
+      id: headerId,
+      ts: "2026-06-02T10:00:00.000Z",
+      segment: { seq: 1 },
+    }),
+    {
+      type: "user_message",
+      id: duplicateEventId,
+      ts: "2026-06-02T10:00:01.000Z",
+      payload: { text: "first segment" },
+    },
+    {
+      type: "session_terminated",
+      id: "00000000-0000-4000-8000-00000000e004",
+      ts: "2026-06-02T10:00:02.000Z",
+      payload: { reason: "process_terminated" },
+    },
+  ]);
+  const priorPath = join(scratchRoot, "prior.trail.jsonl");
+  await writeFile(priorPath, seg1.text, "utf8");
+  const prior = await registerTrail(priorPath, { storeRoot: loadStoreRoot });
+  expect(prior.status).toBe("finalized");
+
+  const seg2 = await finalizedSegmentTrail([
+    segmentHeader({
+      id: headerId,
+      ts: "2026-06-02T10:05:00.000Z",
+      segment: { seq: 2, prev_content_hash: "deadbeef".repeat(8) },
+    }),
+    {
+      type: "user_message",
+      id: duplicateEventId,
+      ts: "2026-06-02T10:05:01.000Z",
+      payload: { text: "duplicate should be dropped" },
+    },
+    {
+      type: "agent_message",
+      id: "00000000-0000-4000-8000-00000000e005",
+      ts: "2026-06-02T10:05:02.000Z",
+      payload: { text: "second segment" },
+    },
+  ]);
+
+  const load = await runLoad([`https://agent-trail.dev/view/gist/${GIST_ID}`], {
+    storeRoot: loadStoreRoot,
+    gistFetch: async () => ({
+      payload: encodePayload(seg2.text),
+      filename: `${seg2.hash.slice(0, 12)}.trail.jsonl.gz.b64`,
+    }),
+  });
+
+  expect(load.exitCode).toBe(0);
+  expect(load.stderr).toBe("");
+  expect(load.stdout).toContain(
+    `Reconciled: 2 segments merged, 1 events deduped, 1 warnings (session_uid ${SESSION_UID})`,
+  );
+  expect(load.stdout).toContain("warning(segment_chain_mismatch)");
+
+  const loadedHash = loadedHashFromStdout(load.stdout);
+  const exported = await runExport([loadedHash], { storeRoot: loadStoreRoot });
+  expect(exported.exitCode).toBe(0);
+  expect(exported.stderr).toBe("");
+
+  const records = await parseJsonlString(exported.stdout);
+  expect(verifyContentHash(records).status).toBe("match");
+  expect(records.map((record) => record.value.type)).toEqual([
+    "session",
+    "user_message",
+    "agent_message",
+  ]);
+  expect(
+    records.filter((record) => (record.value as { id?: string }).id === duplicateEventId),
+  ).toHaveLength(1);
+  expect(exported.stdout).toContain("first segment");
+  expect(exported.stdout).not.toContain("duplicate should be dropped");
+
+  const index = await readIndex(loadStoreRoot);
+  expect(index.entries[loadedHash]?.kind).toBe("session");
+  expect(index.entries[loadedHash]?.session_uid).toBe(SESSION_UID);
+  expect(index.entries[loadedHash]?.source_path).toBeNull();
+});
+
 async function seedRawTrail(): Promise<{
   path: string;
   sessionHash: string;
@@ -168,4 +254,45 @@ async function seedRawTrail(): Promise<{
 function decodePayload(payload: Uint8Array): string {
   const base64 = Buffer.from(payload).toString("ascii");
   return gunzipSync(Buffer.from(base64, "base64")).toString("utf8");
+}
+
+function encodePayload(jsonl: string): Uint8Array {
+  return Buffer.from(gzipSync(Buffer.from(jsonl, "utf8")).toString("base64"), "ascii");
+}
+
+function loadedHashFromStdout(stdout: string): string {
+  const match = /\(([0-9a-f]{64})\)/.exec(stdout);
+  if (match === null) throw new Error(`load stdout did not include content hash: ${stdout}`);
+  return match[1] as string;
+}
+
+function segmentHeader(opts: {
+  id: string;
+  ts: string;
+  segment: { seq: number; prev_content_hash?: string };
+}): Record<string, unknown> {
+  return {
+    type: "session",
+    schema_version: "0.1.0",
+    id: opts.id,
+    session_uid: SESSION_UID,
+    segment: opts.segment,
+    ts: opts.ts,
+    agent: { name: "codex-cli" },
+    cwd: "/workspace/agent-trail-synthetic",
+  };
+}
+
+async function finalizedSegmentTrail(
+  values: Record<string, unknown>[],
+): Promise<{ text: string; hash: string }> {
+  const records = await parseJsonlString(jsonl(values));
+  const stamped = stampTrail(records);
+  const hash = stamped.sessionHashes[0];
+  if (hash === undefined) throw new Error("segment trail did not stamp a session hash");
+  return { text: canonicalizeRecords(records), hash };
+}
+
+function jsonl(values: Record<string, unknown>[]): string {
+  return `${values.map((value) => JSON.stringify(value)).join("\n")}\n`;
 }
