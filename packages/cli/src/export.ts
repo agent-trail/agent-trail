@@ -1,5 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import {
   canonicalizeRecords,
   computeContentHash,
@@ -14,6 +13,7 @@ import {
   readIndex,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import { writeOutputFile } from "./write-output-file.ts";
 
 export type RunExportResult = {
   exitCode: number;
@@ -125,25 +125,8 @@ export async function runExport(
   }
   if (options.out !== undefined) {
     const outPath = options.out;
-    const dirCheck = await checkNotDirectory(outPath);
-    if (dirCheck !== null) return dirCheck;
-    await mkdir(dirname(outPath), { recursive: true });
-    // Use exclusive create (`wx`) for the no-force path so the no-clobber
-    // guarantee is atomic. A stat-then-write preflight races against any
-    // other writer that creates the file between the two calls; `wx` lets
-    // the kernel reject existing paths in a single syscall.
-    try {
-      await writeFile(outPath, bytes, { flag: options.force === true ? "w" : "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        return {
-          exitCode: 1,
-          stdout: "",
-          stderr: `export: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
-        };
-      }
-      throw error;
-    }
+    const writeResult = await writeOutputFile("export", outPath, bytes, options.force === true);
+    if (writeResult !== null) return writeResult;
     return { exitCode: 0, stdout: "", stderr: extractionStderr };
   }
 
@@ -152,24 +135,3 @@ export async function runExport(
 
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;
 const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
-
-// Surfaces a distinct "is a directory" diagnostic up front. The race against
-// dir → file replacement between this check and the subsequent write is not
-// security-sensitive: the atomic `wx` flag on the write still handles the
-// existence-race that the reviewer flagged.
-async function checkNotDirectory(outPath: string): Promise<RunExportResult | null> {
-  try {
-    const info = await stat(outPath);
-    if (info.isDirectory()) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `export: --out path is a directory: ${outPath}\n`,
-      };
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  return null;
-}

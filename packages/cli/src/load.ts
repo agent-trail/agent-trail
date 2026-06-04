@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import {
   type ReconcileIncomingResult,
@@ -10,6 +10,7 @@ import {
   resolveStoreRoot,
 } from "@agent-trail/store";
 import { ghGistFetch } from "./gist-fetch.ts";
+import { preflightOutputPath, writeOutputFile } from "./write-output-file.ts";
 
 export type RunLoadResult = {
   exitCode: number;
@@ -94,7 +95,7 @@ export async function runLoad(
   }
 
   if (options.out !== undefined) {
-    const preflight = await preflightOutPath(options.out, options.force === true);
+    const preflight = await preflightOutputPath("load", options.out, options.force === true);
     if (preflight !== null) return preflight;
   }
 
@@ -186,9 +187,9 @@ export async function runLoad(
 
     if (options.out !== undefined) {
       const outPath = options.out;
-      await mkdir(dirname(outPath), { recursive: true });
       const canonical = await readFile(reg.objectPath);
-      await writeFile(outPath, canonical);
+      const writeResult = await writeOutputFile("load", outPath, canonical, options.force === true);
+      if (writeResult !== null) return writeResult;
       stdoutLines.push(`Wrote: ${outPath}`);
     }
 
@@ -196,29 +197,4 @@ export async function runLoad(
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
-}
-
-async function preflightOutPath(outPath: string, force: boolean): Promise<RunLoadResult | null> {
-  let info: Awaited<ReturnType<typeof stat>> | null;
-  try {
-    info = await stat(outPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  if (info.isDirectory()) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `load: --out path is a directory: ${outPath}\n`,
-    };
-  }
-  if (!force) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `load: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
-    };
-  }
-  return null;
 }
