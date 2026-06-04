@@ -25,7 +25,8 @@
     "@agent-trail/core": "workspace:*",
     "@agent-trail/redact": "workspace:*",
     "@agent-trail/schema": "workspace:*",
-    "@agent-trail/store": "workspace:*"
+    "@agent-trail/store": "workspace:*",
+    "commander": "^15.0.0"
   },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",

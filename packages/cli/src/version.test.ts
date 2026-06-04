@@ -48,7 +48,8 @@ test("trail help dispatch prints usage", async () => {
   const result = await runTrail(["help"]);
 
   expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("trail validate <file>");
+  expect(result.stdout).toContain("Usage: trail [options] [command]");
+  expect(result.stdout).toContain("validate");
   expect(result.stderr).toBe("");
 });
 
