@@ -1250,6 +1250,47 @@ test("redactTrail redacts secrets in agent_message.attachments and tool_result.a
   expect(summary.counts.openai_api_key).toBe(2);
 });
 
+test("redactTrail redacts quarantined source drift while preserving raw shape", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "system_event",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        kind: "x-codex/unknown_record",
+        data: {
+          raw: {
+            type: "future_record",
+            nested: { token: key },
+            parts: ["safe", `Bearer ${"A".repeat(32)}`],
+          },
+        },
+      },
+      source: {
+        agent: "codex-cli",
+        original_type: "future_record",
+        synthesized: true,
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    payload: { data: { raw: { type: string; nested: { token: string }; parts: string[] } } };
+  };
+  expect(value.payload.data.raw).toEqual({
+    type: "future_record",
+    nested: { token: "[OPENAI_KEY]" },
+    parts: ["safe", "Bearer [TOKEN]"],
+  });
+  expect(JSON.stringify(value)).not.toContain(key);
+  expect(summary.counts.openai_api_key).toBe(1);
+  expect(summary.counts.bearer_token).toBe(1);
+});
+
 test("redactTrail walks record.value.meta on both header and entries", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
