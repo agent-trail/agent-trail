@@ -1,0 +1,73 @@
+name: Bug report
+description: Report behavior that is broken, incorrect, or unexpectedly failing.
+title: "fix: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for reproducible defects. Keep secrets, real local session data, and private logs out of public issues.
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior
+      description: What happens now?
+      placeholder: Describe the observed failure, including the command, input, or workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps an agent or maintainer can run to reproduce the bug.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, runtime versions, package manager, branch/commit, and affected package or command.
+      placeholder: |
+        - OS:
+        - Bun:
+        - Node:
+        - Branch/commit:
+        - Package/command:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste the smallest useful redacted output. Use fenced code blocks for logs.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: suspected-area
+    attributes:
+      label: Suspected area
+      description: Package, command, adapter, spec section, schema area, or docs page if known.
+      placeholder: packages/core, trail validate, spec section 7.3, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Observable outcomes that prove the bug is fixed.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: false

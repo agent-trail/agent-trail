@@ -1,0 +1,84 @@
+name: Task or feature
+description: Request a scoped implementation task, feature, refactor, or docs update.
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for work that should be implementable by a human or coding agent from the issue alone.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: user-impact
+    attributes:
+      label: User impact
+      description: Who benefits, and what can they do afterward that they cannot do now?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is included?
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: What should not be changed or added?
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: false
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation notes
+      description: Relevant files, package boundaries, glossary terms, ADRs, or known constraints.
+    validations:
+      required: false
+  - type: dropdown
+    id: public-impact
+    attributes:
+      label: Public API, schema, or spec impact
+      description: Does this change public contract shape?
+      options:
+        - "No public contract change"
+        - "Public package API change"
+        - "`schema.json` or generated types change"
+        - "`spec.md` change"
+        - "CLI behavior change"
+        - "Documentation-only change"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Observable outcomes that prove the task is complete.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Commands or checks that should pass. Use the strongest relevant check.
+      placeholder: |
+        - bun run check
+        - bun run test
+        - bun run typecheck
+    validations:
+      required: true
