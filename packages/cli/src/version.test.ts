@@ -60,6 +60,15 @@ test("trail version prints the CLI package version", async () => {
   expect(result.stderr).toBe("");
 });
 
+test("trail version --help is owned by Commander", async () => {
+  const result = await runTrail(["version", "--help"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("Usage: trail version [options]");
+  expect(result.stdout).toContain("--json");
+  expect(result.stderr).toBe("");
+});
+
 test("bin.ts remains directly executable", async () => {
   const result = await runTrailDirect(["--version"]);
 

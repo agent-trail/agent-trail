@@ -27,7 +27,7 @@ const handlers: Record<string, Handler> = {
 
 export async function runCli(argv: string[]): Promise<CliResult> {
   const [subcommand, ...rest] = argv;
-  if (subcommand === "--version" || subcommand === "-V" || subcommand === "version") {
+  if (subcommand === "--version" || subcommand === "-V") {
     return runVersion(rest);
   }
 
