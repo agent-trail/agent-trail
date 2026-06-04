@@ -4,8 +4,9 @@ Bundled JSON Schemas describing upstream coding-agent source formats. Consumed b
 [`@agent-trail/adapter-kit`](../adapter-kit) (`selectSchemaVersion`, `validateSourceRecord`) to
 quarantine records that drift from a known shape before they reach the trail mapper.
 
-These schemas describe the **raw upstream files** (codex rollout JSONL, claude-code session JSONL,
-etc.) — not the trail format. The trail format contract lives in the root
+These schemas describe the **adapter source records** (codex rollout JSONL lines, claude-code
+session JSONL lines, OpenCode records normalized from file storage / SQLite rows, etc.) — not the
+trail format. The trail format contract lives in the root
 [`schema.json`](../../schema.json) / [`@agent-trail/schema`](../schema).
 
 ## Layout
@@ -25,11 +26,17 @@ claude-code/
   meta.json
   v1.json
   v1.d.ts
+opencode/
+  meta.json
+  v1.json
+  v1.d.ts
 ```
 
-Each schema validates one record (one JSONL line). Validation is intentionally lenient on additive
-field drift and strict on record-type drift — a brand-new top-level `type` or `event_msg` subtype
-fails validation and is quarantined.
+Each schema validates one adapter source record. For JSONL-backed agents that usually means one
+JSONL line; for OpenCode it means one normalized record produced from file storage or SQLite.
+Validation is intentionally lenient on additive field drift and strict on record-type drift — a
+brand-new top-level `type`, `event_msg` subtype, or OpenCode `part_type` fails validation and is
+quarantined.
 
 ## `meta.json` shape
 

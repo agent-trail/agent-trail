@@ -18,6 +18,9 @@ export const PI_SESSION_UID_NAMESPACE = "c5b1f6e2-8d34-4e9b-af23-405c6d7e8f90";
 /** Namespace for Codex CLI adapter session_uids. Stable forever — do not change. */
 export const CODEX_SESSION_UID_NAMESPACE = "d7e3a8f4-9f56-4abd-c045-627e8f9a0b12";
 
+/** Namespace for OpenCode adapter session_uids. Stable forever — do not change. */
+export const OPENCODE_SESSION_UID_NAMESPACE = "1b27edc8-d29a-4ef0-9472-7a0f2d4b6c81";
+
 /**
  * Namespace for Claude Code synthesized entry ids (queue-operation, pr-link,
  * permission-mode envelopes that lack a source uuid). Stable forever — do not
@@ -32,6 +35,9 @@ export const CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE = "d6c2f7e3-9e45-4fac-bf
  * not change.
  */
 export const CODEX_ENTRY_ID_NAMESPACE = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";
+
+/** Namespace for OpenCode adapter entry ids. Stable forever — do not change. */
+export const OPENCODE_ENTRY_ID_NAMESPACE = "2c38fed9-e3ab-4f01-a583-8b1f3e5c7d92";
 
 /**
  * Namespace for Pi adapter entry ids. Real Pi envelopes carry 8-char hex

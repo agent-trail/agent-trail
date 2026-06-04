@@ -32,7 +32,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, mode_change, thinking_level_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
-| OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
+| OpenCode | open | SQLite `opencode.db` plus file storage under `~/.local/share/opencode/storage/{session,message,part,todo}`; `OPENCODE_DATA_DIR` / `OPENCODE_DB` overrides | re-implement | https://github.com/sst/opencode | 2026-06-04 | 1.0.153 local + synthetic v1 | user_message, agent_message, tool_call, tool_result, tool_call_aborted, agent_thinking, context_compact, model_change, task_plan_update, session_terminated, system_event, session_metadata_update | opencode/index.test.ts synthetic file-storage, SQLite, hybrid, lifecycle, quarantine fixtures; optional real JSON + SQLite smoke tests | verified |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
 
 Columns map directly to PRD §7.2. Cells use `—` when not yet determined. Source status (`open` / `closed`) reflects whether the source agent's session writer code is publicly available; it does not imply licensing of the trail format itself.
@@ -227,6 +227,41 @@ Remaining deferred shapes: `parentSession` forked sessions. If Pi
 Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
 Real sessions stay out of git per the fixture policy below.
+
+OpenCode fixture coverage (issue #34) covers both storage backends. File storage is read from
+`storage/session`, `storage/message`, `storage/part`, and `storage/todo`; SQLite sessions are read
+from `opencode.db` with virtual refs of the form `opencode.db#<session-id>`. Discovery prefers file
+storage when both backends contain the same session id, but file-backed parsing opportunistically
+enriches the trail with matching SQLite session/project metadata when the DB is present. That keeps
+the file transcript authoritative while capturing DB-only session metadata such as upstream
+OpenCode version, default model, share URL, token totals, summary diff metadata, revert/permission
+state, project worktree, and session state. If the DB is absent, the same file session still parses
+and validates with the metadata available in file storage.
+
+OpenCode source schema `v1` validates the adapter's normalized records, not a single upstream file
+format. Known normalized record types are `session`, `message`, `part`, `todo`, `session_message`,
+`permission`, and `event`. Known upstream part types are `text`, `reasoning`, `file`, `tool`,
+`step-start`, `step-finish`, `snapshot`, `patch`, `agent`, `retry`, `compaction`, and `subtask`.
+Unknown top-level or part types quarantine as `system_event{kind:"x-opencode/unknown_record"}` with
+lossless redacted `source.raw`; every emitted entry carries `meta["dev.opencode.raw_type"]`.
+
+OpenCode mappings: text parts map to user/agent messages; reasoning maps to `agent_thinking`
+(encrypted-only reasoning emits `[encrypted reasoning]`); compaction maps to `context_compact`;
+model changes map to `model_change`; `todowrite` with todos maps to `task_plan_update`; incomplete
+open tool calls terminate at EOF with `session_terminated`. File parts fold into message
+`attachments[]` when paired with user/assistant text. Patch, snapshot, agent, retry, permission,
+diagnostic, and weaker-fit session/project surfaces emit stable `x-opencode/*` vendor
+`system_event`s while preserving raw source. Built-in tools map to canonical tool kinds where fit is
+strong (`file_read`, `file_write`, `file_edit`, `shell_command`, `shell_output`, `file_search`,
+`web_fetch`, `subagent_invoke`, `mcp_call`, or `other`).
+
+Opt-in real-session test hooks:
+`packages/adapters/src/opencode/real-session.test.ts` reads `AGENT_TRAIL_REAL_OPENCODE_ROOT`
+(OpenCode data root, storage root, or `ses_*.json`) for file-backed smoke, and
+`AGENT_TRAIL_REAL_OPENCODE_DB_SESSION` (`opencode.db`, `opencode.db#<session-id>`, or OpenCode data
+root) for SQLite-backed smoke. Both skip when unset/default storage is unavailable and only assert
+optional-field correctness when those features are present. Real sessions stay out of git per the
+fixture policy below.
 
 Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`agent_thinking`,
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle

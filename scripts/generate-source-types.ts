@@ -6,7 +6,7 @@ const rootUrl = new URL("../", import.meta.url);
 const pkgUrl = new URL("packages/source-schemas/", rootUrl);
 const checkOnly = process.argv.includes("--check");
 
-const agents = ["codex", "pi", "claude-code"];
+const agents = ["codex", "pi", "claude-code", "opencode"];
 let stale = false;
 
 for (const agent of agents) {
