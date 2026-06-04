@@ -39,7 +39,7 @@ body:
         - ...
         - ...
     validations:
-      required: true
+      required: false
   - type: textarea
     id: implementation-notes
     attributes:
@@ -55,8 +55,8 @@ body:
       options:
         - "No public contract change"
         - "Public package API change"
-        - "schema.json or generated types change"
-        - "spec.md change"
+        - "`schema.json` or generated types change"
+        - "`spec.md` change"
         - "CLI behavior change"
         - "Documentation-only change"
     validations:
