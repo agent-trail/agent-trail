@@ -1,5 +1,6 @@
 import ccMeta from "@agent-trail/source-schemas/claude-code/meta" with { type: "json" };
 import codexMeta from "@agent-trail/source-schemas/codex/meta" with { type: "json" };
+import opencodeMeta from "@agent-trail/source-schemas/opencode/meta" with { type: "json" };
 import piMeta from "@agent-trail/source-schemas/pi/meta" with { type: "json" };
 import semver from "semver";
 
@@ -10,6 +11,7 @@ const metas: Record<string, SourceMeta> = {
   codex: codexMeta as SourceMeta,
   pi: piMeta as SourceMeta,
   "claude-code": ccMeta as SourceMeta,
+  opencode: opencodeMeta as SourceMeta,
 };
 
 /**

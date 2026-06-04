@@ -1,0 +1,6 @@
+{
+  "agent": "opencode",
+  "upstream": "sst/opencode",
+  "version_ranges": [{ "schemaVersion": "v1", "range": ">=1.0.0" }],
+  "fallback": "v1"
+}

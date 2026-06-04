@@ -8,7 +8,7 @@ The goal is to make sessions from tools like Claude Code, Cursor, Codex CLI, Pi,
 
 Draft. The current public format target is `0.1.0`.
 
-The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, a streaming JSONL parser with layered validation, a redaction module, a content-addressed local store, two source-agent adapters (Pi and Claude Code), and the `trail` CLI (`validate`, `discover`, `list`, `share`, `load`, `export`).
+The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, a streaming JSONL parser with layered validation, a redaction module, a content-addressed local store, three source-agent adapters (Pi, Claude Code, and OpenCode), and the `trail` CLI (`validate`, `discover`, `list`, `share`, `load`, `export`).
 
 ## Core Validation
 
@@ -51,7 +51,7 @@ The envelope is optional and decouples file-scope identity (producer, file label
 | `@agent-trail/schema` | Canonical JSON Schema, published to npm. |
 | `@agent-trail/types` | Generated TypeScript declarations. |
 | `@agent-trail/core` | Streaming JSONL parser, hashing, canonicalization, layered validation, multi-segment reconciler. |
-| `@agent-trail/adapters` | Source-agent parsers (Pi and Claude Code today; more pending). |
+| `@agent-trail/adapters` | Source-agent parsers (Pi, Claude Code, and OpenCode today; more pending). |
 | `@agent-trail/redact` | Share-time redaction pipeline. |
 | `@agent-trail/store` | Content-addressed local object store and index. |
 | `@agent-trail/cli` | The `trail` binary. |

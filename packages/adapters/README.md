@@ -1,8 +1,11 @@
 # @agent-trail/adapters
 
 Per-source-agent parsers that convert native session files into Agent Trail
-entries. Verified adapters: `claude-code`, `codex`, `pi`. Pending: Cursor,
-OpenCode, Aider (see `docs/parser-source-matrix.md`).
+entries. Verified adapters: `claude-code`, `codex`, `opencode`, `pi`.
+Pending: Cursor, Aider (see `docs/parser-source-matrix.md`).
+
+For the end-to-end checklist for adding a new adapter, see
+[`docs/adapter-authoring.md`](../../docs/adapter-authoring.md).
 
 ## Shared seam
 
@@ -70,7 +73,8 @@ casing the option.
   ```bash
   bun test packages/adapters/src/pi/real-session.test.ts \
     packages/adapters/src/codex/real-session.test.ts \
-    packages/adapters/src/claude-code/real-session.test.ts
+    packages/adapters/src/claude-code/real-session.test.ts \
+    packages/adapters/src/opencode/real-session.test.ts
   ```
 
   From `packages/adapters`:
@@ -78,7 +82,8 @@ casing the option.
   ```bash
   bun test src/pi/real-session.test.ts \
     src/codex/real-session.test.ts \
-    src/claude-code/real-session.test.ts
+    src/claude-code/real-session.test.ts \
+    src/opencode/real-session.test.ts
   ```
 
   Use `AGENT_TRAIL_REAL_*_SESSION` only when testing a specific custom session
@@ -88,6 +93,8 @@ casing the option.
   AGENT_TRAIL_REAL_PI_SESSION=/abs/path/to/pi-session.jsonl bun test packages/adapters
   AGENT_TRAIL_REAL_CODEX_SESSION=/abs/path/to/rollout-...jsonl bun test packages/adapters
   AGENT_TRAIL_REAL_CLAUDE_CODE_SESSION=/abs/path/to/claude-session.jsonl bun test packages/adapters
+  AGENT_TRAIL_REAL_OPENCODE_ROOT=/abs/path/to/opencode bun test packages/adapters
+  AGENT_TRAIL_REAL_OPENCODE_DB_SESSION=/abs/path/to/opencode.db#ses_... bun test packages/adapters
   ```
 
   Smoke tests parse the real session, validate emitted Agent Trail records, and

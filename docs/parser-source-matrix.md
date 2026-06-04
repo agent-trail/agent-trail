@@ -1,16 +1,18 @@
 # Parser Source Matrix
 
-The living record of adapter source formats, verification dates, and fixture coverage. This document is the canonical source of truth for which source agents Agent Trail adapters cover, what was verified, when, and which committed fixtures lock that behavior.
+The living record of adapter source formats, verification dates, and fixture coverage. This document is the canonical source of truth for which source agents Agent Trail adapters cover, what was verified, when, and which committed adapter fixtures or fixture-building tests lock that behavior.
 
 See PRD [§7.2](./PRD.md) for the product specification of this matrix, and [`CONTEXT.md`](../CONTEXT.md) for the glossary entry. Modeled after [hwisu/opensession's parser-source-matrix.md](https://github.com/hwisu/opensession/blob/main/docs/parser-source-matrix.md).
+
+For the implementation checklist used when adding a new adapter, see [Adapter Authoring Guide](./adapter-authoring.md).
 
 ## Status legend
 
 - `pending verification` — adapter not yet implemented, or storage format not yet verified against the listed source-agent version.
-- `verified` — adapter implemented, fixtures committed under `tests/fixtures/`, and behavior locked against the listed source-agent version on the listed verification date.
+- `verified` — adapter implemented, fixtures committed under `packages/adapters/tests/fixtures/` or fixture-building adapter tests committed under `packages/adapters/src/`, and behavior locked against the listed source-agent version on the listed verification date.
 - `deprecated` — adapter or source format no longer covered. See notes for migration guidance.
 
-An adapter is only considered supported once its row is `verified` with at least one committed synthetic fixture.
+An adapter is only considered supported once its row is `verified` with at least one committed synthetic fixture or committed synthetic fixture-building test.
 
 ## Trail envelope emission (writer policy)
 
@@ -32,7 +34,7 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 | Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, mode_change, thinking_level_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
-| OpenCode | open | — | re-implement | — | — | — | — | — | pending verification |
+| OpenCode | open | SQLite `opencode.db` plus file storage under `~/.local/share/opencode/storage/{session,message,part,todo}`; `OPENCODE_DATA_DIR` / `OPENCODE_DB` overrides | re-implement | https://github.com/sst/opencode | 2026-06-04 | 1.0.153 local + synthetic v1; redacted real 1.0.127 | user_message, agent_message, tool_call, tool_result, tool_call_aborted, agent_thinking, context_compact, model_change, task_plan_update, session_terminated, system_event, session_metadata_update | opencode fixture builders in `packages/adapters/src/opencode/index.test.ts`; redacted real fixture `real-sessions/opencode-v1.source.jsonl` + `real-sessions/opencode-v1.trail.jsonl`; optional real JSON + SQLite smoke in `packages/adapters/src/opencode/real-session.test.ts` | verified |
 | Aider | open | — | re-implement | — | — | — | — | — | pending verification |
 
 Columns map directly to PRD §7.2. Cells use `—` when not yet determined. Source status (`open` / `closed`) reflects whether the source agent's session writer code is publicly available; it does not imply licensing of the trail format itself.
@@ -227,6 +229,41 @@ Remaining deferred shapes: `parentSession` forked sessions. If Pi
 Opt-in real-session test hook: `packages/adapters/src/pi/real-session.test.ts` reads
 `AGENT_TRAIL_REAL_PI_SESSION` (absolute path to a real Pi JSONL session) and skips when unset.
 Real sessions stay out of git per the fixture policy below.
+
+OpenCode fixture coverage (issue #34) covers both storage backends. File storage is read from
+`storage/session`, `storage/message`, `storage/part`, and `storage/todo`; SQLite sessions are read
+from `opencode.db` with virtual refs of the form `opencode.db#<session-id>`. Discovery prefers file
+storage when both backends contain the same session id, but file-backed parsing opportunistically
+enriches the trail with matching SQLite session/project metadata when the DB is present. That keeps
+the file transcript authoritative while capturing DB-only session metadata such as upstream
+OpenCode version, default model, share URL, token totals, summary diff metadata, revert/permission
+state, project worktree, and session state. If the DB is absent, the same file session still parses
+and validates with the metadata available in file storage.
+
+OpenCode source schema `v1` validates the adapter's normalized records, not a single upstream file
+format. Known normalized record types are `session`, `project`, `message`, `part`, `todo`,
+`session_message`, `permission`, and `event`. Known upstream part types are `text`, `reasoning`, `file`, `tool`,
+`step-start`, `step-finish`, `snapshot`, `patch`, `agent`, `retry`, `compaction`, and `subtask`.
+Unknown top-level or part types quarantine as `system_event{kind:"x-opencode/unknown_record"}` with
+lossless redacted `source.raw`; every emitted entry carries `meta["dev.opencode.raw_type"]`.
+
+OpenCode mappings: text parts map to user/agent messages; reasoning maps to `agent_thinking`
+(encrypted-only reasoning emits `[encrypted reasoning]`); compaction maps to `context_compact`;
+model changes map to `model_change`; `todowrite` with todos maps to `task_plan_update`; incomplete
+open tool calls terminate at EOF with `session_terminated`. File parts fold into message
+`attachments[]` when paired with user/assistant text. Patch, snapshot, agent, retry, permission,
+diagnostic, and weaker-fit session/project surfaces emit stable `x-opencode/*` vendor
+`system_event`s while preserving raw source. Built-in tools map to canonical tool kinds where fit is
+strong (`file_read`, `file_write`, `file_edit`, `shell_command`, `shell_output`, `file_search`,
+`web_fetch`, `subagent_invoke`, `mcp_call`, or `other`).
+
+Opt-in real-session test hooks:
+`packages/adapters/src/opencode/real-session.test.ts` reads `AGENT_TRAIL_REAL_OPENCODE_ROOT`
+(OpenCode data root, storage root, or `ses_*.json`) for file-backed smoke, and
+`AGENT_TRAIL_REAL_OPENCODE_DB_SESSION` (`opencode.db`, `opencode.db#<session-id>`, or OpenCode data
+root) for SQLite-backed smoke. Both skip when unset/default storage is unavailable and only assert
+optional-field correctness when those features are present. Real sessions stay out of git per the
+fixture policy below.
 
 Codex CLI fixture coverage (issue #32) targets the four mandated event kinds (`agent_thinking`,
 `context_compact`, `model_change`, plus the baseline message + tool pair) and extends to lifecycle
@@ -649,17 +686,17 @@ Session metadata from non-message envelopes:
 
 Agent Trail adapter work distinguishes two kinds of fixtures:
 
-1. **Committed fixtures** must be synthetic or manually redacted real-source fixtures. They live under `tests/fixtures/` and are reviewed in PRs. No raw transcript text, no PII, no secrets, no API keys, no real user identifiers, no contributor-local file paths, no private repository URLs, and no opaque encrypted reasoning blobs. Synthetic fixtures should use synthetic ids, agent names, timestamps, and one scenario per file. Redacted real-source fixtures may preserve source ids, source schema structure, event types, safe enum values, model ids, and tool or schema field names when they do not identify a person, local machine, private repository, or transcript text. Their source text and matching expected Agent Trail output must both be redacted and covered by leak checks.
+1. **Committed fixtures** must be synthetic or manually redacted real-source fixtures. They live under `packages/adapters/tests/fixtures/`; storage-tree or SQLite adapters may also use committed fixture-building tests under `packages/adapters/src/` when a single source file is not the source format. All fixtures and builders are reviewed in PRs. No raw transcript text, no PII, no secrets, no API keys, no real user identifiers, no contributor-local file paths, no private repository URLs, and no opaque encrypted reasoning blobs. Synthetic fixtures should use synthetic ids, agent names, timestamps, and one scenario per file or test case. Redacted real-source fixtures may preserve source ids, source schema structure, event types, safe enum values, model ids, and tool or schema field names when they do not identify a person, local machine, private repository, or transcript text. Their source text and matching expected Agent Trail output must both be redacted and covered by leak checks.
 
 2. **Real local sessions** stay out of git. Adapters may include opt-in real-session smoke tests that load default agent session roots or a custom path from an environment variable and skip in CI. These tests run on the contributor's machine, never in CI, and never check raw local session data into the repo.
 
 An adapter PR is not eligible to move its matrix row from `pending verification` to `verified` until:
 
-- At least one committed synthetic fixture exercises the adapter's main entry types.
+- At least one committed synthetic fixture or fixture-building test exercises the adapter's main entry types.
 - The verification date and source-agent version are filled in.
-- Observed entry types and fixture names columns reflect the committed fixtures.
+- Observed entry types and fixture names columns reflect the committed fixtures or fixture-building tests.
 
-If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
+If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `packages/adapters/tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
 
 ## Update procedure
 
@@ -667,7 +704,7 @@ When an adapter author verifies behavior against a new source-agent version:
 
 1. Run the adapter's fixture tests against the new source-agent release.
 2. Update the row's `Verified on`, `Source-agent version`, `Observed entry types`, and `Fixture names` columns.
-3. If new entry types appeared, add a fixture under `tests/fixtures/` covering each, and reference it in the matrix.
+3. If new entry types appeared, add a fixture under `packages/adapters/tests/fixtures/` or a fixture-building adapter test covering each, and reference it in the matrix.
 4. If existing entry types changed shape, treat as a breaking source-format change: note it in the row, add a fixture for the new shape, keep the prior fixture if older versions remain supported.
 5. Flip status to `verified` once all of the above are in the PR.
 

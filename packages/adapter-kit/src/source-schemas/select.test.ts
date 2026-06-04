@@ -30,4 +30,9 @@ describe("selectSchemaVersion", () => {
   test("claude-code prerelease version matches its range", () => {
     expect(selectSchemaVersion("claude-code", "1.0.0-synthetic")).toBe("v1");
   });
+
+  test("opencode version resolves to v1 with fallback for future versions", () => {
+    expect(selectSchemaVersion("opencode", "1.0.153")).toBe("v1");
+    expect(selectSchemaVersion("opencode", "2.0.0")).toBe("v1");
+  });
 });

@@ -5,6 +5,7 @@ const REGISTERED: [string, string][] = [
   ["codex", "v0.128"],
   ["pi", "v1"],
   ["claude-code", "v1"],
+  ["opencode", "v1"],
 ];
 
 describe("getSourceValidator", () => {

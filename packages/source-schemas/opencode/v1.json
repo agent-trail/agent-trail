@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/source/opencode/v1.json",
+  "title": "OpenCodeV1Record",
+  "description": "OpenCode normalized storage record. Covers SQLite rows and file-storage JSON normalized by the adapter into session, message, part, todo, session_message, permission, and event records. Drift is caught at record-type and part-type granularity; additive fields remain lenient.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "enum": [
+        "session",
+        "project",
+        "message",
+        "part",
+        "todo",
+        "session_message",
+        "permission",
+        "event"
+      ]
+    },
+    "part_type": {
+      "enum": [
+        "text",
+        "reasoning",
+        "tool",
+        "step-start",
+        "step-finish",
+        "snapshot",
+        "patch",
+        "agent",
+        "retry",
+        "compaction",
+        "subtask",
+        "file"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "part" } },
+        "required": ["type"]
+      },
+      "then": {
+        "required": ["part_type"],
+        "properties": {
+          "part_type": {
+            "enum": [
+              "text",
+              "reasoning",
+              "tool",
+              "step-start",
+              "step-finish",
+              "snapshot",
+              "patch",
+              "agent",
+              "retry",
+              "compaction",
+              "subtask",
+              "file"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

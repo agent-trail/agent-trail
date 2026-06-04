@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ function manglePi(cwd: string): string {
 }
 
 type Seed = {
-  agent: "claude-code" | "pi" | "codex";
+  agent: "claude-code" | "pi" | "codex" | "opencode";
   id: string;
   cwd: string;
   modifiedAt: string;
@@ -40,7 +41,7 @@ function seedSession(seed: Seed): string {
     dir = join(sessionsDir, manglePi(seed.cwd));
     filename = `${seed.id}.jsonl`;
     header = seed.header ?? { type: "session", sessionId: seed.id, cwd: seed.cwd };
-  } else {
+  } else if (seed.agent === "codex") {
     // Codex CLI stores at <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl.
     // The header is a desktop-wrapped `session_meta` envelope; cwd lives at
     // `payload.cwd`. There is no per-cwd subdir — the adapter filters by
@@ -63,6 +64,21 @@ function seedSession(seed: Seed): string {
         cli_version: "0.98.0",
       },
     };
+  } else {
+    const dataDir = process.env.OPENCODE_DATA_DIR as string;
+    dir = join(dataDir, "storage", "session", "project-opencode");
+    filename = `${seed.id}.json`;
+    header = seed.header ?? {
+      id: seed.id,
+      version: "1.0.153",
+      projectID: "project-opencode",
+      directory: seed.cwd,
+      title: "OpenCode discover",
+      time: {
+        created: new Date(seed.modifiedAt).getTime(),
+        updated: new Date(seed.modifiedAt).getTime(),
+      },
+    };
   }
   mkdirSync(dir, { recursive: true });
   const file = join(dir, filename);
@@ -72,16 +88,40 @@ function seedSession(seed: Seed): string {
   return file;
 }
 
+function seedOpenCodeDbSession(seed: { id: string; cwd: string; modifiedAt: string }): string {
+  const dbPath = join(opencodeDataDir, "opencode.db");
+  const db = new Database(dbPath);
+  const updated = new Date(seed.modifiedAt).getTime();
+  db.exec(`
+    CREATE TABLE session (
+      id text PRIMARY KEY,
+      project_id text NOT NULL,
+      directory text NOT NULL,
+      title text NOT NULL,
+      version text NOT NULL,
+      time_created integer NOT NULL,
+      time_updated integer NOT NULL
+    );
+  `);
+  db.query(
+    "INSERT INTO session (id, project_id, directory, title, version, time_created, time_updated) VALUES ($id, 'project-db', $cwd, 'DB OpenCode discover', '1.0.153', $updated, $updated)",
+  ).run({ $id: seed.id, $cwd: seed.cwd, $updated: updated });
+  db.close();
+  return dbPath;
+}
+
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
 let prevClaudeConfigDir: string | undefined;
 let prevPiAgentDir: string | undefined;
 let prevPiSessionDir: string | undefined;
 let prevCodexHome: string | undefined;
+let prevOpencodeDataDir: string | undefined;
 let prevCwd: string;
 let claudeConfigDir: string;
 let piSessionsDir: string;
 let codexHome: string;
+let opencodeDataDir: string;
 let tmpCwd: string;
 
 beforeEach(() => {
@@ -91,16 +131,19 @@ beforeEach(() => {
   prevPiAgentDir = process.env.PI_CODING_AGENT_DIR;
   prevPiSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
   prevCodexHome = process.env.CODEX_HOME;
+  prevOpencodeDataDir = process.env.OPENCODE_DATA_DIR;
   prevCwd = process.cwd();
   claudeConfigDir = mkdtempSync(join(tmpdir(), "discover-claude-"));
   piSessionsDir = mkdtempSync(join(tmpdir(), "discover-pi-"));
   codexHome = mkdtempSync(join(tmpdir(), "discover-codex-"));
+  opencodeDataDir = mkdtempSync(join(tmpdir(), "discover-opencode-"));
   tmpCwd = mkdtempSync(join(tmpdir(), "discover-cwd-"));
   process.env.HOME = mkdtempSync(join(tmpdir(), "discover-home-"));
   delete process.env.USERPROFILE;
   process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
   process.env.PI_CODING_AGENT_SESSION_DIR = piSessionsDir;
   process.env.CODEX_HOME = codexHome;
+  process.env.OPENCODE_DATA_DIR = opencodeDataDir;
   delete process.env.PI_CODING_AGENT_DIR;
   process.chdir(tmpCwd);
   // On macOS /tmp resolves through /private — re-read so seed mangling matches
@@ -122,9 +165,12 @@ afterEach(() => {
   else process.env.PI_CODING_AGENT_SESSION_DIR = prevPiSessionDir;
   if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = prevCodexHome;
+  if (prevOpencodeDataDir === undefined) delete process.env.OPENCODE_DATA_DIR;
+  else process.env.OPENCODE_DATA_DIR = prevOpencodeDataDir;
   rmSync(claudeConfigDir, { recursive: true, force: true });
   rmSync(piSessionsDir, { recursive: true, force: true });
   rmSync(codexHome, { recursive: true, force: true });
+  rmSync(opencodeDataDir, { recursive: true, force: true });
   rmSync(tmpCwd, { recursive: true, force: true });
 });
 
@@ -209,6 +255,45 @@ test("--agent codex finds codex sessions by header cwd", async () => {
   expect(parsed[0]?.adapter).toBe("codex");
   expect(parsed[0]?.id).toBe("019d9000-3333-7000-a000-cccccccccccc");
   expect(parsed[0]?.cwd).toBe(tmpCwd);
+});
+
+test("--agent opencode finds OpenCode file-storage sessions", async () => {
+  seedSession({
+    agent: "opencode",
+    id: "ses_opencode",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-20T14:00:00.000Z",
+  });
+  const result = await runDiscover(["--json", "--agent", "opencode"]);
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string; adapter: string; cwd: string }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]).toMatchObject({
+    id: "ses_opencode",
+    adapter: "opencode",
+    cwd: tmpCwd,
+  });
+});
+
+test("--agent opencode finds SQLite-backed OpenCode sessions", async () => {
+  const dbPath = seedOpenCodeDbSession({
+    id: "ses_opencode_db",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-20T14:00:00.000Z",
+  });
+  const result = await runDiscover(["--json", "--agent", "opencode"]);
+  const parsed = JSON.parse(result.stdout) as Array<{
+    id: string;
+    adapter: string;
+    cwd: string;
+    path: string;
+  }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]).toMatchObject({
+    id: "ses_opencode_db",
+    adapter: "opencode",
+    cwd: tmpCwd,
+    path: `${dbPath}#ses_opencode_db`,
+  });
 });
 
 test("--agent filters to a single adapter", async () => {

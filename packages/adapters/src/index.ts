@@ -54,6 +54,7 @@ export { claudeCodeAdapter } from "./claude-code/index.ts";
 export { codexAdapter } from "./codex/index.ts";
 export type { BuildTrailEnvelopeOptions } from "./envelope.ts";
 export { buildTrailEnvelope } from "./envelope.ts";
+export { opencodeAdapter } from "./opencode/index.ts";
 export { piAdapter } from "./pi/index.ts";
 
 export function trailRecords(trail: TrailFile): object[] {
