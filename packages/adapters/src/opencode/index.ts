@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { quoteShellArg } from "@agent-trail/adapter-kit";
 import { parseJsonlString, stampTrail } from "@agent-trail/core";
 import type { Attachment, Entry, Header, ToolKind } from "@agent-trail/types";
@@ -219,7 +219,7 @@ async function fileSessionSummaries(
       const path = join(dir, file.name);
       const raw = await readJsonFile(path);
       if (raw === undefined) continue;
-      const id = stringValue(raw.id) ?? file.name.replace(/\.json$/, "");
+      const id = file.name.replace(/\.json$/, "");
       const cwd = stringValue(raw.directory);
       if (cwd === undefined) continue;
       const time = isObject(raw.time) ? raw.time : {};
@@ -242,15 +242,17 @@ async function readJsonFilesInDir(dir: string): Promise<Raw[]> {
   for (const file of files) {
     if (!file.isFile() || !file.name.endsWith(".json")) continue;
     const raw = await readJsonFile(join(dir, file.name));
-    if (raw !== undefined) out.push(raw);
+    if (raw !== undefined) out.push({ ...raw, id: file.name.replace(/\.json$/, "") });
   }
   return out;
 }
 
 async function loadFileSession(path: string): Promise<LoadedSession> {
-  const session = await readJsonFile(path);
-  if (session === undefined) throw new Error(`OpenCode session JSON unreadable: ${path}`);
-  const id = stringValue(session.id) ?? path.replace(/^.*\//, "").replace(/\.json$/, "");
+  const sessionRaw = await readJsonFile(path);
+  if (sessionRaw === undefined) throw new Error(`OpenCode session JSON unreadable: ${path}`);
+  const id = basename(path).replace(/\.json$/, "");
+  const projectID = basename(dirname(path));
+  const session = { ...sessionRaw, id, projectID };
   const storageDir = opencodeStorageDir();
   if (storageDir === undefined)
     return {
@@ -389,15 +391,11 @@ function loadDbMetadataForFileSession(
 function canEnrichFileSession(fileSession: Raw, dbSession: Raw): boolean {
   const fileDirectory = stringValue(fileSession.directory);
   const dbDirectory = stringValue(dbSession.directory);
-  if (fileDirectory !== undefined && dbDirectory !== undefined && fileDirectory !== dbDirectory) {
+  if (fileDirectory === undefined || dbDirectory === undefined || fileDirectory !== dbDirectory)
     return false;
-  }
   const fileProject = stringValue(fileSession.projectID) ?? stringValue(fileSession.project_id);
   const dbProject = stringValue(dbSession.projectID) ?? stringValue(dbSession.project_id);
-  if (fileProject !== undefined && dbProject !== undefined && fileProject !== dbProject) {
-    return false;
-  }
-  return true;
+  return fileProject !== undefined && dbProject !== undefined && fileProject === dbProject;
 }
 
 function loadDbSession(pathWithFragment: string): LoadedSession {

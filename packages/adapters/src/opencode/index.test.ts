@@ -450,6 +450,54 @@ test("detectSessions() prefers file storage when file and SQLite contain the sam
   expect(refs[0]).toMatchObject({ id: "ses_same", cwd: "/work/file", path: filePath });
 });
 
+test("file storage uses path-derived ids instead of stale JSON ids", async () => {
+  const sessionDir = join(dataDir, "storage", "session", "project-path");
+  mkdirSync(sessionDir, { recursive: true });
+  const sessionPath = join(sessionDir, "ses_path.json");
+  writeFileSync(
+    sessionPath,
+    `${JSON.stringify({
+      id: "../../../outside",
+      version: "1.0.153",
+      directory: "/work/path",
+      title: "Path ids",
+      time: { created: 1766258473000, updated: 1766258479000 },
+    })}\n`,
+  );
+  const messageDir = join(dataDir, "storage", "message", "ses_path");
+  mkdirSync(messageDir, { recursive: true });
+  writeFileSync(
+    join(messageDir, "msg_path.json"),
+    `${JSON.stringify({
+      id: "../../../outside-message",
+      role: "user",
+      time: { created: 1766258474000, updated: 1766258474000 },
+    })}\n`,
+  );
+  const partDir = join(dataDir, "storage", "part", "msg_path");
+  mkdirSync(partDir, { recursive: true });
+  writeFileSync(
+    join(partDir, "prt_path.json"),
+    `${JSON.stringify({
+      id: "../../../outside-part",
+      type: "text",
+      text: "path ids win",
+      time: { created: 1766258475000, updated: 1766258475000 },
+    })}\n`,
+  );
+
+  const refs = await opencodeAdapter.detectSessions({ cwd: "/work/path" });
+  expect(refs[0]).toMatchObject({ id: "ses_path", path: sessionPath });
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_path",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  expect(trail.groups[0]!.entries.find((entry) => entry.type === "user_message")).toMatchObject({
+    payload: { text: "path ids win" },
+  });
+});
+
 test("parseSession() emits a valid finalized trail from file storage", async () => {
   const sessionPath = seedFileSession({
     id: "ses_parse",
