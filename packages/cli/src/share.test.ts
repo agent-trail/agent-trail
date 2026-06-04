@@ -12,7 +12,9 @@ import {
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
-import { runShare } from "./share.ts";
+import { runCli } from "./cli-runtime.ts";
+import type { RunShareContext, RunShareOptions, RunShareResult } from "./share.ts";
+import { runShare as runShareCommand } from "./share.ts";
 
 function decodePayload(payload: Uint8Array): string {
   const base64 = Buffer.from(payload).toString("ascii");
@@ -69,6 +71,29 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
 
 let storeRoot: string;
 
+function shareOptions(argv: string[]): RunShareOptions {
+  const options: Partial<RunShareOptions> = {};
+  for (const arg of argv) {
+    if (arg === "--dry-run") {
+      options.dryRun = true;
+    } else if (arg === "--yes" || arg === "-y") {
+      options.yes = true;
+    } else if (arg === "--skip-redaction") {
+      options.skipRedaction = true;
+    } else if (arg === "--keep-remote-url") {
+      options.keepRemoteUrl = true;
+    } else if (options.path === undefined) {
+      options.path = arg;
+    }
+  }
+  if (options.path === undefined) throw new Error("test helper missing path");
+  return options as RunShareOptions;
+}
+
+function runShare(argv: string[], context: RunShareContext = {}): Promise<RunShareResult> {
+  return runShareCommand(shareOptions(argv), context);
+}
+
 beforeEach(() => {
   storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-"));
 });
@@ -78,7 +103,7 @@ afterEach(() => {
 });
 
 test("missing path arg: exits 1 with usage on stderr", async () => {
-  const result = await runShare([]);
+  const result = await runCli(["share"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");

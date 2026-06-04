@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
-import { runExport } from "./export.ts";
+import { runCli } from "./cli-runtime.ts";
+import type { RunExportContext, RunExportOptions, RunExportResult } from "./export.ts";
+import { runExport as runExportCommand } from "./export.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -53,6 +55,27 @@ async function seedRegistered(
 
 let storeRoot: string;
 
+function exportOptions(argv: string[]): RunExportOptions {
+  const options: Partial<RunExportOptions> = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--out") {
+      i += 1;
+      options.out = argv[i];
+    } else if (arg === "--force") {
+      options.force = true;
+    } else if (options.id === undefined) {
+      options.id = arg;
+    }
+  }
+  if (options.id === undefined) throw new Error("test helper missing id");
+  return options as RunExportOptions;
+}
+
+function runExport(argv: string[], context: RunExportContext = {}): Promise<RunExportResult> {
+  return runExportCommand(exportOptions(argv), context);
+}
+
 beforeEach(() => {
   storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-export-"));
 });
@@ -62,11 +85,11 @@ afterEach(() => {
 });
 
 test("missing positional: exits 1 with usage", async () => {
-  const result = await runExport([], { storeRoot });
+  const result = await runCli(["export"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("Usage: trail export <id>");
+  expect(result.stderr).toContain("Usage: trail export");
 });
 
 test("tracer: full hash writes canonical store bytes to stdout", async () => {
@@ -237,11 +260,11 @@ test("--out refuses to clobber existing file", async () => {
 test("extra positional argument: exits 1", async () => {
   const seed = await seedRegistered(storeRoot);
 
-  const result = await runExport([seed.contentHash, "stray"], { storeRoot });
+  const result = await runCli(["export", seed.contentHash, "stray"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("expected exactly one <id> argument, received 2");
+  expect(result.stderr).toContain("too many arguments");
 });
 
 test("malformed index key with traversal payload is not matched by prefix", async () => {

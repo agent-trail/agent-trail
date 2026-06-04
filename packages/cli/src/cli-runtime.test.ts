@@ -61,3 +61,33 @@ test("trail list help exposes Commander-owned options", async () => {
   expect(result.stdout).toContain("--kind <kind>");
   expect(result.stdout).toContain("--until <iso>");
 });
+
+test("trail load help exposes Commander-owned options", async () => {
+  const result = await runTrail(["load", "--help"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Usage: trail load [options] <url>");
+  expect(result.stdout).toContain("--out <path>");
+  expect(result.stdout).toContain("--force");
+});
+
+test("trail export help exposes Commander-owned options", async () => {
+  const result = await runTrail(["export", "--help"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Usage: trail export [options] <id>");
+  expect(result.stdout).toContain("--out <path>");
+  expect(result.stdout).toContain("--force");
+});
+
+test("trail share help exposes Commander-owned options", async () => {
+  const result = await runTrail(["share", "--help"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Usage: trail share [options] <path>");
+  expect(result.stdout).toContain("--dry-run");
+  expect(result.stdout).toContain("--skip-redaction");
+});

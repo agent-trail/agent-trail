@@ -1,6 +1,5 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { parseArgs } from "node:util";
 import {
   canonicalizeRecords,
   computeContentHash,
@@ -23,54 +22,21 @@ export type RunExportResult = {
 };
 
 export type RunExportOptions = {
+  id: string;
+  out?: string;
+  force?: boolean;
+};
+
+export type RunExportContext = {
   storeRoot?: string;
 };
 
-const USAGE = "Usage: trail export <id> [--out <path>] [--force]";
-
-type Values = {
-  out: string | undefined;
-  force: boolean;
-};
-
 export async function runExport(
-  argv: string[],
-  opts: RunExportOptions = {},
+  options: RunExportOptions,
+  context: RunExportContext = {},
 ): Promise<RunExportResult> {
-  if (argv.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
-  }
-
-  let values: Values;
-  let positionals: string[];
-  try {
-    const parsed = parseArgs({
-      args: argv,
-      options: {
-        out: { type: "string" },
-        force: { type: "boolean", default: false },
-      },
-      allowPositionals: true,
-    });
-    values = parsed.values as Values;
-    positionals = parsed.positionals;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
-
-  if (positionals.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
-  }
-  if (positionals.length > 1) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `expected exactly one <id> argument, received ${positionals.length}\n${USAGE}\n`,
-    };
-  }
-  const id = positionals[0] as string;
-  const storeRoot = resolveStoreRoot(opts.storeRoot);
+  const id = options.id;
+  const storeRoot = resolveStoreRoot(context.storeRoot);
 
   if (!VALID_ID_RE.test(id)) {
     return {
@@ -157,8 +123,8 @@ export async function runExport(
     // today's behavior. The validator surfaces parse errors via `trail
     // validate` rather than the export verb.
   }
-  if (values.out !== undefined) {
-    const outPath = values.out;
+  if (options.out !== undefined) {
+    const outPath = options.out;
     const dirCheck = await checkNotDirectory(outPath);
     if (dirCheck !== null) return dirCheck;
     await mkdir(dirname(outPath), { recursive: true });
@@ -167,7 +133,7 @@ export async function runExport(
     // other writer that creates the file between the two calls; `wx` lets
     // the kernel reject existing paths in a single syscall.
     try {
-      await writeFile(outPath, bytes, { flag: values.force ? "w" : "wx" });
+      await writeFile(outPath, bytes, { flag: options.force === true ? "w" : "wx" });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         return {

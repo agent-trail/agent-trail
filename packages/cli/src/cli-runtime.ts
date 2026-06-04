@@ -23,9 +23,6 @@ type OutputBuffer = {
 
 const handlers: Record<string, Handler> = {
   doctor: runDoctor,
-  share: runShare,
-  load: runLoad,
-  export: runExport,
 };
 
 export async function runCli(argv: string[]): Promise<CliResult> {
@@ -135,27 +132,54 @@ function buildProgram(output: OutputBuffer): Command {
 
   program
     .command("share")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .argument("<path>")
+    .option("--dry-run", "Register and redact without uploading.", false)
+    .option("-y, --yes", "Bypass confirmation prompts.", false)
+    .option("--skip-redaction", "Share raw unredacted trail content.", false)
+    .option("--keep-remote-url", "Preserve vcs.remote_url in shared content.", false)
     .description("Redact and share a Trail file.")
-    .action(commandAction(runShare, output));
+    .action(
+      async (
+        path: string,
+        options: {
+          dryRun: boolean;
+          yes: boolean;
+          skipRedaction: boolean;
+          keepRemoteUrl: boolean;
+        },
+      ) => {
+        const result = await runShare({
+          path,
+          dryRun: options.dryRun,
+          yes: options.yes,
+          skipRedaction: options.skipRedaction,
+          keepRemoteUrl: options.keepRemoteUrl,
+        });
+        appendCommandResult(result, output);
+      },
+    );
 
   program
     .command("load")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .argument("<url>")
+    .option("--out <path>", "Write canonical loaded bytes to a file.")
+    .option("--force", "Overwrite --out when it already exists.", false)
     .description("Load a shared Trail file.")
-    .action(commandAction(runLoad, output));
+    .action(async (url: string, options: { out?: string; force: boolean }) => {
+      const result = await runLoad({ url, out: options.out, force: options.force });
+      appendCommandResult(result, output);
+    });
 
   program
     .command("export")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .argument("<id>")
+    .option("--out <path>", "Write exported bytes to a file.")
+    .option("--force", "Overwrite --out when it already exists.", false)
     .description("Export a local Trail object.")
-    .action(commandAction(runExport, output));
+    .action(async (id: string, options: { out?: string; force: boolean }) => {
+      const result = await runExport({ id, out: options.out, force: options.force });
+      appendCommandResult(result, output);
+    });
 
   return program;
 }
@@ -176,5 +200,5 @@ function appendCommandResult(result: CliResult, output: OutputBuffer): void {
 }
 
 export function commandNames(): string[] {
-  return ["validate", "list", "discover", ...Object.keys(handlers)];
+  return ["validate", "list", "discover", "share", "load", "export", ...Object.keys(handlers)];
 }

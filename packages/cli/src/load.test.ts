@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
-import type { GistFetch } from "./load.ts";
-import { runLoad } from "./load.ts";
+import { runCli } from "./cli-runtime.ts";
+import type { GistFetch, RunLoadContext, RunLoadOptions, RunLoadResult } from "./load.ts";
+import { runLoad as runLoadCommand } from "./load.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -59,6 +60,27 @@ function fakeFetcher(payload: Uint8Array, filename: string): GistFetch {
   return async (_gistId: string) => ({ payload, filename });
 }
 
+function loadOptions(argv: string[]): RunLoadOptions {
+  const options: Partial<RunLoadOptions> = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--out") {
+      i += 1;
+      options.out = argv[i];
+    } else if (arg === "--force") {
+      options.force = true;
+    } else if (options.url === undefined) {
+      options.url = arg;
+    }
+  }
+  if (options.url === undefined) throw new Error("test helper missing url");
+  return options as RunLoadOptions;
+}
+
+function runLoad(argv: string[], context: RunLoadContext = {}): Promise<RunLoadResult> {
+  return runLoadCommand(loadOptions(argv), context);
+}
+
 let storeRoot: string;
 
 beforeEach(() => {
@@ -70,7 +92,7 @@ afterEach(() => {
 });
 
 test("missing url arg: exits 1 with usage on stderr", async () => {
-  const result = await runLoad([], { storeRoot });
+  const result = await runCli(["load"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");

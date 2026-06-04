@@ -44,14 +44,17 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   let uploadedPayload: Uint8Array | null = null;
   let uploadedFilename = "";
 
-  const share = await runShare([raw.path, "--yes"], {
-    storeRoot: shareStoreRoot,
-    gistUpload: async (payload, filename) => {
-      uploadedPayload = payload;
-      uploadedFilename = filename;
-      return { gistId: GIST_ID };
+  const share = await runShare(
+    { path: raw.path, yes: true },
+    {
+      storeRoot: shareStoreRoot,
+      gistUpload: async (payload, filename) => {
+        uploadedPayload = payload;
+        uploadedFilename = filename;
+        return { gistId: GIST_ID };
+      },
     },
-  });
+  );
 
   expect(share.exitCode).toBe(0);
   expect(share.stderr).toBe("");
@@ -89,10 +92,13 @@ test("share -> load -> export preserves finalized redacted trail and store metad
     payload,
     filename: uploadedFilename,
   });
-  const load = await runLoad([`https://agent-trail.dev/view/gist/${GIST_ID}`], {
-    storeRoot: loadStoreRoot,
-    gistFetch,
-  });
+  const load = await runLoad(
+    { url: `https://agent-trail.dev/view/gist/${GIST_ID}` },
+    {
+      storeRoot: loadStoreRoot,
+      gistFetch,
+    },
+  );
 
   expect(load.exitCode).toBe(0);
   expect(load.stderr).toBe("");
@@ -106,7 +112,7 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   expect(loadIndex.entries[sharedEnvelopeHash]?.session_uid).toBeNull();
   expect(loadIndex.entries[sharedEnvelopeHash]?.source_path).toBeNull();
 
-  const exported = await runExport([sharedEnvelopeHash], { storeRoot: loadStoreRoot });
+  const exported = await runExport({ id: sharedEnvelopeHash }, { storeRoot: loadStoreRoot });
   expect(exported.exitCode).toBe(0);
   expect(exported.stderr).toBe("");
   expect(exported.stdout).toBe(sharedJsonl);
@@ -165,13 +171,16 @@ test("load reconciles matching session segments, dedupes events, and reports war
     },
   ]);
 
-  const load = await runLoad([`https://agent-trail.dev/view/gist/${GIST_ID}`], {
-    storeRoot: loadStoreRoot,
-    gistFetch: async () => ({
-      payload: encodePayload(seg2.text),
-      filename: `${seg2.hash.slice(0, 12)}.trail.jsonl.gz.b64`,
-    }),
-  });
+  const load = await runLoad(
+    { url: `https://agent-trail.dev/view/gist/${GIST_ID}` },
+    {
+      storeRoot: loadStoreRoot,
+      gistFetch: async () => ({
+        payload: encodePayload(seg2.text),
+        filename: `${seg2.hash.slice(0, 12)}.trail.jsonl.gz.b64`,
+      }),
+    },
+  );
 
   expect(load.exitCode).toBe(0);
   expect(load.stderr).toBe("");
@@ -181,7 +190,7 @@ test("load reconciles matching session segments, dedupes events, and reports war
   expect(load.stdout).toContain("warning(segment_chain_mismatch)");
 
   const loadedHash = loadedHashFromStdout(load.stdout);
-  const exported = await runExport([loadedHash], { storeRoot: loadStoreRoot });
+  const exported = await runExport({ id: loadedHash }, { storeRoot: loadStoreRoot });
   expect(exported.exitCode).toBe(0);
   expect(exported.stderr).toBe("");
 
