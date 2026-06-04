@@ -12,12 +12,11 @@ import {
   userQueryResponseWarnings,
   vcsRevisionDivergenceWarnings,
 } from "./graph-checks.ts";
+import { validateGraphTopology } from "./graph-topology.ts";
 import { verifyContentHash, verifyTrailEnvelopeContentHash } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { resolveValidationProfile, type ValidationProfile } from "./profile.ts";
 import { type SessionGroup, splitSessionGroups } from "./session-groups.ts";
-
-type CycleStatus = "safe" | "cyclic";
 
 export type ValidateTrailGraphOptions = {
   canonicalBytesComplete?: boolean;
@@ -175,26 +174,8 @@ export function validateTrailGraph(
     }
   }
 
-  // Header-and-event IDs are globally unique within a file (spec §7.5), so
-  // collect every group's headers and entries together for the uniqueness
-  // check. parent_id resolution stays per-group (cross-group references go
-  // through fork_from, not parent_id).
-  const envelopeId =
-    envelopeRecord !== undefined && typeof envelopeRecord.value.id === "string"
-      ? envelopeRecord.value.id
-      : undefined;
-  const idLines = new Map<string, number>();
-  for (const group of split.groups) {
-    pushUnique(diagnostics, idLines, group.header, envelopeId, envelopeRecord);
-    for (const entry of group.entries) {
-      pushUnique(diagnostics, idLines, entry, envelopeId, envelopeRecord);
-    }
-  }
-
-  for (const group of split.groups) {
-    const groupIds = collectGroupIds(group);
-    runParentChecks(group.entries, groupIds, diagnostics);
-  }
+  const topology = validateGraphTopology(split.groups, envelopeRecord);
+  diagnostics.push(...topology.diagnostics);
 
   // Per-group downstream checks. A group with an invalid header is skipped
   // individually — sibling groups with valid headers still get their checks.
@@ -203,7 +184,7 @@ export function validateTrailGraph(
     const group = split.groups[i] as SessionGroup;
     diagnostics.push(...streamConsistencyWarnings(group.header, group.entries));
     diagnostics.push(...unmatchedToolCallWarnings(group.entries));
-    const groupIdLines = collectGroupIds(group);
+    const groupIdLines = topology.groupIdLines[i] as Map<string, number>;
     const groupHeaderId =
       typeof group.header.value.id === "string" ? group.header.value.id : undefined;
     diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));
@@ -279,104 +260,6 @@ export function validateTrailGraph(
   return diagnostics;
 }
 
-function pushUnique(
-  diagnostics: Diagnostic[],
-  idLines: Map<string, number>,
-  record: JsonlRecord,
-  envelopeId: string | undefined,
-  envelopeRecord: JsonlRecord | undefined,
-): void {
-  const id = record.value.id;
-  if (typeof id !== "string") return;
-  if (id === envelopeId && envelopeRecord !== undefined) {
-    diagnostics.push(
-      createDiagnostic({
-        line: record.line,
-        path: "/id",
-        severity: "error",
-        code: "duplicate_id",
-        message: `Duplicate id "${id}"; first seen on line ${envelopeRecord.line}`,
-      }),
-    );
-    return;
-  }
-  const firstLine = idLines.get(id);
-  if (firstLine !== undefined) {
-    diagnostics.push(
-      createDiagnostic({
-        line: record.line,
-        path: "/id",
-        severity: "error",
-        code: "duplicate_id",
-        message: `Duplicate id "${id}"; first seen on line ${firstLine}`,
-      }),
-    );
-    return;
-  }
-  idLines.set(id, record.line);
-}
-
-function collectGroupIds(group: SessionGroup): Map<string, number> {
-  // Header id intentionally excluded: spec §9.1 treats `parent_id` as event
-  // graph topology only; a `parent_id` pointing at the session header is an
-  // unresolved reference.
-  const ids = new Map<string, number>();
-  for (const entry of group.entries) {
-    const id = entry.value.id;
-    if (typeof id !== "string") continue;
-    if (!ids.has(id)) ids.set(id, entry.line);
-  }
-  return ids;
-}
-
-function runParentChecks(
-  entries: JsonlRecord[],
-  groupIds: Map<string, number>,
-  diagnostics: Diagnostic[],
-): void {
-  const parentOf = new Map<string, string>();
-  for (const entry of entries) {
-    const id = entry.value.id;
-    const parentId = entry.value.parent_id;
-    if (typeof parentId !== "string") continue;
-    if (!groupIds.has(parentId)) {
-      diagnostics.push(
-        createDiagnostic({
-          line: entry.line,
-          path: "/parent_id",
-          severity: "error",
-          code: "unknown_parent_id",
-          message: `parent_id "${parentId}" does not reference an id in this file`,
-        }),
-      );
-      continue;
-    }
-    if (typeof id !== "string") continue;
-    const firstLine = groupIds.get(id);
-    if (firstLine !== entry.line) continue;
-    parentOf.set(id, parentId);
-  }
-
-  const cyclic = findCyclicIds(parentOf);
-  const cyclicEntries: { line: number; id: string }[] = [];
-  for (const id of cyclic) {
-    const line = groupIds.get(id);
-    if (line !== undefined) cyclicEntries.push({ line, id });
-  }
-  cyclicEntries.sort((a, b) => a.line - b.line);
-  for (const { line, id } of cyclicEntries) {
-    diagnostics.push(
-      createDiagnostic({
-        line,
-        path: "/parent_id",
-        severity: "error",
-        code: "parent_cycle",
-        message: `parent_id chain for id "${id}" forms a cycle`,
-      }),
-    );
-  }
-}
-
 function isReaderCompatiblePatchHeader(record: JsonlRecord | undefined): boolean {
   return (
     record !== undefined &&
@@ -385,59 +268,4 @@ function isReaderCompatiblePatchHeader(record: JsonlRecord | undefined): boolean
     record.value.schema_version !== "0.1.0" &&
     readerCompatiblePatchVersionPattern.test(record.value.schema_version)
   );
-}
-
-function findCyclicIds(parentOf: Map<string, string>): Set<string> {
-  const status = new Map<string, CycleStatus>();
-  const cyclic = new Set<string>();
-
-  for (const startId of parentOf.keys()) {
-    if (status.has(startId)) {
-      continue;
-    }
-    const path: string[] = [];
-    const indexInPath = new Map<string, number>();
-    let cursor: string | undefined = startId;
-    let resolution: CycleStatus | "open" = "open";
-    let cycleStartIndex = -1;
-
-    while (cursor !== undefined) {
-      const known = status.get(cursor);
-      if (known !== undefined) {
-        resolution = known;
-        break;
-      }
-      const existingIndex = indexInPath.get(cursor);
-      if (existingIndex !== undefined) {
-        resolution = "cyclic";
-        cycleStartIndex = existingIndex;
-        break;
-      }
-      indexInPath.set(cursor, path.length);
-      path.push(cursor);
-      cursor = parentOf.get(cursor);
-    }
-
-    if (resolution === "cyclic" && cycleStartIndex >= 0) {
-      for (let i = 0; i < path.length; i += 1) {
-        const node = path[i];
-        if (node === undefined) {
-          continue;
-        }
-        if (i >= cycleStartIndex) {
-          status.set(node, "cyclic");
-          cyclic.add(node);
-        } else {
-          status.set(node, "safe");
-        }
-      }
-    } else {
-      const finalStatus: CycleStatus = resolution === "cyclic" ? "cyclic" : "safe";
-      for (const id of path) {
-        status.set(id, finalStatus);
-      }
-    }
-  }
-
-  return cyclic;
 }
