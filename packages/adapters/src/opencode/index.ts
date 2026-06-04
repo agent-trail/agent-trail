@@ -686,9 +686,10 @@ function todoItemsFrom(
     if (obj === undefined) return [];
     const content = stringValue(obj.content);
     if (content === undefined) return [];
+    const id = stringValue(obj.id)?.trim();
     return [
       {
-        id: stringValue(obj.id) ?? String(numberValue(obj.position) ?? index + 1),
+        id: id !== undefined && id.length > 0 ? id : String(numberValue(obj.position) ?? index + 1),
         content,
         status: todoStatus(obj.status),
       },

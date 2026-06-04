@@ -1,16 +1,16 @@
 # Parser Source Matrix
 
-The living record of adapter source formats, verification dates, and fixture coverage. This document is the canonical source of truth for which source agents Agent Trail adapters cover, what was verified, when, and which committed fixtures lock that behavior.
+The living record of adapter source formats, verification dates, and fixture coverage. This document is the canonical source of truth for which source agents Agent Trail adapters cover, what was verified, when, and which committed adapter fixtures or fixture-building tests lock that behavior.
 
 See PRD [§7.2](./PRD.md) for the product specification of this matrix, and [`CONTEXT.md`](../CONTEXT.md) for the glossary entry. Modeled after [hwisu/opensession's parser-source-matrix.md](https://github.com/hwisu/opensession/blob/main/docs/parser-source-matrix.md).
 
 ## Status legend
 
 - `pending verification` — adapter not yet implemented, or storage format not yet verified against the listed source-agent version.
-- `verified` — adapter implemented, fixtures committed under `tests/fixtures/`, and behavior locked against the listed source-agent version on the listed verification date.
+- `verified` — adapter implemented, fixtures committed under `packages/adapters/tests/fixtures/` or fixture-building adapter tests committed under `packages/adapters/src/`, and behavior locked against the listed source-agent version on the listed verification date.
 - `deprecated` — adapter or source format no longer covered. See notes for migration guidance.
 
-An adapter is only considered supported once its row is `verified` with at least one committed synthetic fixture.
+An adapter is only considered supported once its row is `verified` with at least one committed synthetic fixture or committed synthetic fixture-building test.
 
 ## Trail envelope emission (writer policy)
 
@@ -684,15 +684,15 @@ Session metadata from non-message envelopes:
 
 Agent Trail adapter work distinguishes two kinds of fixtures:
 
-1. **Committed fixtures** must be synthetic or manually redacted real-source fixtures. They live under `tests/fixtures/` and are reviewed in PRs. No raw transcript text, no PII, no secrets, no API keys, no real user identifiers, no contributor-local file paths, no private repository URLs, and no opaque encrypted reasoning blobs. Synthetic fixtures should use synthetic ids, agent names, timestamps, and one scenario per file. Redacted real-source fixtures may preserve source ids, source schema structure, event types, safe enum values, model ids, and tool or schema field names when they do not identify a person, local machine, private repository, or transcript text. Their source text and matching expected Agent Trail output must both be redacted and covered by leak checks.
+1. **Committed fixtures** must be synthetic or manually redacted real-source fixtures. They live under `packages/adapters/tests/fixtures/`; storage-tree or SQLite adapters may also use committed fixture-building tests under `packages/adapters/src/` when a single source file is not the source format. All fixtures and builders are reviewed in PRs. No raw transcript text, no PII, no secrets, no API keys, no real user identifiers, no contributor-local file paths, no private repository URLs, and no opaque encrypted reasoning blobs. Synthetic fixtures should use synthetic ids, agent names, timestamps, and one scenario per file or test case. Redacted real-source fixtures may preserve source ids, source schema structure, event types, safe enum values, model ids, and tool or schema field names when they do not identify a person, local machine, private repository, or transcript text. Their source text and matching expected Agent Trail output must both be redacted and covered by leak checks.
 
 2. **Real local sessions** stay out of git. Adapters may include opt-in real-session smoke tests that load default agent session roots or a custom path from an environment variable and skip in CI. These tests run on the contributor's machine, never in CI, and never check raw local session data into the repo.
 
 An adapter PR is not eligible to move its matrix row from `pending verification` to `verified` until:
 
-- At least one committed synthetic fixture exercises the adapter's main entry types.
+- At least one committed synthetic fixture or fixture-building test exercises the adapter's main entry types.
 - The verification date and source-agent version are filled in.
-- Observed entry types and fixture names columns reflect the committed fixtures.
+- Observed entry types and fixture names columns reflect the committed fixtures or fixture-building tests.
 
 If real-session debugging produces a fixture worth committing, manually redact it first, add the redacted source fixture under `tests/fixtures/`, generate the matching expected trail from that redacted source, and review both files. The redacted fixture, not the raw session, is what locks behavior.
 

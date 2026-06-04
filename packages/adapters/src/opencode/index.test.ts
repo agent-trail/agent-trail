@@ -1120,6 +1120,13 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
         input: {
           todos: [
             { content: "Write tests", status: "in_progress", priority: "high", id: "todo-1" },
+            {
+              content: "Review output",
+              status: "pending",
+              priority: "medium",
+              id: "   ",
+              position: 2,
+            },
           ],
         },
         output: "updated",
@@ -1186,7 +1193,12 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
     entries.find((entry) => entry.meta?.["dev.opencode.raw_type"] === "tool.todowrite"),
   ).toMatchObject({
     type: "task_plan_update",
-    payload: { items: [{ id: "todo-1", content: "Write tests", status: "in_progress" }] },
+    payload: {
+      items: [
+        { id: "todo-1", content: "Write tests", status: "in_progress" },
+        { id: "2", content: "Review output", status: "pending" },
+      ],
+    },
   });
   expect(
     entries.find((entry) => entry.meta?.["dev.opencode.raw_type"] === "tool.lsp_diagnostics"),
