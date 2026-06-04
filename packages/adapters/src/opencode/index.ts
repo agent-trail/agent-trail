@@ -1040,16 +1040,21 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
           continue;
         }
         const mapped = mapTool(name, input);
-        const call = push(
-          {
-            ...toolBase,
-            type: "tool_call",
-            payload: mapped,
-            semantic: { call_id: callID, tool_kind: mapped.tool },
-          },
-          `${part.id}:call`,
-        );
         const status = stringValue(state.status) ?? stringValue(part.status);
+        const existingCallId = openCalls.get(callID);
+        let forId = existingCallId;
+        if (forId === undefined) {
+          const call = push(
+            {
+              ...toolBase,
+              type: "tool_call",
+              payload: mapped,
+              semantic: { call_id: callID, tool_kind: mapped.tool },
+            },
+            `${part.id}:call`,
+          );
+          forId = call.id;
+        }
         if (status === "completed" || status === "error" || status === "failed") {
           openCalls.delete(callID);
           const ok = status === "completed";
@@ -1060,7 +1065,7 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
               meta: toolBase.meta,
               type: "tool_result",
               payload: {
-                for_id: call.id,
+                for_id: forId,
                 ok,
                 ...(stringValue(state.output) !== undefined
                   ? { output: stringValue(state.output) }
@@ -1103,13 +1108,13 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
               source: toolBase.source,
               meta: toolBase.meta,
               type: "tool_call_aborted",
-              payload: { scope: "tool_call", for_id: call.id, reason: "user_interrupt" },
+              payload: { scope: "tool_call", for_id: forId, reason: "user_interrupt" },
               semantic: { call_id: callID, tool_kind: mapped.tool },
             },
             `${part.id}:aborted`,
           );
         } else {
-          openCalls.set(callID, call.id);
+          openCalls.set(callID, forId);
         }
         continue;
       }

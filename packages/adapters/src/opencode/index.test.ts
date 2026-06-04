@@ -737,7 +737,6 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
     "tool_call_aborted",
     "tool_call",
     "tool_call",
-    "tool_call",
     "tool_result",
     "model_change",
     "session_terminated",
@@ -750,6 +749,13 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
     summary: "Earlier context summarized.",
     trigger: "auto",
   });
+  const startedCall = group.entries.find(
+    (entry) => entry.semantic?.call_id === "call-started-then-done" && entry.type === "tool_call",
+  );
+  const completedResult = group.entries.find(
+    (entry) => entry.semantic?.call_id === "call-started-then-done" && entry.type === "tool_result",
+  );
+  expect(completedResult?.payload.for_id).toBe(startedCall?.id);
   expect(group.entries.at(-1)?.payload.reason).toBe("eof_with_open_tool_calls");
   const openCallIds = group.entries.at(-1)?.payload.open_call_ids;
   expect(Array.isArray(openCallIds)).toBe(true);
