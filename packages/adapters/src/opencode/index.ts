@@ -1363,9 +1363,10 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
   const storagePresent = await dirExists(storageDir);
   const dbPresent = await pathExists(dbPath);
   const present = storagePresent || dbPresent;
-  const sessionCount = present ? (await discoveredSummaries({ allCwds: true })).length : 0;
+  const summaries = present ? await discoveredSummaries({ allCwds: true }) : [];
+  const sessionCount = summaries.length;
   const versions = new Set(
-    (await discoveredSummaries({ allCwds: true }))
+    summaries
       .map((session) => session.version)
       .filter((version): version is string => version !== undefined),
   );
