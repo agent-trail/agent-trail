@@ -4,6 +4,8 @@ The living record of adapter source formats, verification dates, and fixture cov
 
 See PRD [§7.2](./PRD.md) for the product specification of this matrix, and [`CONTEXT.md`](../CONTEXT.md) for the glossary entry. Modeled after [hwisu/opensession's parser-source-matrix.md](https://github.com/hwisu/opensession/blob/main/docs/parser-source-matrix.md).
 
+For the implementation checklist used when adding a new adapter, see [Adapter Authoring Guide](./adapter-authoring.md).
+
 ## Status legend
 
 - `pending verification` — adapter not yet implemented, or storage format not yet verified against the listed source-agent version.

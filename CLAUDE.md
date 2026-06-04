@@ -98,6 +98,7 @@ after PR merge. Do not run `lefthook install` manually in worktrees.
 | Local hooks | [`lefthook.yml`](./lefthook.yml) |
 | Validation fixtures | [`tests/fixtures/validation/`](./tests/fixtures/validation/) (see [`README.md`](./tests/fixtures/validation/README.md)) |
 | Parser source matrix | [`docs/parser-source-matrix.md`](./docs/parser-source-matrix.md) |
+| Adding a new adapter | [`docs/adapter-authoring.md`](./docs/adapter-authoring.md) |
 
 ## Quick rules for PRs
 
