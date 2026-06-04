@@ -2,11 +2,13 @@ import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import pkg from "../package.json" with { type: "json" };
 
+const ROOT = new URL("../../..", import.meta.url);
+
 async function runTrail(
   args: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", "packages/cli/src/bin.ts", ...args], {
-    cwd: fileURLToPath(new URL("../../..", import.meta.url)),
+    cwd: fileURLToPath(ROOT),
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -40,6 +42,33 @@ test("trail version prints the CLI package version", async () => {
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe(`${pkg.version}\n`);
   expect(result.stderr).toBe("");
+});
+
+test("trail help dispatch prints usage", async () => {
+  const result = await runTrail(["help"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("trail validate <file>");
+  expect(result.stderr).toBe("");
+});
+
+test("trail validate dispatch accepts a valid fixture", async () => {
+  const fixture = fileURLToPath(
+    new URL("tests/fixtures/validation/valid/minimal-linear.trail.jsonl", ROOT),
+  );
+  const result = await runTrail(["validate", fixture]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toBe("");
+});
+
+test("trail dispatch rejects inherited object keys as unknown commands", async () => {
+  const result = await runTrail(["toString"]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("Usage:");
 });
 
 test("trail --version --json prints the CLI package version as JSON", async () => {
