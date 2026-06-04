@@ -22,9 +22,6 @@ type OutputBuffer = {
 };
 
 const handlers: Record<string, Handler> = {
-  validate: runValidate,
-  list: runList,
-  discover: runDiscover,
   doctor: runDoctor,
   share: runShare,
   load: runLoad,
@@ -73,27 +70,60 @@ function buildProgram(output: OutputBuffer): Command {
 
   program
     .command("validate")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .argument("<file>")
+    .option("--json", "Print diagnostics as JSON.", false)
+    .option("--profile <profile>", "Validation profile.", "strict")
     .description("Validate a Trail file.")
-    .action(commandAction(runValidate, output));
+    .action(async (file: string, options: { json: boolean; profile: string }) => {
+      const result = await runValidate({ file, json: options.json, profile: options.profile });
+      appendCommandResult(result, output);
+    });
 
   program
     .command("list")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .option("--json", "Print entries as JSON.", false)
+    .option("--agent <name>", "Filter by agent name.")
+    .option("--cwd <path>", "Filter by cwd.")
+    .option("--since <iso>", "Include entries registered at or after this time.")
+    .option("--until <iso>", "Include entries registered before this time.")
+    .option("--kind <kind>", "Filter by row kind: session or trail.")
     .description("List locally stored Trail objects.")
-    .action(commandAction(runList, output));
+    .action(
+      async (options: {
+        json: boolean;
+        agent?: string;
+        cwd?: string;
+        since?: string;
+        until?: string;
+        kind?: string;
+      }) => {
+        const result = await runList(options);
+        appendCommandResult(result, output);
+      },
+    );
 
   program
     .command("discover")
-    .argument("[args...]")
-    .allowUnknownOption(true)
-    .allowExcessArguments(true)
+    .option("--json", "Print sessions as JSON.", false)
+    .option("--all", "Discover sessions across all known cwd roots.", false)
+    .option("--agent <name>", "Filter by adapter name.")
+    .option("--cwd <path>", "Discover sessions for a cwd.")
+    .option("--since <iso>", "Include sessions modified at or after this time.")
+    .option("--until <iso>", "Include sessions modified before this time.")
     .description("Discover source-agent sessions.")
-    .action(commandAction(runDiscover, output));
+    .action(
+      async (options: {
+        json: boolean;
+        all: boolean;
+        agent?: string;
+        cwd?: string;
+        since?: string;
+        until?: string;
+      }) => {
+        const result = await runDiscover(options);
+        appendCommandResult(result, output);
+      },
+    );
 
   program
     .command("doctor")
@@ -133,14 +163,18 @@ function buildProgram(output: OutputBuffer): Command {
 function commandAction(handler: Handler, output: OutputBuffer): (args: string[]) => Promise<void> {
   return async (args) => {
     const result = await handler(args);
-    output.stdout += result.stdout;
-    output.stderr += result.stderr;
-    if (result.exitCode !== 0) {
-      throw new CommanderError(result.exitCode, "command.failed", "");
-    }
+    appendCommandResult(result, output);
   };
 }
 
+function appendCommandResult(result: CliResult, output: OutputBuffer): void {
+  output.stdout += result.stdout;
+  output.stderr += result.stderr;
+  if (result.exitCode !== 0) {
+    throw new CommanderError(result.exitCode, "command.failed", "");
+  }
+}
+
 export function commandNames(): string[] {
-  return Object.keys(handlers);
+  return ["validate", "list", "discover", ...Object.keys(handlers)];
 }

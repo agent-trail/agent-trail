@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
+import { runCli } from "./cli-runtime.ts";
 import { runDiscover } from "./discover.ts";
 
 // Mangling rules mirrored from the adapters so the test seeds the same dirs
@@ -175,7 +176,7 @@ afterEach(() => {
 });
 
 test("no sessions: exits 0 with empty stdout and stderr", async () => {
-  const result = await runDiscover([]);
+  const result = await runDiscover();
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr).toBe("");
@@ -194,7 +195,7 @@ test("current cwd: lists only sessions for process.cwd by default", async () => 
     cwd: "/tmp/elsewhere",
     modifiedAt: "2026-05-18T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json"]);
+  const result = await runDiscover({ json: true });
   expect(result.exitCode).toBe(0);
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
   expect(parsed.map((r) => r.id)).toEqual(["sess-here"]);
@@ -219,7 +220,7 @@ test("--all walks every project dir across adapters", async () => {
     cwd: "/tmp/proj/c",
     modifiedAt: "2026-05-19T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--all"]);
+  const result = await runDiscover({ json: true, all: true });
   expect(result.exitCode).toBe(0);
   const parsed = JSON.parse(result.stdout) as Array<{
     id: string;
@@ -249,7 +250,7 @@ test("--agent codex finds codex sessions by header cwd", async () => {
     cwd: "/somewhere/else",
     modifiedAt: "2026-05-18T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--agent", "codex"]);
+  const result = await runDiscover({ json: true, agent: "codex" });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string; adapter: string; cwd: string }>;
   expect(parsed).toHaveLength(1);
   expect(parsed[0]?.adapter).toBe("codex");
@@ -264,7 +265,7 @@ test("--agent opencode finds OpenCode file-storage sessions", async () => {
     cwd: tmpCwd,
     modifiedAt: "2026-05-20T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--agent", "opencode"]);
+  const result = await runDiscover({ json: true, agent: "opencode" });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string; adapter: string; cwd: string }>;
   expect(parsed).toHaveLength(1);
   expect(parsed[0]).toMatchObject({
@@ -280,7 +281,7 @@ test("--agent opencode finds SQLite-backed OpenCode sessions", async () => {
     cwd: tmpCwd,
     modifiedAt: "2026-05-20T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--agent", "opencode"]);
+  const result = await runDiscover({ json: true, agent: "opencode" });
   const parsed = JSON.parse(result.stdout) as Array<{
     id: string;
     adapter: string;
@@ -309,7 +310,7 @@ test("--agent filters to a single adapter", async () => {
     cwd: tmpCwd,
     modifiedAt: "2026-05-18T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--agent", "pi"]);
+  const result = await runDiscover({ json: true, agent: "pi" });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string; adapter: string }>;
   expect(parsed).toHaveLength(1);
   expect(parsed[0]?.adapter).toBe("pi");
@@ -323,7 +324,7 @@ test("--cwd overrides default cwd and is matched against header cwd", async () =
     cwd: "/work/target",
     modifiedAt: "2026-05-17T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json", "--cwd", "/work/target"]);
+  const result = await runDiscover({ json: true, cwd: "/work/target" });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string; cwd: string }>;
   expect(parsed).toHaveLength(1);
   expect(parsed[0]?.id).toBe("sess-target");
@@ -349,13 +350,11 @@ test("--since / --until: inclusive lower, exclusive upper bound on modifiedAt", 
     cwd: tmpCwd,
     modifiedAt: "2026-03-15T00:00:00.000Z",
   });
-  const result = await runDiscover([
-    "--json",
-    "--since",
-    "2026-02-01T00:00:00.000Z",
-    "--until",
-    "2026-03-01T00:00:00.000Z",
-  ]);
+  const result = await runDiscover({
+    json: true,
+    since: "2026-02-01T00:00:00.000Z",
+    until: "2026-03-01T00:00:00.000Z",
+  });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
   expect(parsed.map((r) => r.id)).toEqual(["sess-feb"]);
 });
@@ -373,7 +372,7 @@ test("sort: newest-first by modifiedAt, tiebreak by id ascending", async () => {
     cwd: tmpCwd,
     modifiedAt: "2026-05-18T14:00:00.000Z",
   });
-  const result = await runDiscover(["--json"]);
+  const result = await runDiscover({ json: true });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
   expect(parsed.map((r) => r.id)).toEqual(["sess-b", "sess-a"]);
 });
@@ -385,7 +384,7 @@ test("text output: one row per session with short id, adapter, cwd, modified_at,
     cwd: tmpCwd,
     modifiedAt: "2026-05-17T14:00:00.000Z",
   });
-  const result = await runDiscover([]);
+  const result = await runDiscover();
   expect(result.exitCode).toBe(0);
   const lines = result.stdout.trimEnd().split("\n");
   expect(lines).toHaveLength(1);
@@ -398,13 +397,13 @@ test("text output: one row per session with short id, adapter, cwd, modified_at,
 });
 
 test("invalid --since exits 1 with stderr message", async () => {
-  const result = await runDiscover(["--since", "not-a-date"]);
+  const result = await runDiscover({ since: "not-a-date" });
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("invalid --since");
 });
 
 test("unknown flag exits 1 with usage on stderr", async () => {
-  const result = await runDiscover(["--nope"]);
+  const result = await runCli(["discover", "--nope"]);
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("--nope");
@@ -445,10 +444,12 @@ test("--since/--until: rows with undefined modifiedAt are excluded from time-ran
     { id: "sess-dated", adapter: "stub", modifiedAt: "2026-02-15T00:00:00.000Z" },
     { id: "sess-no-mtime", adapter: "stub" },
   ]);
-  const result = await runDiscover(
-    ["--json", "--since", "2026-02-01T00:00:00.000Z", "--until", "2026-03-01T00:00:00.000Z"],
-    { adapters: [adapter] },
-  );
+  const result = await runDiscover({
+    json: true,
+    since: "2026-02-01T00:00:00.000Z",
+    until: "2026-03-01T00:00:00.000Z",
+    adapters: [adapter],
+  });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
   expect(parsed.map((r) => r.id)).toEqual(["sess-dated"]);
 });
@@ -462,7 +463,7 @@ test("--all: stray non-directory entries under projects root are ignored", async
     modifiedAt: "2026-05-17T14:00:00.000Z",
   });
   writeFileSync(join(claudeConfigDir, "projects", ".DS_Store"), "not a directory");
-  const result = await runDiscover(["--json", "--all", "--agent", "claude-code"]);
+  const result = await runDiscover({ json: true, all: true, agent: "claude-code" });
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;

@@ -1,5 +1,4 @@
 import { open } from "node:fs/promises";
-import { parseArgs } from "node:util";
 import {
   IndexCorruptError,
   type IndexFile,
@@ -17,6 +16,15 @@ export type RunListResult = {
 };
 
 export type RunListOptions = {
+  json?: boolean;
+  agent?: string;
+  cwd?: string;
+  since?: string;
+  until?: string;
+  kind?: string;
+};
+
+export type RunListContext = {
   storeRoot?: string;
 };
 
@@ -31,46 +39,17 @@ type Row = {
   kind: RowKind;
 };
 
-const USAGE =
-  "Usage: trail list [--json] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>] [--kind session|trail]";
 const SHORT_HASH_LEN = 12;
 const MISSING_TEXT = "-";
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
-export async function runList(argv: string[], opts: RunListOptions = {}): Promise<RunListResult> {
-  const parseConfig = {
-    args: argv,
-    options: {
-      json: { type: "boolean", default: false },
-      agent: { type: "string" },
-      cwd: { type: "string" },
-      since: { type: "string" },
-      until: { type: "string" },
-      kind: { type: "string" },
-    },
-    allowPositionals: false,
-  } as const;
-
-  type Values = {
-    json: boolean;
-    agent?: string;
-    cwd?: string;
-    since?: string;
-    until?: string;
-    kind?: string;
-  };
-  let values: Values;
-  try {
-    const parsed = parseArgs(parseConfig);
-    values = parsed.values as Values;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
-
+export async function runList(
+  options: RunListOptions = {},
+  context: RunListContext = {},
+): Promise<RunListResult> {
   let storeRoot: string;
   try {
-    storeRoot = resolveStoreRoot(opts.storeRoot);
+    storeRoot = resolveStoreRoot(context.storeRoot);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { exitCode: 1, stdout: "", stderr: `${message}\n` };
@@ -117,23 +96,23 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
     });
   }
 
-  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(values.since, values.until);
+  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
 
-  if (values.kind !== undefined && values.kind !== "session" && values.kind !== "trail") {
+  if (options.kind !== undefined && options.kind !== "session" && options.kind !== "trail") {
     return {
       exitCode: 1,
       stdout: "",
-      stderr: `--kind must be "session" or "trail"; got "${values.kind}"\n${USAGE}\n`,
+      stderr: `--kind must be "session" or "trail"; got "${options.kind}"\n`,
     };
   }
-  const kindFilter = values.kind as RowKind | undefined;
+  const kindFilter = options.kind as RowKind | undefined;
 
   const filtered = rows.filter((r) => {
-    if (values.agent !== undefined && r.agent !== values.agent) return false;
-    if (values.cwd !== undefined && r.cwd !== values.cwd) return false;
+    if (options.agent !== undefined && r.agent !== options.agent) return false;
+    if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
     if (kindFilter !== undefined && r.kind !== kindFilter) return false;
     return boundedBy(r.registered_at, sinceMs, untilMs);
   });
@@ -146,7 +125,7 @@ export async function runList(argv: string[], opts: RunListOptions = {}): Promis
   });
 
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
-  if (values.json) {
+  if (options.json === true) {
     return { exitCode: 0, stdout: renderJson(filtered), stderr };
   }
   if (filtered.length === 0) {
