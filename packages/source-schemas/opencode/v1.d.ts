@@ -9,7 +9,15 @@
 export type OpenCodeV1Record = {
   [k: string]: unknown;
 } & {
-  type: "session" | "message" | "part" | "todo" | "session_message" | "permission" | "event";
+  type:
+    | "session"
+    | "project"
+    | "message"
+    | "part"
+    | "todo"
+    | "session_message"
+    | "permission"
+    | "event";
   part_type?:
     | "text"
     | "reasoning"

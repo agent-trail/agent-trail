@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { quoteShellArg } from "@agent-trail/adapter-kit";
 import { parseJsonlString, stampTrail } from "@agent-trail/core";
 import type { Attachment, Entry, Header, ToolKind } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
@@ -132,13 +133,29 @@ function parsedJsonValue(value: unknown): unknown {
   }
 }
 
+function normalizedSourceRaw(raw: Raw, rawType: string): Raw {
+  const redacted = redactValue(raw) as Raw;
+  if (rawType.startsWith("part.") || rawType.startsWith("tool.")) {
+    return { type: "part", part_type: stringValue(raw.type) ?? "tool", data: redacted };
+  }
+  if (rawType.startsWith("session_message.")) {
+    return { type: "session_message", event_type: stringValue(raw.type), data: redacted };
+  }
+  if (rawType.startsWith("session.")) return { type: "session", data: redacted };
+  if (rawType.startsWith("project.")) return { type: "project", data: redacted };
+  if (rawType === "todo") return { type: "todo", data: redacted };
+  if (rawType === "permission") return { type: "permission", data: redacted };
+  if (rawType === "event") return { type: "event", data: redacted };
+  return { type: rawType, data: redacted };
+}
+
 function sourceFor(raw: Raw, rawType: string, schemaVersion: string | undefined): Entry["source"] {
-  const redacted = redactValue(raw);
+  const normalized = normalizedSourceRaw(raw, rawType);
   return {
     agent: "opencode",
     original_type: rawType,
     ...(schemaVersion !== undefined ? { schema_version: schemaVersion } : {}),
-    raw: enforceSourceRawSize(redacted).value as Raw,
+    raw: enforceSourceRawSize(normalized).value as Raw,
   };
 }
 
@@ -266,7 +283,7 @@ async function loadFileSession(path: string): Promise<LoadedSession> {
     .then((text) => JSON.parse(text) as unknown)
     .catch(() => []);
   const todos = (Array.isArray(todoRaw) ? todoRaw : [todoRaw]).filter(isObject) as OpenCodeTodo[];
-  const enrichment = loadDbMetadataForFileSession(id);
+  const enrichment = loadDbMetadataForFileSession(id, session);
   return {
     session: { ...session, ...enrichment.session },
     project: enrichment.project,
@@ -311,7 +328,10 @@ function optionalRows(
   }
 }
 
-function loadDbMetadataForFileSession(id: string): {
+function loadDbMetadataForFileSession(
+  id: string,
+  fileSession: Raw,
+): {
   session: Raw;
   project?: Raw;
   sessionMessages: Raw[];
@@ -325,6 +345,9 @@ function loadDbMetadataForFileSession(id: string): {
     const sessionRow = db.query("SELECT * FROM session WHERE id = $id").get({ $id: id });
     if (!isObject(sessionRow)) return { session: {}, sessionMessages: [], permissions: [] };
     const session = normalizeDbSession(sessionRow);
+    if (!canEnrichFileSession(fileSession, session)) {
+      return { session: {}, sessionMessages: [], permissions: [] };
+    }
     const projectId = stringValue(session.project_id) ?? stringValue(session.projectID);
     const project =
       projectId === undefined
@@ -361,6 +384,20 @@ function loadDbMetadataForFileSession(id: string): {
   } finally {
     db?.close();
   }
+}
+
+function canEnrichFileSession(fileSession: Raw, dbSession: Raw): boolean {
+  const fileDirectory = stringValue(fileSession.directory);
+  const dbDirectory = stringValue(dbSession.directory);
+  if (fileDirectory !== undefined && dbDirectory !== undefined && fileDirectory !== dbDirectory) {
+    return false;
+  }
+  const fileProject = stringValue(fileSession.projectID) ?? stringValue(fileSession.project_id);
+  const dbProject = stringValue(dbSession.projectID) ?? stringValue(dbSession.project_id);
+  if (fileProject !== undefined && dbProject !== undefined && fileProject !== dbProject) {
+    return false;
+  }
+  return true;
 }
 
 function loadDbSession(pathWithFragment: string): LoadedSession {
@@ -745,7 +782,7 @@ function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Raw } {
     }
     case "list": {
       const path = stringValue(args.path) ?? ".";
-      return { tool: "shell_command", args: { command: `ls -- ${JSON.stringify(path)}` } };
+      return { tool: "shell_command", args: { command: `ls -- ${quoteShellArg(path)}` } };
     }
     case "webfetch": {
       return {
@@ -794,7 +831,6 @@ function todoStatus(
 function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
   const entries: Entry[] = [];
   const openCalls = new Map<string, string>();
-  let parentId: string | undefined;
   const schemaVersion = SOURCE_SCHEMA_VERSION;
   const sessionModel = header.agent.model_default;
 
@@ -804,13 +840,8 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
       sourceKey,
       String(draft.type),
     ]);
-    const entry = {
-      ...draft,
-      id,
-      ...(parentId !== undefined ? { parent_id: parentId } : {}),
-    } as Entry;
+    const entry = { ...draft, id } as Entry;
     entries.push(entry);
-    parentId = id;
     return entry;
   }
 
@@ -935,7 +966,7 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
           );
         } else {
           const model = stringValue(message.modelID) ?? sessionModel;
-          const usage = usageFrom(part);
+          const usage = usageFrom(message) ?? usageFrom(part);
           push(
             {
               ...base,
@@ -1248,14 +1279,19 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
   for (const record of loaded.sessionMessages) {
     const type = stringValue(record.type);
     const rawType = `session_message.${type ?? "unknown"}`;
+    const sessionMessageBase = {
+      ts: partTimestamp(record),
+      source: sourceFor(record, rawType, schemaVersion),
+      meta: metaFor(rawType),
+    };
     if (type === "model-switched") {
       const toModel =
         stringValue(record.to) ?? stringValue(record.to_model) ?? stringValue(record.model);
       if (toModel !== undefined) {
         push(
           {
+            ...sessionMessageBase,
             type: "model_change",
-            ts: partTimestamp(record),
             payload: {
               to_model: toModel,
               ...(stringValue(record.from) !== undefined
@@ -1266,8 +1302,6 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
                 : {}),
               trigger: "external",
             },
-            source: sourceFor(record, rawType, schemaVersion),
-            meta: metaFor(rawType),
           },
           sourceId(record, rawType),
         );
@@ -1276,11 +1310,9 @@ function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
     }
     push(
       {
+        ...sessionMessageBase,
         type: "system_event",
-        ts: partTimestamp(record),
-        payload: { kind: `x-opencode/${type ?? "session_message"}`, data: { ...record } },
-        source: sourceFor(record, rawType, schemaVersion),
-        meta: metaFor(rawType),
+        payload: { kind: "x-opencode/unknown_record", data: { raw: { ...record } } },
       },
       sourceId(record, rawType),
     );

@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,6 +86,28 @@ function seedSession(seed: Seed): string {
   const ts = new Date(seed.modifiedAt);
   utimesSync(file, ts, ts);
   return file;
+}
+
+function seedOpenCodeDbSession(seed: { id: string; cwd: string; modifiedAt: string }): string {
+  const dbPath = join(opencodeDataDir, "opencode.db");
+  const db = new Database(dbPath);
+  const updated = new Date(seed.modifiedAt).getTime();
+  db.exec(`
+    CREATE TABLE session (
+      id text PRIMARY KEY,
+      project_id text NOT NULL,
+      directory text NOT NULL,
+      title text NOT NULL,
+      version text NOT NULL,
+      time_created integer NOT NULL,
+      time_updated integer NOT NULL
+    );
+  `);
+  db.query(
+    "INSERT INTO session (id, project_id, directory, title, version, time_created, time_updated) VALUES ($id, 'project-db', $cwd, 'DB OpenCode discover', '1.0.153', $updated, $updated)",
+  ).run({ $id: seed.id, $cwd: seed.cwd, $updated: updated });
+  db.close();
+  return dbPath;
 }
 
 let prevHome: string | undefined;
@@ -248,6 +271,28 @@ test("--agent opencode finds OpenCode file-storage sessions", async () => {
     id: "ses_opencode",
     adapter: "opencode",
     cwd: tmpCwd,
+  });
+});
+
+test("--agent opencode finds SQLite-backed OpenCode sessions", async () => {
+  const dbPath = seedOpenCodeDbSession({
+    id: "ses_opencode_db",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-20T14:00:00.000Z",
+  });
+  const result = await runDiscover(["--json", "--agent", "opencode"]);
+  const parsed = JSON.parse(result.stdout) as Array<{
+    id: string;
+    adapter: string;
+    cwd: string;
+    path: string;
+  }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]).toMatchObject({
+    id: "ses_opencode_db",
+    adapter: "opencode",
+    cwd: tmpCwd,
+    path: `${dbPath}#ses_opencode_db`,
   });
 });
 

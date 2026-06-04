@@ -239,8 +239,8 @@ state, project worktree, and session state. If the DB is absent, the same file s
 and validates with the metadata available in file storage.
 
 OpenCode source schema `v1` validates the adapter's normalized records, not a single upstream file
-format. Known normalized record types are `session`, `message`, `part`, `todo`, `session_message`,
-`permission`, and `event`. Known upstream part types are `text`, `reasoning`, `file`, `tool`,
+format. Known normalized record types are `session`, `project`, `message`, `part`, `todo`,
+`session_message`, `permission`, and `event`. Known upstream part types are `text`, `reasoning`, `file`, `tool`,
 `step-start`, `step-finish`, `snapshot`, `patch`, `agent`, `retry`, `compaction`, and `subtask`.
 Unknown top-level or part types quarantine as `system_event{kind:"x-opencode/unknown_record"}` with
 lossless redacted `source.raw`; every emitted entry carries `meta["dev.opencode.raw_type"]`.

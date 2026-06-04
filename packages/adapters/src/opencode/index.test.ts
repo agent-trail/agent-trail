@@ -144,6 +144,7 @@ function seedFileMessage(opts: {
   role: "user" | "assistant";
   modelID?: string;
   providerID?: string;
+  tokens?: Record<string, unknown>;
   created?: number;
   updated?: number;
 }): string {
@@ -158,6 +159,7 @@ function seedFileMessage(opts: {
       role: opts.role,
       modelID: opts.modelID,
       providerID: opts.providerID,
+      ...(opts.tokens !== undefined ? { tokens: opts.tokens } : {}),
       time: {
         created: opts.created ?? 1766258474000,
         updated: opts.updated ?? 1766258474000,
@@ -472,6 +474,12 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
     role: "assistant",
     modelID: "claude-sonnet-4-5",
     providerID: "anthropic",
+    tokens: {
+      input: 11,
+      output: 7,
+      reasoning: 3,
+      cache: { read: 2, write: 1 },
+    },
     created: 1766258475000,
   });
   seedFilePart({
@@ -524,6 +532,7 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.header.cwd).toBe("/work/parse");
   expect(group.header.content_hash).toMatch(/^[0-9a-f]{64}$/);
   expect(group.header.parse_fidelity).toEqual({ quarantined_count: 0 });
+  expect(group.entries.every((entry) => entry.parent_id === undefined)).toBe(true);
   expect(group.entries.map((entry) => entry.type)).toEqual([
     "session_metadata_update",
     "session_metadata_update",
@@ -546,11 +555,21 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.entries[6]?.payload).toEqual({
     text: "Read complete.",
     model: "claude-sonnet-4-5",
+    usage: {
+      input_tokens: 11,
+      output_tokens: 7,
+      reasoning_tokens: 3,
+      cache_read_tokens: 2,
+      cache_creation_tokens: 1,
+    },
   });
   expect(group.entries.every((entry) => entry.meta?.["dev.opencode.raw_type"] !== undefined)).toBe(
     true,
   );
   expect(group.entries.every((entry) => entry.source?.schema_version === "v1")).toBe(true);
+  for (const entry of group.entries) {
+    expect(validateSourceRecord("opencode", "v1", entry.source?.raw ?? {})).toEqual([]);
+  }
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
   expect(trailRecords(trail)[0]).toHaveProperty("content_hash");
@@ -706,6 +725,39 @@ test("parseSession() quarantines source-schema drift as unknown_record", async (
   expect(trail.groups[0]?.header.parse_fidelity).toEqual({ quarantined_count: 1 });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("parseSession() quarantines unknown SQLite session_message records", async () => {
+  const dbPath = seedSqliteSession({ id: "ses_session_message_drift", directory: "/work/drift" });
+  insertDbSessionMessage(dbPath, {
+    id: "evt_future_session_message",
+    sessionID: "ses_session_message_drift",
+    type: "future-session-event",
+    created: 1766258475000,
+    data: { keep: "all session event data" },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_session_message_drift",
+    adapter: "opencode",
+    path: `${dbPath}#ses_session_message_drift`,
+  });
+  const entry = trail.groups[0]?.entries.find(
+    (candidate) =>
+      candidate.type === "system_event" && candidate.payload.kind === "x-opencode/unknown_record",
+  );
+  expect(entry?.payload).toMatchObject({
+    kind: "x-opencode/unknown_record",
+    data: {
+      raw: {
+        id: "evt_future_session_message",
+        type: "future-session-event",
+        keep: "all session event data",
+      },
+    },
+  });
+  expect(entry?.meta?.["dev.opencode.raw_type"]).toBe("session_message.future-session-event");
+  expect(trail.groups[0]?.header.parse_fidelity).toEqual({ quarantined_count: 1 });
 });
 
 test("parseSession() folds file parts into message attachments and maps upstream-known part types", async () => {
@@ -908,6 +960,7 @@ test("parseSession() emits useful SQLite session metadata and permission surface
 test("parseSession() enriches file-storage sessions with matching SQLite metadata", async () => {
   const sessionPath = seedFileSession({
     id: "ses_file_enrich",
+    projectID: "project-db",
     directory: "/work/enrich",
     title: "File Title",
     version: "1.0.153",
@@ -947,6 +1000,46 @@ test("parseSession() enriches file-storage sessions with matching SQLite metadat
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 });
 
+test("parseSession() skips SQLite enrichment when same-id file session metadata does not match", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_file_collision",
+    projectID: "project-file",
+    directory: "/work/file",
+    title: "File Title",
+    version: "1.0.153",
+  });
+  seedFileMessage({ id: "msg_collision", sessionID: "ses_file_collision", role: "user" });
+  seedFilePart({
+    id: "prt_collision",
+    sessionID: "ses_file_collision",
+    messageID: "msg_collision",
+    type: "text",
+    text: "hello",
+  });
+  const dbPath = seedSqliteSession({
+    id: "ses_file_collision",
+    directory: "/work/db",
+    title: "DB Title",
+    version: "1.0.167",
+  });
+  updateDbSessionMetadata(dbPath, "ses_file_collision");
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_file_collision",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const group = trail.groups[0]!;
+  const fields = group.entries
+    .filter((entry) => entry.type === "session_metadata_update")
+    .map((entry) => entry.payload.field);
+  expect(group.header.agent.version).toBe("1.0.153");
+  expect(group.header.cwd).toBe("/work/file");
+  expect(fields).not.toContain("x-opencode/token_totals");
+  expect(fields).not.toContain("x-opencode/session_summary");
+  expect(fields).not.toContain("vcs.worktree");
+});
+
 test("parseSession() maps observed extra OpenCode tools and preserves rich result metadata", async () => {
   const sessionPath = seedFileSession({
     id: "ses_tools",
@@ -960,6 +1053,16 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
     created: 1766258475000,
   });
   const tools = [
+    {
+      id: "prt_list",
+      callID: "call-list",
+      tool: "list",
+      state: {
+        status: "completed",
+        input: { path: "$(touch /tmp/agenttrail_poc)" },
+        output: "files",
+      },
+    },
     {
       id: "prt_todowrite",
       callID: "call-todos",
@@ -1026,6 +1129,11 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
     path: sessionPath,
   });
   const entries = trail.groups[0]!.entries;
+  expect(
+    entries.find((entry) => entry.semantic?.call_id === "call-list" && entry.type === "tool_call"),
+  ).toMatchObject({
+    payload: { tool: "shell_command", args: { command: "ls -- '$(touch /tmp/agenttrail_poc)'" } },
+  });
   expect(
     entries.find((entry) => entry.meta?.["dev.opencode.raw_type"] === "tool.todowrite"),
   ).toMatchObject({

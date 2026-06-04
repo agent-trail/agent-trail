@@ -7,7 +7,16 @@
   "required": ["type"],
   "properties": {
     "type": {
-      "enum": ["session", "message", "part", "todo", "session_message", "permission", "event"]
+      "enum": [
+        "session",
+        "project",
+        "message",
+        "part",
+        "todo",
+        "session_message",
+        "permission",
+        "event"
+      ]
     },
     "part_type": {
       "enum": [
