@@ -76,8 +76,10 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   const sharedRecords = await parseJsonlString(sharedJsonl);
   expect(verifyContentHash(sharedRecords).status).toBe("match");
   expect(verifyTrailEnvelopeContentHash(sharedRecords).status).toBe("match");
-  const sharedEnvelopeHash = (sharedRecords[0]?.value as { content_hash?: string }).content_hash;
-  const sharedSessionHash = (sharedRecords[1]?.value as { content_hash?: string }).content_hash;
+  const sharedEnvelopeHash = (sharedRecords[0]?.value as { content_hash?: string } | undefined)
+    ?.content_hash;
+  const sharedSessionHash = (sharedRecords[1]?.value as { content_hash?: string } | undefined)
+    ?.content_hash;
   if (sharedEnvelopeHash === undefined || sharedSessionHash === undefined) {
     throw new Error("shared payload missing finalized hashes");
   }

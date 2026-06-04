@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { validateTrailString } from "@agent-trail/core";
 import {
   claudeCodeAdapter,
@@ -56,7 +57,7 @@ for (const fixture of CONTRACT_FIXTURES) {
     const trail = await fixture.adapter.parseSession({
       id: fixture.key,
       adapter: fixture.adapter.name,
-      path: sourceUrl.pathname,
+      path: fileURLToPath(sourceUrl),
     });
     const actualText = jsonl(normalizeEnvelope(trailRecords(trail)));
 
