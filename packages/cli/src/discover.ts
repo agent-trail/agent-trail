@@ -57,12 +57,11 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
   );
 
   const detectOpts: DetectOptions = {};
+  const requestedCwd = options.cwd ?? options.defaultCwd;
   if (options.all === true) {
     detectOpts.allCwds = true;
-  } else if (options.cwd !== undefined) {
-    detectOpts.cwd = options.cwd;
-  } else if (options.defaultCwd !== undefined) {
-    detectOpts.cwd = options.defaultCwd;
+  } else if (requestedCwd !== undefined) {
+    detectOpts.cwd = requestedCwd;
   }
 
   const warnings: string[] = [];
@@ -79,14 +78,14 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
   );
 
   let refs = perAdapter.flat();
-  if (options.all !== true && options.cwd !== undefined) {
+  if (options.all !== true && requestedCwd !== undefined) {
     // After discovery, also filter on cwd extracted from session header (when
     // present). Adapters scan their cwd-mangled dir, but headers expose the
     // real cwd; respect it so users get an exact match. Lenient policy: keep
     // sessions whose header has no `cwd` field — the adapter already proved
     // their provenance by finding them under the mangled dir for `values.cwd`,
     // and hiding malformed-header sessions would silently strand them.
-    refs = refs.filter((r) => r.cwd === undefined || r.cwd === options.cwd);
+    refs = refs.filter((r) => r.cwd === undefined || r.cwd === requestedCwd);
   }
 
   const rows: Row[] = refs.map((r) => ({

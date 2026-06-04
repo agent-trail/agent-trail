@@ -17,6 +17,8 @@ export function validateGraphPrologue(
   profile: ValidationProfile,
 ): GraphPrologueResult {
   const diagnostics: Diagnostic[] = [];
+  // Splitter uses null for no envelope; graph validators use undefined checks
+  // because optional records from arrays are also undefined.
   const envelopeRecord = split.envelope ?? undefined;
   const firstGroup = split.groups[0];
   const headerRecord = firstGroup?.header;

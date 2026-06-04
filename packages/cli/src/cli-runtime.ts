@@ -21,7 +21,7 @@ type OutputBuffer = {
   stderr: string;
 };
 
-const handlers: Record<string, Handler> = {
+const handlers: { doctor: Handler } = {
   doctor: runDoctor,
 };
 
@@ -140,7 +140,7 @@ function buildProgram(output: OutputBuffer): Command {
     .allowUnknownOption(true)
     .allowExcessArguments(true)
     .description("Check CLI and adapter health.")
-    .action(commandAction(runDoctor, output));
+    .action(commandAction(handlers.doctor, output));
 
   program
     .command("share")

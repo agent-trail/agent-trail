@@ -331,6 +331,57 @@ test("--cwd overrides default cwd and is matched against header cwd", async () =
   expect(parsed[0]?.cwd).toBe("/work/target");
 });
 
+test("default cwd is matched against header cwd after adapter discovery", async () => {
+  const adapter: TrailAdapter = {
+    name: "test-adapter",
+    async detectSessions() {
+      return [
+        {
+          id: "sess-target",
+          adapter: "test-adapter",
+          cwd: "/work/target",
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+        {
+          id: "sess-other",
+          adapter: "test-adapter",
+          cwd: "/work/other",
+          modifiedAt: "2026-05-18T14:00:00.000Z",
+        },
+      ];
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not needed");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+    async sourceHealth() {
+      return {
+        adapter: "test-adapter",
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: 2,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
+  };
+  const result = await runDiscover({
+    adapters: [adapter],
+    json: true,
+    defaultCwd: "/work/target",
+  });
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string; cwd: string }>;
+  expect(parsed.map((r) => ({ id: r.id, cwd: r.cwd }))).toEqual([
+    { id: "sess-target", cwd: "/work/target" },
+  ]);
+});
+
 test("--since / --until: inclusive lower, exclusive upper bound on modifiedAt", async () => {
   seedSession({
     agent: "claude-code",
