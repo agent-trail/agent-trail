@@ -33,6 +33,9 @@ export async function runCli(argv: string[]): Promise<CliResult> {
 
   const output: OutputBuffer = { stdout: "", stderr: "" };
   const program = buildProgram(output);
+  if (argv.length === 0) {
+    return { exitCode: 0, stdout: program.helpInformation(), stderr: "" };
+  }
 
   try {
     await program.parseAsync(argv, { from: "user" });
@@ -64,6 +67,15 @@ function buildProgram(output: OutputBuffer): Command {
     });
 
   program.description("Agent Trail command-line interface.");
+
+  program
+    .command("version")
+    .option("--json", "Print version as JSON.", false)
+    .description("Print the CLI version.")
+    .action(async (options: { json: boolean }) => {
+      const result = await runVersion(options.json ? ["--json"] : []);
+      appendCommandResult(result, output);
+    });
 
   program
     .command("validate")
@@ -200,5 +212,14 @@ function appendCommandResult(result: CliResult, output: OutputBuffer): void {
 }
 
 export function commandNames(): string[] {
-  return ["validate", "list", "discover", "share", "load", "export", ...Object.keys(handlers)];
+  return [
+    "version",
+    "validate",
+    "list",
+    "discover",
+    "share",
+    "load",
+    "export",
+    ...Object.keys(handlers),
+  ];
 }

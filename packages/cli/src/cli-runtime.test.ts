@@ -25,9 +25,28 @@ test("trail help exposes the Commander command surface", async () => {
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Usage: trail [options] [command]");
+  expect(result.stdout).toContain("version");
   expect(result.stdout).toContain("validate");
   expect(result.stdout).toContain("discover");
   expect(result.stdout).toContain("export");
+});
+
+test("trail with no args prints help and exits 0", async () => {
+  const result = await runTrail([]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Usage: trail [options] [command]");
+  expect(result.stdout).toContain("version");
+});
+
+test("trail version help exposes Commander-owned options", async () => {
+  const result = await runTrail(["help", "version"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("Usage: trail version [options]");
+  expect(result.stdout).toContain("--json");
 });
 
 test("trail validate help exposes Commander-owned options", async () => {

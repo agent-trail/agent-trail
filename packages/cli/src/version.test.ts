@@ -20,6 +20,22 @@ async function runTrail(
   return { exitCode, stdout, stderr };
 }
 
+async function runTrailDirect(
+  args: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = Bun.spawn(["./packages/cli/src/bin.ts", ...args], {
+    cwd: fileURLToPath(ROOT),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { exitCode, stdout, stderr };
+}
+
 test("trail --version prints the CLI package version", async () => {
   const result = await runTrail(["--version"]);
 
@@ -38,6 +54,14 @@ test("trail -V prints the CLI package version", async () => {
 
 test("trail version prints the CLI package version", async () => {
   const result = await runTrail(["version"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe(`${pkg.version}\n`);
+  expect(result.stderr).toBe("");
+});
+
+test("bin.ts remains directly executable", async () => {
+  const result = await runTrailDirect(["--version"]);
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe(`${pkg.version}\n`);
