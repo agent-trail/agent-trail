@@ -1,6 +1,17 @@
 import { canonicalizeRecords, stampTrail } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { parseFidelityForEvents } from "./parse-fidelity.ts";
+import {
+  effectiveSeq,
+  findHeader,
+  isObject,
+  isOpenStream,
+  segmentPrevHash,
+  segmentSeq,
+  shallowEqual,
+  stringField,
+  synthesizeRecord,
+} from "./reconcile-records.ts";
 import { splitSessionGroups } from "./session-groups.ts";
 
 /**
@@ -68,20 +79,6 @@ export type ReconcileResult = {
    */
   envelopes: JsonlRecord[];
 };
-
-type Header = {
-  type?: unknown;
-  id?: unknown;
-  ts?: unknown;
-  content_hash?: unknown;
-  session_uid?: unknown;
-  segment?: { seq?: unknown; prev_content_hash?: unknown };
-  stream?: unknown;
-  cwd?: unknown;
-  vcs?: unknown;
-  agent?: { name?: unknown; version?: unknown; model_default?: unknown };
-  meta?: unknown;
-} & Record<string, unknown>;
 
 // Header field merge policy for `buildMergedHeader`:
 //   STABLE_FIELDS         — explicit override list: prefer the first segment's value.
@@ -377,63 +374,4 @@ function buildMergedHeader(sorted: SegmentInput[]): JsonlRecord {
   void LATE_BINDING_FIELDS;
 
   return synthesizeRecord(merged, 1);
-}
-
-function synthesizeRecord(value: Record<string, unknown>, line: number): JsonlRecord {
-  return { line, raw: JSON.stringify(value), value };
-}
-
-function findHeader(records: JsonlRecord[]): Header | undefined {
-  for (const record of records) {
-    if (record.value.type === "session") return record.value as Header;
-  }
-  return undefined;
-}
-
-function effectiveSeq(input: SegmentInput): number {
-  const header = findHeader(input.records);
-  if (header === undefined) return 1;
-  const seq = segmentSeq(header);
-  return seq ?? 1;
-}
-
-function segmentSeq(header: Header): number | undefined {
-  const seg = header.segment;
-  if (!isObject(seg)) return undefined;
-  const seq = (seg as Record<string, unknown>).seq;
-  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
-}
-
-function segmentPrevHash(header: Header): string | null | undefined {
-  const seg = header.segment;
-  if (!isObject(seg)) return undefined;
-  const v = (seg as Record<string, unknown>).prev_content_hash;
-  if (v === null) return null;
-  if (typeof v === "string") return v;
-  return undefined;
-}
-
-function stringField(value: Record<string, unknown>, key: string): string | undefined {
-  const v = value[key];
-  return typeof v === "string" ? v : undefined;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function isOpenStream(stream: unknown): boolean {
-  return isObject(stream) && (stream as Record<string, unknown>).state === "open";
-}
-
-function shallowEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
-  const aKeys = Object.keys(a as object);
-  const bKeys = Object.keys(b as object);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const k of aKeys) {
-    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
-  }
-  return true;
 }
