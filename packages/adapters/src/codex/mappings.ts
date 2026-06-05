@@ -1,18 +1,22 @@
 import { Buffer } from "node:buffer";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
-import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
+import type { Attachment, ToolKind } from "@agent-trail/types";
 import { decodeCappedBase64, INLINE_MEDIA_MAX_DECODED_BYTES, sha256Ref } from "../inline-media.ts";
-import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
+import { isNonEmptyString } from "../task-plan.ts";
 import {
-  isNonEmptyString,
-  isTaskPlanStatus,
-  normalizeTaskPlanContent,
-  type TaskPlanItem,
-  taskPlanItemId,
-} from "../task-plan.ts";
+  compactedSourceRaw,
+  diagnosticSourcePayload,
+  emittable,
+  meta,
+  payloadOf,
+  RAW_TYPE,
+  type Raw,
+  source,
+  taskPlanItemsFromUpdatePlan,
+  type UserQueryOption,
+} from "./mappings/shared.ts";
 import {
-  AGENT_NAME,
   buildExecCommandEndData,
   canonicalCustomToolName,
   codexUsageFromTokenCount,
@@ -23,16 +27,7 @@ import {
   patchSingleFilePath,
   stripSpinner,
 } from "./parser.ts";
-import {
-  isObject,
-  numericValue,
-  sanitizeSourceRaw,
-  stringValue,
-  timestampToIso,
-} from "./source.ts";
-
-type Raw = Record<string, unknown>;
-type UserQueryOption = { label: string; description?: string };
+import { isObject, numericValue, stringValue } from "./source.ts";
 
 /**
  * Private meta key on a transient pass-1 carrier `system_event`: token_count maps
@@ -41,75 +36,6 @@ type UserQueryOption = { label: string; description?: string };
  * trail never contains the carrier or this key.
  */
 export const USAGE_CARRIER = "x-codex/_usage";
-
-const RAW_TYPE = "dev.codex.raw_type";
-
-function payloadOf(record: Raw): Raw {
-  return isObject(record.payload) ? record.payload : {};
-}
-
-function elidedArrayMarker(value: unknown[]): Record<string, unknown> {
-  return {
-    elided: true,
-    size_bytes: Buffer.byteLength(JSON.stringify(value) ?? "", "utf8"),
-    item_count: value.length,
-  };
-}
-
-function compactedSourceRaw(record: Raw): Raw {
-  const payload = payloadOf(record);
-  const replacementHistory = payload.replacement_history;
-  if (!Array.isArray(replacementHistory)) return record;
-  return {
-    ...record,
-    payload: {
-      ...payload,
-      replacement_history: elidedArrayMarker(replacementHistory),
-    },
-  };
-}
-
-function emittable(record: Raw): boolean {
-  return timestampToIso(record.timestamp) !== undefined;
-}
-
-function source(originalType: string, raw?: Raw, synthesized?: boolean): Entry["source"] {
-  const safeRaw = raw !== undefined ? sanitizeSourceRaw(raw) : undefined;
-  return {
-    agent: AGENT_NAME,
-    original_type: originalType,
-    ...(safeRaw !== undefined ? { raw: safeRaw } : {}),
-    ...(synthesized === true ? { synthesized: true } : {}),
-  };
-}
-
-function meta(rawType: string, callId?: string): Record<string, unknown> {
-  return {
-    ...(callId !== undefined ? { linker: { call_id: callId } } : {}),
-    [RAW_TYPE]: rawType,
-  };
-}
-
-function taskPlanItemsFromUpdatePlan(args: Record<string, unknown>): TaskPlanItem[] | undefined {
-  if (!Array.isArray(args.plan)) return undefined;
-  const items: TaskPlanItem[] = [];
-  const occurrenceByContent = new Map<string, number>();
-  for (const rawItem of args.plan) {
-    if (!isObject(rawItem)) return undefined;
-    const content = stringValue(rawItem.step);
-    const status = rawItem.status;
-    if (content === undefined || !isTaskPlanStatus(status)) return undefined;
-    const normalized = normalizeTaskPlanContent(content);
-    const occurrence = occurrenceByContent.get(normalized) ?? 0;
-    occurrenceByContent.set(normalized, occurrence + 1);
-    items.push({
-      id: taskPlanItemId(rawItem.id, occurrence, content),
-      content,
-      status,
-    });
-  }
-  return items;
-}
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
@@ -485,10 +411,6 @@ function diagnosticCode(payload: Raw): string | undefined {
     if (variant !== undefined) return variant;
   }
   return stringValue(payload.code);
-}
-
-function diagnosticSourcePayload(payload: Raw): Raw {
-  return enforceSourceRawSize(redactValue(payload)).value as Raw;
 }
 
 function diagnosticMessageData(payload: Raw, severity: string): Raw {
