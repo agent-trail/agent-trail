@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
@@ -76,6 +77,35 @@ function resolvedConfig(defaultFilter: string | null): ResolvedConfig {
   };
 }
 
+function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    name,
+    async detectSessions() {
+      return refs;
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not needed");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+    async sourceHealth() {
+      return {
+        adapter: name,
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: refs.length,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
+  };
+}
+
 let storeRoot: string;
 
 beforeEach(() => {
@@ -87,11 +117,224 @@ afterEach(() => {
 });
 
 test("empty store: exits 0 with empty stdout and stderr", async () => {
-  const result = await runList({}, { storeRoot });
+  const result = await runList({}, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr).toBe("");
+});
+
+test("source-only session: --json emits unified source row", async () => {
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-source",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+            path: "/tmp/source-session.jsonl",
+          },
+        ]),
+      ],
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed).toEqual([
+    {
+      state: "source",
+      source_id: "sess-source",
+      source_agent: "codex",
+      source_cwd: process.cwd(),
+      source_modified_at: "2026-05-17T14:00:00.000Z",
+      source_path: "/tmp/source-session.jsonl",
+      content_hash: null,
+      registered_agent: null,
+      registered_cwd: null,
+      registered_at: null,
+      registered_source_path: null,
+      registered_kind: null,
+      agent: "codex",
+      cwd: process.cwd(),
+      latest_at: "2026-05-17T14:00:00.000Z",
+    },
+  ]);
+});
+
+test("source discovery defaults to current cwd", async () => {
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-here",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+          {
+            id: "sess-other",
+            adapter: "codex",
+            cwd: "/work/other",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
+  expect(parsed.map((r) => r.source_id)).toEqual(["sess-here"]);
+});
+
+test("collapses source and registered rows by exact source path", async () => {
+  const { filePath, contentHash } = await seedTrail({
+    id: "01HSESS00000000000000C01AA",
+    cwd: "/work/collapsed",
+  });
+  const reg = await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  expect(reg.status).toBe("finalized");
+
+  const result = await runList(
+    { json: true, cwd: "/work/collapsed" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-collapsed",
+            adapter: "codex",
+            cwd: "/work/collapsed",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]).toEqual(
+    expect.objectContaining({
+      state: "source+registered",
+      source_id: "sess-collapsed",
+      content_hash: contentHash,
+      agent: "codex",
+      cwd: "/work/collapsed",
+      latest_at: "2026-05-18T14:00:00.000Z",
+    }),
+  );
+});
+
+test("--source filters source-side and registered-side rows", async () => {
+  const registered = await seedTrail({
+    id: "01HSESS00000000000000REGAA",
+    cwd: "/work/registered",
+  });
+  await registerTrail(registered.filePath, { storeRoot });
+  const adapters = [
+    stubAdapter("codex", [
+      {
+        id: "sess-source",
+        adapter: "codex",
+        cwd: process.cwd(),
+        modifiedAt: "2026-05-18T14:00:00.000Z",
+      },
+    ]),
+  ];
+
+  const source = await runList({ json: true, source: "source" }, { storeRoot, adapters });
+  const sourceRows = JSON.parse(source.stdout) as Array<{ state: string }>;
+  expect(sourceRows.map((r) => r.state)).toEqual(["source"]);
+
+  const registeredOnly = await runList(
+    { json: true, source: "registered" },
+    { storeRoot, adapters },
+  );
+  const registeredRows = JSON.parse(registeredOnly.stdout) as Array<{
+    state: string;
+    content_hash: string | null;
+  }>;
+  expect(registeredRows).toEqual([
+    expect.objectContaining({ state: "registered", content_hash: registered.contentHash }),
+  ]);
+});
+
+test("sorts unified rows by latest_at desc and --limit truncates with warning", async () => {
+  const result = await runList(
+    { json: true, limit: "2" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-oldest",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+          {
+            id: "sess-newest",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-19T14:00:00.000Z",
+          },
+          {
+            id: "sess-middle",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  expect(result.stderr).toBe("warning: 3 rows matched; showing first 2\n");
+  const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
+  expect(parsed.map((r) => r.source_id)).toEqual(["sess-newest", "sess-middle"]);
+});
+
+test("--search matches source head content and respects --case-sensitive", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-list-search-"));
+  const sourcePath = join(dir, "session.jsonl");
+  await writeFile(sourcePath, JSON.stringify({ text: "Debugged a Race Condition" }), "utf8");
+  const adapters = [
+    stubAdapter("codex", [
+      {
+        id: "sess-search",
+        adapter: "codex",
+        cwd: process.cwd(),
+        modifiedAt: "2026-05-17T14:00:00.000Z",
+        path: sourcePath,
+      },
+    ]),
+  ];
+
+  const insensitive = await runList(
+    { json: true, search: "race condition" },
+    { storeRoot, adapters },
+  );
+  expect(
+    (JSON.parse(insensitive.stdout) as Array<{ source_id: string }>).map((r) => r.source_id),
+  ).toEqual(["sess-search"]);
+
+  const sensitive = await runList(
+    { json: true, search: "race condition", caseSensitive: true },
+    { storeRoot, adapters },
+  );
+  expect(JSON.parse(sensitive.stdout)).toEqual([]);
+
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("single registered trail prints one text row with short hash, agent, cwd, registered_at", async () => {
@@ -102,7 +345,7 @@ test("single registered trail prints one text row with short hash, agent, cwd, r
   const reg = await registerTrail(filePath, { storeRoot });
   expect(reg.status).toBe("finalized");
 
-  const result = await runList({}, { storeRoot });
+  const result = await runList({}, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -123,7 +366,7 @@ test("--json: emits a JSON array of entries with full shape", async () => {
   const reg = await registerTrail(filePath, { storeRoot });
   expect(reg.status).toBe("finalized");
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -135,7 +378,7 @@ test("--json: emits a JSON array of entries with full shape", async () => {
       content_hash: contentHash,
       agent: "claude-code",
       cwd: "/work/proj-b",
-      source_path: filePath,
+      registered_source_path: filePath,
     }),
   );
   expect(typeof parsed[0].registered_at).toBe("string");
@@ -151,7 +394,7 @@ test("sorts by registered_at desc (newest first)", async () => {
     [newer.contentHash]: "2026-02-01T00:00:00.000Z",
   });
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string }>;
   expect(parsed.map((r) => r.content_hash)).toEqual([newer.contentHash, older.contentHash]);
@@ -171,7 +414,7 @@ test("--agent filters by exact agent name", async () => {
   await registerTrail(codex.filePath, { storeRoot });
   await registerTrail(claude.filePath, { storeRoot });
 
-  const result = await runList({ json: true, agent: "claude-code" }, { storeRoot });
+  const result = await runList({ json: true, agent: "claude-code" }, { storeRoot, adapters: [] });
 
   const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string; agent: string }>;
   expect(parsed).toHaveLength(1);
@@ -195,6 +438,7 @@ test("resolved config default source filter applies through runCli list", async 
 
   const result = await runCli(["list", "--json"], {
     config: resolvedConfig("pi"),
+    adapters: [],
     storeRoot,
   });
 
@@ -229,6 +473,7 @@ test("runCli list loads default source filter from config files", async () => {
 
     const result = await runCli(["list", "--json"], {
       env: { HOME: projectRoot },
+      adapters: [],
       projectRoot,
       storeRoot,
     });
@@ -260,6 +505,7 @@ test("--agent overrides resolved config default source filter through runCli lis
 
   const result = await runCli(["list", "--json", "--agent", "codex-cli"], {
     config: resolvedConfig("pi"),
+    adapters: [],
     storeRoot,
   });
 
@@ -277,7 +523,7 @@ test("--cwd filters by exact cwd", async () => {
   await registerTrail(a.filePath, { storeRoot });
   await registerTrail(b.filePath, { storeRoot });
 
-  const result = await runList({ json: true, cwd: "/work/proj-b" }, { storeRoot });
+  const result = await runList({ json: true, cwd: "/work/proj-b" }, { storeRoot, adapters: [] });
 
   const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string; cwd: string }>;
   expect(parsed).toHaveLength(1);
@@ -304,7 +550,7 @@ test("--since / --until: inclusive lower, exclusive upper bound on registered_at
       since: "2026-02-01T00:00:00.000Z",
       until: "2026-03-01T00:00:00.000Z",
     },
-    { storeRoot },
+    { storeRoot, adapters: [] },
   );
 
   const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string }>;
@@ -318,7 +564,7 @@ test("missing object file: warns to stderr, still lists remaining, exit 0", asyn
   const removedReg = await registerTrail(removed.filePath, { storeRoot });
   await unlink(removedReg.objectPath as string);
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain(removed.contentHash);
@@ -339,14 +585,14 @@ test("unknown flag exits 1 with usage on stderr", async () => {
 });
 
 test("invalid --since exits 1 with stderr message", async () => {
-  const result = await runList({ since: "not-a-date" }, { storeRoot });
+  const result = await runList({ since: "not-a-date" }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("invalid --since");
 });
 
 test("invalid --since and --until both reported", async () => {
-  const result = await runList({ since: "bad1", until: "bad2" }, { storeRoot });
+  const result = await runList({ since: "bad1", until: "bad2" }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("invalid --since value: bad1");
@@ -357,7 +603,7 @@ test("corrupt index: exits 1 with friendly stderr (no stack trace)", async () =>
   mkdirSync(join(storeRoot, "index"), { recursive: true });
   await writeFile(join(storeRoot, "index", "objects.json"), "{not json", "utf8");
 
-  const result = await runList({}, { storeRoot });
+  const result = await runList({}, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
@@ -375,7 +621,7 @@ test("malformed index entry (null value): skipped with warning, exit 0", async (
   idx.entries[badHash] = null;
   await writeFile(indexPath, `${JSON.stringify(idx, null, 2)}\n`, "utf8");
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain(badHash);
@@ -397,7 +643,7 @@ test("malformed index key (path traversal): skipped with warning, exit 0", async
   idx.entries[evilKey] = { registered_at: "2026-01-01T00:00:00.000Z", source_path: null };
   await writeFile(indexPath, `${JSON.stringify(idx, null, 2)}\n`, "utf8");
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain("malformed index key");
@@ -412,7 +658,7 @@ test("resolveStoreRoot failure (no HOME, no AGENT_TRAIL_HOME): exit 1 friendly s
   process.env.HOME = "";
   process.env.AGENT_TRAIL_HOME = "";
   try {
-    const result = await runList();
+    const result = await runList(undefined, { adapters: [] });
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
@@ -435,7 +681,7 @@ test("non-JSON header line: row included with null agent/cwd, warning on stderr"
   expect(reg.status).toBe("finalized");
   await writeFile(reg.objectPath as string, "not a json object\n", "utf8");
 
-  const result = await runList({ json: true }, { storeRoot });
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain(contentHash);
@@ -450,7 +696,7 @@ test("non-JSON header line: row included with null agent/cwd, warning on stderr"
   expect(parsed[0]?.cwd).toBeNull();
 });
 
-test("multi-session file → 2 session rows + 1 trail row; --kind filter selects", async () => {
+test("multi-session file -> 2 session rows + 1 trail row in registered rows", async () => {
   const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
 
   const records = [
@@ -516,29 +762,22 @@ test("multi-session file → 2 session rows + 1 trail row; --kind filter selects
   await writeFile(filePath, bytes, "utf8");
   await registerTrail(filePath, { storeRoot });
 
-  const all = await runList({ json: true }, { storeRoot });
+  const all = await runList({ json: true }, { storeRoot, adapters: [] });
   expect(all.exitCode).toBe(0);
-  const allRows = JSON.parse(all.stdout) as Array<{ content_hash: string; kind: string }>;
+  const allRows = JSON.parse(all.stdout) as Array<{
+    content_hash: string;
+    registered_kind: string;
+  }>;
   expect(allRows).toHaveLength(3);
   expect(
     allRows
-      .filter((r) => r.kind === "session")
+      .filter((r) => r.registered_kind === "session")
       .map((r) => r.content_hash)
       .sort(),
   ).toEqual([...stamped.sessionHashes].sort());
-  expect(allRows.find((r) => r.kind === "trail")?.content_hash).toBe(
+  expect(allRows.find((r) => r.registered_kind === "trail")?.content_hash).toBe(
     stamped.envelopeHash as string,
   );
-
-  const sessionOnly = await runList({ json: true, kind: "session" }, { storeRoot });
-  const sessionRows = JSON.parse(sessionOnly.stdout) as Array<{ kind: string }>;
-  expect(sessionRows).toHaveLength(2);
-  expect(sessionRows.every((r) => r.kind === "session")).toBe(true);
-
-  const trailOnly = await runList({ json: true, kind: "trail" }, { storeRoot });
-  const trailRows = JSON.parse(trailOnly.stdout) as Array<{ kind: string }>;
-  expect(trailRows).toHaveLength(1);
-  expect(trailRows[0]?.kind).toBe("trail");
 
   rmSync(dir, { recursive: true, force: true });
 });
