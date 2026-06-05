@@ -254,8 +254,9 @@ test("doctor --fix --yes creates project config scaffold idempotently", async ()
 test("doctor --fix --yes refreshes config sources after scaffolding", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-refresh-"));
   try {
-    const committed = join(projectRoot, ".agent-trail", "config.json");
-    const local = join(projectRoot, ".agent-trail", "config.local.json");
+    const realProjectRoot = realpathSync(projectRoot);
+    const committed = join(realProjectRoot, ".agent-trail", "config.json");
+    const local = join(realProjectRoot, ".agent-trail", "config.local.json");
     const staleConfig = resolvedConfig();
     const result = await runCli(["doctor", "--fix", "--yes", "--json"], {
       adapters: [],

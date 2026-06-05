@@ -78,7 +78,7 @@ export async function resolveConfig(options: ResolveConfigOptions = {}): Promise
   const env = options.env ?? process.env;
   const projectRoot = options.projectRoot ?? process.cwd();
   const realProjectRoot = await realpath(resolve(projectRoot));
-  const paths = configPaths(env, projectRoot);
+  const paths = configPaths(env, realProjectRoot);
   let config = cloneConfig(DEFAULT_CONFIG);
   const sources: ConfigSource[] = [{ layer: "built_in", path: null, status: "default" }];
 

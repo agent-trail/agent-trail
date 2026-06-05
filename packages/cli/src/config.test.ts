@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, resolveConfig, scaffoldProjectConfig } from "./config.ts";
@@ -8,6 +16,7 @@ test("resolves config with built-in, user, committed project, then local project
   const home = mkdtempSync(join(tmpdir(), "trail-config-home-"));
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-config-project-"));
   try {
+    const realProjectRoot = realpathSync(projectRoot);
     mkdirSync(join(home, ".config", "trail"), { recursive: true });
     mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
     writeFileSync(
@@ -45,8 +54,10 @@ test("resolves config with built-in, user, committed project, then local project
       ["project_local", "loaded"],
     ]);
     expect(resolved.sources[1]?.path).toBe(join(home, ".config", "trail", "config.json"));
-    expect(resolved.sources[2]?.path).toBe(join(projectRoot, ".agent-trail", "config.json"));
-    expect(resolved.sources[3]?.path).toBe(join(projectRoot, ".agent-trail", "config.local.json"));
+    expect(resolved.sources[2]?.path).toBe(join(realProjectRoot, ".agent-trail", "config.json"));
+    expect(resolved.sources[3]?.path).toBe(
+      join(realProjectRoot, ".agent-trail", "config.local.json"),
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
     rmSync(projectRoot, { recursive: true, force: true });
@@ -56,15 +67,17 @@ test("resolves config with built-in, user, committed project, then local project
 test("invalid config reports friendly diagnostics with file path context", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-config-invalid-"));
   try {
+    const realProjectRoot = realpathSync(projectRoot);
     mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
     const configPath = join(projectRoot, ".agent-trail", "config.json");
+    const displayConfigPath = join(realProjectRoot, ".agent-trail", "config.json");
     writeFileSync(configPath, JSON.stringify({ sources: { unknown: true } }));
 
     await expect(resolveConfig({ env: { HOME: projectRoot }, projectRoot })).rejects.toThrow(
       ConfigError,
     );
     await expect(resolveConfig({ env: { HOME: projectRoot }, projectRoot })).rejects.toThrow(
-      `config: ${configPath}: unknown key: sources.unknown`,
+      `config: ${displayConfigPath}: unknown key: sources.unknown`,
     );
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
@@ -74,12 +87,14 @@ test("invalid config reports friendly diagnostics with file path context", async
 test("invalid JSON reports friendly diagnostics without a stack trace", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-config-json-"));
   try {
+    const realProjectRoot = realpathSync(projectRoot);
     mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
     const configPath = join(projectRoot, ".agent-trail", "config.local.json");
+    const displayConfigPath = join(realProjectRoot, ".agent-trail", "config.local.json");
     writeFileSync(configPath, "{not json");
 
     await expect(resolveConfig({ env: { HOME: projectRoot }, projectRoot })).rejects.toThrow(
-      `config: ${configPath}: invalid JSON`,
+      `config: ${displayConfigPath}: invalid JSON`,
     );
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });

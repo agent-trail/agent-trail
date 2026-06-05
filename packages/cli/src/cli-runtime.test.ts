@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -167,8 +167,10 @@ test("trail with no args prints help and exits 0", async () => {
 test("invalid config exits with a friendly diagnostic", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-invalid-config-"));
   try {
+    const realProjectRoot = realpathSync(projectRoot);
     mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
     const configPath = join(projectRoot, ".agent-trail", "config.json");
+    const displayConfigPath = join(realProjectRoot, ".agent-trail", "config.json");
     writeFileSync(configPath, JSON.stringify({ tui: { previewByteCap: 0 } }));
 
     const result = await runCli(["discover", "--json"], {
@@ -180,7 +182,7 @@ test("invalid config exits with a friendly diagnostic", async () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
-      `config: ${configPath}: tui.previewByteCap must be a positive integer\n`,
+      `config: ${displayConfigPath}: tui.previewByteCap must be a positive integer\n`,
     );
     expect(result.stderr).not.toContain("ConfigError");
   } finally {
