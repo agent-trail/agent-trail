@@ -1,8 +1,8 @@
-import { defaultTrailAdapters, type TrailAdapter } from "@agent-trail/adapters";
 import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { redactTrail } from "@agent-trail/redact";
 import type { Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
+import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import { cliVersion } from "./version.ts";
 
@@ -53,7 +53,7 @@ export async function runDoctor(
     cliVersionCheck(),
     bunRuntimeCheck(opts.bunVersion ?? Bun.version),
     await redactionCheck(opts.redactTrail ?? redactTrail),
-    ...(await adapterChecks(opts.adapters ?? defaultTrailAdapters())),
+    ...(await adapterChecks(opts.adapters ?? cliDefaultAdapters())),
   ];
   const report: DoctorReport = { status: aggregateStatus(checks), checks };
   return {

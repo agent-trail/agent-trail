@@ -1,16 +1,11 @@
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  ADAPTERS,
-  adapterByName,
-  type SessionRef,
-  type TrailAdapter,
-  trailRecords,
-} from "@agent-trail/adapters";
+import { type SessionRef, trailRecords } from "@agent-trail/adapters";
 import { canonicalizeRecords, parseJsonlString, stampTrail } from "@agent-trail/core";
 import { type RegisterResult, registerTrail } from "@agent-trail/store";
 import type { Command } from "commander";
+import { cliAdapterByName, cliAdapterNames, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type CliResult, type ResultWriter } from "./command.ts";
 
 export type RunRegisterOptions = {
@@ -205,13 +200,11 @@ function adapterByNameFrom(
   name: string,
   adapters: readonly TrailAdapter[] | undefined,
 ): TrailAdapter | undefined {
-  if (adapters === undefined) return adapterByName(name);
-  return adapters.find((adapter) => adapter.name === name);
+  return cliAdapterByName(name, adapters);
 }
 
 function adapterNames(adapters: readonly TrailAdapter[] | undefined): string[] {
-  if (adapters !== undefined) return adapters.map((adapter) => adapter.name);
-  return ADAPTERS.map((adapter) => adapter.name);
+  return cliAdapterNames(adapters);
 }
 
 export function addRegisterCommand(program: Command, writeResult: ResultWriter): void {
