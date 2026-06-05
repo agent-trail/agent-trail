@@ -63,7 +63,9 @@ export function reconcileSegments(inputs: SegmentInput[]): ReconcileResult {
 
   for (const [sessionUid, members] of groups) {
     if (members.length === 1) {
-      outGroups.push(passThrough(members[0] as SegmentInput, sessionUid));
+      for (const member of members) {
+        outGroups.push(passThrough(member, sessionUid));
+      }
       continue;
     }
     outGroups.push(mergeGroup(sessionUid, members));
@@ -91,8 +93,7 @@ function explodeMultiSessionInputs(inputs: SegmentInput[]): {
     // callers reconstructing a multi-session output can re-envelope; the
     // reconciler itself operates strictly at session grain.
     if (split.envelope !== null) envelopes.push(split.envelope);
-    for (let i = 0; i < split.groups.length; i += 1) {
-      const group = split.groups[i] as { header: JsonlRecord; entries: JsonlRecord[] };
+    for (const [i, group] of split.groups.entries()) {
       out.push({
         source: `${input.source}#session-${i}`,
         records: [group.header, ...group.entries],

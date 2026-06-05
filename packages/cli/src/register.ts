@@ -108,8 +108,8 @@ async function registerAdapterRef(
   ref: AdapterRef,
   context: RunRegisterContext,
 ): Promise<RegisterResult | CliResult> {
-  const adapter = adapterByNameFrom(ref.adapterName, context.adapters);
-  const validNames = adapterNames(context.adapters);
+  const adapter = cliAdapterByName(ref.adapterName, context.adapters);
+  const validNames = cliAdapterNames(context.adapters);
   if (adapter === undefined) {
     return {
       exitCode: 1,
@@ -194,17 +194,6 @@ function renderRegisterResult(result: RegisterResult, options: RunRegisterOption
     };
   }
   return { exitCode: 0, stdout: `${result.contentHash}\n`, stderr: "" };
-}
-
-function adapterByNameFrom(
-  name: string,
-  adapters: readonly TrailAdapter[] | undefined,
-): TrailAdapter | undefined {
-  return cliAdapterByName(name, adapters);
-}
-
-function adapterNames(adapters: readonly TrailAdapter[] | undefined): string[] {
-  return cliAdapterNames(adapters);
 }
 
 export function addRegisterCommand(program: Command, writeResult: ResultWriter): void {
