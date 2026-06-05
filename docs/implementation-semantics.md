@@ -50,8 +50,8 @@ vendor `meta` rather than extending the top-level event vocabulary.
 
 ### Parent Topology And Branching
 
-`parent_id` is event graph topology. It is not ordinary linear sequencing and
-not tool-call/result linking.
+`parent_id` is event graph topology. It is neither ordinary linear sequencing
+nor tool-call/result linking.
 
 Adapter policy:
 
@@ -129,10 +129,14 @@ These display choices do not affect trail validity.
 Multi-segment fields in the spec provide enough information to group, order,
 and verify segments. This repository's reconciler applies this policy:
 
-1. Group inputs by `header.session_uid`.
+1. Group inputs by `header.session_uid` using exact string equality. Do not
+   compare these fields case-insensitively or normalize them to lowercase;
+   casing disagreement is a writer-side bug that should be surfaced.
 2. Sort each group by `segment.seq`; absent segment means sequence 1.
 3. Verify `segment.prev_content_hash` against the previous segment's
-   session-level `content_hash`.
+   session-level `content_hash` using exact string comparison. Do not compare
+   content hashes case-insensitively; `content_hash` is lowercase hex, and
+   casing disagreement is a writer-side bug that should be surfaced.
 4. Concatenate events and deduplicate by event `id`.
 5. Drop intermediate `session_terminated` entries whose reason is
    `process_terminated`.
