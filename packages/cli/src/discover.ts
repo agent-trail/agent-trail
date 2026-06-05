@@ -8,7 +8,14 @@ import type { Command } from "commander";
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
+import {
+  adapterMatchesAgent,
+  boundedBy,
+  includesQuery,
+  parseLimit,
+  parseTimeBounds,
+  renderJson,
+} from "./listing.ts";
 
 export type RunDiscoverResult = {
   exitCode: number;
@@ -46,22 +53,6 @@ type Row = {
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 const SEARCH_HEAD_BYTES = 65_536;
-const ADAPTER_AGENT_ALIASES: Record<string, readonly string[]> = {
-  codex: ["codex-cli"],
-};
-
-function parseLimit(limit: string | undefined): { limit?: number; error?: string } {
-  if (limit === undefined) return {};
-  if (!/^[1-9]\d*$/.test(limit)) {
-    return { error: `invalid --limit: expected positive integer, got '${limit}'` };
-  }
-  return { limit: Number.parseInt(limit, 10) };
-}
-
-function includesQuery(value: string, query: string, caseSensitive: boolean): boolean {
-  if (caseSensitive) return value.includes(query);
-  return value.toLowerCase().includes(query.toLowerCase());
-}
 
 function rowMetadata(row: Row): string {
   return [row.id, row.adapter, row.cwd, row.modified_at, row.path]
@@ -178,13 +169,6 @@ export async function runDiscover(
     return { exitCode: 0, stdout: "", stderr };
   }
   return { exitCode: 0, stdout: renderText(renderedRows), stderr };
-}
-
-function adapterMatchesAgent(adapterName: string, agentFilter: string | undefined): boolean {
-  if (agentFilter === undefined) return true;
-  return (
-    adapterName === agentFilter || (ADAPTER_AGENT_ALIASES[adapterName] ?? []).includes(agentFilter)
-  );
 }
 
 function renderText(rows: Row[]): string {

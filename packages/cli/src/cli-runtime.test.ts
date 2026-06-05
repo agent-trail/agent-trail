@@ -78,13 +78,17 @@ const HELP_CASES: HelpCase[] = [
     usage: "Usage: trail list [options]",
     flags: [
       "--json",
+      "--plain",
+      "--source <source>",
       "--agent <name>",
       "--cwd <path>",
       "--since <iso>",
       "--until <iso>",
-      "--kind <kind>",
+      "--limit <n>",
+      "--search <query>",
+      "--case-sensitive",
     ],
-    example: "trail list --agent codex-cli --kind session",
+    example: "trail list --source registered --agent codex-cli",
   },
   {
     command: "register",
@@ -326,7 +330,8 @@ test("trail list help exposes Commander-owned options", async () => {
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Usage: trail list [options]");
   expect(result.stdout).toContain("--agent <name>");
-  expect(result.stdout).toContain("--kind <kind>");
+  expect(result.stdout).toContain("--source <source>");
+  expect(result.stdout).toContain("--search <query>");
   expect(result.stdout).toContain("--until <iso>");
 });
 

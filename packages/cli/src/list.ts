@@ -1,5 +1,11 @@
 import { open } from "node:fs/promises";
 import {
+  type DetectOptions,
+  DISCOVERY_CONCURRENCY_LIMIT,
+  mapConcurrent,
+  type SessionRef,
+} from "@agent-trail/adapters";
+import {
   IndexCorruptError,
   type IndexFile,
   IndexVersionError,
@@ -8,9 +14,17 @@ import {
   resolveStoreRoot,
 } from "@agent-trail/store";
 import type { Command } from "commander";
+import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
+import {
+  adapterMatchesAgent,
+  boundedBy,
+  includesQuery,
+  parseLimit,
+  parseTimeBounds,
+  renderJson,
+} from "./listing.ts";
 
 export type RunListResult = {
   exitCode: number;
@@ -20,32 +34,72 @@ export type RunListResult = {
 
 export type RunListOptions = {
   json?: boolean;
+  plain?: boolean;
   agent?: string;
   cwd?: string;
   since?: string;
   until?: string;
-  kind?: string;
+  source?: string;
+  limit?: string;
+  search?: string;
+  caseSensitive?: boolean;
 };
 
 export type RunListContext = {
   storeRoot?: string;
   config?: ResolvedConfig;
+  adapters?: readonly TrailAdapter[];
+  defaultCwd?: string;
 };
 
 type RowKind = "session" | "trail";
 
-type Row = {
+type SourceRow = {
+  source_id: string;
+  source_agent: string;
+  source_cwd: string | null;
+  source_modified_at: string | null;
+  source_path: string | null;
+};
+
+type RegisteredRow = {
   content_hash: string;
+  registered_agent: string | null;
+  registered_cwd: string | null;
+  registered_at: string | null;
+  registered_source_path: string | null;
+  registered_kind: RowKind;
+};
+
+type RowState = "source" | "registered" | "source+registered";
+
+type Row = {
+  state: RowState;
+  source_id: string | null;
+  source_agent: string | null;
+  source_cwd: string | null;
+  source_modified_at: string | null;
+  source_path: string | null;
+  content_hash: string | null;
+  registered_agent: string | null;
+  registered_cwd: string | null;
+  registered_at: string | null;
+  registered_source_path: string | null;
+  registered_kind: RowKind | null;
   agent: string | null;
   cwd: string | null;
-  registered_at: string;
-  source_path: string | null;
-  kind: RowKind;
+  latest_at: string | null;
+};
+
+type HeaderReadResult = {
+  header: Record<string, unknown> | null;
+  error: string | null;
 };
 
 const SHORT_HASH_LEN = 12;
 const MISSING_TEXT = "-";
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+const SEARCH_HEAD_BYTES = 65_536;
 
 export async function runList(
   options: RunListOptions = {},
@@ -69,8 +123,22 @@ export async function runList(
   }
   const entries = Object.entries(index.entries);
 
-  const rows: Row[] = [];
+  const sourceMode = options.source ?? "all";
+  if (sourceMode !== "all" && sourceMode !== "source" && sourceMode !== "registered") {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `--source must be "all", "source", or "registered"; got "${sourceMode}"\n`,
+    };
+  }
+
+  const parsedLimit = parseLimit(options.limit);
+  if (parsedLimit.error !== undefined) {
+    return { exitCode: 1, stdout: "", stderr: `${parsedLimit.error}\n` };
+  }
+
   const warnings: string[] = [];
+  const registeredRows: RegisteredRow[] = [];
   for (const [contentHash, rawEntry] of entries) {
     // Index keys are content_hashes (sha256 hex). Reject anything else before
     // composing a filesystem path so a corrupted/malicious index cannot turn
@@ -90,70 +158,87 @@ export async function runList(
     if (headerResult.error !== null) {
       warnings.push(`warning: could not read header for ${contentHash}: ${headerResult.error}`);
     }
-    rows.push({
+    registeredRows.push({
       content_hash: contentHash,
-      agent: extractAgentName(headerResult.header),
-      cwd: extractCwd(headerResult.header),
+      registered_agent: extractAgentName(headerResult.header),
+      registered_cwd: extractCwd(headerResult.header),
       registered_at: entry.registered_at,
-      source_path: entry.source_path,
-      kind: entry.kind,
+      registered_source_path: entry.source_path,
+      registered_kind: entry.kind,
     });
   }
+
+  const sourceRows = await detectSourceRows(options, context, warnings);
+  const rows = mergeRows(sourceRows, registeredRows);
 
   const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
-
-  if (options.kind !== undefined && options.kind !== "session" && options.kind !== "trail") {
+  if (options.json === true && options.plain === true) {
     return {
       exitCode: 1,
       stdout: "",
-      stderr: `--kind must be "session" or "trail"; got "${options.kind}"\n`,
+      stderr: "error: --json and --plain cannot be used together\n",
     };
   }
-  const kindFilter = options.kind as RowKind | undefined;
 
   const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
-  const filtered = rows.filter((r) => {
-    if (agentFilter !== undefined && r.agent !== agentFilter) return false;
+  const sourceFiltered = rows.filter((r) => {
+    if (sourceMode === "source" && r.state === "registered") return false;
+    if (sourceMode === "registered" && r.state === "source") return false;
+    if (!rowMatchesAgent(r, agentFilter)) return false;
+    // Source discovery defaults to the current cwd for parity with `trail discover`,
+    // while registered store rows stay broad unless the user explicitly passes --cwd.
     if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
-    if (kindFilter !== undefined && r.kind !== kindFilter) return false;
-    return boundedBy(r.registered_at, sinceMs, untilMs);
+    return boundedBy(r.latest_at, sinceMs, untilMs);
   });
 
+  let filtered = sourceFiltered;
+  const search = options.search;
+  if (search !== undefined) {
+    const matches = await mapConcurrent(sourceFiltered, DISCOVERY_CONCURRENCY_LIMIT, async (row) =>
+      matchesSearch(storeRoot, row, search, options.caseSensitive === true),
+    );
+    filtered = sourceFiltered.filter((_row, index) => matches[index] === true);
+  }
+
   filtered.sort((a, b) => {
-    if (a.registered_at !== b.registered_at) {
-      return a.registered_at < b.registered_at ? 1 : -1;
+    if (a.latest_at !== b.latest_at) {
+      if (a.latest_at === null) return 1;
+      if (b.latest_at === null) return -1;
+      return a.latest_at < b.latest_at ? 1 : -1;
     }
-    return a.content_hash < b.content_hash ? -1 : 1;
+    return rowIdentity(a).localeCompare(rowIdentity(b));
   });
+
+  const renderedRows =
+    parsedLimit.limit === undefined ? filtered : filtered.slice(0, parsedLimit.limit);
+  if (parsedLimit.limit !== undefined && filtered.length > parsedLimit.limit) {
+    warnings.push(`warning: ${filtered.length} rows matched; showing first ${parsedLimit.limit}`);
+  }
 
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
   if (options.json === true) {
-    return { exitCode: 0, stdout: renderJson(filtered), stderr };
+    return { exitCode: 0, stdout: renderJson(renderedRows), stderr };
   }
-  if (filtered.length === 0) {
+  if (renderedRows.length === 0) {
     return { exitCode: 0, stdout: "", stderr };
   }
-  return { exitCode: 0, stdout: renderText(filtered), stderr };
+  return { exitCode: 0, stdout: renderText(renderedRows), stderr };
 }
 
 function renderText(rows: Row[]): string {
   return `${rows
-    .map(
-      (r) =>
-        `${r.content_hash.slice(0, SHORT_HASH_LEN)}  ${r.kind}  ${r.agent ?? MISSING_TEXT}  ${
-          r.cwd ?? MISSING_TEXT
-        }  ${r.registered_at}  ${r.source_path ?? MISSING_TEXT}`,
-    )
+    .map((r) => {
+      const id = r.source_id ?? r.content_hash?.slice(0, SHORT_HASH_LEN) ?? MISSING_TEXT;
+      const cue = r.source_path ?? r.registered_source_path ?? r.content_hash ?? MISSING_TEXT;
+      return `${id.slice(0, SHORT_HASH_LEN)}  ${r.state}  ${r.agent ?? MISSING_TEXT}  ${
+        r.cwd ?? MISSING_TEXT
+      }  ${r.latest_at ?? MISSING_TEXT}  ${cue}`;
+    })
     .join("\n")}\n`;
 }
-
-type HeaderReadResult = {
-  header: Record<string, unknown> | null;
-  error: string | null;
-};
 
 // Reads only the first JSONL line (the session header) to extract agent.name
 // and cwd. Capped at 8KB: spec v0.1.0 session headers are small JSON objects;
@@ -224,6 +309,188 @@ function extractCwd(header: Record<string, unknown> | null): string | null {
   return typeof cwd === "string" ? cwd : null;
 }
 
+async function detectSourceRows(
+  options: RunListOptions,
+  context: RunListContext,
+  warnings: string[],
+): Promise<SourceRow[]> {
+  const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
+  const adapters = (context.adapters ?? cliDefaultAdapters()).filter((a) =>
+    adapterMatchesAgent(a.name, agentFilter),
+  );
+  const detectOpts: DetectOptions = {};
+  const requestedCwd = options.cwd ?? context.defaultCwd ?? process.cwd();
+  if (requestedCwd !== undefined) detectOpts.cwd = requestedCwd;
+  const perAdapter = await Promise.all(
+    adapters.map(async (adapter) => {
+      try {
+        return await adapter.detectSessions(detectOpts);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`warning: ${adapter.name} detectSessions failed: ${message}`);
+        return [] as SessionRef[];
+      }
+    }),
+  );
+  let refs = perAdapter.flat();
+  if (requestedCwd !== undefined) {
+    refs = refs.filter((r) => r.cwd === undefined || r.cwd === requestedCwd);
+  }
+  return refs.map((ref) => ({
+    source_id: ref.id,
+    source_agent: ref.adapter,
+    source_cwd: ref.cwd ?? null,
+    source_modified_at: ref.modifiedAt ?? null,
+    source_path: ref.path ?? null,
+  }));
+}
+
+function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Row[] {
+  const rows: Row[] = [];
+  const usedRegistered = new Set<number>();
+  for (const source of sourceRows) {
+    const matchIndex = findNewestPathMatch(source, registeredRows, usedRegistered);
+    if (matchIndex === -1) {
+      rows.push(toUnified(source, null));
+      continue;
+    }
+    usedRegistered.add(matchIndex);
+    rows.push(toUnified(source, registeredRows[matchIndex] as RegisteredRow));
+  }
+  for (const [index, registered] of registeredRows.entries()) {
+    if (!usedRegistered.has(index)) rows.push(toUnified(null, registered));
+  }
+  return rows;
+}
+
+function findNewestPathMatch(
+  source: SourceRow,
+  registeredRows: RegisteredRow[],
+  usedRegistered: Set<number>,
+): number {
+  if (source.source_path === null) return -1;
+  let matchIndex = -1;
+  let matchRegisteredAt: string | null = null;
+  for (const [index, registered] of registeredRows.entries()) {
+    if (usedRegistered.has(index)) continue;
+    if (registered.registered_source_path !== source.source_path) continue;
+    if (
+      matchIndex === -1 ||
+      compareNullableTimestamps(registered.registered_at, matchRegisteredAt) > 0
+    ) {
+      matchIndex = index;
+      matchRegisteredAt = registered.registered_at;
+    }
+  }
+  return matchIndex;
+}
+
+function toUnified(source: SourceRow | null, registered: RegisteredRow | null): Row {
+  return {
+    state:
+      source !== null && registered !== null
+        ? "source+registered"
+        : source !== null
+          ? "source"
+          : "registered",
+    source_id: source?.source_id ?? null,
+    source_agent: source?.source_agent ?? null,
+    source_cwd: source?.source_cwd ?? null,
+    source_modified_at: source?.source_modified_at ?? null,
+    source_path: source?.source_path ?? null,
+    content_hash: registered?.content_hash ?? null,
+    registered_agent: registered?.registered_agent ?? null,
+    registered_cwd: registered?.registered_cwd ?? null,
+    registered_at: registered?.registered_at ?? null,
+    registered_source_path: registered?.registered_source_path ?? null,
+    registered_kind: registered?.registered_kind ?? null,
+    agent: source?.source_agent ?? registered?.registered_agent ?? null,
+    cwd: source?.source_cwd ?? registered?.registered_cwd ?? null,
+    latest_at: latestTimestamp(
+      source?.source_modified_at ?? null,
+      registered?.registered_at ?? null,
+    ),
+  };
+}
+
+function latestTimestamp(
+  sourceModifiedAt: string | null,
+  registeredAt: string | null,
+): string | null {
+  return compareNullableTimestamps(sourceModifiedAt, registeredAt) >= 0
+    ? sourceModifiedAt
+    : registeredAt;
+}
+
+function compareNullableTimestamps(a: string | null, b: string | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  const aMs = Date.parse(a);
+  const bMs = Date.parse(b);
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) return a.localeCompare(b);
+  if (Number.isNaN(aMs)) return -1;
+  if (Number.isNaN(bMs)) return 1;
+  return aMs - bMs;
+}
+
+function rowMatchesAgent(row: Row, agentFilter: string | undefined): boolean {
+  if (agentFilter === undefined) return true;
+  if (row.source_agent !== null && adapterMatchesAgent(row.source_agent, agentFilter)) return true;
+  return row.registered_agent === agentFilter;
+}
+
+function rowIdentity(row: Row): string {
+  return row.source_id ?? row.content_hash ?? "";
+}
+
+function rowMetadata(row: Row): string {
+  return [
+    row.state,
+    row.source_id,
+    row.source_agent,
+    row.source_cwd,
+    row.source_modified_at,
+    row.source_path,
+    row.content_hash,
+    row.registered_agent,
+    row.registered_cwd,
+    row.registered_at,
+    row.registered_source_path,
+    row.registered_kind,
+    row.agent,
+    row.cwd,
+    row.latest_at,
+  ]
+    .filter((value): value is string => value !== null)
+    .join("\n");
+}
+
+async function readHead(path: string): Promise<string> {
+  return Bun.file(path).slice(0, SEARCH_HEAD_BYTES).text();
+}
+
+async function matchesSearch(
+  storeRoot: string,
+  row: Row,
+  query: string,
+  caseSensitive: boolean,
+): Promise<boolean> {
+  if (includesQuery(rowMetadata(row), query, caseSensitive)) return true;
+  const paths = [
+    row.source_path,
+    row.content_hash === null ? null : objectPath(storeRoot, row.content_hash),
+  ].filter((value): value is string => value !== null);
+  for (const path of paths) {
+    try {
+      if (includesQuery(await readHead(path), query, caseSensitive)) return true;
+    } catch {
+      // Best-effort search: unreadable source/object head is a non-match.
+    }
+  }
+  return false;
+}
+
 export function addListCommand(
   program: Command,
   writeResult: ResultWriter,
@@ -233,15 +500,19 @@ export function addListCommand(
     program
       .command("list")
       .option("--json", "Print entries as JSON.", false)
+      .option("--plain", "Print entries as a plain table.", false)
+      .option("--source <source>", "Filter by source state: all, source, or registered.", "all")
       .option("--agent <name>", "Filter by agent name.")
       .option("--cwd <path>", "Filter by cwd.")
-      .option("--since <iso>", "Include entries registered at or after this time.")
-      .option("--until <iso>", "Include entries registered before this time.")
-      .option("--kind <kind>", "Filter by row kind: session or trail.")
-      .description("List locally stored Trail objects.")
+      .option("--since <iso>", "Include rows at or after this time.")
+      .option("--until <iso>", "Include rows before this time.")
+      .option("--limit <n>", "Limit result rows after sorting.")
+      .option("--search <query>", "Filter rows by substring in content or metadata.")
+      .option("--case-sensitive", "Make --search matching case-sensitive.", false)
+      .description("List source sessions and registered Trail objects.")
       .action(async (options: RunListOptions) => {
         writeResult(await runList(options, context));
       }),
-    ["trail list", "trail list --agent codex-cli --kind session"],
+    ["trail list", "trail list --source registered --agent codex-cli"],
   );
 }

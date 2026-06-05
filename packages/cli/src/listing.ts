@@ -71,3 +71,24 @@ export function boundedBy(
 export function renderJson<T>(rows: T[]): string {
   return `${JSON.stringify(rows)}\n`;
 }
+
+export function parseLimit(limit: string | undefined): { limit?: number; error?: string } {
+  if (limit === undefined) return {};
+  if (!/^[1-9]\d*$/.test(limit)) {
+    return { error: `invalid --limit: expected positive integer, got '${limit}'` };
+  }
+  return { limit: Number.parseInt(limit, 10) };
+}
+
+export function includesQuery(value: string, query: string, caseSensitive: boolean): boolean {
+  if (caseSensitive) return value.includes(query);
+  return value.toLowerCase().includes(query.toLowerCase());
+}
+
+export function adapterMatchesAgent(adapterName: string, agentFilter: string | undefined): boolean {
+  if (agentFilter === undefined) return true;
+  const aliases: Record<string, readonly string[]> = {
+    codex: ["codex-cli"],
+  };
+  return adapterName === agentFilter || (aliases[adapterName] ?? []).includes(agentFilter);
+}
