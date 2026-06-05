@@ -11,6 +11,7 @@ import {
   type ScaffoldProjectConfigResult,
   scaffoldProjectConfig,
 } from "./config.ts";
+import { type AdapterStatus, collectAdapterStatuses } from "./status.ts";
 import { cliVersion } from "./version.ts";
 
 export type DoctorStatus = "ok" | "warn" | "error";
@@ -247,43 +248,43 @@ async function redactionCheck(
 }
 
 async function adapterChecks(adapters: readonly TrailAdapter[]): Promise<DoctorCheck[]> {
-  return Promise.all(
-    adapters.map(async (adapter): Promise<DoctorCheck> => {
-      try {
-        const health = await adapter.sourceHealth();
-        const status: DoctorStatus =
-          health.present && health.readable && health.warnings.length === 0 ? "ok" : "warn";
-        const countText =
-          health.sessionCount === 1 ? "1 session" : `${health.sessionCount} sessions`;
-        return {
-          id: `adapter.${adapter.name}`,
-          status,
-          label: adapter.name,
-          message: `${adapter.name}: ${countText}${
-            health.path === null ? "" : ` at ${health.path}`
-          }`,
-          details: {
-            adapter: health.adapter,
-            path: health.path,
-            present: health.present,
-            readable: health.readable,
-            session_count: health.sessionCount,
-            source_version: health.sourceVersion,
-            warnings: health.warnings,
-          },
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          id: `adapter.${adapter.name}`,
-          status: "warn",
-          label: adapter.name,
-          message: `${adapter.name}: health check failed: ${message}`,
-          details: { adapter: adapter.name, warnings: [message] },
-        };
-      }
-    }),
-  );
+  return (await collectAdapterStatuses(adapters)).map(adapterStatusCheck);
+}
+
+function adapterStatusCheck(status: AdapterStatus): DoctorCheck {
+  const failureMessage = healthCheckFailureMessage(status);
+  if (failureMessage !== null) {
+    return {
+      id: `adapter.${status.adapter}`,
+      status: "warn",
+      label: status.adapter,
+      message: `${status.adapter}: health check failed: ${failureMessage}`,
+      details: { adapter: status.adapter, warnings: [failureMessage] },
+    };
+  }
+  const countText = status.session_count === 1 ? "1 session" : `${status.session_count} sessions`;
+  return {
+    id: `adapter.${status.adapter}`,
+    status: status.status,
+    label: status.adapter,
+    message: `${status.adapter}: ${countText}${status.path === null ? "" : ` at ${status.path}`}`,
+    details: {
+      adapter: status.adapter,
+      path: status.path,
+      present: status.present,
+      readable: status.readable,
+      session_count: status.session_count,
+      source_version: status.source_version,
+      warnings: status.warnings,
+    },
+  };
+}
+
+function healthCheckFailureMessage(status: AdapterStatus): string | null {
+  if (status.warnings.length !== 1) return null;
+  const [warning] = status.warnings;
+  const prefix = "health check failed: ";
+  return warning?.startsWith(prefix) ? warning.slice(prefix.length) : null;
 }
 
 function aggregateStatus(checks: DoctorCheck[]): DoctorStatus {

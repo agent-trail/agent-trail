@@ -103,6 +103,27 @@ function fakeAdapter(health: AdapterSourceHealth): TrailAdapter {
   };
 }
 
+function throwingAdapter(name: string, message: string): TrailAdapter {
+  return {
+    name,
+    async detectSessions(): Promise<SessionRef[]> {
+      return [];
+    },
+    async parseSession(): Promise<TrailFile> {
+      return { groups: [] };
+    },
+    async isAvailable(): Promise<boolean> {
+      return false;
+    },
+    async sourceVersion(): Promise<string | null> {
+      return null;
+    },
+    async sourceHealth(): Promise<AdapterSourceHealth> {
+      throw new Error(message);
+    },
+  };
+}
+
 function resolvedConfig(): ResolvedConfig {
   return {
     config: {
@@ -368,6 +389,32 @@ test("doctor treats missing adapter sources as warnings and exits 0", async () =
       session_count: 0,
     },
   });
+});
+
+test("doctor preserves health failure messages in text and JSON output", async () => {
+  const jsonResult = await runDoctor(["--json"], {
+    adapters: [throwingAdapter("codex", "permission denied")],
+  });
+
+  expect(jsonResult.exitCode).toBe(0);
+  expect(jsonResult.stderr).toBe("");
+  const parsed = JSON.parse(jsonResult.stdout) as {
+    checks: Array<{ id: string; message: string; details?: Record<string, unknown> }>;
+  };
+  expect(parsed.checks.find((check) => check.id === "adapter.codex")).toMatchObject({
+    message: "codex: health check failed: permission denied",
+    details: { adapter: "codex", warnings: ["permission denied"] },
+  });
+
+  const textResult = await runDoctor([], {
+    adapters: [throwingAdapter("codex", "permission denied")],
+  });
+
+  expect(textResult.exitCode).toBe(0);
+  expect(textResult.stderr).toBe("");
+  expect(textResult.stdout).toContain("warn  codex: health check failed: permission denied");
+  expect(textResult.stdout).not.toContain("Error:");
+  expect(textResult.stdout).not.toContain("at ");
 });
 
 test("doctor human output mirrors JSON status words", async () => {

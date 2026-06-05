@@ -109,6 +109,24 @@ const HELP_CASES: HelpCase[] = [
     example: "trail discover --agent codex-cli --json",
   },
   {
+    command: "status",
+    usage: "Usage: trail status [options]",
+    flags: ["--json"],
+    example: "trail status --json",
+  },
+  {
+    command: "adapters list",
+    usage: "Usage: trail adapters list [options]",
+    flags: ["--json"],
+    example: "trail adapters list --json",
+  },
+  {
+    command: "adapters status",
+    usage: "Usage: trail adapters status [options]",
+    flags: ["--json"],
+    example: "trail adapters status --json",
+  },
+  {
     command: "doctor",
     usage: "Usage: trail doctor [options]",
     flags: ["--json", "--fix", "--yes"],
@@ -145,6 +163,8 @@ test("trail help exposes the Commander command surface", async () => {
   expect(result.stdout).toContain("validate");
   expect(result.stdout).toContain("register");
   expect(result.stdout).toContain("discover");
+  expect(result.stdout).toContain("status");
+  expect(result.stdout).toContain("adapters");
   expect(result.stdout).toContain("export");
   expect(result.stdout).toContain(
     "Run `trail <command> --help` for command-specific flags and examples.",
@@ -342,7 +362,7 @@ test("trail share help exposes Commander-owned options", async () => {
 
 test("each command help lists usage, options, and examples", async () => {
   for (const helpCase of HELP_CASES) {
-    const result = await runTrail([helpCase.command, "--help"]);
+    const result = await runTrail([...helpCase.command.split(" "), "--help"]);
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
@@ -354,4 +374,4 @@ test("each command help lists usage, options, and examples", async () => {
     expect(result.stdout).toContain("Examples:");
     expect(result.stdout).toContain(helpCase.example);
   }
-});
+}, 15_000);
