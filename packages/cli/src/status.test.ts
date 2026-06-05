@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -9,7 +9,7 @@ import type {
   TrailAdapter,
   TrailFile,
 } from "@agent-trail/adapters";
-import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
+import { canonicalizeRecords, stampTrail } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
@@ -70,47 +70,79 @@ function throwingAdapter(name: string, message: string): TrailAdapter {
   };
 }
 
-async function seedTrail(storeRoot: string, opts: { id: string; kind?: "session" | "trail" }) {
-  const header: Record<string, unknown> = {
-    type: "session",
-    schema_version: "0.1.0",
-    id: opts.id,
-    ts: "2026-05-17T14:00:00.000Z",
-    agent: { name: "codex-cli" },
-    cwd: "/work/proj-a",
-  };
-  const userMsg = {
-    type: "user_message",
-    id: "01HEVTA0000000000000000001",
-    ts: "2026-05-17T14:00:05.000Z",
-    payload: { text: "hello" },
-  };
-  const draftRecords = await parseJsonlString(
-    `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
-  );
-  header.content_hash = computeContentHash(draftRecords);
-  const records = await parseJsonlString(`${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`);
+async function seedMultiSessionTrail(storeRoot: string) {
   const inputDir = mkdtempSync(join(tmpdir(), "trail-cli-status-input-"));
-  const filePath = join(inputDir, `${opts.id}.trail.jsonl`);
-  await writeFile(filePath, canonicalizeRecords(records), "utf8");
-  const result = await registerTrail(filePath, { storeRoot });
-  if (opts.kind === "trail" && result.contentHash !== null) {
-    const indexPath = join(storeRoot, "index", "objects.json");
-    const index = JSON.parse(await readFile(indexPath, "utf8")) as {
-      entries: Record<string, { kind?: "session" | "trail" }>;
-    };
-    const entry = index.entries[result.contentHash];
-    if (entry !== undefined) entry.kind = "trail";
-    await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  try {
+    const records = [
+      {
+        line: 1,
+        raw: "",
+        value: {
+          type: "trail",
+          schema_version: "0.1.0",
+          id: "01HTRA0X00000000000000A001",
+          ts: "2026-05-17T14:00:00.000Z",
+          producer: "trail-cli/0.3.0",
+        },
+      },
+      {
+        line: 2,
+        raw: "",
+        value: {
+          type: "session",
+          schema_version: "0.1.0",
+          id: "01HSESS0000000000000000A01",
+          ts: "2026-05-17T14:00:00.000Z",
+          agent: { name: "codex-cli" },
+          session_uid: "01HSESSXA0000000000000A001",
+        },
+      },
+      {
+        line: 3,
+        raw: "",
+        value: {
+          type: "user_message",
+          id: "01HEVTA0000000000000000001",
+          ts: "2026-05-17T14:00:05.000Z",
+          payload: { text: "hello" },
+        },
+      },
+      {
+        line: 4,
+        raw: "",
+        value: {
+          type: "session",
+          schema_version: "0.1.0",
+          id: "01HSESS0000000000000000A02",
+          ts: "2026-05-17T14:05:00.000Z",
+          agent: { name: "claude-code" },
+          session_uid: "01HSESSXA0000000000000A002",
+        },
+      },
+      {
+        line: 5,
+        raw: "",
+        value: {
+          type: "user_message",
+          id: "01HEVTA0000000000000000002",
+          ts: "2026-05-17T14:05:05.000Z",
+          payload: { text: "ok" },
+        },
+      },
+    ];
+    stampTrail(records);
+    const filePath = join(inputDir, "multi.trail.jsonl");
+    await writeFile(filePath, canonicalizeRecords(records), "utf8");
+    await registerTrail(filePath, { storeRoot });
+  } finally {
+    rmSync(inputDir, { recursive: true, force: true });
   }
-  rmSync(inputDir, { recursive: true, force: true });
 }
 
 test("trail status --json returns grouped cwd, store, config, adapter health, and warnings", async () => {
   const storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-status-store-"));
   try {
-    await seedTrail(storeRoot, { id: "01HSESS0000000000000000001", kind: "session" });
-    await seedTrail(storeRoot, { id: "01HSESS0000000000000000002", kind: "trail" });
+    await seedMultiSessionTrail(storeRoot);
 
     const result = await runCli(["status", "--json"], {
       adapters: [
@@ -141,8 +173,8 @@ test("trail status --json returns grouped cwd, store, config, adapter health, an
     expect(parsed.cwd).toBe("/work/project");
     expect(parsed.store).toEqual({
       root: storeRoot,
-      entries: 2,
-      sessions: 1,
+      entries: 3,
+      sessions: 2,
       trails: 1,
     });
     expect(parsed.config).toEqual(resolvedConfig());
