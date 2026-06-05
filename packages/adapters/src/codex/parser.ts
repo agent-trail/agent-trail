@@ -301,8 +301,7 @@ function endPatchIndex(input: string, start: number): number {
 }
 
 function countPrefixedLines(lines: string[], prefix: string): number {
-  return lines.filter((line) => line.startsWith(prefix) && !line.startsWith(`${prefix}${prefix}`))
-    .length;
+  return lines.filter((line) => line.startsWith(prefix)).length;
 }
 
 function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): string {
@@ -311,7 +310,7 @@ function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): 
     .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
     .join("\n")
     .trim();
-  if (diffBody.length === 0 || diffBody.includes("@@")) return diffBody;
+  if (diffBody.length === 0 || /^@@/m.test(diffBody)) return diffBody;
 
   const lines = diffBody.split("\n");
   const oldCount = action === "Add" ? 0 : countPrefixedLines(lines, "-");

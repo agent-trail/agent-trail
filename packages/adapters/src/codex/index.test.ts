@@ -2856,6 +2856,14 @@ test("patchFiles synthesizes hunk headers for add and delete patch bodies", () =
     },
   ]);
   expect(
+    patchFiles("*** Begin Patch\n*** Add File: src/a.ts\n++plus\n+literal @@ text\n*** End Patch"),
+  ).toEqual([
+    {
+      path: "src/a.ts",
+      diff: "--- /dev/null\n+++ b/src/a.ts\n@@ -1,0 +1,2 @@\n++plus\n+literal @@ text",
+    },
+  ]);
+  expect(
     patchFiles("*** Begin Patch\n*** Delete File: src/a.ts\n-one\n-two\n*** End Patch"),
   ).toEqual([
     {

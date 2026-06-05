@@ -868,6 +868,17 @@ test("toolKindAndArgs maps Pi 'edit' apply_patch shape -> file_edit or file_patc
       diff: "--- /dev/null\n+++ b/x.md\n@@ -1,0 +1,2 @@\n+one\n+two",
     },
   });
+  expect(
+    toolKindAndArgs("edit", {
+      patch: "*** Begin Patch\n*** Add File: x.md\n++plus\n+literal @@ text\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "x.md",
+      diff: "--- /dev/null\n+++ b/x.md\n@@ -1,0 +1,2 @@\n++plus\n+literal @@ text",
+    },
+  });
 });
 
 test("toolKindAndArgs tolerates legacy Pi 'edit' (oldString/newString) for back-compat", () => {
