@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { parseArgs } from "node:util";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import {
   type ReconcileIncomingResult,
@@ -11,6 +10,7 @@ import {
   resolveStoreRoot,
 } from "@agent-trail/store";
 import { ghGistFetch } from "./gist-fetch.ts";
+import { preflightOutputPath, writeOutputFile } from "./write-output-file.ts";
 
 export type RunLoadResult = {
   exitCode: number;
@@ -21,11 +21,15 @@ export type RunLoadResult = {
 export type GistFetch = (gistId: string) => Promise<{ payload: Uint8Array; filename: string }>;
 
 export type RunLoadOptions = {
+  url: string;
+  out?: string;
+  force?: boolean;
+};
+
+export type RunLoadContext = {
   storeRoot?: string;
   gistFetch?: GistFetch;
 };
-
-const USAGE = "Usage: trail load <url> [--out <path>] [--force]";
 
 const VIEWER_RE = /^https:\/\/agent-trail\.dev\/view\/gist\/([0-9a-f]+)\/?$/;
 // Accept optional trailing path segments (e.g. `/raw`, `/revisions/<sha>`) so
@@ -78,53 +82,24 @@ function decodePayload(payload: Uint8Array): string {
   return raw.toString("utf8");
 }
 
-type Values = {
-  out: string | undefined;
-  force: boolean;
-};
-
-export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promise<RunLoadResult> {
-  if (argv.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <url>\n${USAGE}\n` };
-  }
-
-  let values: Values;
-  let positionals: string[];
-  try {
-    const parsed = parseArgs({
-      args: argv,
-      options: {
-        out: { type: "string" },
-        force: { type: "boolean", default: false },
-      },
-      allowPositionals: true,
-    });
-    values = parsed.values as Values;
-    positionals = parsed.positionals;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
-
-  if (positionals.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <url>\n${USAGE}\n` };
-  }
-  const url = positionals[0] as string;
-
+export async function runLoad(
+  options: RunLoadOptions,
+  context: RunLoadContext = {},
+): Promise<RunLoadResult> {
   let gistId: string;
   try {
-    gistId = parseSharedTrailUrl(url);
+    gistId = parseSharedTrailUrl(options.url);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { exitCode: 1, stdout: "", stderr: `${message}\n` };
   }
 
-  if (values.out !== undefined) {
-    const preflight = await preflightOutPath(values.out, values.force);
+  if (options.out !== undefined) {
+    const preflight = await preflightOutputPath("load", options.out, options.force === true);
     if (preflight !== null) return preflight;
   }
 
-  const fetcher = opts.gistFetch ?? ghGistFetch;
+  const fetcher = context.gistFetch ?? ghGistFetch;
   let payload: Uint8Array;
   try {
     const fetched = await fetcher(gistId);
@@ -158,7 +133,7 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
     // instead of the raw incoming bytes; the merged trail's content_hash is
     // what the user actually shared as a logical session.
     const outcome: ReconcileIncomingResult = await reconcileIncomingSegment(
-      resolveStoreRoot(opts.storeRoot),
+      resolveStoreRoot(context.storeRoot),
       jsonl,
     );
     if (outcome.kind === "merged") {
@@ -169,7 +144,7 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
     // `source_path` would index a guaranteed-stale path. Pass null instead;
     // `trail list` falls back to the content hash for identity.
     const reg = await registerTrail(tmpFile, {
-      storeRoot: opts.storeRoot,
+      storeRoot: context.storeRoot,
       sourcePath: null,
     });
 
@@ -210,11 +185,11 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
       stdoutLines.push("Reconciliation skipped: prior segments in store could not be read");
     }
 
-    if (values.out !== undefined) {
-      const outPath = values.out;
-      await mkdir(dirname(outPath), { recursive: true });
+    if (options.out !== undefined) {
+      const outPath = options.out;
       const canonical = await readFile(reg.objectPath);
-      await writeFile(outPath, canonical);
+      const writeResult = await writeOutputFile("load", outPath, canonical, options.force === true);
+      if (writeResult !== null) return writeResult;
       stdoutLines.push(`Wrote: ${outPath}`);
     }
 
@@ -222,29 +197,4 @@ export async function runLoad(argv: string[], opts: RunLoadOptions = {}): Promis
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
-}
-
-async function preflightOutPath(outPath: string, force: boolean): Promise<RunLoadResult | null> {
-  let info: Awaited<ReturnType<typeof stat>> | null;
-  try {
-    info = await stat(outPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  if (info.isDirectory()) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `load: --out path is a directory: ${outPath}\n`,
-    };
-  }
-  if (!force) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `load: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
-    };
-  }
-  return null;
 }

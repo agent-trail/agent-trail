@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { parseArgs } from "node:util";
 import { gzipSync } from "node:zlib";
 import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
@@ -16,6 +15,14 @@ export type RunShareResult = {
 export type GistUpload = (payload: Uint8Array, filename: string) => Promise<{ gistId: string }>;
 
 export type RunShareOptions = {
+  path: string;
+  dryRun?: boolean;
+  yes?: boolean;
+  skipRedaction?: boolean;
+  keepRemoteUrl?: boolean;
+};
+
+export type RunShareContext = {
   storeRoot?: string;
   confirm?: (message: string) => Promise<boolean>;
   gistUpload?: GistUpload;
@@ -23,47 +30,15 @@ export type RunShareOptions = {
 
 const VIEWER_BASE = "https://agent-trail.dev/view/gist";
 
-const USAGE =
-  "Usage: trail share <path> [--dry-run] [--yes] [--skip-redaction] [--keep-remote-url]";
 const SHORT_HASH_LEN = 12;
 
-type Values = {
-  "dry-run": boolean;
-  yes: boolean;
-  "skip-redaction": boolean;
-  "keep-remote-url": boolean;
-};
-
 export async function runShare(
-  argv: string[],
-  opts: RunShareOptions = {},
+  options: RunShareOptions,
+  context: RunShareContext = {},
 ): Promise<RunShareResult> {
-  let values: Values;
-  let positionals: string[];
-  try {
-    const parsed = parseArgs({
-      args: argv,
-      options: {
-        "dry-run": { type: "boolean", default: false },
-        yes: { type: "boolean", short: "y", default: false },
-        "skip-redaction": { type: "boolean", default: false },
-        "keep-remote-url": { type: "boolean", default: false },
-      },
-      allowPositionals: true,
-    });
-    values = parsed.values as Values;
-    positionals = parsed.positionals;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
+  const filePath = options.path;
 
-  if (positionals.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <path>\n${USAGE}\n` };
-  }
-  const filePath = positionals[0] as string;
-
-  const reg = await registerTrail(filePath, { storeRoot: opts.storeRoot });
+  const reg = await registerTrail(filePath, { storeRoot: context.storeRoot });
   if (reg.status === "skipped_pending") {
     return {
       exitCode: 1,
@@ -94,27 +69,27 @@ export async function runShare(
   stdoutLines.push(`Trail: ${reg.contentHash.slice(0, SHORT_HASH_LEN)} (${reg.contentHash})`);
 
   let redactedRecords: JsonlRecord[] | null = null;
-  if (values["skip-redaction"]) {
+  if (options.skipRedaction === true) {
     stderr +=
       "WARNING: --skip-redaction will share unredacted trail content. Secrets, file paths, and PII may be exposed.\n";
     stdoutLines.push("Redaction summary: skipped (--skip-redaction)");
   } else {
-    if (values["keep-remote-url"]) {
+    if (options.keepRemoteUrl === true) {
       stderr +=
         "WARNING: --keep-remote-url will share the repository's remote URL in the gist. Project identity (and private repo identity) will be exposed.\n";
     }
-    const result = redactTrail(records, { keepRemoteUrl: values["keep-remote-url"] });
+    const result = redactTrail(records, { keepRemoteUrl: options.keepRemoteUrl === true });
     redactedRecords = result.records;
     stdoutLines.push("Redaction summary:");
     stdoutLines.push(...formatSummary(result.summary));
   }
 
-  if (values["dry-run"]) {
+  if (options.dryRun === true) {
     return { exitCode: 0, stdout: `${stdoutLines.join("\n")}\n`, stderr };
   }
 
-  const confirm = opts.confirm ?? defaultConfirm;
-  if (!values.yes) {
+  const confirm = context.confirm ?? defaultConfirm;
+  if (options.yes !== true) {
     const first = await tryConfirm(
       confirm,
       "Share this trail to GitHub Gist? (anyone with the URL can read it)",
@@ -124,7 +99,7 @@ export async function runShare(
       if (first.reason !== null) stderr += `${first.reason}\n`;
       return { exitCode: 0, stdout: `${stdoutLines.join("\n")}\n`, stderr };
     }
-    if (values["skip-redaction"]) {
+    if (options.skipRedaction === true) {
       const second = await tryConfirm(confirm, "Confirm: share without redacting secrets?");
       if (!second.ok) {
         stdoutLines.push("Share cancelled.");
@@ -138,7 +113,7 @@ export async function runShare(
   let payloadHash: string;
   try {
     let jsonl: Buffer;
-    if (values["skip-redaction"]) {
+    if (options.skipRedaction === true) {
       jsonl = await readFile(reg.objectPath);
       payloadHash = reg.contentHash;
     } else {
@@ -159,7 +134,7 @@ export async function runShare(
   }
 
   const filename = `${payloadHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl.gz.b64`;
-  const upload = opts.gistUpload ?? ghGistUpload;
+  const upload = context.gistUpload ?? ghGistUpload;
   try {
     const { gistId } = await upload(payload, filename);
     stdoutLines.push(`Shared at: ${VIEWER_BASE}/${gistId}`);

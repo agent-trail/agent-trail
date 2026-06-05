@@ -1,4 +1,3 @@
-import { parseArgs } from "node:util";
 import {
   claudeCodeAdapter,
   codexAdapter,
@@ -18,7 +17,13 @@ export type RunDiscoverResult = {
 
 export type RunDiscoverOptions = {
   adapters?: TrailAdapter[];
+  defaultCwd?: string;
+  json?: boolean;
+  all?: boolean;
+  agent?: string;
   cwd?: string;
+  since?: string;
+  until?: string;
 };
 
 type Row = {
@@ -29,8 +34,6 @@ type Row = {
   path: string | null;
 };
 
-const USAGE =
-  "Usage: trail discover [--json] [--all] [--agent <name>] [--cwd <path>] [--since <iso>] [--until <iso>]";
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 
@@ -43,56 +46,22 @@ const DEFAULT_ADAPTERS: TrailAdapter[] = [
   piAdapter,
 ];
 
-export async function runDiscover(
-  argv: string[],
-  opts: RunDiscoverOptions = {},
-): Promise<RunDiscoverResult> {
-  const parseConfig = {
-    args: argv,
-    options: {
-      json: { type: "boolean", default: false },
-      all: { type: "boolean", default: false },
-      agent: { type: "string" },
-      cwd: { type: "string" },
-      since: { type: "string" },
-      until: { type: "string" },
-    },
-    allowPositionals: false,
-  } as const;
-
-  type Values = {
-    json: boolean;
-    all: boolean;
-    agent?: string;
-    cwd?: string;
-    since?: string;
-    until?: string;
-  };
-  let values: Values;
-  try {
-    const parsed = parseArgs(parseConfig);
-    values = parsed.values as Values;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
-
-  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(values.since, values.until);
+export async function runDiscover(options: RunDiscoverOptions = {}): Promise<RunDiscoverResult> {
+  const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
 
-  const adapters = (opts.adapters ?? DEFAULT_ADAPTERS).filter(
-    (a) => values.agent === undefined || a.name === values.agent,
+  const adapters = (options.adapters ?? DEFAULT_ADAPTERS).filter(
+    (a) => options.agent === undefined || a.name === options.agent,
   );
 
   const detectOpts: DetectOptions = {};
-  if (values.all) {
+  const requestedCwd = options.cwd ?? options.defaultCwd;
+  if (options.all === true) {
     detectOpts.allCwds = true;
-  } else if (values.cwd !== undefined) {
-    detectOpts.cwd = values.cwd;
-  } else if (opts.cwd !== undefined) {
-    detectOpts.cwd = opts.cwd;
+  } else if (requestedCwd !== undefined) {
+    detectOpts.cwd = requestedCwd;
   }
 
   const warnings: string[] = [];
@@ -109,14 +78,14 @@ export async function runDiscover(
   );
 
   let refs = perAdapter.flat();
-  if (values.all === false && values.cwd !== undefined) {
+  if (options.all !== true && requestedCwd !== undefined) {
     // After discovery, also filter on cwd extracted from session header (when
     // present). Adapters scan their cwd-mangled dir, but headers expose the
     // real cwd; respect it so users get an exact match. Lenient policy: keep
     // sessions whose header has no `cwd` field — the adapter already proved
     // their provenance by finding them under the mangled dir for `values.cwd`,
     // and hiding malformed-header sessions would silently strand them.
-    refs = refs.filter((r) => r.cwd === undefined || r.cwd === values.cwd);
+    refs = refs.filter((r) => r.cwd === undefined || r.cwd === requestedCwd);
   }
 
   const rows: Row[] = refs.map((r) => ({
@@ -141,7 +110,7 @@ export async function runDiscover(
   });
 
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
-  if (values.json) {
+  if (options.json === true) {
     return { exitCode: 0, stdout: renderJson(filtered), stderr };
   }
   if (filtered.length === 0) {

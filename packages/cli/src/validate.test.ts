@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
 
 const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
@@ -23,7 +24,7 @@ async function writeFixture(content: string): Promise<string> {
 test("valid trail exits 0 with empty stdout", async () => {
   const path = await writeFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
 
-  const result = await runValidate([path]);
+  const result = await runValidate({ file: path });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
@@ -33,25 +34,25 @@ test("multiple positional file arguments exit 1 with usage on stderr", async () 
   const a = await writeFixture(`${VALID_HEADER}\n`);
   const b = await writeFixture(`${VALID_HEADER}\n`);
 
-  const result = await runValidate([a, b]);
+  const result = await runCli(["validate", a, b]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("expected exactly one <file> argument");
+  expect(result.stderr).toContain("too many arguments");
   expect(result.stderr).toContain("Usage: trail validate");
 });
 
 test("missing file argument exits 1 with usage on stderr", async () => {
-  const result = await runValidate(["--json"]);
+  const result = await runCli(["validate", "--json"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("missing required argument: <file>");
+  expect(result.stderr).toContain("missing required argument");
   expect(result.stderr).toContain("Usage: trail validate");
 });
 
 test("unknown flag exits 1 with usage on stderr", async () => {
-  const result = await runValidate(["--nope"]);
+  const result = await runCli(["validate", "--nope"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("--nope");
@@ -61,7 +62,7 @@ test("unknown flag exits 1 with usage on stderr", async () => {
 test("invalid --profile value exits 1 with stderr listing valid options", async () => {
   const path = await writeFixture(`${VALID_HEADER}\n`);
 
-  const result = await runValidate([path, "--profile", "loose"]);
+  const result = await runValidate({ file: path, profile: "loose" });
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("strict");
@@ -69,7 +70,7 @@ test("invalid --profile value exits 1 with stderr listing valid options", async 
 });
 
 test("missing file exits 1 with a stderr message", async () => {
-  const result = await runValidate(["/definitely/not/a/real/path.jsonl"]);
+  const result = await runValidate({ file: "/definitely/not/a/real/path.jsonl" });
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
@@ -82,7 +83,7 @@ test("--profile reader-tolerant downgrades unknown payload fields to warnings (e
     '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${tolerantMessage}\n`);
 
-  const result = await runValidate([path, "--profile", "reader-tolerant"]);
+  const result = await runValidate({ file: path, profile: "reader-tolerant" });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("warning reader_tolerant_unknown_payload_field");
@@ -93,7 +94,7 @@ test("--json prints a JSON array of diagnostics", async () => {
     '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${badHeader}\n`);
 
-  const result = await runValidate([path, "--json"]);
+  const result = await runValidate({ file: path, json: true });
 
   expect(result.exitCode).toBe(1);
   const parsed = JSON.parse(result.stdout);
@@ -109,7 +110,7 @@ test("--json prints a JSON array of diagnostics", async () => {
 test("--json on valid file emits an empty JSON array with exit 0", async () => {
   const path = await writeFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
 
-  const result = await runValidate([path, "--json"]);
+  const result = await runValidate({ file: path, json: true });
 
   expect(result.exitCode).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual([]);
@@ -120,7 +121,7 @@ test("invalid trail exits 1 with line-aware text diagnostic", async () => {
     '{"type":"session","schema_version":"0.2.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${badHeader}\n`);
 
-  const result = await runValidate([path]);
+  const result = await runValidate({ file: path });
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toContain("error const line 1 /schema_version:");
@@ -131,11 +132,11 @@ test("same unknown payload field fails strict but passes reader-tolerant", async
     '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
 
-  const strict = await runValidate([path, "--profile", "strict"]);
+  const strict = await runValidate({ file: path, profile: "strict" });
   expect(strict.exitCode).toBe(1);
   expect(strict.stdout).toContain("error additionalProperties line 2 /payload/extra:");
 
-  const tolerant = await runValidate([path, "--profile", "reader-tolerant"]);
+  const tolerant = await runValidate({ file: path, profile: "reader-tolerant" });
   expect(tolerant.exitCode).toBe(0);
   expect(tolerant.stdout).toContain(
     "warning reader_tolerant_unknown_payload_field line 2 /payload/extra:",
@@ -147,7 +148,7 @@ test("patch-compatible schema_version fails strict but warns under reader-tolera
     '{"type":"session","schema_version":"0.1.1","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
   const path = await writeFixture(`${patchHeader}\n`);
 
-  const strict = await runValidate([path, "--profile", "strict", "--json"]);
+  const strict = await runValidate({ file: path, profile: "strict", json: true });
   expect(strict.exitCode).toBe(1);
   const strictDiagnostics = JSON.parse(strict.stdout);
   expect(strictDiagnostics).toContainEqual(
@@ -159,7 +160,7 @@ test("patch-compatible schema_version fails strict but warns under reader-tolera
     }),
   );
 
-  const tolerant = await runValidate([path, "--profile", "reader-tolerant", "--json"]);
+  const tolerant = await runValidate({ file: path, profile: "reader-tolerant", json: true });
   expect(tolerant.exitCode).toBe(0);
   expect(JSON.parse(tolerant.stdout)).toEqual([
     {
@@ -173,24 +174,26 @@ test("patch-compatible schema_version fails strict but warns under reader-tolera
 });
 
 test("committed valid fixture passes via trail validate", async () => {
-  const result = await runValidate([fixturePath("valid/minimal-with-content-hash.trail.jsonl")]);
+  const result = await runValidate({
+    file: fixturePath("valid/minimal-with-content-hash.trail.jsonl"),
+  });
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
 });
 
 test("committed invalid-schema fixture fails via trail validate with a /schema_version diagnostic", async () => {
-  const result = await runValidate([
-    fixturePath("invalid-schema/header-wrong-schema-version.trail.jsonl"),
-  ]);
+  const result = await runValidate({
+    file: fixturePath("invalid-schema/header-wrong-schema-version.trail.jsonl"),
+  });
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toContain("error const line 1 /schema_version:");
 });
 
 test("unmatched tool_call at EOF fixture surfaces warning via trail validate --json", async () => {
-  const result = await runValidate([
-    fixturePath("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
-    "--json",
-  ]);
+  const result = await runValidate({
+    file: fixturePath("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
+    json: true,
+  });
   expect(result.exitCode).toBe(0);
   const diagnostics = JSON.parse(result.stdout);
   expect(diagnostics).toContainEqual({
@@ -204,10 +207,10 @@ test("unmatched tool_call at EOF fixture surfaces warning via trail validate --j
 });
 
 test("unknown final_message_id fixture surfaces warning via trail validate --json", async () => {
-  const result = await runValidate([
-    fixturePath("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
-    "--json",
-  ]);
+  const result = await runValidate({
+    file: fixturePath("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
+    json: true,
+  });
   expect(result.exitCode).toBe(0);
   const diagnostics = JSON.parse(result.stdout);
   expect(diagnostics).toContainEqual({
@@ -225,7 +228,7 @@ test("--json under reader-tolerant serializes warnings with full diagnostic shap
     '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hi","extra":"x"}}';
   const path = await writeFixture(`${VALID_HEADER}\n${messageWithExtra}\n`);
 
-  const result = await runValidate([path, "--profile", "reader-tolerant", "--json"]);
+  const result = await runValidate({ file: path, profile: "reader-tolerant", json: true });
 
   expect(result.exitCode).toBe(0);
   expect(JSON.parse(result.stdout)).toEqual([

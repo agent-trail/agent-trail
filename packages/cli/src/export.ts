@@ -1,6 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { parseArgs } from "node:util";
+import { readFile } from "node:fs/promises";
 import {
   canonicalizeRecords,
   computeContentHash,
@@ -15,6 +13,7 @@ import {
   readIndex,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import { writeOutputFile } from "./write-output-file.ts";
 
 export type RunExportResult = {
   exitCode: number;
@@ -23,54 +22,21 @@ export type RunExportResult = {
 };
 
 export type RunExportOptions = {
+  id: string;
+  out?: string;
+  force?: boolean;
+};
+
+export type RunExportContext = {
   storeRoot?: string;
 };
 
-const USAGE = "Usage: trail export <id> [--out <path>] [--force]";
-
-type Values = {
-  out: string | undefined;
-  force: boolean;
-};
-
 export async function runExport(
-  argv: string[],
-  opts: RunExportOptions = {},
+  options: RunExportOptions,
+  context: RunExportContext = {},
 ): Promise<RunExportResult> {
-  if (argv.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
-  }
-
-  let values: Values;
-  let positionals: string[];
-  try {
-    const parsed = parseArgs({
-      args: argv,
-      options: {
-        out: { type: "string" },
-        force: { type: "boolean", default: false },
-      },
-      allowPositionals: true,
-    });
-    values = parsed.values as Values;
-    positionals = parsed.positionals;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `${message}\n${USAGE}\n` };
-  }
-
-  if (positionals.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: `missing required argument: <id>\n${USAGE}\n` };
-  }
-  if (positionals.length > 1) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `expected exactly one <id> argument, received ${positionals.length}\n${USAGE}\n`,
-    };
-  }
-  const id = positionals[0] as string;
-  const storeRoot = resolveStoreRoot(opts.storeRoot);
+  const id = options.id;
+  const storeRoot = resolveStoreRoot(context.storeRoot);
 
   if (!VALID_ID_RE.test(id)) {
     return {
@@ -157,27 +123,10 @@ export async function runExport(
     // today's behavior. The validator surfaces parse errors via `trail
     // validate` rather than the export verb.
   }
-  if (values.out !== undefined) {
-    const outPath = values.out;
-    const dirCheck = await checkNotDirectory(outPath);
-    if (dirCheck !== null) return dirCheck;
-    await mkdir(dirname(outPath), { recursive: true });
-    // Use exclusive create (`wx`) for the no-force path so the no-clobber
-    // guarantee is atomic. A stat-then-write preflight races against any
-    // other writer that creates the file between the two calls; `wx` lets
-    // the kernel reject existing paths in a single syscall.
-    try {
-      await writeFile(outPath, bytes, { flag: values.force ? "w" : "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        return {
-          exitCode: 1,
-          stdout: "",
-          stderr: `export: --out path exists: ${outPath}\nHint: pass --force to overwrite.\n`,
-        };
-      }
-      throw error;
-    }
+  if (options.out !== undefined) {
+    const outPath = options.out;
+    const writeResult = await writeOutputFile("export", outPath, bytes, options.force === true);
+    if (writeResult !== null) return writeResult;
     return { exitCode: 0, stdout: "", stderr: extractionStderr };
   }
 
@@ -186,24 +135,3 @@ export async function runExport(
 
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;
 const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
-
-// Surfaces a distinct "is a directory" diagnostic up front. The race against
-// dir → file replacement between this check and the subsequent write is not
-// security-sensitive: the atomic `wx` flag on the write still handles the
-// existence-race that the reviewer flagged.
-async function checkNotDirectory(outPath: string): Promise<RunExportResult | null> {
-  try {
-    const info = await stat(outPath);
-    if (info.isDirectory()) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `export: --out path is a directory: ${outPath}\n`,
-      };
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  return null;
-}
