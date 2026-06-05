@@ -46,19 +46,16 @@ function usageFrom(
   const cache = objectValue(tokens?.cache);
   const input = numberValue(tokens?.input) ?? numberValue(raw.tokens_input);
   const output = numberValue(tokens?.output) ?? numberValue(raw.tokens_output);
+  const reasoning = numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning);
+  const cacheRead = numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read);
+  const cacheWrite = numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write);
   if (input === undefined || output === undefined) return undefined;
   return {
     input_tokens: input,
     output_tokens: output,
-    ...((numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning) !== undefined)
-      ? { reasoning_tokens: numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning) }
-      : {}),
-    ...((numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read) !== undefined)
-      ? { cache_read_tokens: numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read) }
-      : {}),
-    ...((numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write) !== undefined)
-      ? { cache_creation_tokens: numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write) }
-      : {}),
+    ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
+    ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cache_creation_tokens: cacheWrite } : {}),
   };
 }
 
@@ -500,7 +497,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
 
   if (loaded.todos.length > 0) {
     const first = loaded.todos[0]!;
-    const items = loaded.todos.map((todo, index) => ({
+    const items = Array.from(loaded.todos.entries()).map(([index, todo]) => ({
       id: String(numberValue(todo.position) ?? index + 1),
       content: stringValue(todo.content) ?? "",
       status: todoStatus(todo.status),

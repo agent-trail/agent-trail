@@ -89,11 +89,13 @@ export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Ra
       return { tool: "shell_command", args: { command: `ls -- ${quoteShellArg(path)}` } };
     }
     case "webfetch": {
+      const url = stringValue(args.url)?.trim();
+      if (url === undefined || url.length === 0) {
+        return { tool: "other", args: { name: "webfetch", args } };
+      }
       return {
         tool: "web_fetch",
-        args: {
-          ...(stringValue(args.url) !== undefined ? { url: stringValue(args.url) } : { url: "" }),
-        },
+        args: { url },
       };
     }
     case "task": {
