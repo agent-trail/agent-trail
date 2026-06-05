@@ -19,24 +19,22 @@ export async function readJsonlHead(path: string, maxBytes: number): Promise<Jso
 
   if (bytesRead === 0) return { lines: [], truncated: false };
 
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, bytesRead));
+  const text = buffer.subarray(0, bytesRead).toString("utf-8");
   const truncated = bytesRead === maxBytes;
   if (!truncated) {
-    return {
-      lines: text.split(/\r?\n/).filter((line) => line.length > 0),
-      truncated,
-    };
+    return { lines: completeLines(text), truncated };
   }
 
   const lastNewline = text.lastIndexOf("\n");
   if (lastNewline < 0) return { lines: [], truncated };
-  return {
-    lines: text
-      .slice(0, lastNewline)
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-    truncated,
-  };
+  return { lines: completeLines(text.slice(0, lastNewline)), truncated };
+}
+
+function completeLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+    .filter((line) => line.length > 0);
 }
 
 export async function readJsonlHeadObjects(

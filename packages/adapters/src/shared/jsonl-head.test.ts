@@ -38,6 +38,19 @@ describe("readJsonlHead", () => {
       truncated: true,
     });
   });
+
+  test("strips CRLF carriage returns before and after truncation", async () => {
+    const path = fixture("crlf.jsonl", '{"a":1}\r\n{"b":2}\r\n{"c":3}\r\n');
+
+    await expect(readJsonlHead(path, 100)).resolves.toEqual({
+      lines: ['{"a":1}', '{"b":2}', '{"c":3}'],
+      truncated: false,
+    });
+    await expect(readJsonlHead(path, 19)).resolves.toEqual({
+      lines: ['{"a":1}', '{"b":2}'],
+      truncated: true,
+    });
+  });
 });
 
 describe("readJsonlHeadObjects", () => {
