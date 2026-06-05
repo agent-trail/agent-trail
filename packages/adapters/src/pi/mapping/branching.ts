@@ -35,8 +35,9 @@ export function branchVariantMappings(ctx: PiMappingContext): MappingDef<PiEnvel
     match: { type: "message", message: { role: "branchSummary" } },
     emit: (record) => {
       if (ctx.emittableTs(record) === null) return [];
-      const summary = stringValue(record.message?.summary);
-      const fromId = stringValue(record.message?.fromId);
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const summary = stringValue(msg.summary);
+      const fromId = stringValue(msg.fromId);
       if (summary === undefined || fromId === undefined) return [];
       return emitBranchSummary(
         ctx,

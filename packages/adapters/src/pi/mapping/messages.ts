@@ -21,7 +21,8 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
     match: { type: "message", message: { role: "user" } },
     emit: (record) => {
       if (emittableTs(record) === null) return [];
-      const content = record.message?.content;
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const content = msg.content;
       const text = typeof content === "string" ? content : textFromContent(content);
       return [
         {
@@ -38,11 +39,12 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
     match: { type: "message", message: { role: "assistant" } },
     emit: (record) => {
       if (emittableTs(record) === null) return [];
-      const aborted = record.message?.stopReason === "aborted";
-      const content = record.message?.content;
-      const usage = mapAgentMessageUsage(record.message?.usage);
-      const model = stringValue(record.message?.model);
-      const stopReason = stringValue(record.message?.stopReason);
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const aborted = msg.stopReason === "aborted";
+      const content = msg.content;
+      const usage = mapAgentMessageUsage(msg.usage);
+      const model = stringValue(msg.model);
+      const stopReason = stringValue(msg.stopReason);
 
       const out: TrailEntryDraft[] = [];
 
@@ -61,11 +63,11 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
       } else {
         const blocks = asBlocks(content);
         const emittable: Array<{ block: PiBlock; originalIndex: number }> = [];
-        blocks.forEach((block, originalIndex) => {
+        for (const [originalIndex, block] of blocks.entries()) {
           if (block.type === "text" || block.type === "toolCall" || block.type === "thinking") {
             emittable.push({ block, originalIndex });
           }
-        });
+        }
         let usageEmitted = false;
         emittable.forEach(({ block, originalIndex }, emittedIndex) => {
           const envelopeRef = emittedIndex > 0 ? "" : undefined;
@@ -137,15 +139,16 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
     match: { type: "message", message: { role: "toolResult" } },
     emit: (record) => {
       if (emittableTs(record) === null) return [];
-      const callId = idValue(record.message?.toolCallId);
-      const ok = record.message?.isError !== true;
-      const output = textFromContent(record.message?.content);
-      const details = isObject(record.message?.details) ? record.message.details : undefined;
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const callId = idValue(msg.toolCallId);
+      const ok = msg.isError !== true;
+      const output = textFromContent(msg.content);
+      const details = isObject(msg.details) ? msg.details : undefined;
       const toolMetadata = isObject(details?.toolMetadata) ? details.toolMetadata : undefined;
       const contextAtCompletion = isObject(toolMetadata?.contextAtCompletion)
         ? toolMetadata.contextAtCompletion
         : undefined;
-      const toolName = stringValue(record.message?.toolName);
+      const toolName = stringValue(msg.toolName);
       const piMeta: Record<string, unknown> = {};
       if (contextAtCompletion !== undefined)
         piMeta["dev.pi.context_at_completion"] = contextAtCompletion;
@@ -176,22 +179,22 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
     match: { type: "message", message: { role: "bashExecution" } },
     emit: (record) => {
       if (emittableTs(record) === null) return [];
-      const msg = record.message;
-      const command = stringValue(msg?.command);
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const command = stringValue(msg.command);
       if (command === undefined) return [];
       const callId = `x-pi/bash:${record.id}`;
-      const cancelled = msg?.cancelled === true;
-      const exitCode = typeof msg?.exitCode === "number" ? msg.exitCode : undefined;
+      const cancelled = msg.cancelled === true;
+      const exitCode = typeof msg.exitCode === "number" ? msg.exitCode : undefined;
       const ok = !cancelled && (exitCode === undefined || exitCode === 0);
-      const output = stringValue(msg?.output);
+      const output = stringValue(msg.output);
       const callMeta: Record<string, unknown> = { "dev.pi.user_shell": true };
-      if (msg?.excludeFromContext === true) callMeta["dev.pi.exclude_from_context"] = true;
+      if (msg.excludeFromContext === true) callMeta["dev.pi.exclude_from_context"] = true;
       const shellMeta: Record<string, unknown> = {};
       if (exitCode !== undefined) shellMeta.exit_code = exitCode;
       const resultMeta: Record<string, unknown> = {};
-      if (msg?.truncated === true) resultMeta["dev.pi.truncated"] = true;
+      if (msg.truncated === true) resultMeta["dev.pi.truncated"] = true;
       if (cancelled) resultMeta["dev.pi.cancelled"] = true;
-      const fullOutputPath = stringValue(msg?.fullOutputPath);
+      const fullOutputPath = stringValue(msg.fullOutputPath);
       if (fullOutputPath !== undefined) resultMeta["dev.pi.full_output_path"] = fullOutputPath;
       const call: TrailEntryDraft = {
         type: "tool_call",

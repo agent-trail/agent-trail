@@ -90,15 +90,15 @@ export function customVariantMappings(ctx: PiMappingContext): MappingDef<PiEnvel
     match: { type: "message", message: { role: "custom" } },
     emit: (record) => {
       if (ctx.emittableTs(record) === null) return [];
-      const msg = record.message;
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
       return emitCustom(
         ctx,
         record,
         {
-          customType: stringValue(msg?.customType),
-          content: msg?.content,
-          data: msg?.details,
-          display: msg?.display,
+          customType: stringValue(msg.customType),
+          content: msg.content,
+          data: msg.details,
+          display: msg.display,
           isMessage: true,
         },
         "custom_message_variant",

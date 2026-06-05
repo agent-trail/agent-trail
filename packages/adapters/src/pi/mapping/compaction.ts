@@ -38,9 +38,10 @@ export function compactionVariantMappings(ctx: PiMappingContext): MappingDef<PiE
     match: { type: "message", message: { role: "compactionSummary" } },
     emit: (record) => {
       if (ctx.emittableTs(record) === null) return [];
-      const summary = stringValue(record.message?.summary);
+      const msg = record.message as NonNullable<PiEnvelope["message"]>;
+      const summary = stringValue(msg.summary);
       if (summary === undefined) return [];
-      const tokensBefore = numericValue(record.message?.tokensBefore);
+      const tokensBefore = numericValue(msg.tokensBefore);
       return emitCompaction(
         ctx,
         record,
