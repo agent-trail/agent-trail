@@ -48,7 +48,7 @@ function configSourceDetails(value: unknown): Array<{
     const entry = source as Record<string, unknown>;
     const layer = entry.layer;
     const status = entry.status;
-    const path = entry.path;
+    const path = entry.path ?? null;
     if (typeof layer !== "string" || typeof status !== "string") {
       return [];
     }

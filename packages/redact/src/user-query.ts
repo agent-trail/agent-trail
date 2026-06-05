@@ -38,16 +38,23 @@ export function stripSecretUserQueryAnswers(
     if (secretIds === undefined) continue;
     const source = value.source as Record<string, unknown> | undefined;
     if (source !== undefined && source.raw !== undefined) {
-      source.raw = { redacted: "[STRIPPED secret user_query_response source.raw]" };
-      summary.counts.user_query_secret_source_raw =
-        (summary.counts.user_query_secret_source_raw ?? 0) + 1;
-      if (summary.samples.length < maxSamples) {
-        summary.samples.push({
-          patternId: "user_query_secret_source_raw",
-          location: `records[${index}].source.raw`,
-          before: "[secret source raw]",
-          after: "[STRIPPED]",
-        });
+      const alreadyStripped =
+        source.raw !== null &&
+        typeof source.raw === "object" &&
+        (source.raw as Record<string, unknown>).redacted ===
+          "[STRIPPED secret user_query_response source.raw]";
+      if (!alreadyStripped) {
+        source.raw = { redacted: "[STRIPPED secret user_query_response source.raw]" };
+        summary.counts.user_query_secret_source_raw =
+          (summary.counts.user_query_secret_source_raw ?? 0) + 1;
+        if (summary.samples.length < maxSamples) {
+          summary.samples.push({
+            patternId: "user_query_secret_source_raw",
+            location: `records[${index}].source.raw`,
+            before: "[secret source raw]",
+            after: "[STRIPPED]",
+          });
+        }
       }
     }
     const answers = payload.answers as Record<string, unknown>;
@@ -115,7 +122,7 @@ export function redactUserQueryQuestionIds(
         summary,
         maxSamples,
       );
-      const after = redacted !== before ? uniqueKey(redacted, used) : redacted;
+      const after = uniqueKey(redacted, used);
       questionObject.id = after;
       used.add(after);
       if (after !== before) idMap.set(before, after);

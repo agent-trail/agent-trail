@@ -216,6 +216,17 @@ test("doctor human output lists resolved config sources", async () => {
   );
 });
 
+test("doctor human output keeps config sources with omitted path", async () => {
+  const config = {
+    ...resolvedConfig(),
+    sources: [{ layer: "built_in", status: "default" }],
+  } as ResolvedConfig;
+  const result = await runCli(["doctor"], { adapters: [], config });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("  - built_in: default");
+});
+
 test("doctor --fix requires --yes", async () => {
   const result = await runCli(["doctor", "--fix"], { adapters: [], config: resolvedConfig() });
 
