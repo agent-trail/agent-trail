@@ -110,11 +110,9 @@ export function toolKindAndArgs(
         byPath.set(path, hunks);
       }
       if (byPath.size === 1) {
-        const [path, hunks] = [...byPath.entries()][0] as [
-          string,
-          Array<{ oldText: string; newText: string }>,
-        ];
-        return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+        for (const [path, hunks] of byPath.entries()) {
+          return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+        }
       }
       if (byPath.size > 1) {
         return {

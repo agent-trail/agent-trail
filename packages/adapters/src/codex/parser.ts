@@ -320,27 +320,34 @@ function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): 
 
 export function patchFiles(input: string): PatchFile[] {
   const matches = [...input.matchAll(PATCH_FILE_MARKER)];
-  return matches
-    .map((match, index) => {
-      const action = match[1] as "Update" | "Add" | "Delete";
-      const path = (match[2] as string).trim();
-      if (path.length === 0) return undefined;
-      const start = match.index + match[0].length;
-      const end = matches[index + 1]?.index ?? endPatchIndex(input, start);
-      const body = input.slice(start, end === -1 ? undefined : end).trim();
-      const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
-      const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
-      const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
-      const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
-      const diffBody = normalizePatchBody(action, body);
-      return {
-        path: newPath,
-        diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]
-          .filter((part) => part.length > 0)
-          .join("\n"),
-      };
-    })
-    .filter((file): file is PatchFile => file !== undefined);
+  const files: PatchFile[] = [];
+  for (const [index, match] of matches.entries()) {
+    const action = match[1];
+    const sourcePath = match[2];
+    if (
+      (action !== "Update" && action !== "Add" && action !== "Delete") ||
+      sourcePath === undefined
+    ) {
+      continue;
+    }
+    const path = sourcePath.trim();
+    if (path.length === 0) continue;
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? endPatchIndex(input, start);
+    const body = input.slice(start, end === -1 ? undefined : end).trim();
+    const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
+    const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
+    const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
+    const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
+    const diffBody = normalizePatchBody(action, body);
+    files.push({
+      path: newPath,
+      diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]
+        .filter((part) => part.length > 0)
+        .join("\n"),
+    });
+  }
+  return files;
 }
 
 export function patchSingleFilePath(input: string): string | undefined {
