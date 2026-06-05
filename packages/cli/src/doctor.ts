@@ -78,18 +78,24 @@ export async function runDoctor(
   }
 
   const configChecks: DoctorCheck[] = [];
-  if (opts.config !== undefined) {
-    configChecks.push(configSourcesCheck(opts.config));
-  } else if (opts.resolveTrailConfig !== undefined) {
+  const resolveTrailConfig = opts.resolveTrailConfig;
+  const shouldRefreshConfig =
+    parsedArgs.fix &&
+    parsedArgs.yes &&
+    scaffoldCheck?.status === "ok" &&
+    resolveTrailConfig !== undefined;
+  if (resolveTrailConfig !== undefined && (shouldRefreshConfig || opts.config === undefined)) {
     try {
       configChecks.push(
         configSourcesCheck(
-          await opts.resolveTrailConfig({ env: opts.env, projectRoot: opts.projectRoot }),
+          await resolveTrailConfig({ env: opts.env, projectRoot: opts.projectRoot }),
         ),
       );
     } catch (error) {
       configChecks.push(configSourcesErrorCheck(error));
     }
+  } else if (opts.config !== undefined) {
+    configChecks.push(configSourcesCheck(opts.config));
   }
 
   const checks = [

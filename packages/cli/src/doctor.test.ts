@@ -251,6 +251,37 @@ test("doctor --fix --yes creates project config scaffold idempotently", async ()
   }
 });
 
+test("doctor --fix --yes refreshes config sources after scaffolding", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-refresh-"));
+  try {
+    const committed = join(projectRoot, ".agent-trail", "config.json");
+    const local = join(projectRoot, ".agent-trail", "config.local.json");
+    const staleConfig = resolvedConfig();
+    const result = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      config: staleConfig,
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      checks: Array<{ id: string; details?: Record<string, unknown> }>;
+    };
+    const sources = parsed.checks.find((check) => check.id === "config.sources")?.details
+      ?.sources as Array<{ layer: string; path: string | null; status: string }>;
+    expect(sources).toContainEqual({
+      layer: "project_committed",
+      path: committed,
+      status: "loaded",
+    });
+    expect(sources).toContainEqual({ layer: "project_local", path: local, status: "loaded" });
+    expect(sources).not.toEqual(staleConfig.sources);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("doctor --fix --yes reports scaffold failures without throwing a stack trace", async () => {
   const result = await runDoctor(["--fix", "--yes", "--json"], {
     adapters: [],
