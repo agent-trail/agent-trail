@@ -1,6 +1,8 @@
 import {
   type DetectOptions,
+  DISCOVERY_CONCURRENCY_LIMIT,
   defaultTrailAdapters,
+  mapConcurrent,
   type SessionRef,
   type TrailAdapter,
 } from "@agent-trail/adapters";
@@ -50,7 +52,7 @@ function parseLimit(limit: string | undefined): { limit?: number; error?: string
 
 function includesQuery(value: string, query: string, caseSensitive: boolean): boolean {
   if (caseSensitive) return value.includes(query);
-  return value.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+  return value.toLowerCase().includes(query.toLowerCase());
 }
 
 function rowMetadata(row: Row): string {
@@ -119,7 +121,7 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     refs = refs.filter((r) => r.cwd === undefined || r.cwd === requestedCwd);
   }
 
-  let rows: Row[] = refs.map((r) => ({
+  const rows: Row[] = refs.map((r) => ({
     id: r.id,
     adapter: r.adapter,
     cwd: r.cwd ?? null,
@@ -127,16 +129,15 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     path: r.path ?? null,
   }));
 
-  if (options.search !== undefined) {
-    const matches = await Promise.all(
-      rows.map(async (row) =>
-        matchesSearch(row, options.search as string, options.caseSensitive === true),
-      ),
+  const timeFiltered = rows.filter((r) => boundedBy(r.modified_at, sinceMs, untilMs));
+  let filtered = timeFiltered;
+  const search = options.search;
+  if (search !== undefined) {
+    const matches = await mapConcurrent(timeFiltered, DISCOVERY_CONCURRENCY_LIMIT, async (row) =>
+      matchesSearch(row, search, options.caseSensitive === true),
     );
-    rows = rows.filter((_row, index) => matches[index] === true);
+    filtered = timeFiltered.filter((_row, index) => matches[index] === true);
   }
-
-  const filtered = rows.filter((r) => boundedBy(r.modified_at, sinceMs, untilMs));
 
   filtered.sort((a, b) => {
     const aTs = a.modified_at;

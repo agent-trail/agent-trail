@@ -11,17 +11,25 @@ export async function mapConcurrent<T, U>(
   }
 
   const results = new Array<U>(values.length);
-  let nextIndex = 0;
+  const entries = values.entries();
+  let firstError: unknown;
   const workerCount = Math.min(limit, values.length);
 
   async function worker(): Promise<void> {
-    while (nextIndex < values.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(values[index] as T, index);
+    while (firstError === undefined) {
+      const next = entries.next();
+      if (next.done === true) break;
+      const [index, value] = next.value;
+      try {
+        results[index] = await mapper(value, index);
+      } catch (error) {
+        if (firstError === undefined) firstError = error;
+        break;
+      }
     }
   }
 
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (firstError !== undefined) throw firstError;
   return results;
 }
