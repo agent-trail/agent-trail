@@ -4,6 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { JsonlRecord } from "@agent-trail/core";
 import { canonicalizeRecords, stampTrail } from "@agent-trail/core";
 import { IndexVersionError, rebuildIndex, registerTrail } from "../src/index.ts";
 
@@ -131,6 +132,22 @@ test("rebuildIndex preserves registerTrail multi-session session + trail row pol
   }
 });
 
+test("rebuildIndex skips objects that fail writer-strict graph validation even when envelope hash matches", async () => {
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  await mkdir(objectsDir, { recursive: true });
+
+  const fixture = await invalidSessionHashEnvelopeFixture();
+  await writeFile(join(objectsDir, `${fixture.envelopeHash}.trail.jsonl`), fixture.bytes, "utf8");
+
+  const summary = await rebuildIndex({ storeRoot });
+  expect(summary.entries).toBe(0);
+
+  const indexValue = JSON.parse(
+    await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+  ) as { entries: Record<string, unknown> };
+  expect(indexValue.entries).toEqual({});
+});
+
 async function writeMultiSessionFixture(dir: string): Promise<{
   path: string;
   envelopeHash: string;
@@ -201,4 +218,54 @@ async function writeMultiSessionFixture(dir: string): Promise<{
     envelopeHash: stamped.envelopeHash as string,
     sessionHashes: stamped.sessionHashes,
   };
+}
+
+async function invalidSessionHashEnvelopeFixture(): Promise<{
+  bytes: string;
+  envelopeHash: string;
+}> {
+  const records: JsonlRecord[] = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000B001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000B01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        session_uid: "01HSESSXB0000000000000B001",
+        content_hash: "0".repeat(64),
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTB0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      },
+    },
+  ];
+  const { computeTrailEnvelopeContentHash } = await import("@agent-trail/core");
+  const envelopeHash = computeTrailEnvelopeContentHash(records) as string;
+  const envelopeRecord = records[0] as JsonlRecord;
+  const finalized = [
+    { ...envelopeRecord, value: { ...envelopeRecord.value, content_hash: envelopeHash } },
+    ...records.slice(1),
+  ];
+  return { bytes: canonicalizeRecords(finalized), envelopeHash };
 }

@@ -1,6 +1,11 @@
-import type { JsonlRecord } from "@agent-trail/core";
+import type { Diagnostic, JsonlRecord } from "@agent-trail/core";
 import {
+  diagnosticFromJsonlParseError,
+  JsonlParseError,
+  parseJsonlString,
   splitSessionGroups,
+  validateTrailGraph,
+  validateWriterStrictSchemaJsonlString,
   verifyAllSessionContentHashes,
   verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
@@ -16,6 +21,42 @@ export type FinalizedObjectIndexPolicy = {
   rows: FinalizedObjectIndexRow[];
   primaryHash: string | undefined;
 };
+
+export type WriterStrictObjectIndexPolicy =
+  | {
+      status: "valid";
+      records: JsonlRecord[];
+      policy: FinalizedObjectIndexPolicy;
+    }
+  | {
+      status: "invalid";
+      diagnostics: Diagnostic[];
+    };
+
+export async function writerStrictObjectIndexPolicy(
+  raw: string,
+): Promise<WriterStrictObjectIndexPolicy> {
+  let records: JsonlRecord[];
+  try {
+    records = await parseJsonlString(raw);
+  } catch (error) {
+    if (error instanceof JsonlParseError) {
+      return { status: "invalid", diagnostics: [diagnosticFromJsonlParseError(error)] };
+    }
+    throw error;
+  }
+
+  const schemaDiagnostics = await validateWriterStrictSchemaJsonlString(raw);
+  const graphDiagnostics = validateTrailGraph(records);
+  const diagnostics = [...schemaDiagnostics, ...graphDiagnostics].filter(
+    (diagnostic) => diagnostic.severity === "error",
+  );
+  if (diagnostics.length > 0) {
+    return { status: "invalid", diagnostics };
+  }
+
+  return { status: "valid", records, policy: finalizedObjectIndexPolicy(records) };
+}
 
 export function finalizedObjectIndexPolicy(records: JsonlRecord[]): FinalizedObjectIndexPolicy {
   const split = splitSessionGroups(records);

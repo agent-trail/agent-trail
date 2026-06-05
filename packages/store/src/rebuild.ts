@@ -1,10 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseJsonlString } from "@agent-trail/core";
 import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
 import {
   type FinalizedObjectIndexRow,
   finalizedObjectIndexRowForHash,
+  writerStrictObjectIndexPolicy,
 } from "./object-index-policy.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
 
@@ -48,8 +48,11 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     let row: FinalizedObjectIndexRow | undefined;
     try {
       const raw = await readFile(path, "utf8");
-      const records = await parseJsonlString(raw);
-      row = finalizedObjectIndexRowForHash(records, filenameHash);
+      const eligible = await writerStrictObjectIndexPolicy(raw);
+      row =
+        eligible.status === "valid"
+          ? finalizedObjectIndexRowForHash(eligible.records, filenameHash)
+          : undefined;
     } catch {
       row = undefined;
     }

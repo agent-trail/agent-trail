@@ -1,17 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
-import type { Diagnostic, JsonlRecord } from "@agent-trail/core";
-import {
-  canonicalizeRecords,
-  diagnosticFromJsonlParseError,
-  JsonlParseError,
-  parseJsonlString,
-  validateTrailGraph,
-  validateWriterStrictSchemaJsonlString,
-} from "@agent-trail/core";
+import type { Diagnostic } from "@agent-trail/core";
+import { canonicalizeRecords } from "@agent-trail/core";
 import { type IndexEntry, upsertIndexEntry } from "./index-file.ts";
-import { finalizedObjectIndexPolicy } from "./object-index-policy.ts";
+import { writerStrictObjectIndexPolicy } from "./object-index-policy.ts";
 import { objectPath as computeObjectPath, resolveStoreRoot } from "./paths.ts";
 
 export type RegisterStatus = "finalized" | "already_present" | "skipped_pending" | "invalid";
@@ -42,38 +35,17 @@ export async function registerTrail(
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
   const raw = await readFile(filePath, "utf8");
-  let records: JsonlRecord[];
-  try {
-    records = await parseJsonlString(raw);
-  } catch (error) {
-    if (error instanceof JsonlParseError) {
-      return {
-        status: "invalid",
-        contentHash: null,
-        objectPath: null,
-        diagnostics: [diagnosticFromJsonlParseError(error)],
-      };
-    }
-    throw error;
-  }
-
-  const schemaDiagnostics = await validateWriterStrictSchemaJsonlString(raw);
-  const graphDiagnostics = validateTrailGraph(records);
-  const allDiagnostics = [...schemaDiagnostics, ...graphDiagnostics];
-  // Only error-severity diagnostics block registration. Warnings
-  // (e.g. `unmatched_tool_call_at_eof`) are informational and a trail
-  // carrying them is still eligible to be stored as a finalized object.
-  const errorDiagnostics = allDiagnostics.filter((d) => d.severity === "error");
-  if (errorDiagnostics.length > 0) {
+  const eligible = await writerStrictObjectIndexPolicy(raw);
+  if (eligible.status === "invalid") {
     return {
       status: "invalid",
       contentHash: null,
       objectPath: null,
-      diagnostics: errorDiagnostics,
+      diagnostics: eligible.diagnostics,
     };
   }
 
-  const indexPolicy = finalizedObjectIndexPolicy(records);
+  const { records, policy: indexPolicy } = eligible;
   if (indexPolicy.rows.length === 0) {
     return {
       status: "skipped_pending",
