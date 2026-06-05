@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping, mapAgentMessageUsage } from "@agent-trail/adapter-kit";
-import type { Attachment, Entry, ToolKind } from "@agent-trail/types";
-import { decodeCappedBase64, INLINE_MEDIA_MAX_DECODED_BYTES, sha256Ref } from "../inline-media.ts";
+import type { ToolKind } from "@agent-trail/types";
 import {
   isNonEmptyString,
   isTaskPlanStatus,
@@ -10,16 +9,20 @@ import {
   type TaskPlanItem,
   taskPlanItemId,
 } from "../task-plan.ts";
-import { sourceFor } from "./entry-metadata.ts";
+import { systemEventData, systemEventKind, systemEventText } from "./envelope-mappers.ts";
+import { capabilityMappings } from "./mapping/capabilities.ts";
 import {
-  hookEventToKind,
-  systemEventData,
-  systemEventKind,
-  systemEventText,
-} from "./envelope-mappers.ts";
+  attributionMeta,
+  gate,
+  hookFailureDraft,
+  imageAttachments,
+  meta,
+  metadataSource,
+  type Raw,
+  src,
+} from "./mapping/shared.ts";
 import {
   asBlocks,
-  type CcBlock,
   type CcEnvelope,
   isContinuationPreamble,
   isInterruptMarker,
@@ -31,121 +34,14 @@ import {
 } from "./source.ts";
 import { toolKindAndArgs } from "./tools.ts";
 
-type Raw = Record<string, unknown>;
 type UserQueryOption = { label: string; description?: string };
 
-/**
- * Transient hint stashed on `meta`: source uuid (`sid`, for multi-block
- * envelope_ref backfill + model grouping) and the source assistant `model` (for
- * the synthesized model_change rule). Stripped by ccEnvelopeRefBackfill before
- * output — v1 Claude Code entries carry no entry-level meta.
- */
-export const HINT = "x-claudecode/_h";
-export const INCLUDE_SIDECHAIN = Symbol.for("agent-trail.claude-code.include-sidechain");
-export const INLINE_ATTACHMENT_MAX_DECODED_BYTES = INLINE_MEDIA_MAX_DECODED_BYTES;
-const HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS = 16 * 1024;
-
-export interface CcHint {
-  sid?: string;
-  model?: string;
-  gitBranch?: string;
-}
-
-function meta(
-  record: CcEnvelope,
-  opts?: { model?: string; callId?: string; extra?: Record<string, unknown> },
-): Record<string, unknown> {
-  const hint: CcHint = {
-    ...(typeof record.uuid === "string" ? { sid: record.uuid } : {}),
-    ...(opts?.model !== undefined ? { model: opts.model } : {}),
-    ...(typeof record.gitBranch === "string" && record.gitBranch.length > 0
-      ? { gitBranch: record.gitBranch }
-      : {}),
-  };
-  return {
-    // Real meta keys survive hint stripping (see ccEnvelopeRefBackfill); the
-    // HINT is transient.
-    ...(opts?.extra ?? {}),
-    ...(opts?.callId !== undefined ? { linker: { call_id: opts.callId } } : {}),
-    [HINT]: hint,
-  };
-}
-
-// Subagent attribution carried on a parent-side user record: which subagent
-// produced this tool_result. Sidechain inner records are dropped, so this is
-// the only trace a subagent ran. Namespaced under entry.meta. See issue #126.
-function attributionMeta(record: CcEnvelope): Record<string, unknown> | undefined {
-  const tur = isObject(record.toolUseResult) ? record.toolUseResult : undefined;
-  const out: Record<string, unknown> = {};
-  const agentId = stringValue(record.agentId) ?? stringValue(tur?.agentId);
-  if (agentId !== undefined) out["dev.claudecode.agent_id"] = agentId;
-  const agentType = stringValue(tur?.agentType);
-  if (agentType !== undefined) out["dev.claudecode.agent_type"] = agentType;
-  const sourceUuid = stringValue(record.sourceToolAssistantUUID);
-  if (sourceUuid !== undefined) out["dev.claudecode.source_tool_assistant_uuid"] = sourceUuid;
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-// Pasted images/documents arrive as inline content blocks
-// `{ type:"image"|"document", source:{ type:"base64", media_type, data } }`.
-// Hash the decoded bytes to a content-addressed sha256 ref (v0.1 has no inline
-// data: URIs); the blob store resolves it at share time. Mirrors the Codex
-// adapter's image rollup (#160). See issue #126.
-function imageAttachments(content: unknown): Attachment[] {
-  const out: Attachment[] = [];
-  for (const block of asBlocks(content)) {
-    if (block.type !== "image" && block.type !== "document") continue;
-    const source = isObject(block.source) ? block.source : undefined;
-    const data = stringValue(source?.data);
-    if (stringValue(source?.type) !== "base64" || data === undefined) continue;
-    const mediaType = stringValue(source?.media_type) ?? stringValue(source?.mediaType);
-    const att: Attachment = {
-      kind: block.type === "image" ? "image" : "file",
-    };
-    if (mediaType !== undefined) att.media_type = mediaType;
-    const decoded = decodeCappedBase64(data);
-    if (decoded.bytes !== undefined) att.uri = sha256Ref(decoded.bytes);
-    out.push(att);
-  }
-  return out;
-}
-
-type HookAdditionalContextContent = {
-  text?: string;
-  content?: unknown;
-  attachments?: Attachment[];
-};
-
-function hookAdditionalContextContent(content: unknown): HookAdditionalContextContent {
-  if (typeof content === "string") {
-    return { text: truncateHookContextText(content), content: truncateHookContextText(content) };
-  }
-  const blocks = asBlocks(content);
-  if (blocks.length === 0) return {};
-  let remaining = HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS;
-  const textBlocks: Array<{ type: "text"; text: string }> = [];
-  for (const block of blocks) {
-    if (block.type !== "text" || typeof block.text !== "string" || remaining <= 0) continue;
-    const separatorLength = textBlocks.length > 0 ? 1 : 0;
-    const budget = remaining - separatorLength;
-    if (budget <= 0) break;
-    const text = block.text.slice(0, budget);
-    remaining -= separatorLength + text.length;
-    textBlocks.push({ type: "text", text });
-  }
-  const text = textBlocks.map((block) => block.text).join("\n");
-  const attachments = imageAttachments(content);
-  return {
-    ...(text.length > 0 ? { text, content: textBlocks } : {}),
-    ...(attachments.length > 0 ? { attachments } : {}),
-  };
-}
-
-function truncateHookContextText(text: string): string {
-  return text.length > HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS
-    ? text.slice(0, HOOK_ADDITIONAL_CONTEXT_TEXT_MAX_CHARS)
-    : text;
-}
+export {
+  type CcHint,
+  HINT,
+  INCLUDE_SIDECHAIN,
+  INLINE_ATTACHMENT_MAX_DECODED_BYTES,
+} from "./mapping/shared.ts";
 
 function questionId(question: string, occurrence: number): string {
   const base = `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
@@ -216,76 +112,6 @@ function userQueryPayload(input: unknown): { questions: Record<string, unknown>[
   }
   const question = userQueryQuestion(args, 0);
   return question !== undefined ? { questions: [question] } : undefined;
-}
-
-function src(
-  record: CcEnvelope,
-  originalType: string,
-  block?: CcBlock,
-  blockIndex?: number,
-  options?: { synthesized?: boolean; envelopeRef?: string },
-): Entry["source"] {
-  return sourceFor(record, originalType, block, blockIndex, options);
-}
-
-// Mirrors v1 buildEntries gate: drop sidechain/meta envelopes and records
-// without a timestamp; require a uuid except where v1 synthesizes one.
-function gate(record: CcEnvelope, allowNoUuid = false): boolean {
-  const includeSidechain =
-    (record as { [INCLUDE_SIDECHAIN]?: boolean })[INCLUDE_SIDECHAIN] === true;
-  if ((record.isSidechain === true && !includeSidechain) || record.isMeta === true) return false;
-  if (typeof record.timestamp !== "string") return false;
-  if (!allowNoUuid && typeof record.uuid !== "string") return false;
-  return true;
-}
-
-function metadataSource(record: CcEnvelope, originalType: string): Entry["source"] {
-  return src(
-    record,
-    originalType,
-    undefined,
-    undefined,
-    typeof record.uuid !== "string" ? { synthesized: true } : undefined,
-  );
-}
-
-function hookFailureData(
-  raw: Record<string, unknown>,
-  fallbackBlocking?: boolean,
-): { text: string; data: Record<string, unknown> } {
-  const hookName = stringValue(raw.hookName) ?? stringValue(raw.hook_name) ?? stringValue(raw.name);
-  const details =
-    stringValue(raw.message) ??
-    stringValue(raw.error) ??
-    stringValue(raw.details) ??
-    stringValue(raw.stderr);
-  const code =
-    stringValue(raw.code) ?? (typeof raw.code === "number" ? String(raw.code) : undefined);
-  const blocking = booleanValue(raw.blocking) ?? fallbackBlocking;
-  const data: Record<string, unknown> = { severity: "error" };
-  if (blocking !== undefined) data.blocking = blocking;
-  if (hookName !== undefined) data.hook_name = hookName;
-  if (code !== undefined) data.code = code;
-  if (details !== undefined) data.details = details;
-  return {
-    text: hookName !== undefined ? `Hook failed: ${hookName}` : "Hook failed",
-    data,
-  };
-}
-
-function hookFailureDraft(
-  record: CcEnvelope,
-  originalType: string,
-  raw: Record<string, unknown>,
-  options?: { fallbackBlocking?: boolean; sourceBlock?: CcBlock; sourceBlockIndex?: number },
-): TrailEntryDraft {
-  const { text, data } = hookFailureData(raw, options?.fallbackBlocking);
-  return {
-    type: "system_event",
-    payload: { kind: "hook_failed", text, data },
-    source: src(record, originalType, options?.sourceBlock, options?.sourceBlockIndex),
-    meta: meta(record),
-  };
 }
 
 function taskPlanItemsFromTodoWrite(input: unknown): TaskPlanItem[] | undefined {
@@ -745,364 +571,6 @@ const permissionMode = defineMapping<Raw>({
   },
 });
 
-type CapabilityItem = { name: string; metadata?: Record<string, unknown> };
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-function permissionDecision(value: unknown): "allow" | "deny" | undefined {
-  const normalized = stringValue(value)?.toLowerCase();
-  if (normalized === "allow" || normalized === "allowed" || normalized === "approved") {
-    return "allow";
-  }
-  if (
-    normalized === "deny" ||
-    normalized === "denied" ||
-    normalized === "reject" ||
-    normalized === "rejected"
-  ) {
-    return "deny";
-  }
-  return undefined;
-}
-
-function skillMetadata(value: Record<string, unknown>): Record<string, unknown> | undefined {
-  const description = stringValue(value.description);
-  return description === undefined ? undefined : { description };
-}
-
-function skillItems(attachment: Record<string, unknown>): CapabilityItem[] {
-  const skills = Array.isArray(attachment.skills) ? attachment.skills : undefined;
-  if (skills !== undefined) {
-    return skills.flatMap((skill) => {
-      if (typeof skill === "string") return [{ name: skill }];
-      if (!isObject(skill)) return [];
-      const name = stringValue(skill.name);
-      if (name === undefined) return [];
-      const metadata = skillMetadata(skill);
-      return [{ name, ...(metadata !== undefined ? { metadata } : {}) }];
-    });
-  }
-
-  return stringArray(attachment.skillNames ?? attachment.names).map((name) => ({ name }));
-}
-
-function listingText(attachment: Record<string, unknown>): string | undefined {
-  const content = attachment.content ?? attachment.text;
-  if (content === undefined) return undefined;
-  if (typeof content === "string") return content;
-  return jsonString(content);
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function hookSuccessText(hookEvent: string | undefined, hookName: string | undefined): string {
-  const event = hookEvent ?? "hook";
-  return hookName?.trim() ? `Hook success: ${event} (${hookName})` : `Hook success: ${event}`;
-}
-
-const OUTPUT_EXCERPT_MAX_CHARS = 2048;
-function outputExcerpt(text: string | undefined): string | undefined {
-  if (text === undefined) return undefined;
-  if (text.length <= OUTPUT_EXCERPT_MAX_CHARS) return text;
-  return `${text.slice(0, OUTPUT_EXCERPT_MAX_CHARS)}…`;
-}
-
-function hookSuccessSourceRecord(
-  record: CcEnvelope,
-  attachment: Record<string, unknown>,
-  isLegacyAttachment: boolean,
-): CcEnvelope {
-  const sanitizedAttachment = hookSuccessSourceAttachment(attachment);
-  if (isLegacyAttachment) return { ...record, attachment: sanitizedAttachment };
-  return { ...record, ...sanitizedAttachment };
-}
-
-function hookSuccessSourceAttachment(attachment: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...attachment };
-  summarizeHookOutput(out, "stdout");
-  summarizeHookOutput(out, "stderr");
-  return out;
-}
-
-function summarizeHookOutput(out: Record<string, unknown>, key: "stdout" | "stderr"): void {
-  const value = stringValue(out[key]);
-  if (value === undefined) return;
-  delete out[key];
-  out[`${key}_elided`] = true;
-  out[`${key}_chars`] = value.length;
-}
-
-function hookToolCallId(attachment: Record<string, unknown>): string | undefined {
-  const rawToolCallId =
-    stringValue(attachment.tool_call_id) ??
-    stringValue(attachment.toolCallId) ??
-    stringValue(attachment.tool_use_id) ??
-    stringValue(attachment.toolUseID);
-  return isNonEmptyString(rawToolCallId) ? rawToolCallId.trim() : undefined;
-}
-
-function hookSuccessData(attachment: Record<string, unknown>): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
-  const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
-  if (hookEvent !== undefined) data.hook_event = hookEvent;
-  const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
-  if (hookName !== undefined) data.hook_name = hookName;
-  const toolCallId = hookToolCallId(attachment);
-  if (toolCallId !== undefined) data.tool_call_id = toolCallId;
-  const exitCode = numberValue(attachment.exit_code) ?? numberValue(attachment.exitCode);
-  if (exitCode !== undefined) data.exit_code = Math.trunc(exitCode);
-  const durationMs = numberValue(attachment.duration_ms) ?? numberValue(attachment.durationMs);
-  if (durationMs !== undefined) data.duration_ms = Math.trunc(durationMs);
-  const command = stringValue(attachment.command);
-  if (command !== undefined) data.command = command;
-  const stdout = outputExcerpt(stringValue(attachment.stdout));
-  if (stdout !== undefined) data.stdout_excerpt = stdout;
-  const stderr = outputExcerpt(stringValue(attachment.stderr));
-  if (stderr !== undefined) data.stderr_excerpt = stderr;
-  return data;
-}
-
-function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
-  if (!gate(record)) return [];
-  const isLegacyAttachment = record.type === "attachment";
-  const attachment = isLegacyAttachment && isObject(record.attachment) ? record.attachment : record;
-  const subtype = isLegacyAttachment ? stringValue(attachment.type) : stringValue(record.type);
-  if (subtype === undefined) return [];
-  const originalType = isLegacyAttachment ? `attachment.${subtype}` : subtype;
-
-  if (subtype === "hook_blocking_error") {
-    const toolCallId = hookToolCallId(attachment);
-    if (toolCallId !== undefined) {
-      const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
-      return [
-        {
-          type: "tool_call_aborted",
-          payload: {
-            scope: "tool_call",
-            reason: "hook_blocked",
-            ...(hookName !== undefined ? { blocked_by: hookName } : {}),
-          },
-          source: src(record, originalType),
-          meta: meta(record, { callId: toolCallId }),
-        },
-      ];
-    }
-    return [
-      hookFailureDraft(record, originalType, attachment, {
-        fallbackBlocking: true,
-      }),
-    ];
-  }
-
-  if (subtype === "hook_non_blocking_error") {
-    return [
-      hookFailureDraft(record, originalType, attachment, {
-        fallbackBlocking: false,
-      }),
-    ];
-  }
-
-  if (subtype === "deferred_tools_delta") {
-    const drafts: TrailEntryDraft[] = [];
-    const added = stringArray(attachment.addedNames ?? attachment.added_names).map((name) => ({
-      name,
-    }));
-    if (added.length > 0) {
-      drafts.push({
-        type: "capability_change",
-        payload: { scope: "tool", reason: "registered", added },
-        source: src(record, originalType),
-        meta: meta(record),
-      });
-    }
-    const removed = stringArray(attachment.removedNames ?? attachment.removed_names).map(
-      (name) => ({ name }),
-    );
-    if (removed.length > 0) {
-      drafts.push({
-        type: "capability_change",
-        payload: { scope: "tool", reason: "deregistered", removed },
-        source: src(record, originalType),
-        meta: meta(record),
-      });
-    }
-    return drafts;
-  }
-
-  if (subtype === "skill_listing") {
-    const snapshot = skillItems(attachment);
-    if (snapshot.length > 0) {
-      return [
-        {
-          type: "capability_change",
-          payload: { scope: "skill", reason: "loaded", snapshot },
-          source: src(record, originalType),
-          meta: meta(record),
-        },
-      ];
-    }
-    const text = listingText(attachment);
-    if (text === undefined || text.length === 0) return [];
-    return [
-      {
-        type: "capability_change",
-        payload: {
-          scope: "skill",
-          reason: "loaded",
-          changed: [{ name: "skill_listing", field: "listing", to: text }],
-        },
-        source: src(record, originalType),
-        meta: meta(record),
-      },
-    ];
-  }
-
-  if (subtype === "mcp_instructions_delta") {
-    const name =
-      stringValue(attachment.serverName) ??
-      stringValue(attachment.server) ??
-      stringValue(attachment.name) ??
-      "mcp_instructions";
-    const content = listingText(attachment);
-    return [
-      {
-        type: "capability_change",
-        payload: {
-          scope: "mcp_server",
-          reason: "instructions_updated",
-          changed: [
-            {
-              name,
-              field: "instructions",
-              ...(content !== undefined && content.length > 0 ? { to: content } : {}),
-            },
-          ],
-        },
-        source: src(record, originalType),
-        meta: meta(record),
-      },
-    ];
-  }
-
-  if (subtype === "hook_success") {
-    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
-    const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
-    const toolCallId = hookToolCallId(attachment);
-    return [
-      {
-        type: "system_event",
-        payload: {
-          kind: hookEventToKind(hookEvent),
-          text: hookSuccessText(hookEvent, hookName),
-          data: hookSuccessData(attachment),
-        },
-        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(hookSuccessSourceRecord(record, attachment, isLegacyAttachment), originalType),
-        meta: meta(record, { callId: toolCallId }),
-      },
-    ];
-  }
-
-  if (subtype === "hook_permission_decision") {
-    const decision = permissionDecision(attachment.decision);
-    if (decision === undefined) return [];
-    const data: Record<string, unknown> = { decision };
-    const toolCallId = hookToolCallId(attachment);
-    if (toolCallId !== undefined) data.tool_call_id = toolCallId;
-    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
-    if (hookEvent !== undefined) data.hook_event = hookEvent;
-    const capability = stringValue(attachment.capability);
-    if (capability !== undefined) data.capability = capability;
-    return [
-      {
-        type: "system_event",
-        payload: {
-          kind: "permission_decision",
-          data,
-        },
-        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(record, originalType),
-        meta: meta(record, { callId: toolCallId }),
-      },
-    ];
-  }
-
-  if (subtype === "hook_additional_context") {
-    // Text a hook injects into the user turn — input the model actually
-    // received. Represented as a system_event (not user_message) so it is not
-    // misattributed as user-typed. See issue #126.
-    const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
-    const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
-    const toolCallId = hookToolCallId(attachment);
-    const content = attachment.content;
-    const data: Record<string, unknown> = {};
-    if (hookEvent !== undefined) data.hook_event = hookEvent;
-    if (hookName !== undefined) data.hook_name = hookName;
-    if (toolCallId !== undefined) data.tool_call_id = toolCallId;
-    const safeContent = hookAdditionalContextContent(content);
-    if (safeContent.content !== undefined) data.content = safeContent.content;
-    if (safeContent.attachments !== undefined) data.attachments = safeContent.attachments;
-    return [
-      {
-        type: "system_event",
-        payload: {
-          kind: "x-claudecode/hook_additional_context",
-          ...(safeContent.text !== undefined && safeContent.text.length > 0
-            ? { text: safeContent.text }
-            : {}),
-          ...(Object.keys(data).length > 0 ? { data } : {}),
-        },
-        ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(record, originalType),
-        meta: meta(record, { callId: toolCallId }),
-      },
-    ];
-  }
-
-  if (subtype === "command_permissions") {
-    const data: Record<string, unknown> = {};
-    const rawAllowedTools = attachment.allowed_tools ?? attachment.allowedTools;
-    if (Array.isArray(rawAllowedTools)) data.allowed_tools = stringArray(rawAllowedTools);
-    const model = stringValue(attachment.model);
-    if (model !== undefined) data.model = model;
-    if (Object.keys(data).length === 0) return [];
-    return [
-      {
-        type: "system_event",
-        payload: {
-          kind: "permission_request",
-          data,
-        },
-        source: src(record, originalType),
-        meta: meta(record),
-      },
-    ];
-  }
-
-  return [];
-}
-
-const capabilityAttachment = defineMapping<Raw>({
-  match: { type: "attachment" },
-  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
-});
-
-const topLevelCommandPermissions = defineMapping<Raw>({
-  match: { type: "command_permissions" },
-  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
-});
-
-const topLevelHookPermissionDecision = defineMapping<Raw>({
-  match: { type: "hook_permission_decision" },
-  emit: (raw) => emitCapabilityAttachment(raw as CcEnvelope),
-});
-
 export const claudeCodeMappings: MappingDef<Raw>[] = [
   userMessage,
   assistantMessage,
@@ -1110,9 +578,7 @@ export const claudeCodeMappings: MappingDef<Raw>[] = [
   aiTitleMetadata,
   agentNameMetadata,
   worktreeStateMetadata,
-  capabilityAttachment,
-  topLevelCommandPermissions,
-  topLevelHookPermissionDecision,
+  ...capabilityMappings,
   systemEvent("system", false),
   systemEvent("progress", false),
   systemEvent("queue-operation", true),
