@@ -5,6 +5,7 @@ import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
 import { addListCommand } from "./list.ts";
 import { addLoadCommand } from "./load.ts";
+import { addRegisterCommand } from "./register.ts";
 import { addShareCommand } from "./share.ts";
 import { addValidateCommand } from "./validate.ts";
 import { addVersionCommand, runVersion } from "./version.ts";
@@ -70,6 +71,7 @@ function buildProgram(output: OutputBuffer): Command {
   addVersionCommand(program, writeResult);
   addValidateCommand(program, writeResult);
   addListCommand(program, writeResult);
+  addRegisterCommand(program, writeResult);
   addDiscoverCommand(program, writeResult);
   addDoctorCommand(program, writeResult);
   addShareCommand(program, writeResult);
@@ -88,5 +90,15 @@ function appendCommandResult(result: CliResult, output: OutputBuffer): void {
 }
 
 export function commandNames(): string[] {
-  return ["version", "validate", "list", "discover", "doctor", "share", "load", "export"];
+  return [
+    "version",
+    "validate",
+    "list",
+    "register",
+    "discover",
+    "doctor",
+    "share",
+    "load",
+    "export",
+  ];
 }
