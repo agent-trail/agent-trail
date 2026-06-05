@@ -26,6 +26,7 @@ type Seed = {
   cwd: string;
   modifiedAt: string;
   header?: Record<string, unknown>;
+  records?: Record<string, unknown>[];
 };
 
 function seedSession(seed: Seed): string {
@@ -83,7 +84,8 @@ function seedSession(seed: Seed): string {
   }
   mkdirSync(dir, { recursive: true });
   const file = join(dir, filename);
-  writeFileSync(file, `${JSON.stringify(header)}\n`);
+  const records = [header, ...(seed.records ?? [])];
+  writeFileSync(file, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   const ts = new Date(seed.modifiedAt);
   utimesSync(file, ts, ts);
   return file;
@@ -426,6 +428,101 @@ test("sort: newest-first by modifiedAt, tiebreak by id ascending", async () => {
   const result = await runDiscover({ json: true });
   const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
   expect(parsed.map((r) => r.id)).toEqual(["sess-b", "sess-a"]);
+});
+
+test("--limit returns first rows after sort and warns when truncated", async () => {
+  seedSession({
+    agent: "claude-code",
+    id: "sess-oldest",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+  seedSession({
+    agent: "claude-code",
+    id: "sess-newest",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-19T14:00:00.000Z",
+  });
+  seedSession({
+    agent: "claude-code",
+    id: "sess-middle",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-18T14:00:00.000Z",
+  });
+  const result = await runDiscover({ json: true, limit: "2" });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("warning: 3 sessions matched; showing first 2\n");
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
+  expect(parsed.map((r) => r.id)).toEqual(["sess-newest", "sess-middle"]);
+});
+
+test("--limit omits warning when result count is not truncated", async () => {
+  seedSession({
+    agent: "claude-code",
+    id: "sess-only",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+  });
+  const result = await runDiscover({ json: true, limit: "1" });
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{ id: string }>;
+  expect(parsed.map((r) => r.id)).toEqual(["sess-only"]);
+});
+
+test("--limit rejects non-positive and non-integer values", async () => {
+  for (const limit of ["0", "-1", "1.5", "nope"]) {
+    const result = await runDiscover({ limit });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(`invalid --limit: expected positive integer, got '${limit}'\n`);
+  }
+});
+
+test("--search matches session head content and metadata case-insensitively", async () => {
+  seedSession({
+    agent: "claude-code",
+    id: "sess-content",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+    records: [{ type: "user", message: { content: "Debugged a Race Condition" } }],
+  });
+  seedSession({
+    agent: "claude-code",
+    id: "sess-other",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-18T14:00:00.000Z",
+  });
+
+  const contentResult = await runDiscover({ json: true, search: "race condition" });
+  expect(contentResult.exitCode).toBe(0);
+  expect(contentResult.stderr).toBe("");
+  const contentParsed = JSON.parse(contentResult.stdout) as Array<{ id: string }>;
+  expect(contentParsed.map((r) => r.id)).toEqual(["sess-content"]);
+
+  const metadataResult = await runDiscover({ json: true, search: "CONTENT" });
+  expect(metadataResult.exitCode).toBe(0);
+  const metadataParsed = JSON.parse(metadataResult.stdout) as Array<{ id: string }>;
+  expect(metadataParsed.map((r) => r.id)).toEqual(["sess-content"]);
+});
+
+test("--case-sensitive requires exact case for search", async () => {
+  seedSession({
+    agent: "claude-code",
+    id: "sess-cases",
+    cwd: tmpCwd,
+    modifiedAt: "2026-05-17T14:00:00.000Z",
+    records: [{ type: "user", message: { content: "Race Condition" } }],
+  });
+
+  const miss = await runDiscover({ json: true, search: "race condition", caseSensitive: true });
+  expect(miss.exitCode).toBe(0);
+  expect(JSON.parse(miss.stdout)).toEqual([]);
+
+  const hit = await runDiscover({ json: true, search: "Race Condition", caseSensitive: true });
+  expect(hit.exitCode).toBe(0);
+  const parsed = JSON.parse(hit.stdout) as Array<{ id: string }>;
+  expect(parsed.map((r) => r.id)).toEqual(["sess-cases"]);
 });
 
 test("text output: one row per session with short id, adapter, cwd, modified_at, path", async () => {

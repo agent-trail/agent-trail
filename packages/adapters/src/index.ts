@@ -56,6 +56,7 @@ export type { BuildTrailEnvelopeOptions } from "./envelope.ts";
 export { buildTrailEnvelope } from "./envelope.ts";
 export { opencodeAdapter } from "./opencode/index.ts";
 export { piAdapter } from "./pi/index.ts";
+export { DISCOVERY_CONCURRENCY_LIMIT, mapConcurrent } from "./shared/concurrency.ts";
 export { ADAPTERS, adapterByName, defaultTrailAdapters } from "./shared/registry.ts";
 
 export function trailRecords(trail: TrailFile): object[] {
