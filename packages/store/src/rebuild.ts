@@ -1,10 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
-import {
-  type FinalizedObjectIndexRow,
-  writerStrictObjectIndexPolicy,
-} from "./object-index-policy.ts";
+import { writerStrictObjectIndexPolicy } from "./object-index-policy.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
 
 const OBJECT_NAME = /^([0-9a-f]{64})\.trail\.jsonl$/;
@@ -44,17 +41,19 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
 
     // Skip files whose hash cannot be verified (parse error, mismatch, etc.)
     // so one corrupt object does not abort the whole rebuild.
-    let row: FinalizedObjectIndexRow | undefined;
+    let raw: string;
     try {
-      const raw = await readFile(path, "utf8");
-      const eligible = await writerStrictObjectIndexPolicy(raw);
-      row =
-        eligible.status === "valid"
-          ? eligible.policy.rows.find((candidate) => candidate.contentHash === filenameHash)
-          : undefined;
-    } catch {
-      row = undefined;
+      raw = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
     }
+
+    const eligible = await writerStrictObjectIndexPolicy(raw);
+    const row =
+      eligible.status === "valid"
+        ? eligible.policy.rows.find((candidate) => candidate.contentHash === filenameHash)
+        : undefined;
     if (row === undefined) {
       continue;
     }
