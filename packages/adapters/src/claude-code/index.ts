@@ -13,6 +13,7 @@ import type {
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import { DISCOVERY_CONCURRENCY_LIMIT, mapConcurrent } from "../shared/concurrency.ts";
 import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
@@ -74,8 +75,8 @@ async function scanProjectDir(dir: string): Promise<SessionRef[]> {
   if (!(await dirExists(dir))) return [];
   const entries = await readdir(dir);
   const jsonlNames = entries.filter((name) => name.endsWith(".jsonl"));
-  return Promise.all(
-    jsonlNames.map((name) => buildSessionRef(join(dir, name), name.slice(0, -".jsonl".length))),
+  return mapConcurrent(jsonlNames, DISCOVERY_CONCURRENCY_LIMIT, (name) =>
+    buildSessionRef(join(dir, name), name.slice(0, -".jsonl".length)),
   );
 }
 
@@ -129,8 +130,8 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
   let sessions: SessionRef[] = [];
   try {
     const projectDirs = entries.filter((entry) => entry.isDirectory());
-    const perDir = await Promise.all(
-      projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
+    const perDir = await mapConcurrent(projectDirs, DISCOVERY_CONCURRENCY_LIMIT, (entry) =>
+      scanProjectDir(join(root, entry.name)),
     );
     sessions = perDir.flat();
   } catch (error) {
@@ -366,8 +367,8 @@ export const claudeCodeAdapter: TrailAdapter = {
       if (!(await dirExists(root))) return [];
       const entries = await readdir(root, { withFileTypes: true });
       const projectDirs = entries.filter((entry) => entry.isDirectory());
-      const perDir = await Promise.all(
-        projectDirs.map((entry) => scanProjectDir(join(root, entry.name))),
+      const perDir = await mapConcurrent(projectDirs, DISCOVERY_CONCURRENCY_LIMIT, (entry) =>
+        scanProjectDir(join(root, entry.name)),
       );
       return perDir.flat();
     }

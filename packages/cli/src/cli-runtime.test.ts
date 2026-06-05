@@ -61,7 +61,17 @@ const HELP_CASES: HelpCase[] = [
   {
     command: "discover",
     usage: "Usage: trail discover [options]",
-    flags: ["--json", "--all", "--agent <name>", "--cwd <path>", "--since <iso>", "--until <iso>"],
+    flags: [
+      "--json",
+      "--all",
+      "--agent <name>",
+      "--cwd <path>",
+      "--since <iso>",
+      "--until <iso>",
+      "--limit <n>",
+      "--search <query>",
+      "--case-sensitive",
+    ],
     example: "trail discover --agent codex-cli --json",
   },
   {

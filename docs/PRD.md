@@ -274,7 +274,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 ### 7.4 CLI tool (`trail`)
 
 - `trail doctor` / `trail doctor --fix` — diagnose and configure environment.
-- `trail discover` — list local source-agent sessions on disk (current cwd by default; `--all` walks every project dir). Filters: `--agent`, `--cwd`, `--since`, `--until`. Use this to pick a session to register or share.
+- `trail discover` — list local source-agent sessions on disk (current cwd by default; `--all` walks every project dir). Filters: `--agent`, `--cwd`, `--since`, `--until`, `--search`; result cap: `--limit`. `--search` is deterministic substring search across session metadata and the first 64 KiB of session content, case-insensitive by default with `--case-sensitive` available. Use this to pick a session to register or share.
 - `trail list` — list trails registered in the local store (content-addressed objects).
 - `trail view <id>` — render a session to terminal.
 - `trail register <file|adapter:id>` — parse + canonicalize + store locally (content-addressed). The file form registers an existing `.trail.jsonl`; the adapter-ref form registers a discovered source-agent session by adapter name and `SessionRef.id`. In adapter refs, `~` is reserved for future host-qualified ids and is not accepted in v1.
