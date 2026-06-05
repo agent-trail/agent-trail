@@ -1,6 +1,6 @@
 import type { AgentName, Entry } from "@agent-trail/types";
-import type { RawRecord } from "./readers/types.ts";
-import type { TrailEntryDraft } from "./types.ts";
+import type { RawRecord } from "../readers/types.ts";
+import type { TrailEntryDraft } from "../types.ts";
 
 export interface QuarantineDraftInput {
   /** Trail agent name, recorded on `source.agent`. */

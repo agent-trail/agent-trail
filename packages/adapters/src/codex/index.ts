@@ -1,4 +1,4 @@
-import { lstat, open, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
@@ -13,6 +13,7 @@ import type {
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
+import { readJsonlHead as readJsonLinesHead } from "../shared/jsonl-head.ts";
 import { readGitVcs } from "../vcs.ts";
 import { parseCodexSnapshotEntries } from "./kit.ts";
 import { AGENT_NAME, buildHeader, turnContextSnapshot } from "./parser.ts";
@@ -105,43 +106,6 @@ async function inspectSourceHealth(): Promise<AdapterSourceHealth> {
 // `readJsonLinesHead` will return a truncated tail and the wrappers below will
 // skip the partial last line.
 const HEAD_SCAN_BYTES = 65_536;
-
-type JsonLineHead = {
-  lines: string[];
-  truncated: boolean;
-};
-
-// Read the first `maxBytes` of `path` and return the safely-parseable
-// newline-delimited lines. Decode UTF-8 *first* (with `fatal: false`) then
-// trim at the last newline in the decoded string — using byte offsets on a
-// partial UTF-8 buffer can split a multi-byte codepoint and corrupt the tail.
-// When the read hits `maxBytes`, the last line is treated as potentially
-// truncated and dropped.
-async function readJsonLinesHead(path: string, maxBytes: number): Promise<JsonLineHead> {
-  const handle = await open(path, "r");
-  let bytesRead: number;
-  let buffer: Buffer;
-  try {
-    buffer = Buffer.allocUnsafe(maxBytes);
-    const result = await handle.read(buffer, 0, maxBytes, 0);
-    bytesRead = result.bytesRead;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-  if (bytesRead === 0) return { lines: [], truncated: false };
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, bytesRead));
-  const truncated = bytesRead === maxBytes;
-  // When truncated, drop the trailing partial line by trimming to the last
-  // newline; when not truncated, accept the final line as a complete record.
-  let safeText = text;
-  if (truncated) {
-    const lastNewline = text.lastIndexOf("\n");
-    if (lastNewline < 0) return { lines: [], truncated: true };
-    safeText = text.slice(0, lastNewline);
-  }
-  const lines = safeText.split(/\r?\n/).filter((line) => line.length > 0);
-  return { lines, truncated };
-}
 
 // Read id + cwd from the same head scan in a single open/read pass. Both
 // fields live on (or near) the first record so combining halves the per-file

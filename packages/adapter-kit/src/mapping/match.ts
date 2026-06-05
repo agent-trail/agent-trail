@@ -1,5 +1,5 @@
-import { isObject } from "./primitives/guards.ts";
-import type { MatchPattern } from "./types.ts";
+import { isObject } from "../primitives/guards.ts";
+import type { MatchPattern } from "../types.ts";
 
 /**
  * Deep-partial match: every key in `pattern` must be present in `record` and

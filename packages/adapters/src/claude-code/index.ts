@@ -1,4 +1,4 @@
-import { lstat, open, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
@@ -13,6 +13,7 @@ import type {
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
@@ -43,45 +44,10 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 const HEAD_SCAN_BYTES = 16_384;
 
 async function readCwdFromHead(path: string): Promise<string | undefined> {
-  // Read raw bytes via node:fs so we can decode with a fatal TextDecoder and
-  // drop a trailing partial UTF-8 sequence rather than letting `.text()`
-  // silently replace it. Without this guard, a multi-byte codepoint split at
-  // the HEAD_SCAN_BYTES boundary could shift later newlines and surface a
-  // mangled record to JSON.parse.
-  const handle = await open(path, "r");
-  let bytesRead: number;
-  let buffer: Buffer;
-  try {
-    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
-    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
-    bytesRead = result.bytesRead;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-  if (bytesRead === 0) return undefined;
-  const truncated = bytesRead === HEAD_SCAN_BYTES;
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
-  } catch {
-    // Decode failure means a multi-byte codepoint was cut at the read boundary.
-    // Walk back to the last newline (which is always single-byte) and retry.
-    const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
-    if (lastNewline < 0) return undefined;
-    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, lastNewline));
-  }
-  const lines = text.split("\n");
-  // Drop a trailing partial line when the read hit the byte cap so JSON.parse
-  // never sees a truncated record.
-  const safeLines = truncated ? lines.slice(0, -1) : lines;
-  for (const line of safeLines) {
-    if (line.length === 0) continue;
-    try {
-      const record = JSON.parse(line) as Record<string, unknown>;
-      const cwd = record.cwd;
-      if (typeof cwd === "string" && cwd.length > 0) return cwd;
-    } catch {
-      // Skip non-JSON lines; continue scanning.
+  for (const record of await readJsonlHeadObjects(path, HEAD_SCAN_BYTES)) {
+    const cwd = record.cwd;
+    if (typeof cwd === "string" && cwd.length > 0) {
+      return cwd;
     }
   }
   return undefined;

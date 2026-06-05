@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defineAdapter } from "./define-adapter.ts";
-import { defineMapping } from "./define-mapping.ts";
+import { defineMapping } from "./mapping/define-mapping.ts";
+import { defineAdapter } from "./pipeline/define-adapter.ts";
 import type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 import type { AdapterDef } from "./types.ts";
 
