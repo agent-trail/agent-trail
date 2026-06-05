@@ -69,8 +69,6 @@ type RegisteredRow = {
   registered_at: string | null;
   registered_source_path: string | null;
   registered_kind: RowKind;
-  registered_source_agent: string | null;
-  registered_source_id: string | null;
 };
 
 type RowState = "source" | "registered" | "source+registered";
@@ -160,7 +158,6 @@ export async function runList(
     if (headerResult.error !== null) {
       warnings.push(`warning: could not read header for ${contentHash}: ${headerResult.error}`);
     }
-    const sourceInfo = extractSourceInfo(headerResult.header);
     registeredRows.push({
       content_hash: contentHash,
       registered_agent: extractAgentName(headerResult.header),
@@ -168,8 +165,6 @@ export async function runList(
       registered_at: entry.registered_at,
       registered_source_path: entry.source_path,
       registered_kind: entry.kind,
-      registered_source_agent: sourceInfo.agent,
-      registered_source_id: sourceInfo.id,
     });
   }
 
@@ -185,7 +180,7 @@ export async function runList(
   const sourceFiltered = rows.filter((r) => {
     if (sourceMode === "source" && r.state === "registered") return false;
     if (sourceMode === "registered" && r.state === "source") return false;
-    if (agentFilter !== undefined && r.agent !== agentFilter) return false;
+    if (!rowMatchesAgent(r, agentFilter)) return false;
     if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
     return boundedBy(r.latest_at, sinceMs, untilMs);
   });
@@ -215,7 +210,7 @@ export async function runList(
   }
 
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
-  if (options.json === true) {
+  if (options.json === true && options.plain !== true) {
     return { exitCode: 0, stdout: renderJson(renderedRows), stderr };
   }
   if (renderedRows.length === 0) {
@@ -277,22 +272,6 @@ function extractAgentName(header: Record<string, unknown> | null): string | null
   if (typeof agent !== "object" || agent === null || Array.isArray(agent)) return null;
   const name = (agent as Record<string, unknown>).name;
   return typeof name === "string" ? name : null;
-}
-
-function extractSourceInfo(header: Record<string, unknown> | null): {
-  agent: string | null;
-  id: string | null;
-} {
-  if (header === null) return { agent: null, id: null };
-  const source = header.source;
-  if (typeof source !== "object" || source === null || Array.isArray(source)) {
-    return { agent: null, id: null };
-  }
-  const record = source as Record<string, unknown>;
-  return {
-    agent: typeof record.agent === "string" ? record.agent : null,
-    id: typeof record.id === "string" ? record.id : null,
-  };
 }
 
 type NormalizedEntry = {
@@ -361,17 +340,7 @@ function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Ro
   const rows: Row[] = [];
   const usedRegistered = new Set<number>();
   for (const source of sourceRows) {
-    const matchIndex = registeredRows.findIndex(
-      (registered, index) =>
-        !usedRegistered.has(index) &&
-        ((source.source_path !== null &&
-          registered.registered_source_path !== null &&
-          source.source_path === registered.registered_source_path) ||
-          (registered.registered_source_agent !== null &&
-            registered.registered_source_id !== null &&
-            source.source_agent === registered.registered_source_agent &&
-            source.source_id === registered.registered_source_id)),
-    );
+    const matchIndex = findNewestPathMatch(source, registeredRows, usedRegistered);
     if (matchIndex === -1) {
       rows.push(toUnified(source, null));
       continue;
@@ -383,6 +352,28 @@ function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Ro
     if (!usedRegistered.has(index)) rows.push(toUnified(null, registered));
   }
   return rows;
+}
+
+function findNewestPathMatch(
+  source: SourceRow,
+  registeredRows: RegisteredRow[],
+  usedRegistered: Set<number>,
+): number {
+  if (source.source_path === null) return -1;
+  let matchIndex = -1;
+  let matchRegisteredAt: string | null = null;
+  for (const [index, registered] of registeredRows.entries()) {
+    if (usedRegistered.has(index)) continue;
+    if (registered.registered_source_path !== source.source_path) continue;
+    if (
+      matchIndex === -1 ||
+      compareNullableTimestamps(registered.registered_at, matchRegisteredAt) > 0
+    ) {
+      matchIndex = index;
+      matchRegisteredAt = registered.registered_at;
+    }
+  }
+  return matchIndex;
 }
 
 function toUnified(source: SourceRow | null, registered: RegisteredRow | null): Row {
@@ -406,8 +397,38 @@ function toUnified(source: SourceRow | null, registered: RegisteredRow | null): 
     registered_kind: registered?.registered_kind ?? null,
     agent: source?.source_agent ?? registered?.registered_agent ?? null,
     cwd: source?.source_cwd ?? registered?.registered_cwd ?? null,
-    latest_at: source?.source_modified_at ?? registered?.registered_at ?? null,
+    latest_at: latestTimestamp(
+      source?.source_modified_at ?? null,
+      registered?.registered_at ?? null,
+    ),
   };
+}
+
+function latestTimestamp(
+  sourceModifiedAt: string | null,
+  registeredAt: string | null,
+): string | null {
+  return compareNullableTimestamps(sourceModifiedAt, registeredAt) >= 0
+    ? sourceModifiedAt
+    : registeredAt;
+}
+
+function compareNullableTimestamps(a: string | null, b: string | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  const aMs = Date.parse(a);
+  const bMs = Date.parse(b);
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) return a.localeCompare(b);
+  if (Number.isNaN(aMs)) return -1;
+  if (Number.isNaN(bMs)) return 1;
+  return aMs - bMs;
+}
+
+function rowMatchesAgent(row: Row, agentFilter: string | undefined): boolean {
+  if (agentFilter === undefined) return true;
+  if (row.source_agent !== null && adapterMatchesAgent(row.source_agent, agentFilter)) return true;
+  return row.registered_agent === agentFilter;
 }
 
 function rowIdentity(row: Row): string {

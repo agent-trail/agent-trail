@@ -429,7 +429,7 @@ trail validate <file> [--json] [--profile strict|reader-tolerant]
 
 ```
 trail doctor [--fix --yes]
-trail list [--agent <name>] [--cwd <path>] [--since <date>] [--search <query>]
+trail list [--json|--plain] [--source all|source|registered] [--agent <name>] [--cwd <path>] [--since <date>] [--until <date>] [--limit <n>] [--search <query>] [--case-sensitive]
 trail status [--json]
 trail view <id-or-path> [--format text|json] [--full]
 trail register <file|adapter:id> [--json]

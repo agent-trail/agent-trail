@@ -114,7 +114,11 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
   const writeResult = (result: CliResult) => appendCommandResult(result, output);
   addVersionCommand(program, writeResult);
   addValidateCommand(program, writeResult);
-  addListCommand(program, writeResult, { config: context.config, storeRoot: context.storeRoot });
+  addListCommand(program, writeResult, {
+    adapters: context.adapters,
+    config: context.config,
+    storeRoot: context.storeRoot,
+  });
   addRegisterCommand(program, writeResult);
   addDiscoverCommand(program, writeResult, {
     adapters: context.adapters,

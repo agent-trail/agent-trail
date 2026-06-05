@@ -202,6 +202,7 @@ test("collapses source and registered rows by exact source path", async () => {
   });
   const reg = await registerTrail(filePath, { storeRoot, sourcePath: filePath });
   expect(reg.status).toBe("finalized");
+  await overrideRegisteredAt(storeRoot, { [contentHash]: "2026-05-17T14:00:00.000Z" });
 
   const result = await runList(
     { json: true, cwd: "/work/collapsed" },
@@ -233,6 +234,71 @@ test("collapses source and registered rows by exact source path", async () => {
       latest_at: "2026-05-18T14:00:00.000Z",
     }),
   );
+});
+
+test("collapsed rows use the newer source or registered timestamp as latest_at", async () => {
+  const { filePath, contentHash } = await seedTrail({
+    id: "01HSESS00000000000000C02AA",
+    cwd: "/work/latest",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [contentHash]: "2026-05-19T14:00:00.000Z" });
+
+  const result = await runList(
+    { json: true, cwd: "/work/latest" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-latest",
+            adapter: "codex",
+            cwd: "/work/latest",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{ latest_at: string }>;
+  expect(parsed[0]?.latest_at).toBe("2026-05-19T14:00:00.000Z");
+});
+
+test("duplicate registered source paths collapse to the newest registered row", async () => {
+  const first = await seedTrail({ id: "01HSESS00000000000000D0101", cwd: "/work/dupe" });
+  const second = await seedTrail({ id: "01HSESS00000000000000D0102", cwd: "/work/dupe" });
+  await registerTrail(first.filePath, { storeRoot, sourcePath: first.filePath });
+  await registerTrail(second.filePath, { storeRoot, sourcePath: first.filePath });
+  await overrideRegisteredAt(storeRoot, {
+    [first.contentHash]: "2026-05-17T14:00:00.000Z",
+    [second.contentHash]: "2026-05-19T14:00:00.000Z",
+  });
+
+  const result = await runList(
+    { json: true, cwd: "/work/dupe" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-dupe",
+            adapter: "codex",
+            cwd: "/work/dupe",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: first.filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{ state: string; content_hash: string | null }>;
+  expect(parsed).toEqual([
+    expect.objectContaining({ state: "source+registered", content_hash: second.contentHash }),
+    expect.objectContaining({ state: "registered", content_hash: first.contentHash }),
+  ]);
 });
 
 test("--source filters source-side and registered-side rows", async () => {
@@ -302,6 +368,51 @@ test("sorts unified rows by latest_at desc and --limit truncates with warning", 
   expect(result.stderr).toBe("warning: 3 rows matched; showing first 2\n");
   const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
   expect(parsed.map((r) => r.source_id)).toEqual(["sess-newest", "sess-middle"]);
+});
+
+test("--plain forces text output when --json is also set", async () => {
+  const result = await runList(
+    { json: true, plain: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-plain",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  expect(result.stdout).toContain("sess-plain");
+  expect(result.stdout).toContain("source");
+  expect(() => JSON.parse(result.stdout)).toThrow();
+});
+
+test("--agent codex-cli matches codex source adapter alias", async () => {
+  const result = await runList(
+    { json: true, agent: "codex-cli" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-codex-alias",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
+  expect(parsed.map((r) => r.source_id)).toEqual(["sess-codex-alias"]);
 });
 
 test("--search matches source head content and respects --case-sensitive", async () => {
@@ -450,6 +561,28 @@ test("resolved config default source filter applies through runCli list", async 
   expect(parsed[0]?.agent).toBe("pi");
 });
 
+test("runCli list uses injected adapters", async () => {
+  const result = await runCli(["list", "--json"], {
+    config: resolvedConfig(null),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-runcli-list",
+          adapter: "codex",
+          cwd: process.cwd(),
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+    ],
+    storeRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
+  expect(parsed.map((r) => r.source_id)).toEqual(["sess-runcli-list"]);
+});
+
 test("runCli list loads default source filter from config files", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-config-"));
   try {
@@ -589,6 +722,22 @@ test("invalid --since exits 1 with stderr message", async () => {
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("invalid --since");
+});
+
+test("invalid --source exits 1 with stderr message", async () => {
+  const result = await runList({ source: "weird" }, { storeRoot, adapters: [] });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain('--source must be "all", "source", or "registered"');
+});
+
+test("invalid --limit exits 1 with stderr message", async () => {
+  const result = await runList({ limit: "nope" }, { storeRoot, adapters: [] });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("invalid --limit");
 });
 
 test("invalid --since and --until both reported", async () => {
