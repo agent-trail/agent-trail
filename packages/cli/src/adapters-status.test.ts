@@ -130,7 +130,7 @@ test("trail adapters text escapes terminal control characters", async () => {
     adapters: [
       fakeAdapter({
         adapter: "codex\ncli",
-        path: "/tmp/codex\u001b[2J",
+        path: "/tmp/codex\u001b[2J\u009b31m",
         present: true,
         readable: false,
         sessionCount: 0,
@@ -144,9 +144,10 @@ test("trail adapters text escapes terminal control characters", async () => {
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("codex\\ncli");
-  expect(result.stdout).toContain("/tmp/codex\\u001b[2J");
+  expect(result.stdout).toContain("/tmp/codex\\u001b[2J\\u009b31m");
   expect(result.stdout).toContain("bad\\npath\\tvalue");
   expect(result.stdout).not.toContain("\u001b");
+  expect(result.stdout).not.toContain("\u009b");
 });
 
 test("trail adapters status --json reports adapter failures as warnings without stack traces", async () => {

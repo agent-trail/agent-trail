@@ -220,7 +220,7 @@ test("trail status text escapes terminal control characters", async () => {
       adapters: [
         fakeAdapter({
           adapter: "codex\ncli",
-          path: "/tmp/codex\u001b[2J",
+          path: "/tmp/codex\u001b[2J\u009b31m",
           present: true,
           readable: false,
           sessionCount: 0,
@@ -237,9 +237,10 @@ test("trail status text escapes terminal control characters", async () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("cwd: /work/project\\nforged");
     expect(result.stdout).toContain("codex\\ncli");
-    expect(result.stdout).toContain("/tmp/codex\\u001b[2J");
+    expect(result.stdout).toContain("/tmp/codex\\u001b[2J\\u009b31m");
     expect(result.stdout).toContain("bad\\npath\\tvalue");
     expect(result.stdout).not.toContain("\u001b");
+    expect(result.stdout).not.toContain("\u009b");
   } finally {
     rmSync(storeRoot, { recursive: true, force: true });
   }

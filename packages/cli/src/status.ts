@@ -1,6 +1,5 @@
 import {
   IndexCorruptError,
-  type IndexEntry,
   IndexVersionError,
   readIndex,
   resolveStoreRoot,
@@ -124,7 +123,7 @@ export function escapeStatusTextSegment(value: string): string {
   let escaped = "";
   for (const character of value) {
     const charCode = character.charCodeAt(0);
-    if (charCode < 0x20 || charCode === 0x7f) {
+    if (charCode < 0x20 || (charCode >= 0x7f && charCode <= 0x9f)) {
       switch (character) {
         case "\n":
           escaped += "\\n";
@@ -179,8 +178,11 @@ async function collectStoreStatus(
   const root = resolveStoreRoot(storeRootOverride);
   try {
     const index = await readIndex(root);
-    const entries = Object.values(index.entries).filter(isIndexEntry);
-    const sessions = entries.filter((entry) => (entry.kind ?? "session") === "session").length;
+    const entries = Object.values(index.entries);
+    const sessions = entries.filter((entry) => {
+      const kind = entry.kind ?? "session";
+      return kind === "session";
+    }).length;
     const trails = entries.filter((entry) => entry.kind === "trail").length;
     return { root, entries: entries.length, sessions, trails, warnings: [] };
   } catch (error) {
@@ -189,10 +191,6 @@ async function collectStoreStatus(
     }
     throw error;
   }
-}
-
-function isIndexEntry(value: unknown): value is IndexEntry {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function addStatusCommand(
