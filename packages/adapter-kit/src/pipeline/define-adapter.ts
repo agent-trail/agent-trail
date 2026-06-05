@@ -1,11 +1,11 @@
 import type { Entry } from "@agent-trail/types";
+import type { RawRecord, SourcePointer, SourceSnapshot } from "../readers/types.ts";
+import { reconcile } from "../reconciler/index.ts";
+import { selectSchemaVersion } from "../source-schemas/select.ts";
+import { validateSourceRecord } from "../source-schemas/validate.ts";
+import type { AdapterDef, ParseOptions } from "../types.ts";
 import { runPass1 } from "./engine.ts";
 import { quarantineDraft } from "./quarantine.ts";
-import type { RawRecord, SourcePointer, SourceSnapshot } from "./readers/types.ts";
-import { reconcile } from "./reconciler/index.ts";
-import { selectSchemaVersion } from "./source-schemas/select.ts";
-import { validateSourceRecord } from "./source-schemas/validate.ts";
-import type { AdapterDef, ParseOptions } from "./types.ts";
 
 export interface Adapter {
   /**

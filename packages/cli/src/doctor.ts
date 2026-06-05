@@ -1,9 +1,4 @@
-import {
-  claudeCodeAdapter,
-  codexAdapter,
-  piAdapter,
-  type TrailAdapter,
-} from "@agent-trail/adapters";
+import { defaultTrailAdapters, type TrailAdapter } from "@agent-trail/adapters";
 import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { redactTrail } from "@agent-trail/redact";
 import pkg from "../package.json" with { type: "json" };
@@ -37,7 +32,6 @@ export type RunDoctorOptions = {
 };
 
 const USAGE = "Usage: trail doctor [--json]";
-const DEFAULT_ADAPTERS: TrailAdapter[] = [claudeCodeAdapter, codexAdapter, piAdapter];
 const MIN_BUN_VERSION = "1.3.11";
 
 export async function runDoctor(
@@ -57,7 +51,7 @@ export async function runDoctor(
     cliVersionCheck(),
     bunRuntimeCheck(opts.bunVersion ?? Bun.version),
     await redactionCheck(opts.redactTrail ?? redactTrail),
-    ...(await adapterChecks(opts.adapters ?? DEFAULT_ADAPTERS)),
+    ...(await adapterChecks(opts.adapters ?? defaultTrailAdapters())),
   ];
   const report: DoctorReport = { status: aggregateStatus(checks), checks };
   return {

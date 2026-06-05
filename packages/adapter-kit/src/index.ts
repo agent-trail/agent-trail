@@ -1,20 +1,20 @@
-export { type Adapter, defineAdapter } from "./define-adapter.ts";
-export { defineMapping } from "./define-mapping.ts";
-export { dispatch } from "./dispatch.ts";
-export { type Pass1Params, runPass1 } from "./engine.ts";
-export { deriveSessionUid, deriveSynthesizedEntryId } from "./ids.ts";
-export { matchesPattern } from "./match.ts";
-export { commandFrom, filePathFrom } from "./primitives/args.ts";
-export { coerceInt } from "./primitives/coerce.ts";
-export { isObject, jsonObjectValue, stringValue } from "./primitives/guards.ts";
-export { quoteShellArg } from "./primitives/shell.ts";
-export { type AgentMessageUsage, mapAgentMessageUsage, pick } from "./primitives/usage.ts";
+export { defineMapping } from "./mapping/define-mapping.ts";
+export { dispatch } from "./mapping/dispatch.ts";
+export { deriveSessionUid, deriveSynthesizedEntryId } from "./mapping/ids.ts";
+export { matchesPattern } from "./mapping/match.ts";
+export { type Adapter, defineAdapter } from "./pipeline/define-adapter.ts";
+export { type Pass1Params, runPass1 } from "./pipeline/engine.ts";
 export {
   type QuarantineDraftInput,
   type QuarantineInput,
   quarantine,
   quarantineDraft,
-} from "./quarantine.ts";
+} from "./pipeline/quarantine.ts";
+export { commandFrom, filePathFrom } from "./primitives/args.ts";
+export { coerceInt } from "./primitives/coerce.ts";
+export { isObject, jsonObjectValue, stringValue } from "./primitives/guards.ts";
+export { quoteShellArg } from "./primitives/shell.ts";
+export { type AgentMessageUsage, mapAgentMessageUsage, pick } from "./primitives/usage.ts";
 export {
   chainReaders,
   type MergeByTimestampOptions,

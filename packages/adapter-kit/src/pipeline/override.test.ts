@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { defineMapping } from "./define-mapping.ts";
+import { defineMapping } from "../mapping/define-mapping.ts";
+import type { RawRecord } from "../readers/types.ts";
+import type { OverrideDef } from "../types.ts";
 import { runPass1 } from "./engine.ts";
-import type { RawRecord } from "./readers/types.ts";
-import type { OverrideDef } from "./types.ts";
 
 const NS = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";
 const base = { idNamespace: NS, sessionUid: "s1", tsFrom: (r: RawRecord) => String(r.ts) };

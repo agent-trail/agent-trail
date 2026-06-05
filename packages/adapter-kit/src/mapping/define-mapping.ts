@@ -1,5 +1,5 @@
-import type { RawRecord } from "./readers/types.ts";
-import type { MappingDef } from "./types.ts";
+import type { RawRecord } from "../readers/types.ts";
+import type { MappingDef } from "../types.ts";
 
 /**
  * Identity builder for a pure mapping. Exists for the type inference: the

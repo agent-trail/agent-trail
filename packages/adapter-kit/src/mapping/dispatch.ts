@@ -1,6 +1,6 @@
+import type { RawRecord } from "../readers/types.ts";
+import type { MappingDef } from "../types.ts";
 import { matchesPattern } from "./match.ts";
-import type { RawRecord } from "./readers/types.ts";
-import type { MappingDef } from "./types.ts";
 
 /**
  * Select the first mapping whose `match` pattern matches the record. First

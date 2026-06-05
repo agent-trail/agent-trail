@@ -1,4 +1,4 @@
-import { open, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
@@ -10,6 +10,7 @@ import type {
   TrailFile,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
+import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
 import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
@@ -114,37 +115,10 @@ async function readFirstJsonlLine(path: string): Promise<Record<string, unknown>
 const HEAD_SCAN_BYTES = 16_384;
 
 async function readCwdFromHead(path: string): Promise<string | undefined> {
-  // See claude-code/index.ts:readCwdFromHead for the UTF-8 boundary rationale.
-  const handle = await open(path, "r");
-  let bytesRead: number;
-  let buffer: Buffer;
-  try {
-    buffer = Buffer.allocUnsafe(HEAD_SCAN_BYTES);
-    const result = await handle.read(buffer, 0, HEAD_SCAN_BYTES, 0);
-    bytesRead = result.bytesRead;
-  } finally {
-    await handle.close().catch(() => {});
-  }
-  if (bytesRead === 0) return undefined;
-  const truncated = bytesRead === HEAD_SCAN_BYTES;
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
-  } catch {
-    const lastNewline = buffer.subarray(0, bytesRead).lastIndexOf(0x0a);
-    if (lastNewline < 0) return undefined;
-    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer.subarray(0, lastNewline));
-  }
-  const lines = text.split("\n");
-  const safeLines = truncated ? lines.slice(0, -1) : lines;
-  for (const line of safeLines) {
-    if (line.length === 0) continue;
-    try {
-      const record = JSON.parse(line) as Record<string, unknown>;
-      const cwd = record.cwd;
-      if (typeof cwd === "string" && cwd.length > 0) return cwd;
-    } catch {
-      // Skip non-JSON lines; continue scanning.
+  for (const record of await readJsonlHeadObjects(path, HEAD_SCAN_BYTES)) {
+    const cwd = record.cwd;
+    if (typeof cwd === "string" && cwd.length > 0) {
+      return cwd;
     }
   }
   return undefined;

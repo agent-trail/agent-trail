@@ -1,9 +1,6 @@
 import {
-  claudeCodeAdapter,
-  codexAdapter,
   type DetectOptions,
-  opencodeAdapter,
-  piAdapter,
+  defaultTrailAdapters,
   type SessionRef,
   type TrailAdapter,
 } from "@agent-trail/adapters";
@@ -37,22 +34,13 @@ type Row = {
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 
-// Order matters: --agent filters by name, but the output sort tiebreak and
-// JSON array order follow this list when modifiedAt is equal.
-const DEFAULT_ADAPTERS: TrailAdapter[] = [
-  claudeCodeAdapter,
-  codexAdapter,
-  opencodeAdapter,
-  piAdapter,
-];
-
 export async function runDiscover(options: RunDiscoverOptions = {}): Promise<RunDiscoverResult> {
   const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
 
-  const adapters = (options.adapters ?? DEFAULT_ADAPTERS).filter(
+  const adapters = (options.adapters ?? defaultTrailAdapters()).filter(
     (a) => options.agent === undefined || a.name === options.agent,
   );
 

@@ -2,10 +2,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defineMapping } from "../mapping/define-mapping.ts";
+import { JsonlReader } from "../readers/jsonl-reader.ts";
+import type { RawRecord, SourcePointer, SourceReader } from "../readers/types.ts";
 import { defineAdapter } from "./define-adapter.ts";
-import { defineMapping } from "./define-mapping.ts";
-import { JsonlReader } from "./readers/jsonl-reader.ts";
-import type { RawRecord, SourcePointer, SourceReader } from "./readers/types.ts";
 
 const PI_ENTRY_NS = "f9a5cab6-b078-4cde-e267-849a0b1c2d34";
 const dir = mkdtempSync(join(tmpdir(), "adapter-kit-e2e-"));

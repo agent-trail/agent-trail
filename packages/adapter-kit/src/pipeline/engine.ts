@@ -1,9 +1,9 @@
 import type { Entry } from "@agent-trail/types";
-import { dispatch } from "./dispatch.ts";
-import { deriveSynthesizedEntryId } from "./ids.ts";
-import { matchesPattern } from "./match.ts";
-import type { RawRecord } from "./readers/types.ts";
-import type { MappingDef, OverrideDef, TrailEntryDraft } from "./types.ts";
+import { dispatch } from "../mapping/dispatch.ts";
+import { deriveSynthesizedEntryId } from "../mapping/ids.ts";
+import { matchesPattern } from "../mapping/match.ts";
+import type { RawRecord } from "../readers/types.ts";
+import type { MappingDef, OverrideDef, TrailEntryDraft } from "../types.ts";
 
 const WRITER_STRICT_ISO8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
