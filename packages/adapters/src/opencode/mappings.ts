@@ -4,7 +4,6 @@ import { attachmentFrom, attachmentsFrom } from "./attachments.ts";
 import {
   compactDiffs,
   todoItemsFrom,
-  todoStatus,
   tokenTotalsFromSession,
   worktreeFromProject,
 } from "./metadata.ts";
@@ -497,11 +496,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
 
   if (loaded.todos.length > 0) {
     const first = loaded.todos[0]!;
-    const items = Array.from(loaded.todos.entries()).map(([index, todo]) => ({
-      id: String(numberValue(todo.position) ?? index + 1),
-      content: stringValue(todo.content) ?? "",
-      status: todoStatus(todo.status),
-    }));
+    const items = todoItemsFrom(loaded.todos);
     push(
       {
         type: "task_plan_update",

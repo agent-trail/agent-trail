@@ -52,7 +52,7 @@ export function todoItemsFrom(
 ): { id: string; content: string; status: ReturnType<typeof todoStatus> }[] {
   const todos = arrayValue(value);
   if (todos === undefined) return [];
-  return todos.flatMap((todo, index) => {
+  return Array.from(todos.entries()).flatMap(([index, todo]) => {
     const obj = objectValue(todo);
     if (obj === undefined) return [];
     const content = stringValue(obj.content);
