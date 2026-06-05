@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCli } from "./cli-runtime.ts";
 
 const ROOT = new URL("../../..", import.meta.url);
 
@@ -77,7 +81,7 @@ const HELP_CASES: HelpCase[] = [
   {
     command: "doctor",
     usage: "Usage: trail doctor [options]",
-    flags: ["--json"],
+    flags: ["--json", "--fix", "--yes"],
     example: "trail doctor --json",
   },
   {
@@ -128,6 +132,30 @@ test("trail with no args prints help and exits 0", async () => {
   expect(result.stdout).toContain(
     "Run `trail <command> --help` for command-specific flags and examples.",
   );
+});
+
+test("invalid config exits with a friendly diagnostic", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-invalid-config-"));
+  try {
+    mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
+    const configPath = join(projectRoot, ".agent-trail", "config.json");
+    writeFileSync(configPath, JSON.stringify({ tui: { previewByteCap: 0 } }));
+
+    const result = await runCli(["discover", "--json"], {
+      adapters: [],
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      `config: ${configPath}: tui.previewByteCap must be a positive integer\n`,
+    );
+    expect(result.stderr).not.toContain("ConfigError");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
 });
 
 test("trail version help exposes Commander-owned options", async () => {

@@ -9,6 +9,7 @@ import {
 } from "@agent-trail/store";
 import type { Command } from "commander";
 import { addExamples, type ResultWriter } from "./command.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunListResult = {
@@ -28,6 +29,7 @@ export type RunListOptions = {
 
 export type RunListContext = {
   storeRoot?: string;
+  config?: ResolvedConfig;
 };
 
 type RowKind = "session" | "trail";
@@ -112,8 +114,9 @@ export async function runList(
   }
   const kindFilter = options.kind as RowKind | undefined;
 
+  const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
   const filtered = rows.filter((r) => {
-    if (options.agent !== undefined && r.agent !== options.agent) return false;
+    if (agentFilter !== undefined && r.agent !== agentFilter) return false;
     if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
     if (kindFilter !== undefined && r.kind !== kindFilter) return false;
     return boundedBy(r.registered_at, sinceMs, untilMs);
@@ -221,7 +224,11 @@ function extractCwd(header: Record<string, unknown> | null): string | null {
   return typeof cwd === "string" ? cwd : null;
 }
 
-export function addListCommand(program: Command, writeResult: ResultWriter): void {
+export function addListCommand(
+  program: Command,
+  writeResult: ResultWriter,
+  context: RunListContext = {},
+): void {
   addExamples(
     program
       .command("list")
@@ -233,7 +240,7 @@ export function addListCommand(program: Command, writeResult: ResultWriter): voi
       .option("--kind <kind>", "Filter by row kind: session or trail.")
       .description("List locally stored Trail objects.")
       .action(async (options: RunListOptions) => {
-        writeResult(await runList(options));
+        writeResult(await runList(options, context));
       }),
     ["trail list", "trail list --agent codex-cli --kind session"],
   );

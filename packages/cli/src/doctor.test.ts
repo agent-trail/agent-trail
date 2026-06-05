@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +19,8 @@ import type {
 } from "@agent-trail/adapters";
 import { claudeCodeAdapter, codexAdapter, piAdapter } from "@agent-trail/adapters";
 import pkg from "../package.json" with { type: "json" };
+import { runCli } from "./cli-runtime.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { runDoctor } from "./doctor.ts";
 
 function mangleClaude(cwd: string): string {
@@ -92,6 +102,22 @@ function fakeAdapter(health: AdapterSourceHealth): TrailAdapter {
   };
 }
 
+function resolvedConfig(): ResolvedConfig {
+  return {
+    config: {
+      sources: { defaultFilter: "pi" },
+      tui: { previewByteCap: 2048, previewEventCap: 250 },
+      keymap: {},
+    },
+    sources: [
+      { layer: "built_in", path: null, status: "default" },
+      { layer: "user_global", path: "/home/test/.config/trail/config.json", status: "loaded" },
+      { layer: "project_committed", path: "/work/.agent-trail/config.json", status: "loaded" },
+      { layer: "project_local", path: "/work/.agent-trail/config.local.json", status: "missing" },
+    ],
+  };
+}
+
 async function runTrail(
   args: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -133,6 +159,76 @@ test("doctor --json includes Bun runtime health", async () => {
     status: "ok",
     details: { version: "1.3.11", minimum: "1.3.11" },
   });
+});
+
+test("doctor --json includes resolved config sources", async () => {
+  const config = resolvedConfig();
+  const result = await runCli(["doctor", "--json"], { adapters: [], config });
+
+  expect(result.exitCode).toBe(0);
+  const parsed = JSON.parse(result.stdout) as {
+    checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
+  };
+  expect(parsed.checks.find((check) => check.id === "config.sources")).toMatchObject({
+    status: "ok",
+    details: {
+      config: config.config,
+      sources: config.sources,
+    },
+  });
+});
+
+test("doctor --fix --yes creates project config scaffold idempotently", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-fix-"));
+  try {
+    const first = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    const committed = join(projectRoot, ".agent-trail", "config.json");
+    const local = join(projectRoot, ".agent-trail", "config.local.json");
+    const gitignore = join(projectRoot, ".gitignore");
+    expect(first.exitCode).toBe(0);
+    expect(first.stderr).toBe("");
+    expect(existsSync(committed)).toBe(true);
+    expect(existsSync(local)).toBe(true);
+    expect(JSON.parse(readFileSync(committed, "utf8"))).toEqual({
+      sources: { defaultFilter: null },
+      tui: { previewByteCap: 65_536, previewEventCap: 500 },
+      keymap: {},
+    });
+    expect(JSON.parse(readFileSync(local, "utf8"))).toEqual({
+      sources: { defaultFilter: null },
+      tui: { previewByteCap: 65_536, previewEventCap: 500 },
+      keymap: {},
+    });
+    expect(readFileSync(gitignore, "utf8").split("\n")).toContain(".agent-trail/config.local.json");
+    const parsed = JSON.parse(first.stdout) as {
+      checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
+    };
+    expect(parsed.checks.find((check) => check.id === "config.scaffold")).toMatchObject({
+      status: "ok",
+      details: {
+        created: [committed, local, gitignore],
+      },
+    });
+
+    const second = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(second.exitCode).toBe(0);
+    const ignoredLines = readFileSync(gitignore, "utf8")
+      .split("\n")
+      .filter((line) => line === ".agent-trail/config.local.json");
+    expect(ignoredLines).toHaveLength(1);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
 });
 
 test("doctor accepts a v-prefixed Bun runtime version", async () => {

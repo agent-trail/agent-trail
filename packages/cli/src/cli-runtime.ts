@@ -1,5 +1,7 @@
 import { Command, CommanderError } from "commander";
+import type { TrailAdapter } from "./adapters.ts";
 import type { CliResult } from "./command.ts";
+import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.ts";
 import { addDiscoverCommand } from "./discover.ts";
 import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
@@ -17,15 +19,23 @@ type OutputBuffer = {
 
 const GLOBAL_HELP_HINT = "Run `trail <command> --help` for command-specific flags and examples.";
 
-export async function runCli(argv: string[]): Promise<CliResult> {
+export type RunCliContext = {
+  adapters?: readonly TrailAdapter[];
+  config?: ResolvedConfig;
+  env?: Record<string, string | undefined>;
+  projectRoot?: string;
+  storeRoot?: string;
+};
+
+export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {
   const [subcommand, ...rest] = argv;
   if (subcommand === "--version" || subcommand === "-V") {
     return runVersion(rest);
   }
 
   const output: OutputBuffer = { stdout: "", stderr: "" };
-  const program = buildProgram(output);
   if (argv.length === 0) {
+    const program = buildProgram(output, context);
     const help = program.helpInformation();
     return {
       exitCode: 0,
@@ -33,6 +43,10 @@ export async function runCli(argv: string[]): Promise<CliResult> {
       stderr: "",
     };
   }
+
+  const commandContext = await resolveCommandContext(argv, context);
+  if ("exitCode" in commandContext) return commandContext;
+  const program = buildProgram(output, commandContext);
 
   try {
     await program.parseAsync(argv, { from: "user" });
@@ -49,7 +63,30 @@ export async function runCli(argv: string[]): Promise<CliResult> {
   }
 }
 
-function buildProgram(output: OutputBuffer): Command {
+async function resolveCommandContext(
+  argv: string[],
+  context: RunCliContext,
+): Promise<RunCliContext | CliResult> {
+  if (isHelpRequest(argv)) return context;
+  if (context.config !== undefined) return context;
+  try {
+    return {
+      ...context,
+      config: await resolveConfig({ env: context.env, projectRoot: context.projectRoot }),
+    };
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
+    }
+    throw error;
+  }
+}
+
+function isHelpRequest(argv: string[]): boolean {
+  return argv[0] === "help" || argv.includes("--help") || argv.includes("-h");
+}
+
+function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
   const program = new Command("trail");
   program
     .exitOverride()
@@ -70,10 +107,17 @@ function buildProgram(output: OutputBuffer): Command {
   const writeResult = (result: CliResult) => appendCommandResult(result, output);
   addVersionCommand(program, writeResult);
   addValidateCommand(program, writeResult);
-  addListCommand(program, writeResult);
+  addListCommand(program, writeResult, { config: context.config, storeRoot: context.storeRoot });
   addRegisterCommand(program, writeResult);
-  addDiscoverCommand(program, writeResult);
-  addDoctorCommand(program, writeResult);
+  addDiscoverCommand(program, writeResult, {
+    adapters: context.adapters,
+    config: context.config,
+  });
+  addDoctorCommand(program, writeResult, {
+    adapters: context.adapters,
+    config: context.config,
+    projectRoot: context.projectRoot,
+  });
   addShareCommand(program, writeResult);
   addLoadCommand(program, writeResult);
   addExportCommand(program, writeResult);
