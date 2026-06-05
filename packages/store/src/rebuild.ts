@@ -1,7 +1,11 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseJsonlString, verifyContentHash } from "@agent-trail/core";
+import { parseJsonlString } from "@agent-trail/core";
 import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
+import {
+  type FinalizedObjectIndexRow,
+  finalizedObjectIndexRowForHash,
+} from "./object-index-policy.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
 
 const OBJECT_NAME = /^([0-9a-f]{64})\.trail\.jsonl$/;
@@ -41,26 +45,15 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
 
     // Skip files whose hash cannot be verified (parse error, mismatch, etc.)
     // so one corrupt object does not abort the whole rebuild.
-    let verified = false;
-    let sessionUid: string | null = null;
+    let row: FinalizedObjectIndexRow | undefined;
     try {
       const raw = await readFile(path, "utf8");
       const records = await parseJsonlString(raw);
-      const verification = verifyContentHash(records);
-      verified = verification.status === "match" && verification.expected === filenameHash;
-      if (verified) {
-        for (const record of records) {
-          if (record.value.type === "session") {
-            const uid = (record.value as { session_uid?: unknown }).session_uid;
-            if (typeof uid === "string") sessionUid = uid;
-            break;
-          }
-        }
-      }
+      row = finalizedObjectIndexRowForHash(records, filenameHash);
     } catch {
-      verified = false;
+      row = undefined;
     }
-    if (!verified) {
+    if (row === undefined) {
       continue;
     }
 
@@ -68,7 +61,8 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     index.entries[filenameHash] = {
       registered_at: info.mtime.toISOString(),
       source_path: null,
-      session_uid: sessionUid,
+      session_uid: row.session_uid,
+      kind: row.kind,
     };
   }
 

@@ -4,6 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { canonicalizeRecords, stampTrail } from "@agent-trail/core";
 import { IndexVersionError, rebuildIndex, registerTrail } from "../src/index.ts";
 
 const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
@@ -90,3 +91,114 @@ test("rebuildIndex ignores stray files in objects/sha256 that do not match <hex>
   ) as { entries: Record<string, unknown> };
   expect(Object.keys(indexValue.entries)).toEqual([FINALIZED_HASH]);
 });
+
+test("rebuildIndex preserves registerTrail multi-session session + trail row policy", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-rebuild-ms-"));
+  try {
+    const fixture = await writeMultiSessionFixture(inputDir);
+    await registerTrail(fixture.path, { storeRoot });
+    await unlink(join(storeRoot, "index", "objects.json"));
+
+    const summary = await rebuildIndex({ storeRoot });
+    expect(summary.entries).toBe(3);
+
+    const indexValue = JSON.parse(
+      await readFile(join(storeRoot, "index", "objects.json"), "utf8"),
+    ) as {
+      entries: Record<
+        string,
+        { kind?: string; session_uid?: string | null; source_path: string | null }
+      >;
+    };
+    const expectedHashes = [
+      fixture.envelopeHash,
+      fixture.sessionHashes[0] as string,
+      fixture.sessionHashes[1] as string,
+    ].sort();
+    expect(Object.keys(indexValue.entries).sort()).toEqual(expectedHashes);
+    expect(indexValue.entries[fixture.envelopeHash]?.kind).toBe("trail");
+    expect(indexValue.entries[fixture.envelopeHash]?.source_path).toBeNull();
+    expect(indexValue.entries[fixture.sessionHashes[0] as string]?.kind).toBe("session");
+    expect(indexValue.entries[fixture.sessionHashes[0] as string]?.session_uid).toBe(
+      "01HSESSXA0000000000000A001",
+    );
+    expect(indexValue.entries[fixture.sessionHashes[1] as string]?.kind).toBe("session");
+    expect(indexValue.entries[fixture.sessionHashes[1] as string]?.session_uid).toBe(
+      "01HSESSXA0000000000000A002",
+    );
+  } finally {
+    rmSync(inputDir, { recursive: true, force: true });
+  }
+});
+
+async function writeMultiSessionFixture(dir: string): Promise<{
+  path: string;
+  envelopeHash: string;
+  sessionHashes: string[];
+}> {
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000A001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+        session_uid: "01HSESSXA0000000000000A001",
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000A02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+        session_uid: "01HSESSXA0000000000000A002",
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTA0000000000000000002",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "ok" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const path = join(dir, "multi.trail.jsonl");
+  await writeFile(path, canonicalizeRecords(records), "utf8");
+  return {
+    path,
+    envelopeHash: stamped.envelopeHash as string,
+    sessionHashes: stamped.sessionHashes,
+  };
+}
