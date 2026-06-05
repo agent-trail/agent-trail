@@ -201,10 +201,10 @@ export function renderBrowserFrame(input: SessionBrowserInput | BrowserState): s
     "Preview",
     ...preview,
     "",
-    warnings.trimEnd(),
+    warnings.length === 0 ? null : warnings.trimEnd(),
     "Keys: j/k or arrows move  / search  enter open placeholder  q quit",
   ]
-    .filter((line) => line.length > 0)
+    .filter((line) => line !== null)
     .join("\n");
 }
 
