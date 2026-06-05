@@ -1,5 +1,6 @@
 import { Command, CommanderError } from "commander";
 import type { TrailAdapter } from "./adapters.ts";
+import { addAdaptersCommand } from "./adapters-command.ts";
 import type { CliResult } from "./command.ts";
 import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.ts";
 import { addDiscoverCommand } from "./discover.ts";
@@ -9,6 +10,7 @@ import { addListCommand } from "./list.ts";
 import { addLoadCommand } from "./load.ts";
 import { addRegisterCommand } from "./register.ts";
 import { addShareCommand } from "./share.ts";
+import { addStatusCommand } from "./status.ts";
 import { addValidateCommand } from "./validate.ts";
 import { addVersionCommand, runVersion } from "./version.ts";
 
@@ -88,7 +90,7 @@ function isHelpRequest(argv: string[]): boolean {
 }
 
 function usesResolvedConfig(argv: string[]): boolean {
-  return argv[0] === "discover" || argv[0] === "list";
+  return argv[0] === "discover" || argv[0] === "list" || argv[0] === "status";
 }
 
 function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
@@ -117,6 +119,15 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
   addDiscoverCommand(program, writeResult, {
     adapters: context.adapters,
     config: context.config,
+  });
+  addStatusCommand(program, writeResult, {
+    adapters: context.adapters,
+    config: context.config,
+    projectRoot: context.projectRoot,
+    storeRoot: context.storeRoot,
+  });
+  addAdaptersCommand(program, writeResult, {
+    adapters: context.adapters,
   });
   addDoctorCommand(program, writeResult, {
     adapters: context.adapters,
@@ -147,6 +158,8 @@ export function commandNames(): string[] {
     "list",
     "register",
     "discover",
+    "status",
+    "adapters",
     "doctor",
     "share",
     "load",
