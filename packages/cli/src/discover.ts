@@ -1,12 +1,11 @@
 import {
   type DetectOptions,
   DISCOVERY_CONCURRENCY_LIMIT,
-  defaultTrailAdapters,
   mapConcurrent,
   type SessionRef,
-  type TrailAdapter,
 } from "@agent-trail/adapters";
 import type { Command } from "commander";
+import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
@@ -85,7 +84,7 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     return { exitCode: 1, stdout: "", stderr: `${parsedLimit.error}\n` };
   }
 
-  const adapters = (options.adapters ?? defaultTrailAdapters()).filter(
+  const adapters = (options.adapters ?? cliDefaultAdapters()).filter(
     (a) => options.agent === undefined || a.name === options.agent,
   );
 

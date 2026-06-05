@@ -1,16 +1,11 @@
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  ADAPTERS,
-  adapterByName,
-  type SessionRef,
-  type TrailAdapter,
-  trailRecords,
-} from "@agent-trail/adapters";
+import { type SessionRef, trailRecords } from "@agent-trail/adapters";
 import { canonicalizeRecords, parseJsonlString, stampTrail } from "@agent-trail/core";
 import { type RegisterResult, registerTrail } from "@agent-trail/store";
 import type { Command } from "commander";
+import { cliAdapterByName, cliAdapterNames, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type CliResult, type ResultWriter } from "./command.ts";
 
 export type RunRegisterOptions = {
@@ -113,8 +108,8 @@ async function registerAdapterRef(
   ref: AdapterRef,
   context: RunRegisterContext,
 ): Promise<RegisterResult | CliResult> {
-  const adapter = adapterByNameFrom(ref.adapterName, context.adapters);
-  const validNames = adapterNames(context.adapters);
+  const adapter = cliAdapterByName(ref.adapterName, context.adapters);
+  const validNames = cliAdapterNames(context.adapters);
   if (adapter === undefined) {
     return {
       exitCode: 1,
@@ -199,19 +194,6 @@ function renderRegisterResult(result: RegisterResult, options: RunRegisterOption
     };
   }
   return { exitCode: 0, stdout: `${result.contentHash}\n`, stderr: "" };
-}
-
-function adapterByNameFrom(
-  name: string,
-  adapters: readonly TrailAdapter[] | undefined,
-): TrailAdapter | undefined {
-  if (adapters === undefined) return adapterByName(name);
-  return adapters.find((adapter) => adapter.name === name);
-}
-
-function adapterNames(adapters: readonly TrailAdapter[] | undefined): string[] {
-  if (adapters !== undefined) return adapters.map((adapter) => adapter.name);
-  return ADAPTERS.map((adapter) => adapter.name);
 }
 
 export function addRegisterCommand(program: Command, writeResult: ResultWriter): void {

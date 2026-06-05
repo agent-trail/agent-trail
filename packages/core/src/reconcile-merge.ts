@@ -1,7 +1,6 @@
 import { canonicalizeRecords, stampTrail } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { parseFidelityForEvents } from "./parse-fidelity.ts";
-import type { ReconcileGroup, ReconcileWarning, SegmentInput } from "./reconcile.ts";
 import {
   effectiveSeq,
   findHeader,
@@ -12,6 +11,7 @@ import {
   stringField,
   synthesizeRecord,
 } from "./reconcile-records.ts";
+import type { ReconcileGroup, ReconcileWarning, SegmentInput } from "./reconcile-types.ts";
 
 // Header field merge policy for `buildMergedHeader`:
 //   STABLE_FIELDS         — explicit override list: prefer the first segment's value.
