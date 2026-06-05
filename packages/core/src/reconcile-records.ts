@@ -1,5 +1,5 @@
 import type { JsonlRecord } from "./jsonl.ts";
-import type { SegmentInput } from "./reconcile.ts";
+import type { SegmentInput } from "./reconcile-types.ts";
 
 export type ReconcileHeader = {
   type?: unknown;
