@@ -5,6 +5,7 @@ import { buildTrailEnvelope } from "../envelope.ts";
 import type { TrailFile, TrailSessionGroup } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
+import { isRecord } from "../shared/type-guards.ts";
 import { readGitVcs } from "../vcs.ts";
 import { type HeadMetadata, readMetadataFromHead, walkRolloutFiles } from "./discovery.ts";
 import { parseCodexSnapshotEntries } from "./kit.ts";
@@ -14,10 +15,6 @@ import { isObject, sanitizeSourceRaw, stringValue, timestampToIso } from "./sour
 
 type ForkFrom = NonNullable<Header["fork_from"]>;
 type ChildSessionPathIndex = Map<string, string | undefined>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function parseObjectRecords(text: string): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = [];
@@ -204,6 +201,7 @@ async function directChildGroups(
     childCounts.set(candidate.childId, (childCounts.get(candidate.childId) ?? 0) + 1);
   }
   for (const candidate of candidates) {
+    // Only link 1:1 relationships: ambiguous repeated calls or child ids stay unlinked.
     if (callCounts.get(candidate.callEntryId) !== 1) continue;
     if (childCounts.get(candidate.childId) !== 1) continue;
     const childPath = findUniqueSessionPathById(candidate.childId, childSessionPathIndex);

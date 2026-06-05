@@ -23,7 +23,7 @@ export function payloadOf(record: Raw): Raw {
 function elidedArrayMarker(value: unknown[]): Record<string, unknown> {
   return {
     elided: true,
-    size_bytes: Buffer.byteLength(JSON.stringify(value) ?? "", "utf8"),
+    size_bytes: Buffer.byteLength(JSON.stringify(value), "utf8"),
     item_count: value.length,
   };
 }
@@ -56,8 +56,9 @@ export function source(originalType: string, raw?: Raw, synthesized?: boolean): 
 }
 
 export function meta(rawType: string, callId?: string): Record<string, unknown> {
+  const normalizedCallId = nonEmptyCallId(callId);
   return {
-    ...(callId !== undefined ? { linker: { call_id: callId } } : {}),
+    ...(normalizedCallId !== undefined ? { linker: { call_id: normalizedCallId } } : {}),
     [RAW_TYPE]: rawType,
   };
 }
@@ -73,11 +74,13 @@ export function taskPlanItemsFromUpdatePlan(
     const content = stringValue(rawItem.step);
     const status = rawItem.status;
     if (content === undefined || !isTaskPlanStatus(status)) return undefined;
+    const rawId = stringValue(rawItem.id);
+    const itemId = rawId !== undefined && rawId.trim().length > 0 ? rawId : undefined;
     const normalized = normalizeTaskPlanContent(content);
     const occurrence = occurrenceByContent.get(normalized) ?? 0;
     occurrenceByContent.set(normalized, occurrence + 1);
     items.push({
-      id: taskPlanItemId(rawItem.id, occurrence, content),
+      id: taskPlanItemId(itemId, occurrence, content),
       content,
       status,
     });

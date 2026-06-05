@@ -55,7 +55,9 @@ function parseBase64Image(mediaType: string | undefined, data: string): ParsedDa
 function parseDataUri(uri: string): ParsedDataUri | undefined {
   const match = /^data:([^;,]+)?((?:;[^,]*)*),(.*)$/s.exec(uri);
   if (match === null) return undefined;
-  const [, mediaType, parameters = "", data = ""] = match;
+  const mediaType = match[1];
+  const parameters = match[2] as string;
+  const data = match[3] as string;
   if (parameters.split(";").includes("base64")) {
     return parseBase64Image(mediaType, data);
   }
@@ -112,9 +114,10 @@ function imageAttachments(content: unknown): Attachment[] {
         if (parsed.mediaType !== undefined) mediaType = parsed.mediaType;
       }
     }
+    if (ref?.uri === undefined) continue;
     const attachment: Attachment = { kind: "image" };
     if (mediaType !== undefined) attachment.media_type = mediaType;
-    if (ref?.uri !== undefined) attachment.uri = ref.uri;
+    attachment.uri = ref.uri;
     out.push(attachment);
   }
   return out;

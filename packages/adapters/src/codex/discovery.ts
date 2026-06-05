@@ -2,6 +2,7 @@ import { lstat, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef } from "../index.ts";
 import { readJsonlHead as readJsonLinesHead } from "../shared/jsonl-head.ts";
+import { isRecord } from "../shared/type-guards.ts";
 import { codexSessionsDir } from "./paths.ts";
 
 export async function dirExists(path: string): Promise<boolean> {
@@ -26,10 +27,6 @@ export type HeadMetadata = {
   threadSource?: string;
   parentThreadId?: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 // Read id + cwd from the same head scan in a single open/read pass. Both
 // fields live on (or near) the first record so combining halves the per-file
