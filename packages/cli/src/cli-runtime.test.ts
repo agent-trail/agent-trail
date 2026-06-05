@@ -53,6 +53,12 @@ const HELP_CASES: HelpCase[] = [
     example: "trail list --agent codex-cli --kind session",
   },
   {
+    command: "register",
+    usage: "Usage: trail register [options] <file|adapter:id>",
+    flags: ["--json"],
+    example: "trail register claude-code:abc123",
+  },
+  {
     command: "discover",
     usage: "Usage: trail discover [options]",
     flags: ["--json", "--all", "--agent <name>", "--cwd <path>", "--since <iso>", "--until <iso>"],
@@ -93,6 +99,7 @@ test("trail help exposes the Commander command surface", async () => {
   expect(result.stdout).toContain("Usage: trail [options] [command]");
   expect(result.stdout).toContain("version");
   expect(result.stdout).toContain("validate");
+  expect(result.stdout).toContain("register");
   expect(result.stdout).toContain("discover");
   expect(result.stdout).toContain("export");
   expect(result.stdout).toContain(
@@ -107,6 +114,7 @@ test("trail with no args prints help and exits 0", async () => {
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("Usage: trail [options] [command]");
   expect(result.stdout).toContain("version");
+  expect(result.stdout).toContain("register");
   expect(result.stdout).toContain(
     "Run `trail <command> --help` for command-specific flags and examples.",
   );

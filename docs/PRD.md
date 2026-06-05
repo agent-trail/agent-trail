@@ -277,7 +277,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 - `trail discover` — list local source-agent sessions on disk (current cwd by default; `--all` walks every project dir). Filters: `--agent`, `--cwd`, `--since`, `--until`. Use this to pick a session to register or share.
 - `trail list` — list trails registered in the local store (content-addressed objects).
 - `trail view <id>` — render a session to terminal.
-- `trail register <file>` — parse + canonicalize + store locally (content-addressed).
+- `trail register <file|adapter:id>` — parse + canonicalize + store locally (content-addressed). The file form registers an existing `.trail.jsonl`; the adapter-ref form registers a discovered source-agent session by adapter name and `SessionRef.id`. In adapter refs, `~` is reserved for future host-qualified ids and is not accepted in v1.
 - `trail share <id>` — redact, upload to gist, return URL.
 - `trail load <url>` — fetch and decode a shared session.
 - `trail export <id>` — write canonical trail bytes to stdout or `--out <path>`.
@@ -431,7 +431,7 @@ trail validate <file> [--json] [--profile strict|reader-tolerant]
 trail doctor [--fix] [--yes]
 trail list [--agent <name>] [--cwd <path>] [--since <date>] [--search <query>]
 trail view <id-or-path> [--format text|json] [--full]
-trail register <file>
+trail register <file|adapter:id> [--json]
 trail share <id> [--public] [--dry-run] [--skip-redaction]
 trail load <url> [--out <path>]
 trail export <id> [--out <path>] [--force]
