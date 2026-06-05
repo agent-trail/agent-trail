@@ -120,22 +120,55 @@ export async function runStatus(
   };
 }
 
+export function escapeStatusTextSegment(value: string): string {
+  let escaped = "";
+  for (const character of value) {
+    const charCode = character.charCodeAt(0);
+    if (charCode < 0x20 || charCode === 0x7f) {
+      switch (character) {
+        case "\n":
+          escaped += "\\n";
+          break;
+        case "\r":
+          escaped += "\\r";
+          break;
+        case "\t":
+          escaped += "\\t";
+          break;
+        default:
+          escaped += `\\u${charCode.toString(16).padStart(4, "0")}`;
+      }
+    } else {
+      escaped += character;
+    }
+  }
+  return escaped;
+}
+
 function renderStatusText(status: TrailStatus): string {
   const lines = [
-    `cwd: ${status.cwd}`,
-    `store: ${status.store.root} (${status.store.entries} entries, ${status.store.sessions} sessions, ${status.store.trails} trails)`,
-    `config: ${status.config.sources.map((source) => `${source.layer}:${source.status}`).join(", ")}`,
+    `cwd: ${escapeStatusTextSegment(status.cwd)}`,
+    `store: ${escapeStatusTextSegment(status.store.root)} (${status.store.entries} entries, ${status.store.sessions} sessions, ${status.store.trails} trails)`,
+    `config: ${status.config.sources
+      .map(
+        (source) =>
+          `${escapeStatusTextSegment(source.layer)}:${escapeStatusTextSegment(source.status)}`,
+      )
+      .join(", ")}`,
     "adapters:",
     ...status.adapters.map(
       (adapter) =>
-        `  ${adapter.status}  ${adapter.adapter}: ${adapter.session_count} sessions${
-          adapter.path === null ? "" : ` at ${adapter.path}`
+        `  ${adapter.status}  ${escapeStatusTextSegment(adapter.adapter)}: ${adapter.session_count} sessions${
+          adapter.path === null ? "" : ` at ${escapeStatusTextSegment(adapter.path)}`
         }`,
     ),
     ...status.adapters.flatMap((adapter) =>
-      adapter.warnings.map((warning) => `warning: ${adapter.adapter}: ${warning}`),
+      adapter.warnings.map(
+        (warning) =>
+          `warning: ${escapeStatusTextSegment(adapter.adapter)}: ${escapeStatusTextSegment(warning)}`,
+      ),
     ),
-    ...status.warnings.map((warning) => `warning: ${warning}`),
+    ...status.warnings.map((warning) => `warning: ${escapeStatusTextSegment(warning)}`),
   ];
   return `${lines.join("\n")}\n`;
 }

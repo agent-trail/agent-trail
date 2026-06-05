@@ -181,6 +181,38 @@ test("trail status text reports adapter health failures as stdout warnings witho
   }
 });
 
+test("trail status text escapes terminal control characters", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-status-store-"));
+  try {
+    const result = await runCli(["status"], {
+      adapters: [
+        fakeAdapter({
+          adapter: "codex\ncli",
+          path: "/tmp/codex\u001b[2J",
+          present: true,
+          readable: false,
+          sessionCount: 0,
+          sourceVersion: null,
+          warnings: ["bad\npath\tvalue"],
+        }),
+      ],
+      config: resolvedConfig(),
+      projectRoot: "/work/project\nforged",
+      storeRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("cwd: /work/project\\nforged");
+    expect(result.stdout).toContain("codex\\ncli");
+    expect(result.stdout).toContain("/tmp/codex\\u001b[2J");
+    expect(result.stdout).toContain("bad\\npath\\tvalue");
+    expect(result.stdout).not.toContain("\u001b");
+  } finally {
+    rmSync(storeRoot, { recursive: true, force: true });
+  }
+});
+
 test("trail status --json warns instead of failing when the store index is malformed", async () => {
   const storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-status-store-"));
   try {
@@ -208,6 +240,30 @@ test("trail status --json warns instead of failing when the store index is malfo
     });
     expect(parsed.warnings[0]).toContain("index/objects.json");
     expect(parsed.warnings[0]).toContain("malformed JSON");
+  } finally {
+    rmSync(storeRoot, { recursive: true, force: true });
+  }
+});
+
+test("trail status text warns instead of failing when the store index is malformed", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-status-store-"));
+  try {
+    mkdirSync(join(storeRoot, "index"), { recursive: true });
+    await writeFile(join(storeRoot, "index", "objects.json"), "{not json", "utf8");
+
+    const result = await runCli(["status"], {
+      adapters: [],
+      config: resolvedConfig(),
+      projectRoot: "/work/project",
+      storeRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain(`store: ${storeRoot}`);
+    expect(result.stdout).toContain("(0 entries, 0 sessions, 0 trails)");
+    expect(result.stdout).toContain("warning: index/objects.json");
+    expect(result.stdout).toContain("malformed JSON");
   } finally {
     rmSync(storeRoot, { recursive: true, force: true });
   }

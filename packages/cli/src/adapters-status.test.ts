@@ -93,6 +93,62 @@ test("trail adapters list --json returns adapter statuses without TUI", async ()
   ]);
 });
 
+test("trail adapters list text returns adapter statuses without TUI", async () => {
+  const result = await runCli(["adapters", "list"], {
+    adapters: [
+      fakeAdapter({
+        adapter: "claude-code",
+        path: "/tmp/claude/projects",
+        present: true,
+        readable: true,
+        sessionCount: 2,
+        sourceVersion: "1.0.0",
+        warnings: [],
+      }),
+      fakeAdapter({
+        adapter: "codex",
+        path: "/tmp/codex/sessions",
+        present: true,
+        readable: false,
+        sessionCount: 0,
+        sourceVersion: null,
+        warnings: ["not readable"],
+      }),
+    ],
+    config: resolvedConfig(),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("ok  claude-code  2 sessions  /tmp/claude/projects");
+  expect(result.stdout).toContain("warn  codex  0 sessions  /tmp/codex/sessions");
+  expect(result.stdout).toContain("warning: codex: not readable");
+});
+
+test("trail adapters text escapes terminal control characters", async () => {
+  const result = await runCli(["adapters", "list"], {
+    adapters: [
+      fakeAdapter({
+        adapter: "codex\ncli",
+        path: "/tmp/codex\u001b[2J",
+        present: true,
+        readable: false,
+        sessionCount: 0,
+        sourceVersion: null,
+        warnings: ["bad\npath\tvalue"],
+      }),
+    ],
+    config: resolvedConfig(),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("codex\\ncli");
+  expect(result.stdout).toContain("/tmp/codex\\u001b[2J");
+  expect(result.stdout).toContain("bad\\npath\\tvalue");
+  expect(result.stdout).not.toContain("\u001b");
+});
+
 test("trail adapters status --json reports adapter failures as warnings without stack traces", async () => {
   const result = await runCli(["adapters", "status", "--json"], {
     adapters: [throwingAdapter("codex", "permission denied")],

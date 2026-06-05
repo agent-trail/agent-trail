@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
-import { type AdapterStatus, collectAdapterStatuses } from "./status.ts";
+import { type AdapterStatus, collectAdapterStatuses, escapeStatusTextSegment } from "./status.ts";
 
 export type RunAdaptersOptions = {
   json?: boolean;
@@ -33,10 +33,13 @@ function renderAdaptersText(statuses: AdapterStatus[]): string {
   if (statuses.length === 0) return "";
   return `${statuses
     .flatMap((adapter) => [
-      `${adapter.status}  ${adapter.adapter}  ${adapter.session_count} sessions${
-        adapter.path === null ? "" : `  ${adapter.path}`
+      `${adapter.status}  ${escapeStatusTextSegment(adapter.adapter)}  ${adapter.session_count} sessions${
+        adapter.path === null ? "" : `  ${escapeStatusTextSegment(adapter.path)}`
       }`,
-      ...adapter.warnings.map((warning) => `warning: ${adapter.adapter}: ${warning}`),
+      ...adapter.warnings.map(
+        (warning) =>
+          `warning: ${escapeStatusTextSegment(adapter.adapter)}: ${escapeStatusTextSegment(warning)}`,
+      ),
     ])
     .join("\n")}\n`;
 }
