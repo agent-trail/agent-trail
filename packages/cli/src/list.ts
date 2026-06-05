@@ -17,6 +17,7 @@ import type { Command } from "commander";
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import type { ResolvedConfig } from "./config.ts";
+import type { Row, RowKind } from "./list-model.ts";
 import {
   adapterMatchesAgent,
   boundedBy,
@@ -25,7 +26,7 @@ import {
   parseTimeBounds,
   renderJson,
 } from "./listing.ts";
-import type { SessionBrowserTerminal } from "./session-browser-tui.ts";
+import type { TerminalIo } from "./terminal.ts";
 
 export type RunListResult = {
   exitCode: number;
@@ -51,11 +52,9 @@ export type RunListContext = {
   config?: ResolvedConfig;
   adapters?: readonly TrailAdapter[];
   defaultCwd?: string;
-  terminal?: SessionBrowserTerminal;
+  terminal?: TerminalIo;
   runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<RunListResult>;
 };
-
-type RowKind = "session" | "trail";
 
 type SourceRow = {
   source_id: string;
@@ -74,25 +73,7 @@ type RegisteredRow = {
   registered_kind: RowKind;
 };
 
-type RowState = "source" | "registered" | "source+registered";
-
-export type Row = {
-  state: RowState;
-  source_id: string | null;
-  source_agent: string | null;
-  source_cwd: string | null;
-  source_modified_at: string | null;
-  source_path: string | null;
-  content_hash: string | null;
-  registered_agent: string | null;
-  registered_cwd: string | null;
-  registered_at: string | null;
-  registered_source_path: string | null;
-  registered_kind: RowKind | null;
-  agent: string | null;
-  cwd: string | null;
-  latest_at: string | null;
-};
+export type { Row } from "./list-model.ts";
 
 type HeaderReadResult = {
   header: Record<string, unknown> | null;
@@ -268,10 +249,7 @@ export async function runListBrowser(
   });
 }
 
-export function shouldRunListBrowser(
-  options: RunListOptions,
-  terminal?: SessionBrowserTerminal,
-): boolean {
+export function shouldRunListBrowser(options: RunListOptions, terminal?: TerminalIo): boolean {
   return terminal?.isTTY === true && options.json !== true && options.plain !== true;
 }
 

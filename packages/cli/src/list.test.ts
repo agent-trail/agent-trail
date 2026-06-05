@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { runList } from "./list.ts";
+import { runList, runListBrowser } from "./list.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -706,6 +707,30 @@ test("runCli list opens TUI in TTY", async () => {
   });
 
   expect(launched).toBe(true);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser uses default OpenTUI handoff with custom streams", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  setTimeout(() => stdin.write("q"), 10);
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      terminal: {
+        isTTY: true,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        width: 80,
+        height: 24,
+      },
+    },
+  );
+
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 

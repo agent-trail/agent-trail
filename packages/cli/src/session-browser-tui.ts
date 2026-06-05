@@ -1,16 +1,11 @@
 import { type CliRenderer, createCliRenderer, type KeyEvent, TextRenderable } from "@opentui/core";
 import type { CliResult } from "./command.ts";
-import type { Row } from "./list.ts";
+import type { Row } from "./list-model.ts";
+import type { TerminalIo } from "./terminal.ts";
 
 export type SessionBrowserRow = Row;
 
-export type SessionBrowserTerminal = {
-  isTTY?: boolean;
-  stdin?: NodeJS.ReadStream;
-  stdout?: NodeJS.WriteStream;
-  width?: number;
-  height?: number;
-};
+export type SessionBrowserTerminal = TerminalIo;
 
 type SessionBrowserInput = {
   rows: SessionBrowserRow[];
@@ -93,7 +88,7 @@ export function mountSessionBrowser(
   const quit = () => {
     renderer.keyInput.off("keypress", onKey);
     if (!renderer.isDestroyed) renderer.destroy();
-    resolveExit({ exitCode: 0, stdout: "", stderr: "" });
+    resolveExit(exitResult(state));
   };
 
   const onKey = (key: KeyEvent) => {
@@ -138,7 +133,7 @@ export function mountSessionBrowser(
   renderer.keyInput.on("keypress", onKey);
   renderer.once("destroy", () => {
     renderer.keyInput.off("keypress", onKey);
-    resolveExit({ exitCode: 0, stdout: "", stderr: "" });
+    resolveExit(exitResult(state));
   });
 
   return {
@@ -161,7 +156,7 @@ function handleSearchKey(state: BrowserState, key: KeyEvent): void {
     state.searchMode = false;
     return;
   }
-  const text = key.sequence.length === 1 ? key.sequence : key.raw;
+  const text = key.sequence.length === 1 ? key.sequence : (key.raw ?? "");
   if (text.length === 1 && text >= " " && text !== "\x7f") {
     state.query += text;
     state.selectedIndex = 0;
@@ -283,4 +278,12 @@ export function sanitizeTerminalText(value: string): string {
     sanitized += code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? " " : char;
   }
   return sanitized;
+}
+
+function exitResult(state: BrowserState): CliResult {
+  return {
+    exitCode: 0,
+    stdout: "",
+    stderr: state.warnings.length === 0 ? "" : `${state.warnings.join("\n")}\n`,
+  };
 }

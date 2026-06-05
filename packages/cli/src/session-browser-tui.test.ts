@@ -146,6 +146,24 @@ test("browser search filters rows and keeps deterministic selection", async () =
   }
 });
 
+test("browser search mode ignores non-character keys without crashing", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  try {
+    mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressArrow("down");
+    await setup.renderOnce();
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Search:  _");
+    expect(frame).toContain("> source codex");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("browser frame strips terminal control sequences from rendered content", () => {
   const frame = renderBrowserFrame({
     rows: [
@@ -186,6 +204,24 @@ test("enter opens selected row placeholder", async () => {
   }
 });
 
+test("enter opens registered row placeholder by content hash", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  try {
+    mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+    await setup.renderOnce();
+
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Open placeholder");
+    expect(frame).toContain("aaaaaaaaaaaa");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("ctrl-c quits and destroys cleanly", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24 });
   try {
@@ -199,4 +235,34 @@ test("ctrl-c quits and destroys cleanly", async () => {
   } finally {
     if (!setup.renderer.isDestroyed) setup.renderer.destroy();
   }
+});
+
+test("browser returns warnings after alternate-screen exit", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  try {
+    const app = mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: ["warning: source failed"],
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("q");
+    const result = await app.waitForExit();
+
+    expect(result.stderr).toBe("warning: source failed\n");
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("external renderer destroy resolves browser exit", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const app = mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+  await setup.renderOnce();
+
+  setup.renderer.destroy();
+  const result = await app.waitForExit();
+
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  expect(setup.renderer.isDestroyed).toBe(true);
 });
