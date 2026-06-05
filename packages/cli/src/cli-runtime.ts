@@ -69,6 +69,7 @@ async function resolveCommandContext(
 ): Promise<RunCliContext | CliResult> {
   if (isHelpRequest(argv)) return context;
   if (context.config !== undefined) return context;
+  if (!usesResolvedConfig(argv)) return context;
   try {
     return {
       ...context,
@@ -84,6 +85,10 @@ async function resolveCommandContext(
 
 function isHelpRequest(argv: string[]): boolean {
   return argv[0] === "help" || argv.includes("--help") || argv.includes("-h");
+}
+
+function usesResolvedConfig(argv: string[]): boolean {
+  return argv[0] === "discover" || argv[0] === "list";
 }
 
 function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
@@ -116,7 +121,9 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
   addDoctorCommand(program, writeResult, {
     adapters: context.adapters,
     config: context.config,
+    env: context.env,
     projectRoot: context.projectRoot,
+    resolveTrailConfig: resolveConfig,
   });
   addShareCommand(program, writeResult);
   addLoadCommand(program, writeResult);

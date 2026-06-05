@@ -46,6 +46,9 @@ type Row = {
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 const SEARCH_HEAD_BYTES = 65_536;
+const ADAPTER_AGENT_ALIASES: Record<string, readonly string[]> = {
+  codex: ["codex-cli"],
+};
 
 function parseLimit(limit: string | undefined): { limit?: number; error?: string } {
   if (limit === undefined) return {};
@@ -94,8 +97,8 @@ export async function runDiscover(
   }
 
   const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
-  const adapters = (options.adapters ?? context.adapters ?? cliDefaultAdapters()).filter(
-    (a) => agentFilter === undefined || a.name === agentFilter,
+  const adapters = (options.adapters ?? context.adapters ?? cliDefaultAdapters()).filter((a) =>
+    adapterMatchesAgent(a.name, agentFilter),
   );
 
   const detectOpts: DetectOptions = {};
@@ -175,6 +178,13 @@ export async function runDiscover(
     return { exitCode: 0, stdout: "", stderr };
   }
   return { exitCode: 0, stdout: renderText(renderedRows), stderr };
+}
+
+function adapterMatchesAgent(adapterName: string, agentFilter: string | undefined): boolean {
+  if (agentFilter === undefined) return true;
+  return (
+    adapterName === agentFilter || (ADAPTER_AGENT_ALIASES[adapterName] ?? []).includes(agentFilter)
+  );
 }
 
 function renderText(rows: Row[]): string {

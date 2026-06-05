@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { runCli } from "./cli-runtime.ts";
 
 const ROOT = new URL("../../..", import.meta.url);
@@ -21,6 +22,35 @@ async function runTrail(
     proc.exited,
   ]);
   return { exitCode, stdout, stderr };
+}
+
+function fakeAdapter(name: string, sessions: SessionRef[]): TrailAdapter {
+  return {
+    name,
+    async detectSessions() {
+      return sessions;
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not needed");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+    async sourceHealth() {
+      return {
+        adapter: name,
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: sessions.length,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
+  };
 }
 
 type HelpCase = {
@@ -154,6 +184,85 @@ test("invalid config exits with a friendly diagnostic", async () => {
     );
     expect(result.stderr).not.toContain("ConfigError");
   } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("commands that do not consume config ignore invalid config files", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-version-invalid-config-"));
+  try {
+    mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
+    writeFileSync(
+      join(projectRoot, ".agent-trail", "config.json"),
+      JSON.stringify({ tui: { previewByteCap: 0 } }),
+    );
+
+    const result = await runCli(["version"], {
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/^\d+\.\d+\.\d+\n$/);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("discover loads default source filter from config files through runCli", async () => {
+  const home = mkdtempSync(join(tmpdir(), "trail-cli-config-home-"));
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-config-project-"));
+  try {
+    mkdirSync(join(home, ".config", "trail"), { recursive: true });
+    writeFileSync(
+      join(home, ".config", "trail", "config.json"),
+      JSON.stringify({ sources: { defaultFilter: "codex-cli" } }),
+    );
+
+    const result = await runCli(["discover", "--json", "--all"], {
+      adapters: [
+        fakeAdapter("codex", [
+          {
+            id: "sess-codex",
+            adapter: "codex",
+            cwd: "/work/config",
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+        ]),
+        fakeAdapter("pi", [
+          {
+            id: "sess-pi",
+            adapter: "pi",
+            cwd: "/work/config",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+          },
+        ]),
+      ],
+      env: { HOME: home },
+      projectRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const parsed = JSON.parse(result.stdout) as Array<{
+      adapter: string;
+      cwd: string;
+      id: string;
+      modified_at: string;
+      path: string | null;
+    }>;
+    expect(parsed).toEqual([
+      {
+        adapter: "codex",
+        cwd: "/work/config",
+        id: "sess-codex",
+        modified_at: "2026-05-17T14:00:00.000Z",
+        path: null,
+      },
+    ]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
     rmSync(projectRoot, { recursive: true, force: true });
   }
 });

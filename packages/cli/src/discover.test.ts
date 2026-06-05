@@ -404,7 +404,7 @@ test("resolved config default source filter applies through runCli discover", as
 });
 
 test("--agent overrides resolved config default source filter through runCli discover", async () => {
-  const result = await runCli(["discover", "--json", "--all", "--agent", "codex"], {
+  const result = await runCli(["discover", "--json", "--all", "--agent", "codex-cli"], {
     config: resolvedConfig("pi"),
     adapters: [
       fakeAdapter("codex", [

@@ -5,7 +5,9 @@ import pkg from "../package.json" with { type: "json" };
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import {
+  ConfigError,
   type ResolvedConfig,
+  type resolveConfig,
   type ScaffoldProjectConfigResult,
   scaffoldProjectConfig,
 } from "./config.ts";
@@ -36,8 +38,10 @@ export type RunDoctorOptions = {
   adapters?: readonly TrailAdapter[];
   bunVersion?: string;
   config?: ResolvedConfig;
+  env?: Record<string, string | undefined>;
   projectRoot?: string;
   redactTrail?: (records: JsonlRecord[]) => { records: JsonlRecord[]; summary: unknown };
+  resolveTrailConfig?: typeof resolveConfig;
   scaffoldProjectConfig?: typeof scaffoldProjectConfig;
 };
 
@@ -60,18 +64,39 @@ export async function runDoctor(
     return { exitCode: 1, stdout: "", stderr: `doctor: --fix requires --yes\n${USAGE}\n` };
   }
 
-  const scaffold =
-    parsedArgs.fix && parsedArgs.yes
-      ? await (opts.scaffoldProjectConfig ?? scaffoldProjectConfig)({
+  let scaffoldCheck: DoctorCheck | undefined;
+  if (parsedArgs.fix && parsedArgs.yes) {
+    try {
+      scaffoldCheck = configScaffoldCheck(
+        await (opts.scaffoldProjectConfig ?? scaffoldProjectConfig)({
           projectRoot: opts.projectRoot,
-        })
-      : undefined;
+        }),
+      );
+    } catch (error) {
+      scaffoldCheck = configScaffoldErrorCheck(error);
+    }
+  }
+
+  const configChecks: DoctorCheck[] = [];
+  if (opts.config !== undefined) {
+    configChecks.push(configSourcesCheck(opts.config));
+  } else if (opts.resolveTrailConfig !== undefined) {
+    try {
+      configChecks.push(
+        configSourcesCheck(
+          await opts.resolveTrailConfig({ env: opts.env, projectRoot: opts.projectRoot }),
+        ),
+      );
+    } catch (error) {
+      configChecks.push(configSourcesErrorCheck(error));
+    }
+  }
 
   const checks = [
     cliVersionCheck(),
     bunRuntimeCheck(opts.bunVersion ?? Bun.version),
-    ...(opts.config === undefined ? [] : [configSourcesCheck(opts.config)]),
-    ...(scaffold === undefined ? [] : [configScaffoldCheck(scaffold)]),
+    ...configChecks,
+    ...(scaffoldCheck === undefined ? [] : [scaffoldCheck]),
     await redactionCheck(opts.redactTrail ?? redactTrail),
     ...(await adapterChecks(opts.adapters ?? cliDefaultAdapters())),
   ];
@@ -118,6 +143,18 @@ function configSourcesCheck(config: ResolvedConfig): DoctorCheck {
   };
 }
 
+function configSourcesErrorCheck(error: unknown): DoctorCheck {
+  const message =
+    error instanceof ConfigError || error instanceof Error ? error.message : String(error);
+  return {
+    id: "config.sources",
+    status: "error",
+    label: "config sources",
+    message: `config resolution failed: ${message}`,
+    details: { error: message },
+  };
+}
+
 function configScaffoldCheck(result: ScaffoldProjectConfigResult): DoctorCheck {
   const changed = result.created.length + result.updated.length;
   return {
@@ -134,6 +171,17 @@ function configScaffoldCheck(result: ScaffoldProjectConfigResult): DoctorCheck {
       updated: result.updated,
       paths: result.paths,
     },
+  };
+}
+
+function configScaffoldErrorCheck(error: unknown): DoctorCheck {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    id: "config.scaffold",
+    status: "error",
+    label: "config scaffold",
+    message: `config scaffold failed: ${message}`,
+    details: { error: message },
   };
 }
 
@@ -285,7 +333,10 @@ function numericParts(version: string): number[] {
 export function addDoctorCommand(
   program: Command,
   writeResult: ResultWriter,
-  context: Pick<RunDoctorOptions, "adapters" | "config" | "projectRoot"> = {},
+  context: Pick<
+    RunDoctorOptions,
+    "adapters" | "config" | "env" | "projectRoot" | "resolveTrailConfig"
+  > = {},
 ): void {
   addExamples(
     program

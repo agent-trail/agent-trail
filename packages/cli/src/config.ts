@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 type Env = Record<string, string | undefined>;
 
@@ -76,6 +77,7 @@ const DEFAULT_CONFIG: ResolvedTrailConfig = {
 export async function resolveConfig(options: ResolveConfigOptions = {}): Promise<ResolvedConfig> {
   const env = options.env ?? process.env;
   const projectRoot = options.projectRoot ?? process.cwd();
+  const realProjectRoot = await realpath(resolve(projectRoot));
   const paths = configPaths(env, projectRoot);
   let config = cloneConfig(DEFAULT_CONFIG);
   const sources: ConfigSource[] = [{ layer: "built_in", path: null, status: "default" }];
@@ -89,7 +91,12 @@ export async function resolveConfig(options: ResolveConfigOptions = {}): Promise
       sources.push({ layer: source.layer, path: null, status: "missing" });
       continue;
     }
-    const partial = await readConfigFile(source.path);
+    const partial = await readConfigFile(
+      source.path,
+      source.layer === "user_global"
+        ? undefined
+        : { projectRoot: realProjectRoot, displayPath: projectConfigDisplayPath(source.layer) },
+    );
     if (partial === null) {
       sources.push({ layer: source.layer, path: source.path, status: "missing" });
       continue;
@@ -104,7 +111,7 @@ export async function resolveConfig(options: ResolveConfigOptions = {}): Promise
 export async function scaffoldProjectConfig(
   options: ScaffoldProjectConfigOptions = {},
 ): Promise<ScaffoldProjectConfigResult> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const projectRoot = await realpath(resolve(options.projectRoot ?? process.cwd()));
   const configDir = join(projectRoot, ".agent-trail");
   const projectCommitted = join(configDir, "config.json");
   const projectLocal = join(configDir, "config.local.json");
@@ -113,10 +120,31 @@ export async function scaffoldProjectConfig(
   const existing: string[] = [];
   const updated: string[] = [];
 
+  assertWithinRoot(projectRoot, configDir, ".agent-trail");
+  assertWithinRoot(projectRoot, projectCommitted, ".agent-trail/config.json");
+  assertWithinRoot(projectRoot, projectLocal, ".agent-trail/config.local.json");
+  assertWithinRoot(projectRoot, gitignore, ".gitignore");
+
+  await assertDirectoryTarget(configDir, ".agent-trail");
+  await assertRegularFileTarget(gitignore, ".gitignore");
   await mkdir(configDir, { recursive: true });
-  await createFileIfMissing(projectCommitted, defaultConfigBytes(), created, existing);
-  await createFileIfMissing(projectLocal, defaultConfigBytes(), created, existing);
-  await ensureLocalConfigIgnored(gitignore, created, existing, updated);
+  await createFileIfMissing(
+    projectRoot,
+    projectCommitted,
+    ".agent-trail/config.json",
+    sparseConfigBytes(),
+    created,
+    existing,
+  );
+  await createFileIfMissing(
+    projectRoot,
+    projectLocal,
+    ".agent-trail/config.local.json",
+    sparseConfigBytes(),
+    created,
+    existing,
+  );
+  await ensureLocalConfigIgnored(projectRoot, gitignore, created, existing, updated);
 
   return {
     created,
@@ -141,7 +169,19 @@ function configPaths(
   };
 }
 
-async function readConfigFile(path: string): Promise<TrailConfig | null> {
+type ProjectConfigReadGuard = {
+  projectRoot: string;
+  displayPath: string;
+};
+
+async function readConfigFile(
+  path: string,
+  projectGuard?: ProjectConfigReadGuard,
+): Promise<TrailConfig | null> {
+  if (projectGuard !== undefined) {
+    const present = await assertReadableProjectConfig(path, projectGuard);
+    if (!present) return null;
+  }
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -156,6 +196,28 @@ async function readConfigFile(path: string): Promise<TrailConfig | null> {
     throw new ConfigError(`config: ${path}: invalid JSON`);
   }
   return validateConfig(parsed, path);
+}
+
+async function assertReadableProjectConfig(
+  path: string,
+  guard: ProjectConfigReadGuard,
+): Promise<boolean> {
+  const stats = await lstatOrNull(path);
+  if (stats === null) return false;
+  if (stats.isSymbolicLink()) {
+    throw new ConfigError(`config: refusing to read through symlink: ${guard.displayPath}`);
+  }
+  if (!stats.isFile()) {
+    throw new ConfigError(`config: ${guard.displayPath} must be a file`);
+  }
+  assertWithinRoot(guard.projectRoot, await realpath(path), guard.displayPath);
+  return true;
+}
+
+function projectConfigDisplayPath(layer: Exclude<ConfigLayer, "built_in" | "user_global">): string {
+  return layer === "project_committed"
+    ? ".agent-trail/config.json"
+    : ".agent-trail/config.local.json";
 }
 
 function mergeConfig(base: ResolvedTrailConfig, next: TrailConfig): ResolvedTrailConfig {
@@ -268,51 +330,163 @@ function cloneConfig(config: ResolvedTrailConfig): ResolvedTrailConfig {
   };
 }
 
-function defaultConfigBytes(): string {
-  return `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`;
+function sparseConfigBytes(): string {
+  return "{}\n";
 }
 
 async function createFileIfMissing(
+  projectRoot: string,
   path: string,
+  displayPath: string,
   bytes: string,
   created: string[],
   existing: string[],
 ): Promise<void> {
-  try {
-    await writeFile(path, bytes, { encoding: "utf8", flag: "wx" });
+  if (await writeNewFileSafely(projectRoot, path, displayPath, bytes)) {
     created.push(path);
-  } catch (error) {
-    if (isAlreadyExists(error)) {
-      existing.push(path);
-      return;
-    }
-    throw error;
+    return;
   }
+  await assertRegularFileTarget(path, displayPath);
+  assertWithinRoot(projectRoot, await realpath(path), displayPath);
+  existing.push(path);
 }
 
 async function ensureLocalConfigIgnored(
+  projectRoot: string,
   gitignore: string,
   created: string[],
   existing: string[],
   updated: string[],
 ): Promise<void> {
   const entry = ".agent-trail/config.local.json";
-  let raw: string;
+  const handle = await openExistingFileSafely(projectRoot, gitignore, ".gitignore");
+  if (handle === null) {
+    if (await writeNewFileSafely(projectRoot, gitignore, ".gitignore", `${entry}\n`)) {
+      created.push(gitignore);
+      return;
+    }
+    return ensureLocalConfigIgnored(projectRoot, gitignore, created, existing, updated);
+  }
   try {
-    raw = await readFile(gitignore, "utf8");
+    const raw = await handle.readFile("utf8");
+    if (raw.split(/\r?\n/).includes(entry)) {
+      existing.push(gitignore);
+      return;
+    }
+    const prefix = raw.length === 0 || raw.endsWith("\n") ? raw : `${raw}\n`;
+    await handle.truncate(0);
+    await handle.write(`${prefix}${entry}\n`, 0, "utf8");
+    updated.push(gitignore);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeNewFileSafely(
+  projectRoot: string,
+  path: string,
+  displayPath: string,
+  bytes: string,
+): Promise<boolean> {
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(
+      path,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o666,
+    );
   } catch (error) {
-    if (!isNotFound(error)) throw error;
-    await writeFile(gitignore, `${entry}\n`, "utf8");
-    created.push(gitignore);
-    return;
+    if (isAlreadyExists(error)) return false;
+    if (isSymlinkLoop(error)) {
+      throw new ConfigError(`config: refusing to write through symlink: ${displayPath}`);
+    }
+    throw error;
   }
-  if (raw.split(/\r?\n/).includes(entry)) {
-    existing.push(gitignore);
-    return;
+  try {
+    await assertOpenFileMatchesPath(projectRoot, path, displayPath, handle);
+    await handle.writeFile(bytes, "utf8");
+    return true;
+  } finally {
+    await handle.close();
   }
-  const prefix = raw.length === 0 || raw.endsWith("\n") ? raw : `${raw}\n`;
-  await writeFile(gitignore, `${prefix}${entry}\n`, "utf8");
-  updated.push(gitignore);
+}
+
+async function openExistingFileSafely(
+  projectRoot: string,
+  path: string,
+  displayPath: string,
+): Promise<Awaited<ReturnType<typeof open>> | null> {
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    if (isSymlinkLoop(error)) {
+      throw new ConfigError(`config: refusing to write through symlink: ${displayPath}`);
+    }
+    throw error;
+  }
+  try {
+    await assertOpenFileMatchesPath(projectRoot, path, displayPath, handle);
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+async function assertOpenFileMatchesPath(
+  projectRoot: string,
+  path: string,
+  displayPath: string,
+  handle: Awaited<ReturnType<typeof open>>,
+): Promise<void> {
+  const opened = await handle.stat();
+  if (!opened.isFile()) {
+    throw new ConfigError(`config: ${displayPath} must be a file`);
+  }
+  const current = await stat(path);
+  if (opened.dev !== current.dev || opened.ino !== current.ino) {
+    throw new ConfigError(`config: target changed while opening: ${displayPath}`);
+  }
+  assertWithinRoot(projectRoot, await realpath(path), displayPath);
+}
+
+function assertWithinRoot(projectRoot: string, path: string, displayPath: string): void {
+  const rel = relative(projectRoot, path);
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return;
+  throw new ConfigError(`config: refusing to write outside project root: ${displayPath}`);
+}
+
+async function assertDirectoryTarget(path: string, displayPath: string): Promise<void> {
+  const stats = await lstatOrNull(path);
+  if (stats === null) return;
+  if (stats.isSymbolicLink()) {
+    throw new ConfigError(`config: refusing to write through symlink: ${displayPath}`);
+  }
+  if (!stats.isDirectory()) {
+    throw new ConfigError(`config: ${displayPath} must be a directory`);
+  }
+}
+
+async function assertRegularFileTarget(path: string, displayPath: string): Promise<void> {
+  const stats = await lstatOrNull(path);
+  if (stats === null) return;
+  if (stats.isSymbolicLink()) {
+    throw new ConfigError(`config: refusing to write through symlink: ${displayPath}`);
+  }
+  if (!stats.isFile()) {
+    throw new ConfigError(`config: ${displayPath} must be a file`);
+  }
+}
+
+async function lstatOrNull(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
 }
 
 function isNotFound(error: unknown): boolean {
@@ -330,5 +504,14 @@ function isAlreadyExists(error: unknown): boolean {
     error !== null &&
     "code" in error &&
     (error as { code?: unknown }).code === "EEXIST"
+  );
+}
+
+function isSymlinkLoop(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ELOOP"
   );
 }

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -178,32 +179,35 @@ test("doctor --json includes resolved config sources", async () => {
   });
 });
 
+test("doctor --fix requires --yes", async () => {
+  const result = await runCli(["doctor", "--fix"], { adapters: [], config: resolvedConfig() });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toBe(
+    "doctor: --fix requires --yes\nUsage: trail doctor [--json] [--fix --yes]\n",
+  );
+});
+
 test("doctor --fix --yes creates project config scaffold idempotently", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-fix-"));
   try {
+    const realProjectRoot = realpathSync(projectRoot);
     const first = await runCli(["doctor", "--fix", "--yes", "--json"], {
       adapters: [],
       env: { HOME: projectRoot },
       projectRoot,
     });
 
-    const committed = join(projectRoot, ".agent-trail", "config.json");
-    const local = join(projectRoot, ".agent-trail", "config.local.json");
-    const gitignore = join(projectRoot, ".gitignore");
+    const committed = join(realProjectRoot, ".agent-trail", "config.json");
+    const local = join(realProjectRoot, ".agent-trail", "config.local.json");
+    const gitignore = join(realProjectRoot, ".gitignore");
     expect(first.exitCode).toBe(0);
     expect(first.stderr).toBe("");
     expect(existsSync(committed)).toBe(true);
     expect(existsSync(local)).toBe(true);
-    expect(JSON.parse(readFileSync(committed, "utf8"))).toEqual({
-      sources: { defaultFilter: null },
-      tui: { previewByteCap: 65_536, previewEventCap: 500 },
-      keymap: {},
-    });
-    expect(JSON.parse(readFileSync(local, "utf8"))).toEqual({
-      sources: { defaultFilter: null },
-      tui: { previewByteCap: 65_536, previewEventCap: 500 },
-      keymap: {},
-    });
+    expect(JSON.parse(readFileSync(committed, "utf8"))).toEqual({});
+    expect(JSON.parse(readFileSync(local, "utf8"))).toEqual({});
     expect(readFileSync(gitignore, "utf8").split("\n")).toContain(".agent-trail/config.local.json");
     const parsed = JSON.parse(first.stdout) as {
       checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
@@ -229,6 +233,27 @@ test("doctor --fix --yes creates project config scaffold idempotently", async ()
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }
+});
+
+test("doctor --fix --yes reports scaffold failures without throwing a stack trace", async () => {
+  const result = await runDoctor(["--fix", "--yes", "--json"], {
+    adapters: [],
+    scaffoldProjectConfig: async () => {
+      throw new Error("permission denied");
+    },
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as {
+    status: string;
+    checks: Array<{ id: string; message: string; status: string }>;
+  };
+  expect(parsed.status).toBe("error");
+  expect(parsed.checks.find((check) => check.id === "config.scaffold")).toMatchObject({
+    status: "error",
+    message: "config scaffold failed: permission denied",
+  });
 });
 
 test("doctor accepts a v-prefixed Bun runtime version", async () => {
