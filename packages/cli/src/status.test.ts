@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -176,6 +176,38 @@ test("trail status text reports adapter health failures as stdout warnings witho
     expect(result.stdout).toContain("warning: codex: health check failed: permission denied");
     expect(result.stdout).not.toContain("Error:");
     expect(result.stdout).not.toContain("at ");
+  } finally {
+    rmSync(storeRoot, { recursive: true, force: true });
+  }
+});
+
+test("trail status --json warns instead of failing when the store index is malformed", async () => {
+  const storeRoot = mkdtempSync(join(tmpdir(), "trail-cli-status-store-"));
+  try {
+    mkdirSync(join(storeRoot, "index"), { recursive: true });
+    await writeFile(join(storeRoot, "index", "objects.json"), "{not json", "utf8");
+
+    const result = await runCli(["status", "--json"], {
+      adapters: [],
+      config: resolvedConfig(),
+      projectRoot: "/work/project",
+      storeRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const parsed = JSON.parse(result.stdout) as {
+      store: { root: string; entries: number; sessions: number; trails: number };
+      warnings: string[];
+    };
+    expect(parsed.store).toEqual({
+      root: storeRoot,
+      entries: 0,
+      sessions: 0,
+      trails: 0,
+    });
+    expect(parsed.warnings[0]).toContain("index/objects.json");
+    expect(parsed.warnings[0]).toContain("malformed JSON");
   } finally {
     rmSync(storeRoot, { recursive: true, force: true });
   }
