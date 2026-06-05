@@ -6,7 +6,9 @@ import {
 } from "@agent-trail/adapters";
 import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { redactTrail } from "@agent-trail/redact";
+import type { Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
+import { addExamples, type ResultWriter } from "./command.ts";
 import { cliVersion } from "./version.ts";
 
 export type DoctorStatus = "ok" | "warn" | "error";
@@ -210,4 +212,17 @@ function numericParts(version: string): number[] {
     const parsed = Number.parseInt(part, 10);
     return Number.isNaN(parsed) ? 0 : parsed;
   });
+}
+
+export function addDoctorCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("doctor")
+      .option("--json", "Print health report as JSON.", false)
+      .description("Check CLI and adapter health.")
+      .action(async (options: { json: boolean }) => {
+        writeResult(await runDoctor(options.json ? ["--json"] : []));
+      }),
+    ["trail doctor", "trail doctor --json"],
+  );
 }

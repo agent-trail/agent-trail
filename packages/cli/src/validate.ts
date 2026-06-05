@@ -5,6 +5,8 @@ import {
   type ValidationProfile,
   validateTrailStream,
 } from "@agent-trail/core";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 
 export type RunValidateResult = {
   exitCode: number;
@@ -46,4 +48,19 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
       : `${formatDiagnosticsText(diagnostics)}\n`;
 
   return { exitCode: hasError ? 1 : 0, stdout, stderr: "" };
+}
+
+export function addValidateCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("validate")
+      .argument("<file>")
+      .option("--json", "Print diagnostics as JSON.", false)
+      .option("--profile <profile>", "Validation profile.", "strict")
+      .description("Validate a Trail file.")
+      .action(async (file: string, options: { json: boolean; profile: string }) => {
+        writeResult(await runValidate({ file, json: options.json, profile: options.profile }));
+      }),
+    ["trail validate session.trail.jsonl", "trail validate session.trail.jsonl --profile reader"],
+  );
 }

@@ -9,6 +9,8 @@ import {
   registerTrail,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 import { ghGistFetch } from "./gist-fetch.ts";
 import { preflightOutputPath, writeOutputFile } from "./write-output-file.ts";
 
@@ -197,4 +199,22 @@ export async function runLoad(
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+export function addLoadCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("load")
+      .argument("<url>")
+      .option("--out <path>", "Write canonical loaded bytes to a file.")
+      .option("--force", "Overwrite --out when it already exists.", false)
+      .description("Load a shared Trail file.")
+      .action(async (url: string, options: Omit<RunLoadOptions, "url">) => {
+        writeResult(await runLoad({ url, out: options.out, force: options.force }));
+      }),
+    [
+      "trail load https://agent-trail.dev/view/gist/abcdef1234567890abcd",
+      "trail load https://agent-trail.dev/view/gist/abcdef1234567890abcd --out loaded.trail.jsonl",
+    ],
+  );
 }
