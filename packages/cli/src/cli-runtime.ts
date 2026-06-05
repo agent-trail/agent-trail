@@ -6,11 +6,13 @@ import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.ts";
 import { addDiscoverCommand } from "./discover.ts";
 import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
-import { addListCommand } from "./list.ts";
+import { addListCommand, runListBrowser } from "./list.ts";
+import type { Row } from "./list-model.ts";
 import { addLoadCommand } from "./load.ts";
 import { addRegisterCommand } from "./register.ts";
 import { addShareCommand } from "./share.ts";
 import { addStatusCommand } from "./status.ts";
+import type { TerminalIo } from "./terminal.ts";
 import { addValidateCommand } from "./validate.ts";
 import { addVersionCommand, runVersion } from "./version.ts";
 
@@ -20,6 +22,8 @@ type OutputBuffer = {
 };
 
 const GLOBAL_HELP_HINT = "Run `trail <command> --help` for command-specific flags and examples.";
+const TTY_BROWSER_HELP_HINT =
+  "In a TTY, bare `trail` opens the session browser; run `trail --help` for usage.";
 
 export type RunCliContext = {
   adapters?: readonly TrailAdapter[];
@@ -27,9 +31,12 @@ export type RunCliContext = {
   env?: Record<string, string | undefined>;
   projectRoot?: string;
   storeRoot?: string;
+  terminal?: TerminalIo;
+  runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<CliResult>;
 };
 
 export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {
+  const effectiveContext = withDefaultTerminal(context);
   const [subcommand, ...rest] = argv;
   if (subcommand === "--version" || subcommand === "-V") {
     return runVersion(rest);
@@ -37,16 +44,21 @@ export async function runCli(argv: string[], context: RunCliContext = {}): Promi
 
   const output: OutputBuffer = { stdout: "", stderr: "" };
   if (argv.length === 0) {
-    const program = buildProgram(output, context);
+    if (effectiveContext.terminal?.isTTY === true) {
+      const commandContext = await resolveCommandContext(["list"], effectiveContext);
+      if ("exitCode" in commandContext) return commandContext;
+      return runListBrowser({}, commandContext);
+    }
+    const program = buildProgram(output, effectiveContext);
     const help = program.helpInformation();
     return {
       exitCode: 0,
-      stdout: help.includes(GLOBAL_HELP_HINT) ? help : `${help}\n${GLOBAL_HELP_HINT}\n`,
+      stdout: appendGlobalHelpHints(help),
       stderr: "",
     };
   }
 
-  const commandContext = await resolveCommandContext(argv, context);
+  const commandContext = await resolveCommandContext(argv, effectiveContext);
   if ("exitCode" in commandContext) return commandContext;
   const program = buildProgram(output, commandContext);
 
@@ -63,6 +75,20 @@ export async function runCli(argv: string[], context: RunCliContext = {}): Promi
     }
     throw error;
   }
+}
+
+function withDefaultTerminal(context: RunCliContext): RunCliContext {
+  if (context.terminal !== undefined) return context;
+  return {
+    ...context,
+    terminal: {
+      isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true,
+      stdin: process.stdin,
+      stdout: process.stdout,
+      width: process.stdout.columns,
+      height: process.stdout.rows,
+    },
+  };
 }
 
 async function resolveCommandContext(
@@ -109,7 +135,7 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
 
   program
     .description("Agent Trail command-line interface.")
-    .addHelpText("after", `\n${GLOBAL_HELP_HINT}\n`);
+    .addHelpText("after", `\n${TTY_BROWSER_HELP_HINT}\n${GLOBAL_HELP_HINT}\n`);
 
   const writeResult = (result: CliResult) => appendCommandResult(result, output);
   addVersionCommand(program, writeResult);
@@ -118,6 +144,8 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
     adapters: context.adapters,
     config: context.config,
     storeRoot: context.storeRoot,
+    terminal: context.terminal,
+    runSessionBrowser: context.runSessionBrowser,
   });
   addRegisterCommand(program, writeResult);
   addDiscoverCommand(program, writeResult, {
@@ -145,6 +173,13 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
   addExportCommand(program, writeResult);
 
   return program;
+}
+
+function appendGlobalHelpHints(help: string): string {
+  let output = help;
+  if (!output.includes(TTY_BROWSER_HELP_HINT)) output = `${output}\n${TTY_BROWSER_HELP_HINT}`;
+  if (!output.includes(GLOBAL_HELP_HINT)) output = `${output}\n${GLOBAL_HELP_HINT}`;
+  return output.endsWith("\n") ? output : `${output}\n`;
 }
 
 function appendCommandResult(result: CliResult, output: OutputBuffer): void {

@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { runList } from "./list.ts";
+import { runList, runListBrowser } from "./list.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -680,6 +681,138 @@ test("runCli list uses injected adapters", async () => {
   expect(result.stderr).toBe("");
   const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
   expect(parsed.map((r) => r.source_id)).toEqual(["sess-runcli-list"]);
+});
+
+test("runCli list opens TUI in TTY", async () => {
+  let launched = false;
+  const result = await runCli(["list"], {
+    config: resolvedConfig(null),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-tui",
+          adapter: "codex",
+          cwd: process.cwd(),
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+    ],
+    storeRoot,
+    terminal: { isTTY: true },
+    runSessionBrowser: async ({ rows }) => {
+      launched = true;
+      expect(rows.map((row) => row.source_id)).toEqual(["sess-tui"]);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+  });
+
+  expect(launched).toBe(true);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser uses default OpenTUI handoff with custom streams", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  setTimeout(() => stdin.write("q"), 10);
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      terminal: {
+        isTTY: true,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        width: 80,
+        height: 24,
+      },
+    },
+  );
+
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runCli list keeps plain output in non-TTY", async () => {
+  const result = await runCli(["list"], {
+    config: resolvedConfig(null),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-plain",
+          adapter: "codex",
+          cwd: process.cwd(),
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+    ],
+    storeRoot,
+    terminal: { isTTY: false },
+    runSessionBrowser: async () => {
+      throw new Error("should not launch TUI");
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("sess-plain");
+});
+
+test("runCli list --json and --plain bypass TUI in TTY", async () => {
+  const context = {
+    config: resolvedConfig(null),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-json",
+          adapter: "codex",
+          cwd: process.cwd(),
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+    ],
+    storeRoot,
+    terminal: { isTTY: true },
+    runSessionBrowser: async () => {
+      throw new Error("should not launch TUI");
+    },
+  };
+
+  const json = await runCli(["list", "--json"], context);
+  expect(JSON.parse(json.stdout)).toEqual([expect.objectContaining({ source_id: "sess-json" })]);
+
+  const plain = await runCli(["list", "--plain"], context);
+  expect(plain.stdout).toContain("sess-json");
+});
+
+test("runCli with no args opens TUI in TTY", async () => {
+  let launched = false;
+  const result = await runCli([], {
+    config: resolvedConfig(null),
+    adapters: [],
+    storeRoot,
+    terminal: { isTTY: true },
+    runSessionBrowser: async ({ rows }) => {
+      launched = true;
+      expect(rows).toEqual([]);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+  });
+
+  expect(launched).toBe(true);
+  expect(result.exitCode).toBe(0);
+});
+
+test("runCli with no args keeps help in non-TTY", async () => {
+  const result = await runCli([], {
+    terminal: { isTTY: false },
+    runSessionBrowser: async () => {
+      throw new Error("should not launch TUI");
+    },
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("Agent Trail command-line interface.");
 });
 
 test("runCli list loads default source filter from config files", async () => {

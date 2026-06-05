@@ -26,6 +26,7 @@
     "@agent-trail/redact": "workspace:*",
     "@agent-trail/schema": "workspace:*",
     "@agent-trail/store": "workspace:*",
+    "@opentui/core": "^0.3.2",
     "commander": "^15.0.0"
   },
   "scripts": {

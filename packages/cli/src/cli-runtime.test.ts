@@ -171,6 +171,9 @@ test("trail help exposes the Commander command surface", async () => {
   expect(result.stdout).toContain("adapters");
   expect(result.stdout).toContain("export");
   expect(result.stdout).toContain(
+    "In a TTY, bare `trail` opens the session browser; run `trail --help` for usage.",
+  );
+  expect(result.stdout).toContain(
     "Run `trail <command> --help` for command-specific flags and examples.",
   );
 });
@@ -183,6 +186,9 @@ test("trail with no args prints help and exits 0", async () => {
   expect(result.stdout).toContain("Usage: trail [options] [command]");
   expect(result.stdout).toContain("version");
   expect(result.stdout).toContain("register");
+  expect(result.stdout).toContain(
+    "In a TTY, bare `trail` opens the session browser; run `trail --help` for usage.",
+  );
   expect(result.stdout).toContain(
     "Run `trail <command> --help` for command-specific flags and examples.",
   );
