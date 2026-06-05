@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { runCli } from "./cli-runtime.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { runDiscover } from "./discover.ts";
 
 // Mangling rules mirrored from the adapters so the test seeds the same dirs
@@ -111,6 +112,17 @@ function seedOpenCodeDbSession(seed: { id: string; cwd: string; modifiedAt: stri
   ).run({ $id: seed.id, $cwd: seed.cwd, $updated: updated });
   db.close();
   return dbPath;
+}
+
+function resolvedConfig(defaultFilter: string | null): ResolvedConfig {
+  return {
+    config: {
+      sources: { defaultFilter },
+      tui: { previewByteCap: 65_536, previewEventCap: 500 },
+      keymap: {},
+    },
+    sources: [],
+  };
 }
 
 let prevHome: string | undefined;
@@ -317,6 +329,92 @@ test("--agent filters to a single adapter", async () => {
   expect(parsed).toHaveLength(1);
   expect(parsed[0]?.adapter).toBe("pi");
   expect(parsed[0]?.id).toBe("sess-pi");
+});
+
+test("resolved config default source filter applies through runCli discover", async () => {
+  const result = await runCli(["discover", "--json", "--all"], {
+    config: resolvedConfig("pi"),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-codex",
+          adapter: "codex",
+          cwd: "/work/config",
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+      stubAdapter("pi", [
+        {
+          id: "sess-pi",
+          adapter: "pi",
+          cwd: "/work/config",
+          modifiedAt: "2026-05-18T14:00:00.000Z",
+        },
+      ]),
+    ],
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{
+    adapter: string;
+    cwd: string;
+    id: string;
+    modified_at: string;
+    path: string | null;
+  }>;
+  expect(parsed).toEqual([
+    {
+      id: "sess-pi",
+      adapter: "pi",
+      cwd: "/work/config",
+      modified_at: "2026-05-18T14:00:00.000Z",
+      path: null,
+    },
+  ]);
+});
+
+test("--agent overrides resolved config default source filter through runCli discover", async () => {
+  const result = await runCli(["discover", "--json", "--all", "--agent", "codex-cli"], {
+    config: resolvedConfig("pi"),
+    adapters: [
+      stubAdapter("codex", [
+        {
+          id: "sess-codex",
+          adapter: "codex",
+          cwd: "/work/config",
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ]),
+      stubAdapter("pi", [
+        {
+          id: "sess-pi",
+          adapter: "pi",
+          cwd: "/work/config",
+          modifiedAt: "2026-05-18T14:00:00.000Z",
+        },
+      ]),
+    ],
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{
+    adapter: string;
+    cwd: string;
+    id: string;
+    modified_at: string;
+    path: string | null;
+  }>;
+  expect(parsed).toEqual([
+    {
+      id: "sess-codex",
+      adapter: "codex",
+      cwd: "/work/config",
+      modified_at: "2026-05-17T14:00:00.000Z",
+      path: null,
+    },
+  ]);
 });
 
 test("--cwd overrides default cwd and is matched against header cwd", async () => {

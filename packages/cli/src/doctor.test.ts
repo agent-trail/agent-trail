@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +20,8 @@ import type {
 } from "@agent-trail/adapters";
 import { claudeCodeAdapter, codexAdapter, piAdapter } from "@agent-trail/adapters";
 import pkg from "../package.json" with { type: "json" };
+import { runCli } from "./cli-runtime.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { runDoctor } from "./doctor.ts";
 
 function mangleClaude(cwd: string): string {
@@ -92,6 +103,22 @@ function fakeAdapter(health: AdapterSourceHealth): TrailAdapter {
   };
 }
 
+function resolvedConfig(): ResolvedConfig {
+  return {
+    config: {
+      sources: { defaultFilter: "pi" },
+      tui: { previewByteCap: 2048, previewEventCap: 250 },
+      keymap: {},
+    },
+    sources: [
+      { layer: "built_in", path: null, status: "default" },
+      { layer: "user_global", path: "/home/test/.config/trail/config.json", status: "loaded" },
+      { layer: "project_committed", path: "/work/.agent-trail/config.json", status: "loaded" },
+      { layer: "project_local", path: "/work/.agent-trail/config.local.json", status: "missing" },
+    ],
+  };
+}
+
 async function runTrail(
   args: string[],
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -132,6 +159,148 @@ test("doctor --json includes Bun runtime health", async () => {
   expect(parsed.checks.find((check) => check.id === "runtime.bun")).toMatchObject({
     status: "ok",
     details: { version: "1.3.11", minimum: "1.3.11" },
+  });
+});
+
+test("doctor --json includes resolved config sources", async () => {
+  const config = resolvedConfig();
+  const result = await runCli(["doctor", "--json"], { adapters: [], config });
+
+  expect(result.exitCode).toBe(0);
+  const parsed = JSON.parse(result.stdout) as {
+    checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
+  };
+  expect(parsed.checks.find((check) => check.id === "config.sources")).toMatchObject({
+    status: "ok",
+    details: {
+      config: config.config,
+      sources: config.sources,
+    },
+  });
+});
+
+test("doctor human output lists resolved config sources", async () => {
+  const config = resolvedConfig();
+  const result = await runCli(["doctor"], { adapters: [], config });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("config");
+  expect(result.stdout).toContain("ok  config layers resolved");
+  expect(result.stdout).toContain("  - built_in: default");
+  expect(result.stdout).toContain("  - user_global: loaded (/home/test/.config/trail/config.json)");
+  expect(result.stdout).toContain("  - project_committed: loaded (/work/.agent-trail/config.json)");
+  expect(result.stdout).toContain(
+    "  - project_local: missing (/work/.agent-trail/config.local.json)",
+  );
+});
+
+test("doctor --fix requires --yes", async () => {
+  const result = await runCli(["doctor", "--fix"], { adapters: [], config: resolvedConfig() });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toBe(
+    "doctor: --fix requires --yes\nUsage: trail doctor [--json] [--fix --yes]\n",
+  );
+});
+
+test("doctor --fix --yes creates project config scaffold idempotently", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-fix-"));
+  try {
+    const realProjectRoot = realpathSync(projectRoot);
+    const first = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    const committed = join(realProjectRoot, ".agent-trail", "config.json");
+    const local = join(realProjectRoot, ".agent-trail", "config.local.json");
+    const gitignore = join(realProjectRoot, ".gitignore");
+    expect(first.exitCode).toBe(0);
+    expect(first.stderr).toBe("");
+    expect(existsSync(committed)).toBe(true);
+    expect(existsSync(local)).toBe(true);
+    expect(JSON.parse(readFileSync(committed, "utf8"))).toEqual({});
+    expect(JSON.parse(readFileSync(local, "utf8"))).toEqual({});
+    expect(readFileSync(gitignore, "utf8").split("\n")).toContain(".agent-trail/config.local.json");
+    const parsed = JSON.parse(first.stdout) as {
+      checks: Array<{ id: string; status: string; details?: Record<string, unknown> }>;
+    };
+    expect(parsed.checks.find((check) => check.id === "config.scaffold")).toMatchObject({
+      status: "ok",
+      details: {
+        created: [committed, local, gitignore],
+      },
+    });
+
+    const second = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(second.exitCode).toBe(0);
+    const ignoredLines = readFileSync(gitignore, "utf8")
+      .split("\n")
+      .filter((line) => line === ".agent-trail/config.local.json");
+    expect(ignoredLines).toHaveLength(1);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor --fix --yes refreshes config sources after scaffolding", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-doctor-refresh-"));
+  try {
+    const realProjectRoot = realpathSync(projectRoot);
+    const committed = join(realProjectRoot, ".agent-trail", "config.json");
+    const local = join(realProjectRoot, ".agent-trail", "config.local.json");
+    const staleConfig = resolvedConfig();
+    const result = await runCli(["doctor", "--fix", "--yes", "--json"], {
+      adapters: [],
+      config: staleConfig,
+      env: { HOME: projectRoot },
+      projectRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      checks: Array<{ id: string; details?: Record<string, unknown> }>;
+    };
+    const sources = parsed.checks.find((check) => check.id === "config.sources")?.details
+      ?.sources as Array<{ layer: string; path: string | null; status: string }>;
+    expect(sources).toContainEqual({
+      layer: "project_committed",
+      path: committed,
+      status: "loaded",
+    });
+    expect(sources).toContainEqual({ layer: "project_local", path: local, status: "loaded" });
+    expect(sources).not.toEqual(staleConfig.sources);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("doctor --fix --yes reports scaffold failures without throwing a stack trace", async () => {
+  const result = await runDoctor(["--fix", "--yes", "--json"], {
+    adapters: [],
+    scaffoldProjectConfig: async () => {
+      throw new Error("permission denied");
+    },
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as {
+    status: string;
+    checks: Array<{ id: string; message: string; status: string }>;
+  };
+  expect(parsed.status).toBe("error");
+  expect(parsed.checks.find((check) => check.id === "config.scaffold")).toMatchObject({
+    status: "error",
+    message: "config scaffold failed: permission denied",
   });
 });
 

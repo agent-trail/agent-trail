@@ -7,6 +7,7 @@ import {
 import type { Command } from "commander";
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunDiscoverResult = {
@@ -29,6 +30,11 @@ export type RunDiscoverOptions = {
   caseSensitive?: boolean;
 };
 
+export type RunDiscoverContext = {
+  adapters?: readonly TrailAdapter[];
+  config?: ResolvedConfig;
+};
+
 type Row = {
   id: string;
   adapter: string;
@@ -40,6 +46,9 @@ type Row = {
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
 const SEARCH_HEAD_BYTES = 65_536;
+const ADAPTER_AGENT_ALIASES: Record<string, readonly string[]> = {
+  codex: ["codex-cli"],
+};
 
 function parseLimit(limit: string | undefined): { limit?: number; error?: string } {
   if (limit === undefined) return {};
@@ -74,7 +83,10 @@ async function matchesSearch(row: Row, query: string, caseSensitive: boolean): P
   }
 }
 
-export async function runDiscover(options: RunDiscoverOptions = {}): Promise<RunDiscoverResult> {
+export async function runDiscover(
+  options: RunDiscoverOptions = {},
+  context: RunDiscoverContext = {},
+): Promise<RunDiscoverResult> {
   const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
@@ -84,8 +96,9 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     return { exitCode: 1, stdout: "", stderr: `${parsedLimit.error}\n` };
   }
 
-  const adapters = (options.adapters ?? cliDefaultAdapters()).filter(
-    (a) => options.agent === undefined || a.name === options.agent,
+  const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
+  const adapters = (options.adapters ?? context.adapters ?? cliDefaultAdapters()).filter((a) =>
+    adapterMatchesAgent(a.name, agentFilter),
   );
 
   const detectOpts: DetectOptions = {};
@@ -167,6 +180,13 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
   return { exitCode: 0, stdout: renderText(renderedRows), stderr };
 }
 
+function adapterMatchesAgent(adapterName: string, agentFilter: string | undefined): boolean {
+  if (agentFilter === undefined) return true;
+  return (
+    adapterName === agentFilter || (ADAPTER_AGENT_ALIASES[adapterName] ?? []).includes(agentFilter)
+  );
+}
+
 function renderText(rows: Row[]): string {
   return `${rows
     .map(
@@ -178,7 +198,11 @@ function renderText(rows: Row[]): string {
     .join("\n")}\n`;
 }
 
-export function addDiscoverCommand(program: Command, writeResult: ResultWriter): void {
+export function addDiscoverCommand(
+  program: Command,
+  writeResult: ResultWriter,
+  context: RunDiscoverContext = {},
+): void {
   addExamples(
     program
       .command("discover")
@@ -193,7 +217,7 @@ export function addDiscoverCommand(program: Command, writeResult: ResultWriter):
       .option("--case-sensitive", "Make --search matching case-sensitive.", false)
       .description("Discover source-agent sessions.")
       .action(async (options: RunDiscoverOptions) => {
-        writeResult(await runDiscover(options));
+        writeResult(await runDiscover(options, context));
       }),
     ["trail discover", "trail discover --agent codex-cli --json"],
   );

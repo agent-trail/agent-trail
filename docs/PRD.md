@@ -232,7 +232,7 @@ Explicitly out of scope to keep focus:
 | U6 | Cross-tool engineer | "Share a session publicly on Twitter without leaking API keys" | Redaction pipeline runs by default; user confirms before share |
 | U7 | Cross-tool engineer | "View a Pi session that has branches" | Web viewer renders linear path; surfaces abandoned branches as notice |
 | U8 | Cross-tool engineer | "Search my own sessions from inside Claude Code" | Deferred MCP server exposes `search_sessions`, `load_session`; Claude Code can call it after the v1 CLI/viewer launch |
-| U9 | Cross-tool engineer | "Set up Agent Trail for the first time" | `trail doctor` diagnoses; `trail doctor --fix` configures; zero-config works for default install locations |
+| U9 | Cross-tool engineer | "Set up Agent Trail for the first time" | `trail doctor` diagnoses; `trail doctor --fix --yes` configures; zero-config works for default install locations |
 | U10 | Team lead | "Add session review to our PR workflow" | GitHub Action posts session-digest comment when PR description references a trail URL |
 
 ---
@@ -273,7 +273,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 
 ### 7.4 CLI tool (`trail`)
 
-- `trail doctor` / `trail doctor --fix` — diagnose and configure environment.
+- `trail doctor` / `trail doctor --fix --yes` — diagnose and configure environment.
 - `trail discover` — list local source-agent sessions on disk (current cwd by default; `--all` walks every project dir). Filters: `--agent`, `--cwd`, `--since`, `--until`, `--search`; result cap: `--limit`. `--search` is deterministic substring search across session metadata and the first 64 KiB of session content, case-insensitive by default with `--case-sensitive` available. Use this to pick a session to register or share.
 - `trail list` — list trails registered in the local store (content-addressed objects).
 - `trail view <id>` — render a session to terminal.
@@ -428,7 +428,7 @@ trail validate <file> [--json] [--profile strict|reader-tolerant]
 **Command surface (v1):**
 
 ```
-trail doctor [--fix] [--yes]
+trail doctor [--fix --yes]
 trail list [--agent <name>] [--cwd <path>] [--since <date>] [--search <query>]
 trail view <id-or-path> [--format text|json] [--full]
 trail register <file|adapter:id> [--json]
@@ -448,7 +448,7 @@ trail adapters status
   - Is `gh` CLI installed (required for `share`)?
   - Is MCP server config writable? (future/deferred)
   - Are secret-list files in place (`~/.config/trail/secrets.txt`)?
-- Fix mode (`--fix`): applies recommended setup with explicit confirmation. Use `--yes` for non-interactive mode.
+- Fix mode (`--fix --yes`): applies recommended setup in non-interactive mode.
 
 **Cross-cutting requirements:**
 

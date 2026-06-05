@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
+import type { ResolvedConfig } from "./config.ts";
 import { runList } from "./list.ts";
 
 type SeedOpts = {
@@ -62,6 +63,17 @@ async function overrideRegisteredAt(
     if (entry !== undefined) entry.registered_at = ts;
   }
   await writeFile(indexPath, `${JSON.stringify(idx, null, 2)}\n`, "utf8");
+}
+
+function resolvedConfig(defaultFilter: string | null): ResolvedConfig {
+  return {
+    config: {
+      sources: { defaultFilter },
+      tui: { previewByteCap: 65_536, previewEventCap: 500 },
+      keymap: {},
+    },
+    sources: [],
+  };
 }
 
 let storeRoot: string;
@@ -165,6 +177,98 @@ test("--agent filters by exact agent name", async () => {
   expect(parsed).toHaveLength(1);
   expect(parsed[0]?.content_hash).toBe(claude.contentHash);
   expect(parsed[0]?.agent).toBe("claude-code");
+});
+
+test("resolved config default source filter applies through runCli list", async () => {
+  const codex = await seedTrail({
+    id: "01HSESS0000000000000000AAA",
+    agentName: "codex-cli",
+    cwd: "/work/a",
+  });
+  const pi = await seedTrail({
+    id: "01HSESS0000000000000000ABB",
+    agentName: "pi",
+    cwd: "/work/b",
+  });
+  await registerTrail(codex.filePath, { storeRoot });
+  await registerTrail(pi.filePath, { storeRoot });
+
+  const result = await runCli(["list", "--json"], {
+    config: resolvedConfig("pi"),
+    storeRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string; agent: string }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]?.content_hash).toBe(pi.contentHash);
+  expect(parsed[0]?.agent).toBe("pi");
+});
+
+test("runCli list loads default source filter from config files", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-config-"));
+  try {
+    mkdirSync(join(projectRoot, ".agent-trail"), { recursive: true });
+    writeFileSync(
+      join(projectRoot, ".agent-trail", "config.json"),
+      JSON.stringify({ sources: { defaultFilter: "pi" } }),
+    );
+    const codex = await seedTrail({
+      id: "01HSESS0000000000000000AAA",
+      agentName: "codex-cli",
+      cwd: "/work/a",
+    });
+    const pi = await seedTrail({
+      id: "01HSESS0000000000000000ABB",
+      agentName: "pi",
+      cwd: "/work/b",
+    });
+    await registerTrail(codex.filePath, { storeRoot });
+    await registerTrail(pi.filePath, { storeRoot });
+
+    const result = await runCli(["list", "--json"], {
+      env: { HOME: projectRoot },
+      projectRoot,
+      storeRoot,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string; agent: string }>;
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.content_hash).toBe(pi.contentHash);
+    expect(parsed[0]?.agent).toBe("pi");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("--agent overrides resolved config default source filter through runCli list", async () => {
+  const codex = await seedTrail({
+    id: "01HSESS0000000000000000AAA",
+    agentName: "codex-cli",
+    cwd: "/work/a",
+  });
+  const pi = await seedTrail({
+    id: "01HSESS0000000000000000ABB",
+    agentName: "pi",
+    cwd: "/work/b",
+  });
+  await registerTrail(codex.filePath, { storeRoot });
+  await registerTrail(pi.filePath, { storeRoot });
+
+  const result = await runCli(["list", "--json", "--agent", "codex-cli"], {
+    config: resolvedConfig("pi"),
+    storeRoot,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{ content_hash: string; agent: string }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]?.content_hash).toBe(codex.contentHash);
+  expect(parsed[0]?.agent).toBe("codex-cli");
 });
 
 test("--cwd filters by exact cwd", async () => {
