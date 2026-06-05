@@ -41,7 +41,7 @@ export async function runSessionBrowserTui(
     stdout: terminal.stdout,
     width: terminal.width,
     height: terminal.height,
-    screenMode: "alternate-screen",
+    screenMode: terminal.isTTY === true ? "alternate-screen" : "main-screen",
     consoleMode: "disabled",
     exitOnCtrlC: false,
     clearOnShutdown: true,
@@ -281,9 +281,10 @@ export function sanitizeTerminalText(value: string): string {
 }
 
 function exitResult(state: BrowserState): CliResult {
+  const warnings = state.warnings.map(sanitizeTerminalText);
   return {
     exitCode: 0,
     stdout: "",
-    stderr: state.warnings.length === 0 ? "" : `${state.warnings.join("\n")}\n`,
+    stderr: warnings.length === 0 ? "" : `${warnings.join("\n")}\n`,
   };
 }

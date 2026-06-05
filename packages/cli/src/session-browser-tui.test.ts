@@ -242,7 +242,7 @@ test("browser returns warnings after alternate-screen exit", async () => {
   try {
     const app = mountSessionBrowser(setup.renderer, {
       rows,
-      warnings: ["warning: source failed"],
+      warnings: ["warning: \x1b]52;c;secret\x07source\rfailed"],
     });
     await setup.renderOnce();
 
@@ -250,6 +250,7 @@ test("browser returns warnings after alternate-screen exit", async () => {
     const result = await app.waitForExit();
 
     expect(result.stderr).toBe("warning: source failed\n");
+    expect(result.stderr).not.toContain("\x1b");
   } finally {
     if (!setup.renderer.isDestroyed) setup.renderer.destroy();
   }
