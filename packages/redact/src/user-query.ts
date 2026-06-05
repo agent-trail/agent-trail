@@ -41,6 +41,7 @@ export function stripSecretUserQueryAnswers(
       const alreadyStripped =
         source.raw !== null &&
         typeof source.raw === "object" &&
+        Object.keys(source.raw).length === 1 &&
         (source.raw as Record<string, unknown>).redacted ===
           "[STRIPPED secret user_query_response source.raw]";
       if (!alreadyStripped) {
