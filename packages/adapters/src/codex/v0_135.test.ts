@@ -428,7 +428,7 @@ describe("codex v0.135 image-bearing response_item.message", () => {
     ]);
   });
 
-  test("oversized inline images do not decode into attachment URIs", async () => {
+  test("oversized inline images do not emit non-actionable attachments", async () => {
     const dir = await mkdtemp(join(tmpdir(), "agent-trail-codex-images-"));
     const path = join(dir, "oversized-image.jsonl");
     const encodedBytesOverCap = Math.ceil((INLINE_IMAGE_MAX_DECODED_BYTES + 1) / 3) * 4;
@@ -445,12 +445,7 @@ describe("codex v0.135 image-bearing response_item.message", () => {
       const all = await parseCodexEntries(path, "unit-test");
       expectWriterStrict(all);
       const user = all.find((e) => e.type === "user_message");
-      expect((user?.payload as { attachments?: unknown }).attachments).toEqual([
-        {
-          kind: "image",
-          media_type: "image/png",
-        },
-      ]);
+      expect((user?.payload as { attachments?: unknown }).attachments).toBeUndefined();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
