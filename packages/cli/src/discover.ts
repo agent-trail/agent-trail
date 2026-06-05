@@ -1,6 +1,8 @@
 import {
   type DetectOptions,
+  DISCOVERY_CONCURRENCY_LIMIT,
   defaultTrailAdapters,
+  mapConcurrent,
   type SessionRef,
   type TrailAdapter,
 } from "@agent-trail/adapters";
@@ -23,6 +25,9 @@ export type RunDiscoverOptions = {
   cwd?: string;
   since?: string;
   until?: string;
+  limit?: string;
+  search?: string;
+  caseSensitive?: boolean;
 };
 
 type Row = {
@@ -35,11 +40,49 @@ type Row = {
 
 const SHORT_ID_LEN = 12;
 const MISSING_TEXT = "-";
+const SEARCH_HEAD_BYTES = 65_536;
+
+function parseLimit(limit: string | undefined): { limit?: number; error?: string } {
+  if (limit === undefined) return {};
+  if (!/^[1-9]\d*$/.test(limit)) {
+    return { error: `invalid --limit: expected positive integer, got '${limit}'` };
+  }
+  return { limit: Number.parseInt(limit, 10) };
+}
+
+function includesQuery(value: string, query: string, caseSensitive: boolean): boolean {
+  if (caseSensitive) return value.includes(query);
+  return value.toLowerCase().includes(query.toLowerCase());
+}
+
+function rowMetadata(row: Row): string {
+  return [row.id, row.adapter, row.cwd, row.modified_at, row.path]
+    .filter((value): value is string => value !== null)
+    .join("\n");
+}
+
+async function readSearchHead(path: string): Promise<string> {
+  return Bun.file(path).slice(0, SEARCH_HEAD_BYTES).text();
+}
+
+async function matchesSearch(row: Row, query: string, caseSensitive: boolean): Promise<boolean> {
+  if (includesQuery(rowMetadata(row), query, caseSensitive)) return true;
+  if (row.path === null) return false;
+  try {
+    return includesQuery(await readSearchHead(row.path), query, caseSensitive);
+  } catch {
+    return false;
+  }
+}
 
 export async function runDiscover(options: RunDiscoverOptions = {}): Promise<RunDiscoverResult> {
   const { sinceMs, untilMs, errors: boundErrors } = parseTimeBounds(options.since, options.until);
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
+  }
+  const parsedLimit = parseLimit(options.limit);
+  if (parsedLimit.error !== undefined) {
+    return { exitCode: 1, stdout: "", stderr: `${parsedLimit.error}\n` };
   }
 
   const adapters = (options.adapters ?? defaultTrailAdapters()).filter(
@@ -86,7 +129,15 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     path: r.path ?? null,
   }));
 
-  const filtered = rows.filter((r) => boundedBy(r.modified_at, sinceMs, untilMs));
+  const timeFiltered = rows.filter((r) => boundedBy(r.modified_at, sinceMs, untilMs));
+  let filtered = timeFiltered;
+  const search = options.search;
+  if (search !== undefined) {
+    const matches = await mapConcurrent(timeFiltered, DISCOVERY_CONCURRENCY_LIMIT, async (row) =>
+      matchesSearch(row, search, options.caseSensitive === true),
+    );
+    filtered = timeFiltered.filter((_row, index) => matches[index] === true);
+  }
 
   filtered.sort((a, b) => {
     const aTs = a.modified_at;
@@ -99,14 +150,22 @@ export async function runDiscover(options: RunDiscoverOptions = {}): Promise<Run
     return a.id < b.id ? -1 : 1;
   });
 
+  const renderedRows =
+    parsedLimit.limit === undefined ? filtered : filtered.slice(0, parsedLimit.limit);
+  if (parsedLimit.limit !== undefined && filtered.length > parsedLimit.limit) {
+    warnings.push(
+      `warning: ${filtered.length} sessions matched; showing first ${parsedLimit.limit}`,
+    );
+  }
+
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
   if (options.json === true) {
-    return { exitCode: 0, stdout: renderJson(filtered), stderr };
+    return { exitCode: 0, stdout: renderJson(renderedRows), stderr };
   }
-  if (filtered.length === 0) {
+  if (renderedRows.length === 0) {
     return { exitCode: 0, stdout: "", stderr };
   }
-  return { exitCode: 0, stdout: renderText(filtered), stderr };
+  return { exitCode: 0, stdout: renderText(renderedRows), stderr };
 }
 
 function renderText(rows: Row[]): string {
@@ -130,6 +189,9 @@ export function addDiscoverCommand(program: Command, writeResult: ResultWriter):
       .option("--cwd <path>", "Discover sessions for a cwd.")
       .option("--since <iso>", "Include sessions modified at or after this time.")
       .option("--until <iso>", "Include sessions modified before this time.")
+      .option("--limit <n>", "Limit result rows after sorting.")
+      .option("--search <query>", "Filter sessions by substring in content or metadata.")
+      .option("--case-sensitive", "Make --search matching case-sensitive.", false)
       .description("Discover source-agent sessions.")
       .action(async (options: RunDiscoverOptions) => {
         writeResult(await runDiscover(options));
