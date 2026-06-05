@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { parseJsonlString, verifyContentHash } from "@agent-trail/core";
 import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
+import { writerStrictObjectIndexPolicy } from "./object-index-policy.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
 
 const OBJECT_NAME = /^([0-9a-f]{64})\.trail\.jsonl$/;
@@ -41,26 +41,20 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
 
     // Skip files whose hash cannot be verified (parse error, mismatch, etc.)
     // so one corrupt object does not abort the whole rebuild.
-    let verified = false;
-    let sessionUid: string | null = null;
+    let raw: string;
     try {
-      const raw = await readFile(path, "utf8");
-      const records = await parseJsonlString(raw);
-      const verification = verifyContentHash(records);
-      verified = verification.status === "match" && verification.expected === filenameHash;
-      if (verified) {
-        for (const record of records) {
-          if (record.value.type === "session") {
-            const uid = (record.value as { session_uid?: unknown }).session_uid;
-            if (typeof uid === "string") sessionUid = uid;
-            break;
-          }
-        }
-      }
-    } catch {
-      verified = false;
+      raw = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
     }
-    if (!verified) {
+
+    const eligible = await writerStrictObjectIndexPolicy(raw);
+    const row =
+      eligible.status === "valid"
+        ? eligible.policy.rows.find((candidate) => candidate.contentHash === filenameHash)
+        : undefined;
+    if (row === undefined) {
       continue;
     }
 
@@ -68,7 +62,8 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
     index.entries[filenameHash] = {
       registered_at: info.mtime.toISOString(),
       source_path: null,
-      session_uid: sessionUid,
+      session_uid: row.session_uid,
+      kind: row.kind,
     };
   }
 

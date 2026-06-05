@@ -1,19 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
-import type { Diagnostic, JsonlRecord } from "@agent-trail/core";
-import {
-  canonicalizeRecords,
-  diagnosticFromJsonlParseError,
-  JsonlParseError,
-  parseJsonlString,
-  splitSessionGroups,
-  validateTrailGraph,
-  validateWriterStrictSchemaJsonlString,
-  verifyAllSessionContentHashes,
-  verifyTrailEnvelopeContentHash,
-} from "@agent-trail/core";
+import type { Diagnostic } from "@agent-trail/core";
+import { canonicalizeRecords } from "@agent-trail/core";
 import { type IndexEntry, upsertIndexEntry } from "./index-file.ts";
+import { writerStrictObjectIndexPolicy } from "./object-index-policy.ts";
 import { objectPath as computeObjectPath, resolveStoreRoot } from "./paths.ts";
 
 export type RegisterStatus = "finalized" | "already_present" | "skipped_pending" | "invalid";
@@ -44,52 +35,18 @@ export async function registerTrail(
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
   const raw = await readFile(filePath, "utf8");
-  let records: JsonlRecord[];
-  try {
-    records = await parseJsonlString(raw);
-  } catch (error) {
-    if (error instanceof JsonlParseError) {
-      return {
-        status: "invalid",
-        contentHash: null,
-        objectPath: null,
-        diagnostics: [diagnosticFromJsonlParseError(error)],
-      };
-    }
-    throw error;
-  }
-
-  const schemaDiagnostics = await validateWriterStrictSchemaJsonlString(raw);
-  const graphDiagnostics = validateTrailGraph(records);
-  const allDiagnostics = [...schemaDiagnostics, ...graphDiagnostics];
-  // Only error-severity diagnostics block registration. Warnings
-  // (e.g. `unmatched_tool_call_at_eof`) are informational and a trail
-  // carrying them is still eligible to be stored as a finalized object.
-  const errorDiagnostics = allDiagnostics.filter((d) => d.severity === "error");
-  if (errorDiagnostics.length > 0) {
+  const eligible = await writerStrictObjectIndexPolicy(raw);
+  if (eligible.status === "invalid") {
     return {
       status: "invalid",
       contentHash: null,
       objectPath: null,
-      diagnostics: errorDiagnostics,
+      diagnostics: eligible.diagnostics,
     };
   }
 
-  const split = splitSessionGroups(records);
-  const sessionResults = verifyAllSessionContentHashes(records);
-  const envelopeResult = split.envelope !== null ? verifyTrailEnvelopeContentHash(records) : null;
-
-  // Per-group finalize policy (spec §8.6): a multi-session file may carry a
-  // mix of finalized and pending groups. Register every finalized group; skip
-  // pending ones without blocking siblings. Register the envelope row only
-  // when the envelope itself is finalized. Returns `skipped_pending` only
-  // when nothing was registerable.
-  const finalizedSessionIndexes: number[] = [];
-  for (let i = 0; i < sessionResults.length; i += 1) {
-    if (sessionResults[i]?.status === "match") finalizedSessionIndexes.push(i);
-  }
-  const envelopeFinalized = envelopeResult?.status === "match";
-  if (finalizedSessionIndexes.length === 0 && !envelopeFinalized) {
+  const { records, policy: indexPolicy } = eligible;
+  if (indexPolicy.rows.length === 0) {
     return {
       status: "skipped_pending",
       contentHash: null,
@@ -113,11 +70,7 @@ export async function registerTrail(
   // the first finalized session hash as the surrogate file identity (spec
   // §8.0.5 envelope-absent default). `finalize-redacted.ts` makes the same
   // choice so register + share/transport agree on identity.
-  const primaryHash =
-    envelopeResult?.status === "match"
-      ? (envelopeResult.expected as string)
-      : (sessionResults[finalizedSessionIndexes[0] ?? 0]?.expected as string | undefined);
-  if (primaryHash === undefined) {
+  if (indexPolicy.primaryHash === undefined) {
     return {
       status: "skipped_pending",
       contentHash: null,
@@ -125,7 +78,7 @@ export async function registerTrail(
       diagnostics: [],
     };
   }
-  const primaryTarget = computeObjectPath(storeRoot, primaryHash);
+  const primaryTarget = computeObjectPath(storeRoot, indexPolicy.primaryHash);
   await mkdir(dirname(primaryTarget), { recursive: true });
   const existing = await readFileIfExists(primaryTarget);
   let status: RegisterStatus;
@@ -139,11 +92,8 @@ export async function registerTrail(
   // Per-session index rows for every finalized group. Pending groups are
   // skipped silently; a subsequent register call on the (now-finalized) file
   // picks them up.
-  const sessionUidByGroup = split.groups.map(extractSessionUidFromHeader);
-  for (const i of finalizedSessionIndexes) {
-    const hash = sessionResults[i]?.expected;
-    if (typeof hash !== "string") continue;
-    const target = computeObjectPath(storeRoot, hash);
+  for (const row of indexPolicy.rows) {
+    const target = computeObjectPath(storeRoot, row.contentHash);
     if (target !== primaryTarget) {
       await mkdir(dirname(target), { recursive: true });
       const existingSession = await readFileIfExists(target);
@@ -154,34 +104,18 @@ export async function registerTrail(
     const entry: IndexEntry = {
       registered_at: registeredAt,
       source_path: sourcePath,
-      session_uid: sessionUidByGroup[i] ?? null,
-      kind: "session",
+      session_uid: row.session_uid,
+      kind: row.kind,
     };
-    await upsertIndexEntry(storeRoot, hash, entry);
-  }
-
-  // Envelope (file-level) row when present and finalized.
-  if (envelopeFinalized && typeof envelopeResult?.expected === "string") {
-    const entry: IndexEntry = {
-      registered_at: registeredAt,
-      source_path: sourcePath,
-      session_uid: null,
-      kind: "trail",
-    };
-    await upsertIndexEntry(storeRoot, envelopeResult.expected, entry);
+    await upsertIndexEntry(storeRoot, row.contentHash, entry);
   }
 
   return {
     status,
-    contentHash: primaryHash,
+    contentHash: indexPolicy.primaryHash,
     objectPath: primaryTarget,
     diagnostics: [],
   };
-}
-
-function extractSessionUidFromHeader(group: { header: JsonlRecord }): string | null {
-  const uid = (group.header.value as { session_uid?: unknown }).session_uid;
-  return typeof uid === "string" ? uid : null;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
