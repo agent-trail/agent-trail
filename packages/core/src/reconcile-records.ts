@@ -36,14 +36,14 @@ export function effectiveSeq(input: SegmentInput): number {
 export function segmentSeq(header: ReconcileHeader): number | undefined {
   const seg = header.segment;
   if (!isObject(seg)) return undefined;
-  const seq = (seg as Record<string, unknown>).seq;
+  const seq = seg.seq;
   return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
 export function segmentPrevHash(header: ReconcileHeader): string | null | undefined {
   const seg = header.segment;
   if (!isObject(seg)) return undefined;
-  const v = (seg as Record<string, unknown>).prev_content_hash;
+  const v = seg.prev_content_hash;
   if (v === null) return null;
   if (typeof v === "string") return v;
   return undefined;

@@ -69,8 +69,7 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
   // Track stable-field divergence across segment headers.
   const firstHeader = findHeader(sorted[0]?.records ?? []);
 
-  for (let i = 0; i < sorted.length; i++) {
-    const member = sorted[i] as SegmentInput;
+  for (const [i, member] of sorted.entries()) {
     const header = findHeader(member.records);
     if (header === undefined) continue; // already warned at group time
 
@@ -105,8 +104,8 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
     // Stable-field divergence check.
     if (firstHeader !== undefined && i > 0) {
       for (const field of STABLE_FIELDS) {
-        const first = (firstHeader as Record<string, unknown>)[field];
-        const here = (header as Record<string, unknown>)[field];
+        const first = firstHeader[field];
+        const here = header[field];
         if (first !== undefined && here !== undefined && !shallowEqual(first, here)) {
           warnings.push({
             code: "stable_field_divergence",
@@ -143,7 +142,7 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
       mergedEvents.push(record);
     }
 
-    const ch = stringField(header as Record<string, unknown>, "content_hash");
+    const ch = stringField(header, "content_hash");
     prevContentHash = ch ?? undefined;
   }
 
@@ -185,16 +184,16 @@ function buildMergedHeader(sorted: SegmentInput[]): JsonlRecord {
   }
 
   // Start from the highest-seq header (carries latest state), drop segment.*.
-  const merged: Record<string, unknown> = { ...(lastHeader as Record<string, unknown>) };
+  const merged: Record<string, unknown> = { ...lastHeader };
   delete merged.segment;
 
   // Pull ts from the lowest-seq header so the merged session reflects real start.
-  const firstTs = (firstHeader as Record<string, unknown>).ts;
+  const firstTs = firstHeader.ts;
   if (typeof firstTs === "string") merged.ts = firstTs;
 
   // Stable fields: prefer first header's value when present (id, schema_version, session_uid).
   for (const field of STABLE_FIELDS) {
-    const v = (firstHeader as Record<string, unknown>)[field];
+    const v = firstHeader[field];
     if (v !== undefined) merged[field] = v;
   }
 

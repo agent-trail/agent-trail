@@ -56,8 +56,7 @@ function* walkContainer(
     }
     return;
   }
-  for (const key of Object.keys(container)) {
-    const child = container[key];
+  for (const [key, child] of Object.entries(container)) {
     const path = `${prefix}.${key}`;
     if (typeof child === "string") {
       yield keyVisit(container, key, recordIndex, path);

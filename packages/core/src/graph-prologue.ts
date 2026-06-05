@@ -25,9 +25,8 @@ export function validateGraphPrologue(
 
   // Detect misplaced and duplicate envelope records before header-validity logic
   // runs, so the diagnostics are stable when both errors coexist.
-  for (let i = 1; i < records.length; i += 1) {
-    const record = records[i];
-    if (record === undefined || record.value.type !== "trail") {
+  for (const record of records.slice(1)) {
+    if (record.value.type !== "trail") {
       continue;
     }
     if (envelopeRecord !== undefined) {

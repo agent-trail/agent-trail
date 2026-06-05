@@ -172,11 +172,7 @@ function findCyclicIds(parentOf: Map<string, string>): Set<string> {
     }
 
     if (resolution === "cyclic" && cycleStartIndex >= 0) {
-      for (let i = 0; i < path.length; i += 1) {
-        const node = path[i];
-        if (node === undefined) {
-          continue;
-        }
+      for (const [i, node] of path.entries()) {
         if (i >= cycleStartIndex) {
           status.set(node, "cyclic");
           cyclic.add(node);
