@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -37,6 +37,12 @@ export async function runRegister(
   options: RunRegisterOptions,
   context: RunRegisterContext = {},
 ): Promise<CliResult> {
+  if (await inputIsExistingFile(options.input)) {
+    const fileReg = await registerFile(options.input, context);
+    if ("exitCode" in fileReg) return fileReg;
+    return renderRegisterResult(fileReg, options);
+  }
+
   const parsedRef = parseAdapterRef(options.input);
   if (typeof parsedRef === "string") {
     return { exitCode: 1, stdout: "", stderr: `${parsedRef}\n` };
@@ -44,11 +50,23 @@ export async function runRegister(
 
   const reg =
     parsedRef === null
-      ? await registerTrail(options.input, { storeRoot: context.storeRoot })
+      ? await registerFile(options.input, context)
       : await registerAdapterRef(parsedRef, context);
 
   if ("exitCode" in reg) return reg;
   return renderRegisterResult(reg, options);
+}
+
+async function registerFile(
+  input: string,
+  context: RunRegisterContext,
+): Promise<RegisterResult | CliResult> {
+  try {
+    return await registerTrail(input, { storeRoot: context.storeRoot });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `register: ${message}\n` };
+  }
 }
 
 export async function registerFromAdapter(
@@ -81,6 +99,7 @@ function parseAdapterRef(input: string): AdapterRef | string | null {
 
   const adapterName = input.slice(0, separator);
   const id = input.slice(separator + 1);
+  if (adapterName.length > 0 && !/^[a-z][a-z0-9-]*$/.test(adapterName)) return null;
   if (adapterName.length === 0 || id.length === 0) {
     return "register: adapter session refs must use <adapter>:<id>";
   }
@@ -116,23 +135,38 @@ async function registerAdapterRef(
     };
   }
 
-  const sessionRef = sessions.find((session) => session.id === ref.id);
-  if (sessionRef === undefined) {
+  const matches = sessions.filter((session) => session.id === ref.id);
+  if (matches.length === 0) {
     return {
       exitCode: 1,
       stdout: "",
       stderr: `register: no ${adapter.name} session with id '${ref.id}'\n`,
     };
   }
+  if (matches.length > 1) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `register: multiple ${adapter.name} sessions with id '${ref.id}'; run \`trail discover --all --json\` to inspect duplicates\n`,
+    };
+  }
 
   try {
-    return await registerFromAdapter(sessionRef, {
+    return await registerFromAdapter(matches[0]!, {
       adapter,
       storeRoot: context.storeRoot,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { exitCode: 1, stdout: "", stderr: `register: ${message}\n` };
+  }
+}
+
+async function inputIsExistingFile(input: string): Promise<boolean> {
+  try {
+    return (await stat(input)).isFile();
+  } catch {
+    return false;
   }
 }
 

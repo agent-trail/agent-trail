@@ -168,6 +168,30 @@ test("file input with --json prints stable status, hash, and object path", async
   });
 });
 
+test("file input with a colon in the path still registers as a file", async () => {
+  const { filePath, contentHash } = await seedTrailFile();
+  const colonPath = join(inputRoot, "run:1.trail.jsonl");
+  await writeFile(colonPath, await readFile(filePath, "utf8"), "utf8");
+
+  const result = await runRegister({ input: colonPath }, { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toBe(`${contentHash}\n`);
+});
+
+test("missing file input exits 1 instead of throwing", async () => {
+  const result = await runRegister(
+    { input: join(inputRoot, "missing.trail.jsonl") },
+    { storeRoot },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("register: ");
+  expect(result.stderr).toContain("missing.trail.jsonl");
+});
+
 test("registerFromAdapter discovers, parses, canonicalizes, and registers a session ref", async () => {
   const { contentHash, trailFile } = await seededStampedTrailFile();
   const ref = {
@@ -271,6 +295,30 @@ test("known adapter with missing session id exits 1 clearly", async () => {
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("register: no pi session with id 'not-here'");
+});
+
+test("known adapter with duplicate session id exits 1 clearly", async () => {
+  const { trailFile } = await seededStampedTrailFile();
+
+  const result = await runRegister(
+    { input: "pi:sess-target" },
+    {
+      storeRoot,
+      adapters: [
+        adapterWithSessions(
+          [
+            { id: "sess-target", adapter: "pi", path: "/adapter/a.jsonl", cwd: "/work/a" },
+            { id: "sess-target", adapter: "pi", path: "/adapter/b.jsonl", cwd: "/work/b" },
+          ],
+          trailFile,
+        ),
+      ],
+    },
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("register: multiple pi sessions with id 'sess-target'");
 });
 
 test("adapter ref ids reserve tilde for future host-qualified refs", async () => {

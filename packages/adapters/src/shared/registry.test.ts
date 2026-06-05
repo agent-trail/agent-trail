@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { ADAPTERS, adapterByName, defaultTrailAdapters } from "./registry.ts";
 
 test("registry exposes the default adapters in user-visible order", () => {
+  expect(Object.isFrozen(ADAPTERS)).toBe(true);
   expect(ADAPTERS.map((adapter) => adapter.name)).toEqual([
     "claude-code",
     "codex",
