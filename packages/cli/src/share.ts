@@ -3,6 +3,8 @@ import { gzipSync } from "node:zlib";
 import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import { registerTrail } from "@agent-trail/store";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 import { finalizeRedactedTrail } from "./finalize-redacted.ts";
 import { ghGistUpload } from "./gist-upload.ts";
 
@@ -179,4 +181,29 @@ async function tryConfirm(
         "share: interactive confirmation unavailable (no TTY). Re-run with --yes to bypass prompts.",
     };
   }
+}
+
+export function addShareCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("share")
+      .argument("<path>")
+      .option("--dry-run", "Register and redact without uploading.", false)
+      .option("-y, --yes", "Bypass confirmation prompts.", false)
+      .option("--skip-redaction", "Share raw unredacted trail content.", false)
+      .option("--keep-remote-url", "Preserve vcs.remote_url in shared content.", false)
+      .description("Redact and share a Trail file.")
+      .action(async (path: string, options: Omit<RunShareOptions, "path">) => {
+        writeResult(
+          await runShare({
+            path,
+            dryRun: options.dryRun,
+            yes: options.yes,
+            skipRedaction: options.skipRedaction,
+            keepRemoteUrl: options.keepRemoteUrl,
+          }),
+        );
+      }),
+    ["trail share session.trail.jsonl", "trail share session.trail.jsonl --dry-run"],
+  );
 }

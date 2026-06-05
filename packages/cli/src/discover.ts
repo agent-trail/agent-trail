@@ -4,6 +4,8 @@ import {
   type SessionRef,
   type TrailAdapter,
 } from "@agent-trail/adapters";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunDiscoverResult = {
@@ -116,4 +118,22 @@ function renderText(rows: Row[]): string {
         }  ${r.path ?? MISSING_TEXT}`,
     )
     .join("\n")}\n`;
+}
+
+export function addDiscoverCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("discover")
+      .option("--json", "Print sessions as JSON.", false)
+      .option("--all", "Discover sessions across all known cwd roots.", false)
+      .option("--agent <name>", "Filter by adapter name.")
+      .option("--cwd <path>", "Discover sessions for a cwd.")
+      .option("--since <iso>", "Include sessions modified at or after this time.")
+      .option("--until <iso>", "Include sessions modified before this time.")
+      .description("Discover source-agent sessions.")
+      .action(async (options: RunDiscoverOptions) => {
+        writeResult(await runDiscover(options));
+      }),
+    ["trail discover", "trail discover --agent codex-cli --json"],
+  );
 }

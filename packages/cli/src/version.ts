@@ -1,4 +1,6 @@
+import type { Command } from "commander";
 import pkg from "../package.json" with { type: "json" };
+import { addExamples, type ResultWriter } from "./command.ts";
 
 const USAGE = "Usage: trail version [--json]";
 
@@ -21,4 +23,17 @@ export async function runVersion(
     stdout: "",
     stderr: `unknown argument: ${argv.join(" ")}\n${USAGE}\n`,
   };
+}
+
+export function addVersionCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("version")
+      .option("--json", "Print version as JSON.", false)
+      .description("Print the CLI version.")
+      .action(async (options: { json: boolean }) => {
+        writeResult(await runVersion(options.json ? ["--json"] : []));
+      }),
+    ["trail version", "trail version --json"],
+  );
 }

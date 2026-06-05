@@ -7,6 +7,8 @@ import {
   readIndex,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 import { boundedBy, parseTimeBounds, renderJson } from "./listing.ts";
 
 export type RunListResult = {
@@ -217,4 +219,22 @@ function extractCwd(header: Record<string, unknown> | null): string | null {
   if (header === null) return null;
   const cwd = header.cwd;
   return typeof cwd === "string" ? cwd : null;
+}
+
+export function addListCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("list")
+      .option("--json", "Print entries as JSON.", false)
+      .option("--agent <name>", "Filter by agent name.")
+      .option("--cwd <path>", "Filter by cwd.")
+      .option("--since <iso>", "Include entries registered at or after this time.")
+      .option("--until <iso>", "Include entries registered before this time.")
+      .option("--kind <kind>", "Filter by row kind: session or trail.")
+      .description("List locally stored Trail objects.")
+      .action(async (options: RunListOptions) => {
+        writeResult(await runList(options));
+      }),
+    ["trail list", "trail list --agent codex-cli --kind session"],
+  );
 }

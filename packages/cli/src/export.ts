@@ -13,6 +13,8 @@ import {
   readIndex,
   resolveStoreRoot,
 } from "@agent-trail/store";
+import type { Command } from "commander";
+import { addExamples, type ResultWriter } from "./command.ts";
 import { writeOutputFile } from "./write-output-file.ts";
 
 export type RunExportResult = {
@@ -135,3 +137,18 @@ export async function runExport(
 
 const FULL_HASH_RE = /^[0-9a-f]{64}$/;
 const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
+
+export function addExportCommand(program: Command, writeResult: ResultWriter): void {
+  addExamples(
+    program
+      .command("export")
+      .argument("<id>")
+      .option("--out <path>", "Write exported bytes to a file.")
+      .option("--force", "Overwrite --out when it already exists.", false)
+      .description("Export a local Trail object.")
+      .action(async (id: string, options: Omit<RunExportOptions, "id">) => {
+        writeResult(await runExport({ id, out: options.out, force: options.force }));
+      }),
+    ["trail export abcdef12", "trail export abcdef12 --out exported.trail.jsonl"],
+  );
+}
