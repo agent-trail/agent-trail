@@ -74,12 +74,14 @@ export function timestampToIso(value: unknown): string | undefined {
     }
     const s = stringValue(value);
     if (s !== undefined) {
-      const ms = Number(s);
+      const trimmed = s.trim();
+      if (trimmed.length === 0) return undefined;
+      const ms = Number(trimmed);
       if (Number.isFinite(ms)) {
         const date = new Date(ms);
         if (!Number.isNaN(date.getTime())) return date.toISOString();
       }
-      const parsed = Date.parse(s);
+      const parsed = Date.parse(trimmed);
       if (Number.isFinite(parsed)) {
         const date = new Date(parsed);
         if (!Number.isNaN(date.getTime())) return date.toISOString();
