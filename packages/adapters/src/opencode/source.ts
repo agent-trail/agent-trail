@@ -66,14 +66,27 @@ export function arrayValue(value: unknown): unknown[] | undefined {
 }
 
 export function timestampToIso(value: unknown): string | undefined {
-  const n = numberValue(value);
-  if (n !== undefined) return new Date(n).toISOString();
-  const s = stringValue(value);
-  if (s !== undefined) {
-    const ms = Number(s);
-    if (Number.isFinite(ms)) return new Date(ms).toISOString();
-    const parsed = Date.parse(s);
-    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  try {
+    const n = numberValue(value);
+    if (n !== undefined) {
+      const date = new Date(n);
+      if (!Number.isNaN(date.getTime())) return date.toISOString();
+    }
+    const s = stringValue(value);
+    if (s !== undefined) {
+      const ms = Number(s);
+      if (Number.isFinite(ms)) {
+        const date = new Date(ms);
+        if (!Number.isNaN(date.getTime())) return date.toISOString();
+      }
+      const parsed = Date.parse(s);
+      if (Number.isFinite(parsed)) {
+        const date = new Date(parsed);
+        if (!Number.isNaN(date.getTime())) return date.toISOString();
+      }
+    }
+  } catch {
+    return undefined;
   }
   return undefined;
 }

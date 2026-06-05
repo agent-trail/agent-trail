@@ -224,8 +224,11 @@ function canEnrichFileSession(fileSession: Raw, dbSession: Raw): boolean {
 }
 
 export function loadDbSession(pathWithFragment: string): LoadedSession {
-  const [dbPath, id] = pathWithFragment.split("#");
-  if (dbPath === undefined || id === undefined)
+  const hashIndex = pathWithFragment.lastIndexOf("#");
+  if (hashIndex === -1) throw new Error(`Invalid OpenCode DB ref: ${pathWithFragment}`);
+  const dbPath = pathWithFragment.slice(0, hashIndex);
+  const id = pathWithFragment.slice(hashIndex + 1);
+  if (dbPath.length === 0 || id.length === 0)
     throw new Error(`Invalid OpenCode DB ref: ${pathWithFragment}`);
   const db = new Database(dbPath, { readonly: true });
   try {
@@ -272,7 +275,12 @@ export function loadDbSession(pathWithFragment: string): LoadedSession {
     for (const part of parts) {
       const messageID = stringValue(part.messageID) ?? stringValue(part.message_id);
       if (messageID === undefined) continue;
-      partsByMessage.set(messageID, [...(partsByMessage.get(messageID) ?? []), part]);
+      let list = partsByMessage.get(messageID);
+      if (list === undefined) {
+        list = [];
+        partsByMessage.set(messageID, list);
+      }
+      list.push(part);
     }
     const todos: OpenCodeTodo[] = db
       .query("SELECT * FROM todo WHERE session_id = $id ORDER BY position")
