@@ -175,12 +175,21 @@ export async function runList(
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
+  if (options.json === true && options.plain === true) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: --json and --plain cannot be used together\n",
+    };
+  }
 
   const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
   const sourceFiltered = rows.filter((r) => {
     if (sourceMode === "source" && r.state === "registered") return false;
     if (sourceMode === "registered" && r.state === "source") return false;
     if (!rowMatchesAgent(r, agentFilter)) return false;
+    // Source discovery defaults to the current cwd for parity with `trail discover`,
+    // while registered store rows stay broad unless the user explicitly passes --cwd.
     if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
     return boundedBy(r.latest_at, sinceMs, untilMs);
   });
@@ -210,7 +219,7 @@ export async function runList(
   }
 
   const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
-  if (options.json === true && options.plain !== true) {
+  if (options.json === true) {
     return { exitCode: 0, stdout: renderJson(renderedRows), stderr };
   }
   if (renderedRows.length === 0) {

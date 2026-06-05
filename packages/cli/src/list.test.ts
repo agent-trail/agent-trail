@@ -224,6 +224,45 @@ test("source discovery defaults to current cwd", async () => {
   expect(parsed.map((r) => r.source_id)).toEqual(["sess-here"]);
 });
 
+test("omitted --cwd scopes source discovery but not registered store rows", async () => {
+  const registered = await seedTrail({
+    id: "01HSESS00000000000000CWD01",
+    cwd: "/work/registered-other",
+  });
+  await registerTrail(registered.filePath, { storeRoot });
+
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-here",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+          {
+            id: "sess-other",
+            adapter: "codex",
+            cwd: "/work/source-other",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{
+    content_hash: string | null;
+    source_id: string | null;
+  }>;
+  expect(parsed).toContainEqual(expect.objectContaining({ source_id: "sess-here" }));
+  expect(parsed).not.toContainEqual(expect.objectContaining({ source_id: "sess-other" }));
+  expect(parsed).toContainEqual(expect.objectContaining({ content_hash: registered.contentHash }));
+});
+
 test("collapses source and registered rows by exact source path", async () => {
   const { filePath, contentHash } = await seedTrail({
     id: "01HSESS00000000000000C01AA",
@@ -399,27 +438,12 @@ test("sorts unified rows by latest_at desc and --limit truncates with warning", 
   expect(parsed.map((r) => r.source_id)).toEqual(["sess-newest", "sess-middle"]);
 });
 
-test("--plain forces text output when --json is also set", async () => {
-  const result = await runList(
-    { json: true, plain: true },
-    {
-      storeRoot,
-      adapters: [
-        stubAdapter("codex", [
-          {
-            id: "sess-plain",
-            adapter: "codex",
-            cwd: process.cwd(),
-            modifiedAt: "2026-05-17T14:00:00.000Z",
-          },
-        ]),
-      ],
-    },
-  );
+test("--json and --plain together exits 1", async () => {
+  const result = await runList({ json: true, plain: true }, { storeRoot, adapters: [] });
 
-  expect(result.stdout).toContain("sess-plain");
-  expect(result.stdout).toContain("source");
-  expect(() => JSON.parse(result.stdout)).toThrow();
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toBe("error: --json and --plain cannot be used together\n");
 });
 
 test("--agent codex-cli matches codex source adapter alias", async () => {
