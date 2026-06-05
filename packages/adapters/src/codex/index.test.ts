@@ -2789,7 +2789,10 @@ test("custom_tool_call apply_patch with a multi-file patch maps to file_patch", 
   );
   expect(multi).toBeDefined();
   expect((multi?.payload as { tool: string }).tool).toBe("file_patch");
-  const args = (multi?.payload as { args: { files: Array<{ path: string; diff: string }> } }).args;
+  const args = (
+    multi?.payload as { args: { atomic: boolean; files: Array<{ path: string; diff: string }> } }
+  ).args;
+  expect(args.atomic).toBe(true);
   expect(args.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
   expect(args.files[0]?.diff).toContain("--- a/src/a.ts");
   expect(args.files[0]?.diff).toContain("-a");
@@ -2828,6 +2831,36 @@ test("patchFiles uses move targets as destination paths", () => {
     {
       path: "src/new.ts",
       diff: "--- a/src/old.ts\n+++ b/src/new.ts\n@@\n-old\n+new",
+    },
+  ]);
+});
+
+test("patchFiles only treats line-start End Patch markers as patch terminators", () => {
+  expect(
+    patchFiles(
+      "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+literal *** End Patch text\n*** End Patch",
+    ),
+  ).toEqual([
+    {
+      path: "src/a.ts",
+      diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@\n-old\n+literal *** End Patch text",
+    },
+  ]);
+});
+
+test("patchFiles synthesizes hunk headers for add and delete patch bodies", () => {
+  expect(patchFiles("*** Begin Patch\n*** Add File: src/a.ts\n+one\n+two\n*** End Patch")).toEqual([
+    {
+      path: "src/a.ts",
+      diff: "--- /dev/null\n+++ b/src/a.ts\n@@ -1,0 +1,2 @@\n+one\n+two",
+    },
+  ]);
+  expect(
+    patchFiles("*** Begin Patch\n*** Delete File: src/a.ts\n-one\n-two\n*** End Patch"),
+  ).toEqual([
+    {
+      path: "src/a.ts",
+      diff: "--- a/src/a.ts\n+++ /dev/null\n@@ -1,2 +1,0 @@\n-one\n-two",
     },
   ]);
 });

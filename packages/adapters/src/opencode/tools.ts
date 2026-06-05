@@ -1,6 +1,25 @@
 import type { ToolKind } from "@agent-trail/types";
 import { numberValue, type Raw, stringValue } from "./source.ts";
 
+function prefixLines(text: string, prefix: string): string[] {
+  if (text.length === 0) return [];
+  return text.split("\n").map((line) => `${prefix}${line}`);
+}
+
+function lineCount(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+function buildDiff(path: string, oldString: string, newString: string): string {
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${lineCount(oldString)} +1,${lineCount(newString)} @@`,
+    ...prefixLines(oldString, "-"),
+    ...prefixLines(newString, "+"),
+  ].join("\n");
+}
+
 export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Raw } {
   switch (toolName) {
     case "read": {
@@ -34,7 +53,7 @@ export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Ra
       if (path === undefined) return { tool: "other", args: { name: toolName, args } };
       const oldString = stringValue(args.oldString) ?? stringValue(args.old_string) ?? "";
       const newString = stringValue(args.newString) ?? stringValue(args.new_string) ?? "";
-      const diff = `--- a/${path}\n+++ b/${path}\n@@\n-${oldString}\n+${newString}`;
+      const diff = buildDiff(path, oldString, newString);
       return {
         tool: "file_edit",
         args: { path, diff },

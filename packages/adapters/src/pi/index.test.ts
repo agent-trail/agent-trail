@@ -824,6 +824,18 @@ test("toolKindAndArgs maps Pi 'edit' apply_patch shape -> file_edit or file_patc
   expect(
     toolKindAndArgs("edit", {
       patch:
+        "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+literal *** End Patch text\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "x.md",
+      diff: "--- a/x.md\n+++ b/x.md\n@@\n-a\n+literal *** End Patch text",
+    },
+  });
+  expect(
+    toolKindAndArgs("edit", {
+      patch:
         "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+b\n*** Update File: y.md\n@@\n-c\n+d\n*** End Patch",
     }),
   ).toEqual({
@@ -844,6 +856,17 @@ test("toolKindAndArgs maps Pi 'edit' apply_patch shape -> file_edit or file_patc
   ).toEqual({
     tool: "file_edit",
     args: { path: "new.md", diff: "--- a/old.md\n+++ b/new.md\n@@\n-a\n+b" },
+  });
+  expect(
+    toolKindAndArgs("edit", {
+      patch: "*** Begin Patch\n*** Add File: x.md\n+one\n+two\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "x.md",
+      diff: "--- /dev/null\n+++ b/x.md\n@@ -1,0 +1,2 @@\n+one\n+two",
+    },
   });
 });
 

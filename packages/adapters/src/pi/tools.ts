@@ -34,6 +34,31 @@ function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string
 
 const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 
+function endPatchIndex(input: string, start: number): number {
+  const tail = input.slice(start);
+  const match = tail.match(/^\*\*\* End Patch\b/m);
+  return match?.index === undefined ? -1 : start + match.index;
+}
+
+function countPrefixedLines(lines: string[], prefix: string): number {
+  return lines.filter((line) => line.startsWith(prefix) && !line.startsWith(`${prefix}${prefix}`))
+    .length;
+}
+
+function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): string {
+  const diffBody = body
+    .split("\n")
+    .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
+    .join("\n")
+    .trim();
+  if (diffBody.length === 0 || diffBody.includes("@@")) return diffBody;
+
+  const lines = diffBody.split("\n");
+  const oldCount = action === "Add" ? 0 : countPrefixedLines(lines, "-");
+  const newCount = action === "Delete" ? 0 : countPrefixedLines(lines, "+");
+  return [`@@ -1,${oldCount} +1,${newCount} @@`, diffBody].join("\n");
+}
+
 function patchFiles(input: string): Array<{ path: string; diff: string }> {
   const matches = [...input.matchAll(PATCH_FILE_MARKER)];
   return matches
@@ -42,17 +67,13 @@ function patchFiles(input: string): Array<{ path: string; diff: string }> {
       const path = (match[2] as string).trim();
       if (path.length === 0) return undefined;
       const start = match.index + match[0].length;
-      const end = matches[index + 1]?.index ?? input.indexOf("*** End Patch", start);
+      const end = matches[index + 1]?.index ?? endPatchIndex(input, start);
       const body = input.slice(start, end === -1 ? undefined : end).trim();
       const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
       const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
       const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
       const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
-      const diffBody = body
-        .split("\n")
-        .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
-        .join("\n")
-        .trim();
+      const diffBody = normalizePatchBody(action, body);
       return {
         path: newPath,
         diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]

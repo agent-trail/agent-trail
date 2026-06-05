@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateSourceRecord } from "@agent-trail/adapter-kit";
 import { opencodeAdapter, trailRecords, validateAdapterTrail } from "../index.ts";
+import { mapTool } from "./tools.ts";
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
@@ -100,6 +101,22 @@ test("OpenCode source schema recognizes every upstream-known part type", () => {
   expect(validateSourceRecord("opencode", "v1", { type: "part", part_type: "future" })).not.toEqual(
     [],
   );
+});
+
+test("mapTool builds valid unified diff lines for multiline OpenCode edits", () => {
+  expect(
+    mapTool("edit", {
+      path: "a.md",
+      oldString: "foo\nbar",
+      newString: "baz\nqux",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,2 @@\n-foo\n-bar\n+baz\n+qux",
+    },
+  });
 });
 
 function seedFileSession(opts: {
