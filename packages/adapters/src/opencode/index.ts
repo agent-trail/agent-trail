@@ -11,9 +11,10 @@ import type {
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { readGitVcs } from "../vcs.ts";
-import { headerFromLoaded, worktreeFromProject } from "./header.ts";
+import { headerFromLoaded } from "./header.ts";
 import { inspectSourceHealth } from "./health.ts";
 import { entriesFromLoaded } from "./mappings.ts";
+import { worktreeFromProject } from "./metadata.ts";
 import { stringValue } from "./source.ts";
 import { discoveredSummaries, loadDbSession, loadFileSession } from "./storage/index.ts";
 

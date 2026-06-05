@@ -1,8 +1,13 @@
 import type { Entry, Header } from "@agent-trail/types";
 import { deriveSynthesizedEntryId, OPENCODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { attachmentFrom, attachmentsFrom } from "./attachments.ts";
-import { worktreeFromProject } from "./header.ts";
-import { compactDiffs, todoItemsFrom, todoStatus, tokenTotalsFromSession } from "./metadata.ts";
+import {
+  compactDiffs,
+  todoItemsFrom,
+  todoStatus,
+  tokenTotalsFromSession,
+  worktreeFromProject,
+} from "./metadata.ts";
 import {
   arrayValue,
   type LoadedSession,

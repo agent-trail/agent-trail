@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+import type { Header } from "@agent-trail/types";
 import { arrayValue, numberValue, objectValue, type Raw, stringValue } from "./source.ts";
 
 export function tokenTotalsFromSession(session: Raw): Raw | undefined {
@@ -77,4 +79,15 @@ export function todoStatus(
   )
     return status;
   return "pending";
+}
+
+export function worktreeFromProject(
+  project: Raw | undefined,
+): NonNullable<NonNullable<Header["vcs"]>["worktree"]> | undefined {
+  const worktreePath = stringValue(project?.worktree);
+  if (worktreePath === undefined) return undefined;
+  return {
+    name: stringValue(project?.name) ?? basename(worktreePath),
+    path: worktreePath,
+  };
 }

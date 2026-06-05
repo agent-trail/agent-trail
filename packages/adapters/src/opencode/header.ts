@@ -1,6 +1,4 @@
-import { basename } from "node:path";
 import type { Header } from "@agent-trail/types";
-import type { SessionRef } from "../index.ts";
 import {
   deriveSessionUid,
   deriveSynthesizedEntryId,
@@ -12,12 +10,16 @@ import {
   modelName,
   objectValue,
   partTimestamp,
-  type Raw,
   stringValue,
   timestampToIso,
 } from "./source.ts";
 
-export function headerFromLoaded(loaded: LoadedSession, ref: SessionRef): Header {
+type HeaderRef = {
+  id: string;
+  path?: string;
+};
+
+export function headerFromLoaded(loaded: LoadedSession, ref: HeaderRef): Header {
   const session = loaded.session;
   const id = stringValue(session.id) ?? ref.id;
   const time = objectValue(session.time);
@@ -51,15 +53,4 @@ export function headerFromLoaded(loaded: LoadedSession, ref: SessionRef): Header
   const parentId = stringValue(session.parentID) ?? stringValue(session.parent_id);
   if (parentId !== undefined) header.fork_from = { session_id: parentId };
   return header;
-}
-
-export function worktreeFromProject(
-  project: Raw | undefined,
-): NonNullable<NonNullable<Header["vcs"]>["worktree"]> | undefined {
-  const worktreePath = stringValue(project?.worktree);
-  if (worktreePath === undefined) return undefined;
-  return {
-    name: stringValue(project?.name) ?? basename(worktreePath),
-    path: worktreePath,
-  };
 }
