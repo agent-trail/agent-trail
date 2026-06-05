@@ -252,6 +252,16 @@ async function adapterChecks(adapters: readonly TrailAdapter[]): Promise<DoctorC
 }
 
 function adapterStatusCheck(status: AdapterStatus): DoctorCheck {
+  const failureMessage = healthCheckFailureMessage(status);
+  if (failureMessage !== null) {
+    return {
+      id: `adapter.${status.adapter}`,
+      status: "warn",
+      label: status.adapter,
+      message: `${status.adapter}: health check failed: ${failureMessage}`,
+      details: { adapter: status.adapter, warnings: [failureMessage] },
+    };
+  }
   const countText = status.session_count === 1 ? "1 session" : `${status.session_count} sessions`;
   return {
     id: `adapter.${status.adapter}`,
@@ -268,6 +278,13 @@ function adapterStatusCheck(status: AdapterStatus): DoctorCheck {
       warnings: status.warnings,
     },
   };
+}
+
+function healthCheckFailureMessage(status: AdapterStatus): string | null {
+  if (status.warnings.length !== 1) return null;
+  const [warning] = status.warnings;
+  const prefix = "health check failed: ";
+  return warning?.startsWith(prefix) ? warning.slice(prefix.length) : null;
 }
 
 function aggregateStatus(checks: DoctorCheck[]): DoctorStatus {

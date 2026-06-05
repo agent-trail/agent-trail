@@ -117,3 +117,17 @@ test("trail adapters status --json reports adapter failures as warnings without 
   expect(result.stdout).not.toContain("Error:");
   expect(result.stdout).not.toContain("at ");
 });
+
+test("trail adapters status text includes adapter warnings without stack traces", async () => {
+  const result = await runCli(["adapters", "status"], {
+    adapters: [throwingAdapter("codex", "permission denied")],
+    config: resolvedConfig(),
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("warn  codex  0 sessions");
+  expect(result.stdout).toContain("warning: codex: health check failed: permission denied");
+  expect(result.stdout).not.toContain("Error:");
+  expect(result.stdout).not.toContain("at ");
+});

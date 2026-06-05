@@ -8,7 +8,7 @@ The goal is to make sessions from tools like Claude Code, Cursor, Codex CLI, Pi,
 
 Draft. The current public format target is `0.1.0`.
 
-The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, a streaming JSONL parser with layered validation, a redaction module, a content-addressed local store, three source-agent adapters (Pi, Claude Code, and OpenCode), and the `trail` CLI (`validate`, `discover`, `list`, `share`, `load`, `export`).
+The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It contains the root format contract, planning docs, schema/types packages, a streaming JSONL parser with layered validation, a redaction module, a content-addressed local store, three source-agent adapters (Pi, Claude Code, and OpenCode), and the `trail` CLI (`validate`, `discover`, `list`, `status`, `adapters list/status`, `share`, `load`, `export`).
 
 ## Core Validation
 

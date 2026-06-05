@@ -32,12 +32,12 @@ export async function runAdapters(
 function renderAdaptersText(statuses: AdapterStatus[]): string {
   if (statuses.length === 0) return "";
   return `${statuses
-    .map(
-      (adapter) =>
-        `${adapter.status}  ${adapter.adapter}  ${adapter.session_count} sessions${
-          adapter.path === null ? "" : `  ${adapter.path}`
-        }`,
-    )
+    .flatMap((adapter) => [
+      `${adapter.status}  ${adapter.adapter}  ${adapter.session_count} sessions${
+        adapter.path === null ? "" : `  ${adapter.path}`
+      }`,
+      ...adapter.warnings.map((warning) => `warning: ${adapter.adapter}: ${warning}`),
+    ])
     .join("\n")}\n`;
 }
 

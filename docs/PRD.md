@@ -430,14 +430,15 @@ trail validate <file> [--json] [--profile strict|reader-tolerant]
 ```
 trail doctor [--fix --yes]
 trail list [--agent <name>] [--cwd <path>] [--since <date>] [--search <query>]
+trail status [--json]
 trail view <id-or-path> [--format text|json] [--full]
 trail register <file|adapter:id> [--json]
 trail share <id> [--public] [--dry-run] [--skip-redaction]
 trail load <url> [--out <path>]
 trail export <id> [--out <path>] [--force]
 trail validate <file>
-trail adapters list
-trail adapters status
+trail adapters list [--json]
+trail adapters status [--json]
 ```
 
 **`trail doctor` behavior:**
