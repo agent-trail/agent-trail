@@ -599,6 +599,7 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.entries[5]?.payload).toMatchObject({
     ok: true,
     output: "README contents",
+    meta: { file_read: { range: [1, 6] } },
   });
   expect(group.entries[6]?.payload).toEqual({
     text: "Read complete.",
@@ -1225,7 +1226,7 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
   expect(
     entries.find((entry) => entry.semantic?.call_id === "call-list" && entry.type === "tool_call"),
   ).toMatchObject({
-    payload: { tool: "shell_command", args: { command: "ls -- '$(touch /tmp/agenttrail_poc)'" } },
+    payload: { tool: "file_list", args: { path: "$(touch /tmp/agenttrail_poc)" } },
   });
   expect(
     entries.find((entry) => entry.meta?.["dev.opencode.raw_type"] === "tool.todowrite"),

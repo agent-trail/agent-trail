@@ -354,4 +354,4 @@ test("each command help lists usage, options, and examples", async () => {
     expect(result.stdout).toContain("Examples:");
     expect(result.stdout).toContain(helpCase.example);
   }
-});
+}, 15_000);

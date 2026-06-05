@@ -32,6 +32,25 @@ function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string
   ].join("\n");
 }
 
+const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
+
+function patchFiles(input: string): Array<{ path: string; diff: string }> {
+  const matches = [...input.matchAll(PATCH_FILE_MARKER)];
+  return matches
+    .map((match, index) => {
+      const path = (match[2] as string).trim();
+      if (path.length === 0) return undefined;
+      const start = match.index + match[0].length;
+      const end = matches[index + 1]?.index ?? input.indexOf("*** End Patch", start);
+      const body = input.slice(start, end === -1 ? undefined : end).trim();
+      return {
+        path,
+        diff: [`--- a/${path}`, `+++ b/${path}`, body].filter((part) => part.length > 0).join("\n"),
+      };
+    })
+    .filter((file): file is { path: string; diff: string } => file !== undefined);
+}
+
 // Pi's built-in tools (pi-mono `coding-agent/src/core/tools/`): bash, read, write, edit,
 // grep, find, ls. Mapped to canonical kinds (spec §10). MCP-extension tools real Pi
 // sessions also carry fall through to the `other` escape hatch (spec §10.5).
@@ -46,7 +65,19 @@ export function toolKindAndArgs(
   switch (name) {
     case "read": {
       const path = stringValue(args.path) ?? stringValue(args.file_path);
-      if (path !== undefined) return { tool: "file_read", args: { path } };
+      const offset = maybeNumber(args.offset);
+      const limit = maybeNumber(args.limit);
+      if (path !== undefined) {
+        return {
+          tool: "file_read",
+          args: {
+            path,
+            ...(offset !== undefined && limit !== undefined
+              ? { range: [offset, offset + limit] }
+              : {}),
+          },
+        };
+      }
       break;
     }
     case "write": {
@@ -63,9 +94,9 @@ export function toolKindAndArgs(
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
       //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // Single-replace, single-path multi, and edits-array map cleanly to spec §10.1
-      // `file_edit` (single-file unified diff). The patch shape and cross-file multi
-      // shapes fall through to `other` so `source.raw` preserves them verbatim.
+      // Single-file shapes map to spec §10.1 `file_edit`. Multi-file shapes map
+      // to `file_patch` so consumers can preserve one source operation touching
+      // several paths. Unknown shapes still fall through to `other`.
       const topPath = stringValue(args.path) ?? stringValue(args.file_path);
       const editsArray = Array.isArray(args.edits) ? args.edits : undefined;
       if (editsArray !== undefined && topPath !== undefined) {
@@ -107,6 +138,18 @@ export function toolKindAndArgs(
           arr.push({ oldText: oldText ?? "", newText: newText ?? "" });
           editsByPath.set(p, arr);
         }
+        if (!bad && editsByPath.size > 1) {
+          return {
+            tool: "file_patch",
+            args: {
+              files: [...editsByPath.entries()].map(([path, hunks]) => ({
+                path,
+                diff: buildDiff(path, hunks),
+              })),
+              atomic: true,
+            },
+          };
+        }
         if (!bad && editsByPath.size === 1) {
           const [path, hunks] = [...editsByPath.entries()][0] as [
             string,
@@ -115,6 +158,16 @@ export function toolKindAndArgs(
           if (hunks.length > 0) {
             return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
           }
+        }
+        break;
+      }
+      const patch = stringValue(args.patch);
+      if (patch !== undefined) {
+        const files = patchFiles(patch);
+        if (files.length > 1) return { tool: "file_patch", args: { files, atomic: true } };
+        if (files.length === 1) {
+          const file = files[0] as { path: string; diff: string };
+          return { tool: "file_edit", args: file };
         }
         break;
       }
@@ -188,15 +241,8 @@ export function toolKindAndArgs(
       break;
     }
     case "ls": {
-      // Pi `ls` lists a directory; spec §10 has no `list_directory` kind. Synthesize
-      // a `shell_command` of the form `ls -- <path>` (POSIX option terminator) so
-      // paths beginning with `-` are not parsed as flags by replay tools. Original
-      // Pi args remain available in `source.raw` for high-fidelity readers.
       const path = stringValue(args.path);
-      return {
-        tool: "shell_command",
-        args: { command: path !== undefined ? `ls -- ${quoteShellArg(path)}` : "ls" },
-      };
+      return { tool: "file_list", args: { path: path ?? "." } };
     }
   }
   return {

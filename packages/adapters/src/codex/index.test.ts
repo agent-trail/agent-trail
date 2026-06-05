@@ -2782,17 +2782,21 @@ test("custom_tool_call_output emits tool_result paired by call_id", async () => 
   expect(multiResult).toBeDefined();
 });
 
-test("custom_tool_call apply_patch with a multi-file patch falls back to other", async () => {
+test("custom_tool_call apply_patch with a multi-file patch maps to file_patch", async () => {
   const trail = await parseApplyPatchFixture();
   const multi = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-multi",
   );
   expect(multi).toBeDefined();
-  expect((multi?.payload as { tool: string }).tool).toBe("other");
-  const args = (multi?.payload as { args: { name: string; args: { input: string } } }).args;
-  expect(args.name).toBe("apply_patch");
-  expect(args.args.input).toContain("*** Update File: src/a.ts");
-  expect(args.args.input).toContain("*** Update File: src/b.ts");
+  expect((multi?.payload as { tool: string }).tool).toBe("file_patch");
+  const args = (multi?.payload as { args: { files: Array<{ path: string; diff: string }> } }).args;
+  expect(args.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
+  expect(args.files[0]?.diff).toContain("--- a/src/a.ts");
+  expect(args.files[0]?.diff).toContain("-a");
+  expect(args.files[0]?.diff).toContain("+A");
+  expect(args.files[1]?.diff).toContain("--- a/src/b.ts");
+  expect(args.files[1]?.diff).toContain("-b");
+  expect(args.files[1]?.diff).toContain("+B");
 });
 
 test("custom_tool_call apply_patch with a single-file patch maps to file_edit", async () => {
