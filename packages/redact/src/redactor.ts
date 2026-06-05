@@ -1,6 +1,12 @@
 import type { JsonlRecord } from "@agent-trail/core";
+import {
+  addMutationCount,
+  applyRedactionCounts,
+  snapshotToolResultOutputSizes,
+} from "./mutation-accounting.ts";
 import { DEFAULT_PATTERNS } from "./patterns.ts";
 import { applyPii } from "./pii.ts";
+import { applyPattern, maskSample, redactString, userSecretsPatterns } from "./rules.ts";
 import { truncateOutputs } from "./truncate.ts";
 import type {
   RedactionPattern,
@@ -8,7 +14,7 @@ import type {
   RedactTrailOptions,
   RedactTrailResult,
 } from "./types.ts";
-import { keyVisit, type Visit, visitStrings } from "./visits.ts";
+import { visitStrings } from "./visits.ts";
 
 function secretQuestionIdsByQueryId(records: JsonlRecord[]): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
@@ -79,101 +85,6 @@ function stripSecretUserQueryAnswers(
       }
     }
   }
-}
-
-const SAMPLE_HEAD = 4;
-const SAMPLE_TAIL = 4;
-const TEXT_ENCODER = new TextEncoder();
-// Show head+tail only when both can be revealed without overlap and still
-// elide at least one character from the middle. Otherwise, hide the entire
-// match to avoid leaking short secrets verbatim in samples.
-const SAMPLE_MIN_REVEAL = SAMPLE_HEAD + SAMPLE_TAIL + 1;
-
-function byteLength(s: string): number {
-  return TEXT_ENCODER.encode(s).byteLength;
-}
-
-function maskSample(secret: string): string {
-  if (secret.length === 0) return secret;
-  if (secret.length < SAMPLE_MIN_REVEAL) return `<${secret.length} chars>`;
-  return `${secret.slice(0, SAMPLE_HEAD)}…${secret.slice(-SAMPLE_TAIL)}`;
-}
-
-function ensureGlobal(regex: RegExp): RegExp {
-  return regex.flags.includes("g") ? regex : new RegExp(regex.source, `${regex.flags}g`);
-}
-
-function applyPattern(
-  visit: Visit,
-  pattern: RedactionPattern,
-  summary: RedactionSummary,
-  maxSamples: number,
-): number {
-  const current = visit.get();
-  const regex = ensureGlobal(pattern.regex);
-  regex.lastIndex = 0;
-  const matches = Array.from(current.matchAll(regex));
-  if (matches.length === 0) return 0;
-  regex.lastIndex = 0;
-  visit.set(current.replace(regex, pattern.placeholder));
-  summary.counts[pattern.id] = (summary.counts[pattern.id] ?? 0) + matches.length;
-  if (summary.samples.length < maxSamples) {
-    const first = matches[0]?.[0] ?? "";
-    summary.samples.push({
-      patternId: pattern.id,
-      location: visit.location,
-      before: maskSample(first),
-      after: pattern.placeholder,
-    });
-  }
-  return matches.length;
-}
-
-function redactVisit(
-  visit: Visit,
-  userPatterns: RedactionPattern[],
-  patterns: readonly RedactionPattern[],
-  summary: RedactionSummary,
-  maxSamples: number,
-): void {
-  for (const pattern of userPatterns) {
-    applyPattern(visit, pattern, summary, maxSamples);
-  }
-  for (const pattern of patterns) {
-    applyPattern(visit, pattern, summary, maxSamples);
-  }
-  const current = visit.get();
-  const pii = applyPii(current, visit.location, summary, maxSamples);
-  if (pii.text !== current) {
-    visit.set(pii.text);
-  }
-  for (const sample of pii.samples) {
-    if (summary.samples.length >= maxSamples) break;
-    summary.samples.push(sample);
-  }
-}
-
-function redactString(
-  value: string,
-  location: string,
-  userPatterns: RedactionPattern[],
-  patterns: readonly RedactionPattern[],
-  summary: RedactionSummary,
-  maxSamples: number,
-): string {
-  const container: Record<string, unknown> = { value };
-  redactVisit(
-    keyVisit(container, "value", -1, location),
-    userPatterns,
-    patterns,
-    summary,
-    maxSamples,
-  );
-  return container.value as string;
-}
-
-function escapeRegex(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Removes vcs.remote_url from the header. Default-on per spec §15 / PRD §8.6
@@ -292,61 +203,6 @@ function redactUserQueryAnswerKeys(
       if (after !== before) changed = true;
     }
     if (changed) payload.answers = rewritten;
-  }
-}
-
-function userSecretsPatterns(secrets: readonly string[]): RedactionPattern[] {
-  // Note: if a user-supplied secret happens to equal a placeholder
-  // ("[OPENAI_KEY]", "<home>", etc.) repeated redaction passes can shorten
-  // already-redacted output. Callers should pass raw secrets only.
-  // Sorting by length descending prevents shorter overlapping secrets from
-  // consuming bytes that a longer secret would have matched in full.
-  const unique = Array.from(new Set(secrets.filter((s) => s.length > 0))).sort(
-    (a, b) => b.length - a.length,
-  );
-  return unique.map(
-    (literal): RedactionPattern => ({
-      id: "user_secret",
-      description: "User-supplied secret literal",
-      regex: new RegExp(escapeRegex(literal), "g"),
-      placeholder: "[USER_SECRET]",
-    }),
-  );
-}
-
-function addMutationCount(counts: Map<number, number>, recordIndex: number, count: number): void {
-  if (count <= 0) return;
-  counts.set(recordIndex, (counts.get(recordIndex) ?? 0) + count);
-}
-
-function snapshotToolResultOutputSizes(records: JsonlRecord[]): Map<number, number> {
-  const sizes = new Map<number, number>();
-  for (const [index, record] of records.entries()) {
-    const value = record.value as Record<string, unknown>;
-    if (value.type !== "tool_result") continue;
-    const payload = value.payload as Record<string, unknown> | undefined;
-    if (typeof payload?.output === "string") {
-      sizes.set(index, byteLength(payload.output));
-    }
-  }
-  return sizes;
-}
-
-function applyRedactionCounts(records: JsonlRecord[], counts: ReadonlyMap<number, number>): void {
-  for (const [index, count] of counts) {
-    const value = records[index]?.value as Record<string, unknown> | undefined;
-    if (value === undefined || value.type === "session" || value.type === "trail") continue;
-    const meta =
-      value.meta !== null && typeof value.meta === "object"
-        ? (value.meta as Record<string, unknown>)
-        : {};
-    const previous =
-      typeof meta.redaction_count === "number" &&
-      Number.isInteger(meta.redaction_count) &&
-      meta.redaction_count >= 0
-        ? meta.redaction_count
-        : 0;
-    value.meta = { ...meta, redaction_count: previous + count };
   }
 }
 
