@@ -45,8 +45,8 @@ assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired 
 and an assistant text message. Pi is tree-native (spec §12.1) so every entry emits `parent_id`
 mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built-in tools (pi-mono
 `coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
-`file_read` / `file_write` / `shell_command` / `file_search`. `ls` has no canonical kind, so we
-synthesize a `shell_command` of the form `ls <path>` (original Pi args remain in `source.raw`).
+`file_read` / `file_write` / `shell_command` / `file_search`; `ls` maps to canonical `file_list`
+with `path` defaulting to `"."` (original Pi args remain in `source.raw`).
 `LeafEntry` (active branch-tip) maps to `system_event{kind:"x-pi/leaf_change"}` and `LabelEntry`
 to `system_event{kind:"x-pi/label"}`, both with the raw Pi `targetId` resolved to the referenced
 trail entry id (nearest mapped ancestor when the target itself emitted nothing). The most recent
@@ -134,10 +134,11 @@ kit path:
 multi-hunk diff;
 (c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
 multi-hunk diff;
-(d) `{multi: [...]}` spanning multiple files, or `{patch: "*** Begin Patch..."}` apply_patch
-strings → `other`, since spec §10.1 `file_edit` is single-file unified-diff only.
+(d) `{multi: [...]}` spanning multiple files → `file_patch`;
+(e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
+`file_patch` for multi-file patches.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
-`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.5,
+`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.7,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
 Pi has no observed mid-session registry delta primitive; extension-like tool calls remain
 `tool_call.tool="other"` and do not synthesize `capability_change` events.
@@ -255,7 +256,7 @@ open tool calls terminate at EOF with `session_terminated`. File parts fold into
 diagnostic, and weaker-fit session/project surfaces emit stable `x-opencode/*` vendor
 `system_event`s while preserving raw source. Built-in tools map to canonical tool kinds where fit is
 strong (`file_read`, `file_write`, `file_edit`, `shell_command`, `shell_output`, `file_search`,
-`web_fetch`, `subagent_invoke`, `mcp_call`, or `other`).
+`file_list`, `file_patch`, `web_fetch`, `subagent_invoke`, `mcp_call`, or `other`).
 
 Opt-in real-session test hooks:
 `packages/adapters/src/opencode/real-session.test.ts` reads `AGENT_TRAIL_REAL_OPENCODE_ROOT`
@@ -337,10 +338,10 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
 - `response_item.payload.type == "custom_tool_call"` → `tool_call`. The request carries a raw
   string `input` (not a JSON `arguments` string). Dispatch:
   - name `apply_patch` with a single-file patch (exactly one `*** Update File:` /
-    `*** Add File:` / `*** Delete File:` marker) → `file_edit{path, diff}`; `diff` is the full
-    patch text.
-  - name `apply_patch` with a multi-file patch → `other{name:"apply_patch", args:{input}}`
-    (spec §10.1 makes `file_edit` single-file unified-diff only).
+    `*** Add File:` / `*** Delete File:` marker) → `file_edit{path, diff}` with a synthesized
+    per-file unified diff.
+  - name `apply_patch` with a multi-file patch → `file_patch{files, atomic:true}` with one
+    per-file unified diff per marker.
   - Any other custom tool name → `other{name:<canonical>, args:{input}}` (canonical strips a
     `tools.` prefix if present).
 - `response_item.payload.type == "custom_tool_call_output"` → `tool_result` paired via

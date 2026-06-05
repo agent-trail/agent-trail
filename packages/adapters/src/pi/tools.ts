@@ -32,9 +32,67 @@ function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string
   ].join("\n");
 }
 
+const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
+
+function endPatchIndex(input: string, start: number): number {
+  const tail = input.slice(start);
+  const match = tail.match(/^\*\*\* End Patch\b/m);
+  return match?.index === undefined ? -1 : start + match.index;
+}
+
+function countPrefixedLines(lines: string[], prefix: string): number {
+  return lines.filter((line) => line.startsWith(prefix)).length;
+}
+
+function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): string {
+  const diffBody = body
+    .split("\n")
+    .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
+    .join("\n")
+    .trim();
+  if (diffBody.length === 0 || /^@@/m.test(diffBody)) return diffBody;
+
+  const lines = diffBody.split("\n");
+  const oldCount = action === "Add" ? 0 : countPrefixedLines(lines, "-");
+  const newCount = action === "Delete" ? 0 : countPrefixedLines(lines, "+");
+  return [`@@ -1,${oldCount} +1,${newCount} @@`, diffBody].join("\n");
+}
+
+function patchFiles(input: string): Array<{ path: string; diff: string }> {
+  const matches = [...input.matchAll(PATCH_FILE_MARKER)];
+  const files: Array<{ path: string; diff: string }> = [];
+  for (const [index, match] of matches.entries()) {
+    const action = match[1];
+    const sourcePath = match[2];
+    if (
+      (action !== "Update" && action !== "Add" && action !== "Delete") ||
+      sourcePath === undefined
+    ) {
+      continue;
+    }
+    const path = sourcePath.trim();
+    if (path.length === 0) continue;
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? endPatchIndex(input, start);
+    const body = input.slice(start, end === -1 ? undefined : end).trim();
+    const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
+    const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
+    const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
+    const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
+    const diffBody = normalizePatchBody(action, body);
+    files.push({
+      path: newPath,
+      diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]
+        .filter((part) => part.length > 0)
+        .join("\n"),
+    });
+  }
+  return files;
+}
+
 // Pi's built-in tools (pi-mono `coding-agent/src/core/tools/`): bash, read, write, edit,
 // grep, find, ls. Mapped to canonical kinds (spec §10). MCP-extension tools real Pi
-// sessions also carry fall through to the `other` escape hatch (spec §10.5).
+// sessions also carry fall through to the `other` escape hatch (spec §10.7).
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -46,7 +104,19 @@ export function toolKindAndArgs(
   switch (name) {
     case "read": {
       const path = stringValue(args.path) ?? stringValue(args.file_path);
-      if (path !== undefined) return { tool: "file_read", args: { path } };
+      const offset = maybeNumber(args.offset);
+      const limit = maybeNumber(args.limit);
+      if (path !== undefined) {
+        return {
+          tool: "file_read",
+          args: {
+            path,
+            ...(offset !== undefined && limit !== undefined
+              ? { range: [offset, offset + limit] }
+              : {}),
+          },
+        };
+      }
       break;
     }
     case "write": {
@@ -63,9 +133,9 @@ export function toolKindAndArgs(
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
       //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // Single-replace, single-path multi, and edits-array map cleanly to spec §10.1
-      // `file_edit` (single-file unified diff). The patch shape and cross-file multi
-      // shapes fall through to `other` so `source.raw` preserves them verbatim.
+      // Single-file shapes map to spec §10.1 `file_edit`. Multi-file shapes map
+      // to `file_patch` so consumers can preserve one source operation touching
+      // several paths. Unknown shapes still fall through to `other`.
       const topPath = stringValue(args.path) ?? stringValue(args.file_path);
       const editsArray = Array.isArray(args.edits) ? args.edits : undefined;
       if (editsArray !== undefined && topPath !== undefined) {
@@ -107,6 +177,18 @@ export function toolKindAndArgs(
           arr.push({ oldText: oldText ?? "", newText: newText ?? "" });
           editsByPath.set(p, arr);
         }
+        if (!bad && editsByPath.size > 1) {
+          return {
+            tool: "file_patch",
+            args: {
+              files: [...editsByPath.entries()].map(([path, hunks]) => ({
+                path,
+                diff: buildDiff(path, hunks),
+              })),
+              atomic: true,
+            },
+          };
+        }
         if (!bad && editsByPath.size === 1) {
           const [path, hunks] = [...editsByPath.entries()][0] as [
             string,
@@ -115,6 +197,16 @@ export function toolKindAndArgs(
           if (hunks.length > 0) {
             return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
           }
+        }
+        break;
+      }
+      const patch = stringValue(args.patch);
+      if (patch !== undefined) {
+        const files = patchFiles(patch);
+        if (files.length > 1) return { tool: "file_patch", args: { files, atomic: true } };
+        if (files.length === 1) {
+          const file = files[0];
+          if (file !== undefined) return { tool: "file_edit", args: file };
         }
         break;
       }
@@ -188,15 +280,8 @@ export function toolKindAndArgs(
       break;
     }
     case "ls": {
-      // Pi `ls` lists a directory; spec §10 has no `list_directory` kind. Synthesize
-      // a `shell_command` of the form `ls -- <path>` (POSIX option terminator) so
-      // paths beginning with `-` are not parsed as flags by replay tools. Original
-      // Pi args remain available in `source.raw` for high-fidelity readers.
       const path = stringValue(args.path);
-      return {
-        tool: "shell_command",
-        args: { command: path !== undefined ? `ls -- ${quoteShellArg(path)}` : "ls" },
-      };
+      return { tool: "file_list", args: { path: path ?? "." } };
     }
   }
   return {

@@ -45,6 +45,35 @@ describe("claude-code v2 stateful behaviors", () => {
     expect(out[1]?.semantic).toEqual({ call_id: "tooluse-question" });
   });
 
+  test("tool result copies linked file_read range into meta.file_read", () => {
+    const out = ccToolKindToResult(
+      [
+        {
+          type: "tool_call",
+          id: "call-1",
+          ts: "2026-05-18T10:00:00.000Z",
+          payload: { tool: "file_read", args: { path: "a.md", range: [3, 8] } },
+          semantic: { tool_kind: "file_read" },
+        },
+        {
+          type: "tool_result",
+          id: "result-1",
+          ts: "2026-05-18T10:00:01.000Z",
+          payload: { for_id: "call-1", ok: true, output: "slice" },
+        },
+      ] as Entry[],
+      { agent: "claude-code" },
+    );
+
+    expect(out[1]?.payload).toEqual({
+      for_id: "call-1",
+      ok: true,
+      output: "slice",
+      meta: { file_read: { range: [3, 8] } },
+    });
+    expect(out[1]?.semantic).toEqual({ tool_kind: "file_read" });
+  });
+
   test("model_change synth: from/to + synthesized across a model switch", async () => {
     const all = await entries("interrupt-and-model-change.jsonl");
     const change = all.find((e) => e.type === "model_change");

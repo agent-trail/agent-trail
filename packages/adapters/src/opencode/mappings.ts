@@ -289,6 +289,28 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
         if (status === "completed" || status === "error" || status === "failed") {
           openCalls.delete(callID);
           const ok = status === "completed";
+          const readRange =
+            mapped.tool === "file_read" && Array.isArray(mapped.args.range)
+              ? mapped.args.range
+              : undefined;
+          const toolMeta =
+            stringValue(state.title) !== undefined ||
+            objectValue(state.metadata) !== undefined ||
+            objectValue(state.time) !== undefined
+              ? {
+                  "x-opencode/tool": {
+                    ...(stringValue(state.title) !== undefined
+                      ? { title: stringValue(state.title) }
+                      : {}),
+                    ...(objectValue(state.metadata) !== undefined
+                      ? { metadata: objectValue(state.metadata) }
+                      : {}),
+                    ...(objectValue(state.time) !== undefined
+                      ? { time: objectValue(state.time) }
+                      : {}),
+                  },
+                }
+              : {};
           push(
             {
               ...base,
@@ -307,22 +329,11 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
                 ...(attachmentsFrom(state.attachments).length > 0
                   ? { attachments: attachmentsFrom(state.attachments) }
                   : {}),
-                ...(stringValue(state.title) !== undefined ||
-                objectValue(state.metadata) !== undefined ||
-                objectValue(state.time) !== undefined
+                ...(readRange !== undefined || Object.keys(toolMeta).length > 0
                   ? {
                       meta: {
-                        "x-opencode/tool": {
-                          ...(stringValue(state.title) !== undefined
-                            ? { title: stringValue(state.title) }
-                            : {}),
-                          ...(objectValue(state.metadata) !== undefined
-                            ? { metadata: objectValue(state.metadata) }
-                            : {}),
-                          ...(objectValue(state.time) !== undefined
-                            ? { time: objectValue(state.time) }
-                            : {}),
-                        },
+                        ...(readRange !== undefined ? { file_read: { range: readRange } } : {}),
+                        ...toolMeta,
                       },
                     }
                   : {}),

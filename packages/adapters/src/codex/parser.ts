@@ -289,15 +289,69 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
 // Three verbs cover create / modify / delete: Update, Add, Delete.
 const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 
-export function patchSingleFilePath(input: string): string | undefined {
-  const paths = new Set<string>();
-  for (const m of input.matchAll(PATCH_FILE_MARKER)) {
-    // `m[2]` is the second capture group of PATCH_FILE_MARKER and is
-    // guaranteed to exist whenever the regex matches.
-    const path = (m[2] as string).trim();
-    if (path.length > 0) paths.add(path);
-    if (paths.size > 1) return undefined;
+export type PatchFile = {
+  path: string;
+  diff: string;
+};
+
+function endPatchIndex(input: string, start: number): number {
+  const tail = input.slice(start);
+  const match = tail.match(/^\*\*\* End Patch\b/m);
+  return match?.index === undefined ? -1 : start + match.index;
+}
+
+function countPrefixedLines(lines: string[], prefix: string): number {
+  return lines.filter((line) => line.startsWith(prefix)).length;
+}
+
+function normalizePatchBody(action: "Update" | "Add" | "Delete", body: string): string {
+  const diffBody = body
+    .split("\n")
+    .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
+    .join("\n")
+    .trim();
+  if (diffBody.length === 0 || /^@@/m.test(diffBody)) return diffBody;
+
+  const lines = diffBody.split("\n");
+  const oldCount = action === "Add" ? 0 : countPrefixedLines(lines, "-");
+  const newCount = action === "Delete" ? 0 : countPrefixedLines(lines, "+");
+  return [`@@ -1,${oldCount} +1,${newCount} @@`, diffBody].join("\n");
+}
+
+export function patchFiles(input: string): PatchFile[] {
+  const matches = [...input.matchAll(PATCH_FILE_MARKER)];
+  const files: PatchFile[] = [];
+  for (const [index, match] of matches.entries()) {
+    const action = match[1];
+    const sourcePath = match[2];
+    if (
+      (action !== "Update" && action !== "Add" && action !== "Delete") ||
+      sourcePath === undefined
+    ) {
+      continue;
+    }
+    const path = sourcePath.trim();
+    if (path.length === 0) continue;
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? endPatchIndex(input, start);
+    const body = input.slice(start, end === -1 ? undefined : end).trim();
+    const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
+    const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
+    const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
+    const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
+    const diffBody = normalizePatchBody(action, body);
+    files.push({
+      path: newPath,
+      diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]
+        .filter((part) => part.length > 0)
+        .join("\n"),
+    });
   }
+  return files;
+}
+
+export function patchSingleFilePath(input: string): string | undefined {
+  const paths = new Set(patchFiles(input).map((file) => file.path));
   if (paths.size === 1) {
     const [only] = paths;
     return only;

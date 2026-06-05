@@ -2247,6 +2247,58 @@ test("parseSession() fans out mixed assistant blocks and multiple tool calls in 
 });
 
 test("toolKindAndArgs promotes common Claude tools out of other", () => {
+  expect(toolKindAndArgs("Read", { file_path: "src/app.ts", offset: 10, limit: 5 })).toEqual({
+    tool: "file_read",
+    args: { path: "src/app.ts", range: [10, 15] },
+  });
+  expect(toolKindAndArgs("LS", { path: "src" })).toEqual({
+    tool: "file_list",
+    args: { path: "src" },
+  });
+  expect(
+    toolKindAndArgs("MultiEdit", {
+      file_path: "src/app.ts",
+      edits: [
+        { old_string: "a", new_string: "b" },
+        { old_string: "c", new_string: "d" },
+      ],
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "src/app.ts",
+      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n-a\n+b\n@@ -1,1 +1,1 @@\n-c\n+d",
+    },
+  });
+  expect(
+    toolKindAndArgs("MultiEdit", {
+      file_path: "src/app.ts",
+      edits: [{ old_string: "a\nb", new_string: "c\nd" }],
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "src/app.ts",
+      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d",
+    },
+  });
+  expect(
+    toolKindAndArgs("MultiEdit", {
+      edits: [
+        { file_path: "src/a.ts", old_string: "a", new_string: "b" },
+        { file_path: "src/b.ts", old_string: "c", new_string: "d" },
+      ],
+    }),
+  ).toEqual({
+    tool: "file_patch",
+    args: {
+      files: [
+        { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b" },
+        { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,1 @@\n-c\n+d" },
+      ],
+      atomic: true,
+    },
+  });
   expect(toolKindAndArgs("ToolSearch", { query: "auth flow" })).toEqual({
     tool: "tool_search",
     args: { query: "auth flow" },

@@ -1,6 +1,24 @@
-import { quoteShellArg } from "@agent-trail/adapter-kit";
 import type { ToolKind } from "@agent-trail/types";
 import { numberValue, type Raw, stringValue } from "./source.ts";
+
+function prefixLines(text: string, prefix: string): string[] {
+  if (text.length === 0) return [];
+  return text.split("\n").map((line) => `${prefix}${line}`);
+}
+
+function lineCount(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+function buildDiff(path: string, oldString: string, newString: string): string {
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${lineCount(oldString)} +1,${lineCount(newString)} @@`,
+    ...prefixLines(oldString, "-"),
+    ...prefixLines(newString, "+"),
+  ].join("\n");
+}
 
 export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Raw } {
   switch (toolName) {
@@ -9,10 +27,11 @@ export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Ra
         stringValue(args.filePath) ?? stringValue(args.file_path) ?? stringValue(args.path);
       const offset = numberValue(args.offset);
       const limit = numberValue(args.limit);
+      if (path === undefined) return { tool: "other", args: { name: toolName, args } };
       return {
         tool: "file_read",
         args: {
-          ...(path !== undefined ? { path } : {}),
+          path,
           ...(offset !== undefined && limit !== undefined
             ? { range: [offset, offset + limit] }
             : {}),
@@ -21,27 +40,23 @@ export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Ra
     }
     case "write": {
       const path = stringValue(args.filePath) ?? stringValue(args.path);
+      const content = stringValue(args.content);
+      if (path === undefined || content === undefined)
+        return { tool: "other", args: { name: toolName, args } };
       return {
         tool: "file_write",
-        args: {
-          ...(path !== undefined ? { path } : {}),
-          ...(stringValue(args.content) !== undefined
-            ? { content: stringValue(args.content) }
-            : {}),
-        },
+        args: { path, content },
       };
     }
     case "edit": {
       const path = stringValue(args.filePath) ?? stringValue(args.path);
+      if (path === undefined) return { tool: "other", args: { name: toolName, args } };
       const oldString = stringValue(args.oldString) ?? stringValue(args.old_string) ?? "";
       const newString = stringValue(args.newString) ?? stringValue(args.new_string) ?? "";
-      const diff =
-        path === undefined
-          ? undefined
-          : `--- a/${path}\n+++ b/${path}\n@@\n-${oldString}\n+${newString}`;
+      const diff = buildDiff(path, oldString, newString);
       return {
         tool: "file_edit",
-        args: { ...(path !== undefined ? { path } : {}), ...(diff !== undefined ? { diff } : {}) },
+        args: { path, diff },
       };
     }
     case "bash": {
@@ -86,7 +101,7 @@ export function mapTool(toolName: string, args: Raw): { tool: ToolKind; args: Ra
     }
     case "list": {
       const path = stringValue(args.path) ?? ".";
-      return { tool: "shell_command", args: { command: `ls -- ${quoteShellArg(path)}` } };
+      return { tool: "file_list", args: { path } };
     }
     case "webfetch": {
       const url = stringValue(args.url)?.trim();

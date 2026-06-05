@@ -1425,6 +1425,8 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `file_read` | `{ path, range? }` |
 | `file_write` | `{ path, content }` |
 | `file_edit` | `{ path, diff }` (unified diff) |
+| `file_patch` | `{ files: [{ path, diff }], atomic? }` |
+| `file_list` | `{ path, recursive?, glob? }` |
 | `file_search` | `{ query, path?, glob? }` |
 | `shell_command` | `{ command, cwd?, timeout? }` |
 | `shell_output` | `{ command_id? }` |
@@ -1455,17 +1457,34 @@ The `diff` is a unified diff:
 
 Writers with native before/after content must convert to a diff before emitting. Writers that synthesize the edit from indirect source data set `source.synthesized: true`.
 
-### 10.2 `shell_command`
+### 10.2 `file_patch`
+
+Use `file_patch` when one source tool call represents a patch touching one or more files, and
+single-file `file_edit` would either lose the call's multi-file grouping or force consumers to
+reconstruct it from synthesized sibling calls. Each `files[]` entry carries the affected `path` and a
+per-file unified diff. Writers that split source-native patch text into per-file hunks should add
+`---` and `+++` file headers when the source omits them, so generic consumers can render each file
+without parsing the source-native patch envelope. For renames, `path` is the destination path and the
+diff headers carry both source and destination paths. Set `atomic: true` when the source represented
+the patch as one operation.
+
+### 10.3 `file_list`
+
+Use `file_list` when the agent inspected a directory or file tree. The result's display listing
+lives in the matching `tool_result.payload.output`. Do not map directory listing to
+`shell_command` unless the source only records a literal shell command.
+
+### 10.4 `shell_command`
 
 Full command in `command`; output in the corresponding `tool_result.payload.output`. Redactors should scrub env vars, `Authorization` headers in piped curls, etc.
 
-### 10.3 `mcp_call`
+### 10.5 `mcp_call`
 
 - `server` — MCP server identifier (e.g., `github`, `linear`).
 - `tool` — tool name within that server.
 - `headers` — should be redacted before writing: `Authorization`, `X-API-Key`, `Cookie`, `Bearer ...`.
 
-### 10.4 `subagent_invoke`
+### 10.6 `subagent_invoke`
 
 Indicates a child conversation was spawned. Two cases:
 
@@ -1474,7 +1493,7 @@ Indicates a child conversation was spawned. Two cases:
 
 When the external child appears in the same file, the child header SHOULD set `fork_from.session_id` to the parent session header `id` and `fork_from.entry_id` to the parent `subagent_invoke` event `id`. `fork_from.content_hash` is optional best-effort and refers to the parent session-level content hash.
 
-### 10.5 The `other` escape hatch
+### 10.7 The `other` escape hatch
 
 For tools not covered above, use `tool: "other"` with `args: { name, args }`. Readers render generically. These don't participate in cross-agent comparison.
 

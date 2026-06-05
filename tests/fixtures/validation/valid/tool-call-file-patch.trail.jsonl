@@ -1,0 +1,3 @@
+{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000101","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"tool_call","id":"00000000-0000-4000-8000-000000000102","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_patch","args":{"files":[{"path":"src/a.ts","diff":"--- a/src/a.ts\n+++ b/src/a.ts\n@@\n-old\n+new"},{"path":"src/b.ts","diff":"--- a/src/b.ts\n+++ b/src/b.ts\n@@\n-old\n+new"}],"atomic":true}}}
+{"type":"tool_result","id":"00000000-0000-4000-8000-000000000103","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"00000000-0000-4000-8000-000000000102","ok":true,"output":"patched"}}

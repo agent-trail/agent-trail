@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateSourceRecord } from "@agent-trail/adapter-kit";
 import { opencodeAdapter, trailRecords, validateAdapterTrail } from "../index.ts";
+import { mapTool } from "./tools.ts";
 
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
@@ -100,6 +101,22 @@ test("OpenCode source schema recognizes every upstream-known part type", () => {
   expect(validateSourceRecord("opencode", "v1", { type: "part", part_type: "future" })).not.toEqual(
     [],
   );
+});
+
+test("mapTool builds valid unified diff lines for multiline OpenCode edits", () => {
+  expect(
+    mapTool("edit", {
+      path: "a.md",
+      oldString: "foo\nbar",
+      newString: "baz\nqux",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "a.md",
+      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,2 @@\n-foo\n-bar\n+baz\n+qux",
+    },
+  });
 });
 
 function seedFileSession(opts: {
@@ -599,6 +616,7 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.entries[5]?.payload).toMatchObject({
     ok: true,
     output: "README contents",
+    meta: { file_read: { range: [1, 6] } },
   });
   expect(group.entries[6]?.payload).toEqual({
     text: "Read complete.",
@@ -1225,7 +1243,7 @@ test("parseSession() maps observed extra OpenCode tools and preserves rich resul
   expect(
     entries.find((entry) => entry.semantic?.call_id === "call-list" && entry.type === "tool_call"),
   ).toMatchObject({
-    payload: { tool: "shell_command", args: { command: "ls -- '$(touch /tmp/agenttrail_poc)'" } },
+    payload: { tool: "file_list", args: { path: "$(touch /tmp/agenttrail_poc)" } },
   });
   expect(
     entries.find((entry) => entry.meta?.["dev.opencode.raw_type"] === "tool.todowrite"),
