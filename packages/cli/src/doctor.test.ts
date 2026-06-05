@@ -179,6 +179,22 @@ test("doctor --json includes resolved config sources", async () => {
   });
 });
 
+test("doctor human output lists resolved config sources", async () => {
+  const config = resolvedConfig();
+  const result = await runCli(["doctor"], { adapters: [], config });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout).toContain("config");
+  expect(result.stdout).toContain("ok  config layers resolved");
+  expect(result.stdout).toContain("  - built_in: default");
+  expect(result.stdout).toContain("  - user_global: loaded (/home/test/.config/trail/config.json)");
+  expect(result.stdout).toContain("  - project_committed: loaded (/work/.agent-trail/config.json)");
+  expect(result.stdout).toContain(
+    "  - project_local: missing (/work/.agent-trail/config.local.json)",
+  );
+});
+
 test("doctor --fix requires --yes", async () => {
   const result = await runCli(["doctor", "--fix"], { adapters: [], config: resolvedConfig() });
 

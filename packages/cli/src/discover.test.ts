@@ -125,35 +125,6 @@ function resolvedConfig(defaultFilter: string | null): ResolvedConfig {
   };
 }
 
-function fakeAdapter(name: string, sessions: SessionRef[]): TrailAdapter {
-  return {
-    name,
-    async detectSessions() {
-      return sessions;
-    },
-    async parseSession(): Promise<TrailFile> {
-      throw new Error("not needed");
-    },
-    async isAvailable() {
-      return true;
-    },
-    async sourceVersion() {
-      return null;
-    },
-    async sourceHealth() {
-      return {
-        adapter: name,
-        path: null,
-        present: true,
-        readable: true,
-        sessionCount: sessions.length,
-        sourceVersion: null,
-        warnings: [],
-      };
-    },
-  };
-}
-
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
 let prevClaudeConfigDir: string | undefined;
@@ -364,7 +335,7 @@ test("resolved config default source filter applies through runCli discover", as
   const result = await runCli(["discover", "--json", "--all"], {
     config: resolvedConfig("pi"),
     adapters: [
-      fakeAdapter("codex", [
+      stubAdapter("codex", [
         {
           id: "sess-codex",
           adapter: "codex",
@@ -372,7 +343,7 @@ test("resolved config default source filter applies through runCli discover", as
           modifiedAt: "2026-05-17T14:00:00.000Z",
         },
       ]),
-      fakeAdapter("pi", [
+      stubAdapter("pi", [
         {
           id: "sess-pi",
           adapter: "pi",
@@ -407,7 +378,7 @@ test("--agent overrides resolved config default source filter through runCli dis
   const result = await runCli(["discover", "--json", "--all", "--agent", "codex-cli"], {
     config: resolvedConfig("pi"),
     adapters: [
-      fakeAdapter("codex", [
+      stubAdapter("codex", [
         {
           id: "sess-codex",
           adapter: "codex",
@@ -415,7 +386,7 @@ test("--agent overrides resolved config default source filter through runCli dis
           modifiedAt: "2026-05-17T14:00:00.000Z",
         },
       ]),
-      fakeAdapter("pi", [
+      stubAdapter("pi", [
         {
           id: "sess-pi",
           adapter: "pi",

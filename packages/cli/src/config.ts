@@ -494,7 +494,7 @@ function isNotFound(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT"
+    (error as Record<string, unknown>).code === "ENOENT"
   );
 }
 
@@ -503,7 +503,7 @@ function isAlreadyExists(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "EEXIST"
+    (error as Record<string, unknown>).code === "EEXIST"
   );
 }
 
@@ -512,6 +512,6 @@ function isSymlinkLoop(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "ELOOP"
+    (error as Record<string, unknown>).code === "ELOOP"
   );
 }
