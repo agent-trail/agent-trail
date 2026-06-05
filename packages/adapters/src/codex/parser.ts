@@ -289,15 +289,42 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
 // Three verbs cover create / modify / delete: Update, Add, Delete.
 const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 
+export type PatchFile = {
+  path: string;
+  diff: string;
+};
+
+export function patchFiles(input: string): PatchFile[] {
+  const matches = [...input.matchAll(PATCH_FILE_MARKER)];
+  return matches
+    .map((match, index) => {
+      const action = match[1] as "Update" | "Add" | "Delete";
+      const path = (match[2] as string).trim();
+      if (path.length === 0) return undefined;
+      const start = match.index + match[0].length;
+      const end = matches[index + 1]?.index ?? input.indexOf("*** End Patch", start);
+      const body = input.slice(start, end === -1 ? undefined : end).trim();
+      const moveTo = body.match(/^\*\*\* Move to: (.+)$/m)?.[1]?.trim();
+      const newPath = moveTo && moveTo.length > 0 ? moveTo : path;
+      const oldHeader = action === "Add" ? "/dev/null" : `a/${path}`;
+      const newHeader = action === "Delete" ? "/dev/null" : `b/${newPath}`;
+      const diffBody = body
+        .split("\n")
+        .filter((line) => !line.startsWith("*** Move to:") && line !== "*** End of File")
+        .join("\n")
+        .trim();
+      return {
+        path: newPath,
+        diff: [`--- ${oldHeader}`, `+++ ${newHeader}`, diffBody]
+          .filter((part) => part.length > 0)
+          .join("\n"),
+      };
+    })
+    .filter((file): file is PatchFile => file !== undefined);
+}
+
 export function patchSingleFilePath(input: string): string | undefined {
-  const paths = new Set<string>();
-  for (const m of input.matchAll(PATCH_FILE_MARKER)) {
-    // `m[2]` is the second capture group of PATCH_FILE_MARKER and is
-    // guaranteed to exist whenever the regex matches.
-    const path = (m[2] as string).trim();
-    if (path.length > 0) paths.add(path);
-    if (paths.size > 1) return undefined;
-  }
+  const paths = new Set(patchFiles(input).map((file) => file.path));
   if (paths.size === 1) {
     const [only] = paths;
     return only;

@@ -320,6 +320,59 @@ test("invalid-schema/tool-call-missing-args-path.trail.jsonl reports required /p
   });
 });
 
+test("valid/tool-call-file-patch.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-file-patch.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/tool-call-file-list.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-file-list.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("invalid-schema/tool-call-file-patch-empty-files.trail.jsonl reports minItems at /payload/args/files", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-file-patch-empty-files.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/args/files",
+    severity: "error",
+    code: "minItems",
+    message: "must NOT have fewer than 1 items",
+  });
+});
+
+test("invalid-schema/tool-call-file-patch-file-missing-diff.trail.jsonl reports required /payload/args/files/0/diff", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-file-patch-file-missing-diff.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/args/files/0/diff",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'diff'",
+  });
+});
+
+test("invalid-schema/tool-call-file-list-missing-path.trail.jsonl reports required /payload/args/path", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-file-list-missing-path.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/args/path",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'path'",
+  });
+});
+
 test("invalid-schema/user-message-non-string-text.trail.jsonl reports type at /payload/text", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-schema/user-message-non-string-text.trail.jsonl"),

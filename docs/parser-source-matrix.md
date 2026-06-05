@@ -134,10 +134,11 @@ kit path:
 multi-hunk diff;
 (c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
 multi-hunk diff;
-(d) `{multi: [...]}` spanning multiple files, or `{patch: "*** Begin Patch..."}` apply_patch
-strings → `other`, since spec §10.1 `file_edit` is single-file unified-diff only.
+(d) `{multi: [...]}` spanning multiple files → `file_patch`;
+(e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
+`file_patch` for multi-file patches.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
-`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.5,
+`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.7,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
 Pi has no observed mid-session registry delta primitive; extension-like tool calls remain
 `tool_call.tool="other"` and do not synthesize `capability_change` events.

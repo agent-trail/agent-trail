@@ -109,6 +109,8 @@
         "file_read",
         "file_write",
         "file_edit",
+        "file_patch",
+        "file_list",
         "file_search",
         "shell_command",
         "shell_output",
@@ -715,6 +717,51 @@
                       "properties": {
                         "path": { "type": "string" },
                         "diff": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "file_patch" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["files"],
+                      "properties": {
+                        "files": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": {
+                            "type": "object",
+                            "required": ["path", "diff"],
+                            "properties": {
+                              "path": { "type": "string" },
+                              "diff": { "type": "string" }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "atomic": { "type": "boolean" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              },
+              {
+                "if": { "properties": { "tool": { "const": "file_list" } } },
+                "then": {
+                  "properties": {
+                    "args": {
+                      "type": "object",
+                      "required": ["path"],
+                      "properties": {
+                        "path": { "type": "string" },
+                        "recursive": { "type": "boolean" },
+                        "glob": { "type": "string" }
                       },
                       "additionalProperties": false
                     }

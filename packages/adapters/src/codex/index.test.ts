@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
-import { mapTool } from "./parser.ts";
+import { mapTool, patchFiles } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
 const DESKTOP_FIXTURE_PATH = fileURLToPath(
@@ -2782,17 +2782,21 @@ test("custom_tool_call_output emits tool_result paired by call_id", async () => 
   expect(multiResult).toBeDefined();
 });
 
-test("custom_tool_call apply_patch with a multi-file patch falls back to other", async () => {
+test("custom_tool_call apply_patch with a multi-file patch maps to file_patch", async () => {
   const trail = await parseApplyPatchFixture();
   const multi = trail.groups[0]!.entries.find(
     (e) => e.type === "tool_call" && e.semantic?.call_id === "call-patch-multi",
   );
   expect(multi).toBeDefined();
-  expect((multi?.payload as { tool: string }).tool).toBe("other");
-  const args = (multi?.payload as { args: { name: string; args: { input: string } } }).args;
-  expect(args.name).toBe("apply_patch");
-  expect(args.args.input).toContain("*** Update File: src/a.ts");
-  expect(args.args.input).toContain("*** Update File: src/b.ts");
+  expect((multi?.payload as { tool: string }).tool).toBe("file_patch");
+  const args = (multi?.payload as { args: { files: Array<{ path: string; diff: string }> } }).args;
+  expect(args.files.map((file) => file.path)).toEqual(["src/a.ts", "src/b.ts"]);
+  expect(args.files[0]?.diff).toContain("--- a/src/a.ts");
+  expect(args.files[0]?.diff).toContain("-a");
+  expect(args.files[0]?.diff).toContain("+A");
+  expect(args.files[1]?.diff).toContain("--- a/src/b.ts");
+  expect(args.files[1]?.diff).toContain("-b");
+  expect(args.files[1]?.diff).toContain("+B");
 });
 
 test("custom_tool_call apply_patch with a single-file patch maps to file_edit", async () => {
@@ -2804,13 +2808,28 @@ test("custom_tool_call apply_patch with a single-file patch maps to file_edit", 
   expect((single?.payload as { tool: string }).tool).toBe("file_edit");
   const args = (single?.payload as { args: { path: string; diff: string } }).args;
   expect(args.path).toBe("src/foo.ts");
-  expect(args.diff).toContain("*** Update File: src/foo.ts");
+  expect(args.diff).not.toContain("*** Update File: src/foo.ts");
+  expect(args.diff).toContain("--- a/src/foo.ts");
+  expect(args.diff).toContain("+++ b/src/foo.ts");
   expect(args.diff).toContain("-old line");
   expect(args.diff).toContain("+new line");
   expect(single?.meta?.["dev.codex.raw_type"]).toBe("response_item.custom_tool_call");
   const diagnostics = await validateAdapterTrail(trail);
   const errors = diagnostics.filter((d) => d.severity === "error");
   expect(errors).toEqual([]);
+});
+
+test("patchFiles uses move targets as destination paths", () => {
+  expect(
+    patchFiles(
+      "*** Begin Patch\n*** Update File: src/old.ts\n*** Move to: src/new.ts\n@@\n-old\n+new\n*** End Patch",
+    ),
+  ).toEqual([
+    {
+      path: "src/new.ts",
+      diff: "--- a/src/old.ts\n+++ b/src/new.ts\n@@\n-old\n+new",
+    },
+  ]);
 });
 
 test("sourceVersion() returns cli_version of the newest seeded session", async () => {

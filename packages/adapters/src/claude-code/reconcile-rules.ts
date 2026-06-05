@@ -180,11 +180,23 @@ export const ccCompactBoundaryProvenance: ReconcilerRule = (entries) => {
  */
 export const ccToolKindToResult: ReconcilerRule = (entries) => {
   const kindByCallEntryId = new Map<string, ToolKind>();
+  const readRangeByCallEntryId = new Map<string, [number, number]>();
   const queryByCallId = new Map<string, Entry>();
   for (const entry of entries) {
     if (entry.type === "tool_call") {
       const kind = entry.semantic?.tool_kind;
       if (kind !== undefined) kindByCallEntryId.set(entry.id, kind);
+      if (kind === "file_read") {
+        const range = (entry.payload as { args?: { range?: unknown } }).args?.range;
+        if (
+          Array.isArray(range) &&
+          range.length === 2 &&
+          typeof range[0] === "number" &&
+          typeof range[1] === "number"
+        ) {
+          readRangeByCallEntryId.set(entry.id, [range[0], range[1]]);
+        }
+      }
     }
     if (entry.type === "user_query") {
       const callId = entry.semantic?.call_id ?? linkerCallId(entry);
@@ -212,7 +224,24 @@ export const ccToolKindToResult: ReconcilerRule = (entries) => {
     if (typeof forId !== "string") return entry;
     const kind = kindByCallEntryId.get(forId);
     if (kind === undefined) return entry;
-    return { ...entry, semantic: { ...entry.semantic, tool_kind: kind } };
+    const range = readRangeByCallEntryId.get(forId);
+    return {
+      ...entry,
+      payload:
+        range === undefined
+          ? entry.payload
+          : {
+              ...entry.payload,
+              meta: {
+                ...(entry.payload as { meta?: object }).meta,
+                file_read: {
+                  ...((entry.payload as { meta?: { file_read?: object } }).meta?.file_read ?? {}),
+                  range,
+                },
+              },
+            },
+      semantic: { ...entry.semantic, tool_kind: kind },
+    };
   });
 };
 

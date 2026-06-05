@@ -9,6 +9,27 @@ function agentTrailId(value: unknown): string | undefined {
   return id !== undefined && AGENT_TRAIL_ID_RE.test(id) ? id : undefined;
 }
 
+function prefixLines(text: string, prefix: string): string[] {
+  if (text.length === 0) return [];
+  return text.split("\n").map((line) => `${prefix}${line}`);
+}
+
+function lineCount(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    ...hunks.flatMap((hunk) => [
+      `@@ -1,${lineCount(hunk.oldText)} +1,${lineCount(hunk.newText)} @@`,
+      ...prefixLines(hunk.oldText, "-"),
+      ...prefixLines(hunk.newText, "+"),
+    ]),
+  ].join("\n");
+}
+
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -36,7 +57,19 @@ export function toolKindAndArgs(
     }
     case "Read": {
       const path = stringValue(args.file_path) ?? stringValue(args.path);
-      if (path !== undefined) return { tool: "file_read", args: { path } };
+      const offset = maybeNumber(args.offset);
+      const limit = maybeNumber(args.limit);
+      if (path !== undefined) {
+        return {
+          tool: "file_read",
+          args: {
+            path,
+            ...(offset !== undefined && limit !== undefined
+              ? { range: [offset, offset + limit] }
+              : {}),
+          },
+        };
+      }
       break;
     }
     case "Write": {
@@ -51,16 +84,55 @@ export function toolKindAndArgs(
       const oldString = stringValue(args.old_string);
       const newString = stringValue(args.new_string);
       if (path !== undefined && (oldString !== undefined || newString !== undefined)) {
-        const diff = [
-          `--- a/${path}`,
-          `+++ b/${path}`,
-          "@@",
-          `-${oldString ?? ""}`,
-          `+${newString ?? ""}`,
-        ].join("\n");
-        return { tool: "file_edit", args: { path, diff } };
+        return {
+          tool: "file_edit",
+          args: {
+            path,
+            diff: buildDiff(path, [{ oldText: oldString ?? "", newText: newString ?? "" }]),
+          },
+        };
       }
       break;
+    }
+    case "MultiEdit": {
+      const topPath = stringValue(args.file_path) ?? stringValue(args.path);
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      const byPath = new Map<string, Array<{ oldText: string; newText: string }>>();
+      for (const edit of edits) {
+        if (!isObject(edit)) continue;
+        const path = stringValue(edit.file_path) ?? stringValue(edit.path) ?? topPath;
+        if (path === undefined) continue;
+        const oldText = stringValue(edit.old_string) ?? stringValue(edit.oldString);
+        const newText = stringValue(edit.new_string) ?? stringValue(edit.newString);
+        if (oldText === undefined && newText === undefined) continue;
+        const hunks = byPath.get(path) ?? [];
+        hunks.push({ oldText: oldText ?? "", newText: newText ?? "" });
+        byPath.set(path, hunks);
+      }
+      if (byPath.size === 1) {
+        const [path, hunks] = [...byPath.entries()][0] as [
+          string,
+          Array<{ oldText: string; newText: string }>,
+        ];
+        return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+      }
+      if (byPath.size > 1) {
+        return {
+          tool: "file_patch",
+          args: {
+            files: [...byPath.entries()].map(([path, hunks]) => ({
+              path,
+              diff: buildDiff(path, hunks),
+            })),
+            atomic: true,
+          },
+        };
+      }
+      break;
+    }
+    case "LS": {
+      const path = stringValue(args.path) ?? stringValue(args.file_path) ?? ".";
+      return { tool: "file_list", args: { path } };
     }
     case "NotebookEdit": {
       const path =

@@ -138,6 +138,8 @@ export type ToolKind =
   | "file_read"
   | "file_write"
   | "file_edit"
+  | "file_patch"
+  | "file_list"
   | "file_search"
   | "shell_command"
   | "shell_output"

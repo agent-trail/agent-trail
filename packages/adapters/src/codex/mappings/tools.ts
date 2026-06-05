@@ -6,6 +6,7 @@ import {
   canonicalCustomToolName,
   mapTool,
   parseFunctionArguments,
+  patchFiles,
   patchSingleFilePath,
   stripSpinner,
 } from "../parser.ts";
@@ -141,10 +142,19 @@ const customToolCall = defineMapping<Raw>({
     let tool: ToolKind = "other";
     let args: Raw = { name: canonicalName, args: { input } };
     if (canonicalName === "apply_patch") {
-      const path = patchSingleFilePath(input);
-      if (path !== undefined) {
+      const files = patchFiles(input);
+      if (files.length > 1) {
+        tool = "file_patch";
+        args = { files, atomic: true };
+      } else if (files.length === 1) {
         tool = "file_edit";
-        args = { path, diff: input };
+        args = files[0] as { path: string; diff: string };
+      } else {
+        const path = patchSingleFilePath(input);
+        if (path !== undefined) {
+          tool = "file_edit";
+          args = { path, diff: input };
+        }
       }
     }
     return [

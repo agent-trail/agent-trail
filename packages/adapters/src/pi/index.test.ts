@@ -695,6 +695,10 @@ test("toolKindAndArgs maps Pi 'read' -> file_read", () => {
     tool: "file_read",
     args: { path: "a.md" },
   });
+  expect(toolKindAndArgs("read", { path: "a.md", offset: 10, limit: 5 })).toEqual({
+    tool: "file_read",
+    args: { path: "a.md", range: [10, 15] },
+  });
 });
 
 test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
@@ -782,21 +786,65 @@ test("toolKindAndArgs maps Pi 'edit' multi same-path -> file_edit with concatena
   });
 });
 
-test("toolKindAndArgs falls back to 'other' for Pi 'edit' multi across multiple files (no canonical single-file representation)", () => {
-  const result = toolKindAndArgs("edit", {
-    multi: [
-      { path: "a.md", oldText: "foo", newText: "bar" },
-      { path: "b.md", oldText: "baz", newText: "qux" },
-    ],
+test("toolKindAndArgs maps Pi 'edit' multi across multiple files -> file_patch", () => {
+  expect(
+    toolKindAndArgs("edit", {
+      multi: [
+        { path: "a.md", oldText: "foo", newText: "bar" },
+        { path: "b.md", oldText: "baz", newText: "qux" },
+      ],
+    }),
+  ).toEqual({
+    tool: "file_patch",
+    args: {
+      files: [
+        {
+          path: "a.md",
+          diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
+        },
+        {
+          path: "b.md",
+          diff: "--- a/b.md\n+++ b/b.md\n@@ -1,1 +1,1 @@\n-baz\n+qux",
+        },
+      ],
+      atomic: true,
+    },
   });
-  expect(result.tool).toBe("other");
 });
 
-test("toolKindAndArgs falls back to 'other' for Pi 'edit' apply_patch shape (non-unified diff)", () => {
-  const result = toolKindAndArgs("edit", {
-    patch: "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+b\n*** End Patch",
+test("toolKindAndArgs maps Pi 'edit' apply_patch shape -> file_edit or file_patch", () => {
+  expect(
+    toolKindAndArgs("edit", {
+      patch: "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+b\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: { path: "x.md", diff: "--- a/x.md\n+++ b/x.md\n@@\n-a\n+b" },
   });
-  expect(result.tool).toBe("other");
+  expect(
+    toolKindAndArgs("edit", {
+      patch:
+        "*** Begin Patch\n*** Update File: x.md\n@@\n-a\n+b\n*** Update File: y.md\n@@\n-c\n+d\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_patch",
+    args: {
+      files: [
+        { path: "x.md", diff: "--- a/x.md\n+++ b/x.md\n@@\n-a\n+b" },
+        { path: "y.md", diff: "--- a/y.md\n+++ b/y.md\n@@\n-c\n+d" },
+      ],
+      atomic: true,
+    },
+  });
+  expect(
+    toolKindAndArgs("edit", {
+      patch:
+        "*** Begin Patch\n*** Update File: old.md\n*** Move to: new.md\n@@\n-a\n+b\n*** End Patch",
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: { path: "new.md", diff: "--- a/old.md\n+++ b/new.md\n@@\n-a\n+b" },
+  });
 });
 
 test("toolKindAndArgs tolerates legacy Pi 'edit' (oldString/newString) for back-compat", () => {
@@ -830,27 +878,25 @@ test("toolKindAndArgs maps Pi 'find' -> file_search with pattern/path", () => {
   });
 });
 
-test("toolKindAndArgs maps Pi 'ls' -> shell_command with synthesized 'ls -- <path>' command", () => {
+test("toolKindAndArgs maps Pi 'ls' -> file_list", () => {
   expect(toolKindAndArgs("ls", { path: "src" })).toEqual({
-    tool: "shell_command",
-    args: { command: "ls -- src" },
+    tool: "file_list",
+    args: { path: "src" },
   });
   expect(toolKindAndArgs("ls", {})).toEqual({
-    tool: "shell_command",
-    args: { command: "ls" },
+    tool: "file_list",
+    args: { path: "." },
   });
   expect(toolKindAndArgs("ls", { path: "dir with space" })).toEqual({
-    tool: "shell_command",
-    args: { command: "ls -- 'dir with space'" },
+    tool: "file_list",
+    args: { path: "dir with space" },
   });
 });
 
-test("toolKindAndArgs guards 'ls' against paths beginning with '-' via POSIX option terminator", () => {
-  // Without `--`, `ls -rf` would be parsed as flags and might recurse/force-fail
-  // instead of listing the literal directory `-rf`.
+test("toolKindAndArgs keeps literal Pi 'ls' paths beginning with '-'", () => {
   expect(toolKindAndArgs("ls", { path: "-rf" })).toEqual({
-    tool: "shell_command",
-    args: { command: "ls -- -rf" },
+    tool: "file_list",
+    args: { path: "-rf" },
   });
 });
 
