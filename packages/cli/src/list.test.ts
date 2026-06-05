@@ -106,6 +106,35 @@ function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
   };
 }
 
+function throwingAdapter(name: string, message: string): TrailAdapter {
+  return {
+    name,
+    async detectSessions() {
+      throw new Error(message);
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not needed");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+    async sourceHealth() {
+      return {
+        adapter: name,
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: 0,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
+  };
+}
+
 let storeRoot: string;
 
 beforeEach(() => {
@@ -446,6 +475,52 @@ test("--search matches source head content and respects --case-sensitive", async
   expect(JSON.parse(sensitive.stdout)).toEqual([]);
 
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("--search matches registered object head content", async () => {
+  const { filePath, contentHash } = await seedTrail({
+    id: "01HSESS00000000000000SRC01",
+    cwd: "/work/search-registered",
+  });
+  await registerTrail(filePath, { storeRoot });
+
+  const matched = await runList(
+    { json: true, search: "hello", cwd: "/work/search-registered" },
+    { storeRoot, adapters: [] },
+  );
+  const matchedRows = JSON.parse(matched.stdout) as Array<{ content_hash: string }>;
+  expect(matchedRows.map((r) => r.content_hash)).toEqual([contentHash]);
+
+  const missed = await runList(
+    { json: true, search: "not in object", cwd: "/work/search-registered" },
+    { storeRoot, adapters: [] },
+  );
+  expect(JSON.parse(missed.stdout)).toEqual([]);
+});
+
+test("source adapter failures warn and do not abort listing", async () => {
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        throwingAdapter("broken", "cannot scan"),
+        stubAdapter("codex", [
+          {
+            id: "sess-ok",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+        ]),
+      ],
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("warning: broken detectSessions failed: cannot scan");
+  const parsed = JSON.parse(result.stdout) as Array<{ source_id: string }>;
+  expect(parsed.map((r) => r.source_id)).toEqual(["sess-ok"]);
 });
 
 test("single registered trail prints one text row with short hash, agent, cwd, registered_at", async () => {
