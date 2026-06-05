@@ -25,7 +25,7 @@ import {
   parseTimeBounds,
   renderJson,
 } from "./listing.ts";
-import type { SessionBrowserRow, SessionBrowserTerminal } from "./session-browser-tui.ts";
+import type { SessionBrowserTerminal } from "./session-browser-tui.ts";
 
 export type RunListResult = {
   exitCode: number;
@@ -52,10 +52,7 @@ export type RunListContext = {
   adapters?: readonly TrailAdapter[];
   defaultCwd?: string;
   terminal?: SessionBrowserTerminal;
-  runSessionBrowser?: (input: {
-    rows: SessionBrowserRow[];
-    warnings: string[];
-  }) => Promise<RunListResult>;
+  runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<RunListResult>;
 };
 
 type RowKind = "session" | "trail";
@@ -102,6 +99,14 @@ type HeaderReadResult = {
   error: string | null;
 };
 
+type CollectedRowsResult =
+  | {
+      exitCode: 0;
+      rows: Row[];
+      warnings: string[];
+    }
+  | RunListResult;
+
 const SHORT_HASH_LEN = 12;
 const MISSING_TEXT = "-";
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
@@ -111,6 +116,31 @@ export async function runList(
   options: RunListOptions = {},
   context: RunListContext = {},
 ): Promise<RunListResult> {
+  if (options.json === true && options.plain === true) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: --json and --plain cannot be used together\n",
+    };
+  }
+
+  const collected = await collectListRows(options, context);
+  if ("stdout" in collected) return collected;
+
+  const stderr = collected.warnings.length === 0 ? "" : `${collected.warnings.join("\n")}\n`;
+  if (options.json === true) {
+    return { exitCode: 0, stdout: renderJson(collected.rows), stderr };
+  }
+  if (collected.rows.length === 0) {
+    return { exitCode: 0, stdout: "", stderr };
+  }
+  return { exitCode: 0, stdout: renderText(collected.rows), stderr };
+}
+
+async function collectListRows(
+  options: RunListOptions,
+  context: RunListContext,
+): Promise<CollectedRowsResult> {
   let storeRoot: string;
   try {
     storeRoot = resolveStoreRoot(context.storeRoot);
@@ -181,13 +211,6 @@ export async function runList(
   if (boundErrors.length > 0) {
     return { exitCode: 1, stdout: "", stderr: `${boundErrors.join("\n")}\n` };
   }
-  if (options.json === true && options.plain === true) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: "error: --json and --plain cannot be used together\n",
-    };
-  }
 
   const agentFilter = options.agent ?? context.config?.config.sources.defaultFilter ?? undefined;
   const sourceFiltered = rows.filter((r) => {
@@ -224,33 +247,24 @@ export async function runList(
     warnings.push(`warning: ${filtered.length} rows matched; showing first ${parsedLimit.limit}`);
   }
 
-  const stderr = warnings.length === 0 ? "" : `${warnings.join("\n")}\n`;
-  if (options.json === true) {
-    return { exitCode: 0, stdout: renderJson(renderedRows), stderr };
-  }
-  if (renderedRows.length === 0) {
-    return { exitCode: 0, stdout: "", stderr };
-  }
-  return { exitCode: 0, stdout: renderText(renderedRows), stderr };
+  return { exitCode: 0, rows: renderedRows, warnings };
 }
 
 export async function runListBrowser(
   options: RunListOptions = {},
   context: RunListContext = {},
 ): Promise<RunListResult> {
-  const result = await runList({ ...options, json: true, plain: false }, context);
-  if (result.exitCode !== 0) return result;
-  const rows = JSON.parse(result.stdout) as SessionBrowserRow[];
-  const warnings = result.stderr.trim().length === 0 ? [] : result.stderr.trimEnd().split("\n");
+  const result = await collectListRows(options, context);
+  if ("stdout" in result) return result;
   const runSessionBrowser =
     context.runSessionBrowser ??
-    (async (input: { rows: SessionBrowserRow[]; warnings: string[] }) => {
+    (async (input: { rows: Row[]; warnings: string[] }) => {
       const { runSessionBrowserTui } = await import("./session-browser-tui.ts");
       return runSessionBrowserTui(input, context.terminal);
     });
   return runSessionBrowser({
-    rows,
-    warnings,
+    rows: result.rows,
+    warnings: result.warnings,
   });
 }
 

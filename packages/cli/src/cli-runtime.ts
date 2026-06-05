@@ -6,10 +6,10 @@ import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.ts";
 import { addDiscoverCommand } from "./discover.ts";
 import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
-import { addListCommand, runListBrowser } from "./list.ts";
+import { addListCommand, type Row, runListBrowser } from "./list.ts";
 import { addLoadCommand } from "./load.ts";
 import { addRegisterCommand } from "./register.ts";
-import type { SessionBrowserRow, SessionBrowserTerminal } from "./session-browser-tui.ts";
+import type { SessionBrowserTerminal } from "./session-browser-tui.ts";
 import { addShareCommand } from "./share.ts";
 import { addStatusCommand } from "./status.ts";
 import { addValidateCommand } from "./validate.ts";
@@ -29,10 +29,7 @@ export type RunCliContext = {
   projectRoot?: string;
   storeRoot?: string;
   terminal?: SessionBrowserTerminal;
-  runSessionBrowser?: (input: {
-    rows: SessionBrowserRow[];
-    warnings: string[];
-  }) => Promise<CliResult>;
+  runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<CliResult>;
 };
 
 export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {

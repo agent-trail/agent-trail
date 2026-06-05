@@ -1,23 +1,8 @@
 import { type CliRenderer, createCliRenderer, type KeyEvent, TextRenderable } from "@opentui/core";
 import type { CliResult } from "./command.ts";
+import type { Row } from "./list.ts";
 
-export type SessionBrowserRow = {
-  state: "source" | "registered" | "source+registered";
-  source_id: string | null;
-  source_agent: string | null;
-  source_cwd: string | null;
-  source_modified_at: string | null;
-  source_path: string | null;
-  content_hash: string | null;
-  registered_agent: string | null;
-  registered_cwd: string | null;
-  registered_at: string | null;
-  registered_source_path: string | null;
-  registered_kind: "session" | "trail" | null;
-  agent: string | null;
-  cwd: string | null;
-  latest_at: string | null;
-};
+export type SessionBrowserRow = Row;
 
 export type SessionBrowserTerminal = {
   isTTY?: boolean;
@@ -46,6 +31,11 @@ export type MountedSessionBrowser = {
 
 const MISSING = "-";
 const MAX_VISIBLE_ROWS = 12;
+// biome-ignore lint/complexity/useRegexLiterals: literal form trips noControlCharactersInRegex.
+const ANSI_ESCAPE_RE = new RegExp(
+  "\\u001B(?:\\][^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\)|[PX^_][^\\u001B]*(?:\\u001B\\\\)|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])",
+  "g",
+);
 
 export async function runSessionBrowserTui(
   input: SessionBrowserInput,
@@ -192,16 +182,19 @@ export function renderBrowserFrame(input: SessionBrowserInput | BrowserState): s
   const rows = filteredRows(state);
   clampSelection(state);
   const selected = rows[state.selectedIndex];
+  const visibleStart = selectedWindowStart(state.selectedIndex, rows.length);
   const renderedRows =
     rows.length === 0
       ? ["No sessions found"]
       : rows
-          .slice(0, MAX_VISIBLE_ROWS)
-          .map((row, index) => renderRow(row, index === state.selectedIndex));
+          .slice(visibleStart, visibleStart + MAX_VISIBLE_ROWS)
+          .map((row, index) => renderRow(row, visibleStart + index === state.selectedIndex));
   const preview =
     selected === undefined ? emptyPreview() : rowPreview(selected, state.openedIdentity);
   const warnings =
-    state.warnings.length === 0 ? "" : `Warnings: ${state.warnings.slice(0, 2).join(" | ")}\n`;
+    state.warnings.length === 0
+      ? ""
+      : `Warnings: ${state.warnings.slice(0, 2).map(sanitizeTerminalText).join(" | ")}\n`;
 
   return [
     "Agent Trail Browser",
@@ -222,9 +215,9 @@ export function renderBrowserFrame(input: SessionBrowserInput | BrowserState): s
 
 function renderRow(row: SessionBrowserRow, selected: boolean): string {
   const marker = selected ? ">" : " ";
-  return `${marker} ${row.state} ${row.agent ?? MISSING} ${row.cwd ?? MISSING} ${
-    row.latest_at ?? MISSING
-  } ${shortIdentity(row)}`;
+  return `${marker} ${row.state} ${renderValue(row.agent)} ${renderValue(row.cwd)} ${renderValue(
+    row.latest_at,
+  )} ${shortIdentity(row)}`;
 }
 
 function rowPreview(row: SessionBrowserRow, openedIdentity: string | null): string[] {
@@ -232,11 +225,11 @@ function rowPreview(row: SessionBrowserRow, openedIdentity: string | null): stri
   return [
     openedIdentity === rowIdentity(row) ? `Open placeholder: ${id}` : "Selected row",
     `state: ${row.state}`,
-    `agent: ${row.agent ?? MISSING}`,
-    `cwd: ${row.cwd ?? MISSING}`,
-    `time: ${row.latest_at ?? MISSING}`,
+    `agent: ${renderValue(row.agent)}`,
+    `cwd: ${renderValue(row.cwd)}`,
+    `time: ${renderValue(row.latest_at)}`,
     `id: ${id}`,
-    `source: ${row.source_path ?? row.registered_source_path ?? MISSING}`,
+    `source: ${renderValue(row.source_path ?? row.registered_source_path)}`,
   ];
 }
 
@@ -265,11 +258,29 @@ function clampSelection(state: BrowserState): void {
   state.selectedIndex = Math.max(0, Math.min(state.selectedIndex, count - 1));
 }
 
+function selectedWindowStart(selectedIndex: number, rowCount: number): number {
+  if (rowCount <= MAX_VISIBLE_ROWS) return 0;
+  return Math.min(Math.max(0, selectedIndex - MAX_VISIBLE_ROWS + 1), rowCount - MAX_VISIBLE_ROWS);
+}
+
 function shortIdentity(row: SessionBrowserRow): string {
   const id = row.source_id ?? row.content_hash ?? MISSING;
-  return id.slice(0, 12);
+  return sanitizeTerminalText(id).slice(0, 12);
 }
 
 function rowIdentity(row: SessionBrowserRow): string {
   return row.source_id ?? row.content_hash ?? "";
+}
+
+function renderValue(value: string | null): string {
+  return value === null ? MISSING : sanitizeTerminalText(value);
+}
+
+export function sanitizeTerminalText(value: string): string {
+  let sanitized = "";
+  for (const char of value.replace(ANSI_ESCAPE_RE, "")) {
+    const code = char.charCodeAt(0);
+    sanitized += code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? " " : char;
+  }
+  return sanitized;
 }

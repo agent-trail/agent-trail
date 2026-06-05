@@ -43,6 +43,27 @@ const rows: SessionBrowserRow[] = [
   },
 ];
 
+function sourceRow(index: number): SessionBrowserRow {
+  const suffix = String(index).padStart(2, "0");
+  return {
+    state: "source",
+    source_id: `sess-${suffix}`,
+    source_agent: "codex",
+    source_cwd: `/work/row-${suffix}`,
+    source_modified_at: `2026-05-18T14:${suffix}:00.000Z`,
+    source_path: `/tmp/row-${suffix}.jsonl`,
+    content_hash: null,
+    registered_agent: null,
+    registered_cwd: null,
+    registered_at: null,
+    registered_source_path: null,
+    registered_kind: null,
+    agent: "codex",
+    cwd: `/work/row-${suffix}`,
+    latest_at: `2026-05-18T14:${suffix}:00.000Z`,
+  };
+}
+
 test("browser frame renders empty state", () => {
   const frame = renderBrowserFrame({ rows: [], warnings: [] });
 
@@ -86,6 +107,26 @@ test("browser navigation updates selected row preview", async () => {
   }
 });
 
+test("browser navigation keeps selected row visible after first page", async () => {
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  try {
+    const manyRows = Array.from({ length: 13 }, (_value, index) => sourceRow(index));
+    mountSessionBrowser(setup.renderer, { rows: manyRows, warnings: [] });
+    await setup.renderOnce();
+
+    for (let i = 0; i < 12; i += 1) {
+      setup.mockInput.pressArrow("down");
+    }
+    await setup.renderOnce();
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("> source codex /work/row-12");
+    expect(frame).not.toContain("sess-00");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("browser search filters rows and keeps deterministic selection", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24 });
   try {
@@ -103,6 +144,29 @@ test("browser search filters rows and keeps deterministic selection", async () =
   } finally {
     setup.renderer.destroy();
   }
+});
+
+test("browser frame strips terminal control sequences from rendered content", () => {
+  const frame = renderBrowserFrame({
+    rows: [
+      {
+        ...sourceRow(0),
+        source_id: "evil\x1b]52;c;secret\x07-id",
+        agent: "codex\x1b[31m-red",
+        cwd: "/work/\x1b[31mred\nnext",
+        source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
+      },
+    ],
+    warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
+  });
+
+  expect(frame).not.toContain("\x1b");
+  expect(frame).not.toContain("]52");
+  expect(frame).not.toContain("[31m");
+  expect(frame).not.toContain("payload");
+  expect(frame).toContain("codex-red");
+  expect(frame).toContain("/work/red next");
+  expect(frame).toContain("warning: skip line");
 });
 
 test("enter opens selected row placeholder", async () => {
