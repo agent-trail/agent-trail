@@ -25,6 +25,7 @@ import {
   parseTimeBounds,
   renderJson,
 } from "./listing.ts";
+import type { SessionBrowserRow, SessionBrowserTerminal } from "./session-browser-tui.ts";
 
 export type RunListResult = {
   exitCode: number;
@@ -50,6 +51,11 @@ export type RunListContext = {
   config?: ResolvedConfig;
   adapters?: readonly TrailAdapter[];
   defaultCwd?: string;
+  terminal?: SessionBrowserTerminal;
+  runSessionBrowser?: (input: {
+    rows: SessionBrowserRow[];
+    warnings: string[];
+  }) => Promise<RunListResult>;
 };
 
 type RowKind = "session" | "trail";
@@ -73,7 +79,7 @@ type RegisteredRow = {
 
 type RowState = "source" | "registered" | "source+registered";
 
-type Row = {
+export type Row = {
   state: RowState;
   source_id: string | null;
   source_agent: string | null;
@@ -226,6 +232,33 @@ export async function runList(
     return { exitCode: 0, stdout: "", stderr };
   }
   return { exitCode: 0, stdout: renderText(renderedRows), stderr };
+}
+
+export async function runListBrowser(
+  options: RunListOptions = {},
+  context: RunListContext = {},
+): Promise<RunListResult> {
+  const result = await runList({ ...options, json: true, plain: false }, context);
+  if (result.exitCode !== 0) return result;
+  const rows = JSON.parse(result.stdout) as SessionBrowserRow[];
+  const warnings = result.stderr.trim().length === 0 ? [] : result.stderr.trimEnd().split("\n");
+  const runSessionBrowser =
+    context.runSessionBrowser ??
+    (async (input: { rows: SessionBrowserRow[]; warnings: string[] }) => {
+      const { runSessionBrowserTui } = await import("./session-browser-tui.ts");
+      return runSessionBrowserTui(input, context.terminal);
+    });
+  return runSessionBrowser({
+    rows,
+    warnings,
+  });
+}
+
+export function shouldRunListBrowser(
+  options: RunListOptions,
+  terminal?: SessionBrowserTerminal,
+): boolean {
+  return terminal?.isTTY === true && options.json !== true && options.plain !== true;
 }
 
 function renderText(rows: Row[]): string {
@@ -511,7 +544,11 @@ export function addListCommand(
       .option("--case-sensitive", "Make --search matching case-sensitive.", false)
       .description("List source sessions and registered Trail objects.")
       .action(async (options: RunListOptions) => {
-        writeResult(await runList(options, context));
+        writeResult(
+          shouldRunListBrowser(options, context.terminal)
+            ? await runListBrowser(options, context)
+            : await runList(options, context),
+        );
       }),
     ["trail list", "trail list --source registered --agent codex-cli"],
   );

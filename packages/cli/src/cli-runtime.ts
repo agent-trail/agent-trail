@@ -6,9 +6,10 @@ import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.ts";
 import { addDiscoverCommand } from "./discover.ts";
 import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
-import { addListCommand } from "./list.ts";
+import { addListCommand, runListBrowser } from "./list.ts";
 import { addLoadCommand } from "./load.ts";
 import { addRegisterCommand } from "./register.ts";
+import type { SessionBrowserRow, SessionBrowserTerminal } from "./session-browser-tui.ts";
 import { addShareCommand } from "./share.ts";
 import { addStatusCommand } from "./status.ts";
 import { addValidateCommand } from "./validate.ts";
@@ -27,9 +28,15 @@ export type RunCliContext = {
   env?: Record<string, string | undefined>;
   projectRoot?: string;
   storeRoot?: string;
+  terminal?: SessionBrowserTerminal;
+  runSessionBrowser?: (input: {
+    rows: SessionBrowserRow[];
+    warnings: string[];
+  }) => Promise<CliResult>;
 };
 
 export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {
+  const effectiveContext = withDefaultTerminal(context);
   const [subcommand, ...rest] = argv;
   if (subcommand === "--version" || subcommand === "-V") {
     return runVersion(rest);
@@ -37,7 +44,12 @@ export async function runCli(argv: string[], context: RunCliContext = {}): Promi
 
   const output: OutputBuffer = { stdout: "", stderr: "" };
   if (argv.length === 0) {
-    const program = buildProgram(output, context);
+    if (effectiveContext.terminal?.isTTY === true) {
+      const commandContext = await resolveCommandContext(["list"], effectiveContext);
+      if ("exitCode" in commandContext) return commandContext;
+      return runListBrowser({}, commandContext);
+    }
+    const program = buildProgram(output, effectiveContext);
     const help = program.helpInformation();
     return {
       exitCode: 0,
@@ -46,7 +58,7 @@ export async function runCli(argv: string[], context: RunCliContext = {}): Promi
     };
   }
 
-  const commandContext = await resolveCommandContext(argv, context);
+  const commandContext = await resolveCommandContext(argv, effectiveContext);
   if ("exitCode" in commandContext) return commandContext;
   const program = buildProgram(output, commandContext);
 
@@ -63,6 +75,20 @@ export async function runCli(argv: string[], context: RunCliContext = {}): Promi
     }
     throw error;
   }
+}
+
+function withDefaultTerminal(context: RunCliContext): RunCliContext {
+  if (context.terminal !== undefined) return context;
+  return {
+    ...context,
+    terminal: {
+      isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true,
+      stdin: process.stdin,
+      stdout: process.stdout,
+      width: process.stdout.columns,
+      height: process.stdout.rows,
+    },
+  };
 }
 
 async function resolveCommandContext(
@@ -118,6 +144,8 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
     adapters: context.adapters,
     config: context.config,
     storeRoot: context.storeRoot,
+    terminal: context.terminal,
+    runSessionBrowser: context.runSessionBrowser,
   });
   addRegisterCommand(program, writeResult);
   addDiscoverCommand(program, writeResult, {
