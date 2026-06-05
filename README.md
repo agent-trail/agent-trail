@@ -20,6 +20,7 @@ Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validat
 
 - [`spec.md`](./spec.md) — Agent Trail format specification.
 - [`schema.json`](./schema.json) — canonical writer-strict JSON Schema for trail records.
+- [`docs/implementation-semantics.md`](./docs/implementation-semantics.md) — non-normative implementation, adapter, reader, reconciler, validation, and redaction guidance.
 - [`CONTEXT.md`](./CONTEXT.md) — shared project terminology.
 - [`docs/PRD.md`](./docs/PRD.md) — product and implementation plan.
 - [`docs/adr/`](./docs/adr/) — durable architecture decisions.
@@ -29,17 +30,17 @@ Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validat
 Minimal trail (session header on line 1):
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
-{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
-{"type":"agent_message","id":"evta2","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
 ```
 
 With optional trail envelope (file-level metadata on line 1, session header on line 2):
 
 ```jsonl
-{"type":"trail","schema_version":"0.1.0","id":"trl-1","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}
-{"type":"session","schema_version":"0.1.0","id":"sess1","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
-{"type":"user_message","id":"evta1","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"trail","schema_version":"0.1.0","id":"00000000-0000-0000-0000-000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","name":"OAuth refactor"}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
 ```
 
 The envelope is optional and decouples file-scope identity (producer, file label, file-level `content_hash`, optional sessions manifest, vendor `meta`) from per-session metadata. See [`spec.md`](./spec.md) §8.0 and §7.4 for full semantics including two-tier `content_hash` identity.
