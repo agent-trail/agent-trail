@@ -64,13 +64,13 @@ export function finalizedObjectIndexPolicy(records: JsonlRecord[]): FinalizedObj
   const envelopeResult = split.envelope !== null ? verifyTrailEnvelopeContentHash(records) : null;
 
   const rows: FinalizedObjectIndexRow[] = [];
-  for (let i = 0; i < sessionResults.length; i += 1) {
+  for (const [i, group] of split.groups.entries()) {
     const result = sessionResults[i];
     if (result?.status !== "match" || typeof result.expected !== "string") continue;
     rows.push({
       contentHash: result.expected,
       kind: "session",
-      session_uid: extractSessionUidFromHeader(split.groups[i]?.header) ?? null,
+      session_uid: extractSessionUidFromHeader(group.header),
     });
   }
 
@@ -97,7 +97,7 @@ export function finalizedObjectIndexRowForHash(
   return finalizedObjectIndexPolicy(records).rows.find((row) => row.contentHash === contentHash);
 }
 
-function extractSessionUidFromHeader(header: JsonlRecord | undefined): string | null {
-  const uid = header?.value.session_uid;
+function extractSessionUidFromHeader(header: JsonlRecord): string | null {
+  const uid = header.value.session_uid;
   return typeof uid === "string" ? uid : null;
 }

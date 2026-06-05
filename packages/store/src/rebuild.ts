@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { emptyIndex, withIndexLock, writeIndex } from "./index-file.ts";
 import {
   type FinalizedObjectIndexRow,
-  finalizedObjectIndexRowForHash,
   writerStrictObjectIndexPolicy,
 } from "./object-index-policy.ts";
 import { objectsDir, resolveStoreRoot } from "./paths.ts";
@@ -51,7 +50,7 @@ export async function rebuildIndex(opts: RebuildIndexOptions = {}): Promise<Rebu
       const eligible = await writerStrictObjectIndexPolicy(raw);
       row =
         eligible.status === "valid"
-          ? finalizedObjectIndexRowForHash(eligible.records, filenameHash)
+          ? eligible.policy.rows.find((candidate) => candidate.contentHash === filenameHash)
           : undefined;
     } catch {
       row = undefined;
