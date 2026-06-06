@@ -25,6 +25,11 @@ Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validat
 - [`docs/PRD.md`](./docs/PRD.md) — product and implementation plan.
 - [`docs/adr/`](./docs/adr/) — durable architecture decisions.
 
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for development workflow, RFC/spec
+decision guidance, and pull request expectations.
+
 ## Format Preview
 
 Minimal trail (session header on line 1):

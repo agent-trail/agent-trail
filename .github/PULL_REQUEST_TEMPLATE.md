@@ -19,6 +19,7 @@ Closes `#ISSUE_NUMBER`
 - [ ] `spec.md` change
 - [ ] CLI behavior change
 - [ ] Documentation-only change
+- [ ] Load-bearing format or architecture changes link an accepted RFC / spec-decision issue.
 
 ## Risk and Rollback
 
