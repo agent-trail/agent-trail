@@ -486,7 +486,7 @@ All validator APIs and `trail validate --json` return normalized diagnostics wit
 
 ### 8.4 Website (`agent-trail.dev`)
 
-The site is one Next.js static deployment with four routes. Single deployment, single repo, single CI pipeline.
+The site is one TanStack Start React deployment with prerendered static routes for the landing/spec pages, server route handlers for raw schema JSON, and an SPA route shell for the viewer. Single deployment, single repo, single CI pipeline.
 
 #### 8.4.1 Landing page (`/`)
 
@@ -723,7 +723,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 | `trail export <id>` | done | Deterministic byte export of registered trails; consumed by `summarise` (#63) and `handoff` (#64) skills |
 | `trail discover` / `trail list` | done | Local source-agent discovery and registered-trail listing |
 | `trail view` terminal renderer | not started | Tracker #23 |
-| **Website (Next.js, static):** landing + spec rendering + schema serving + viewer | scaffold only | Trackers #29 (shell + routes), #30 (gist viewer decode), #31 (event renderer) |
+| **Website (TanStack Start, prerendered/static shell):** landing + spec rendering + schema serving + viewer | scaffold only | Trackers #29 (shell + routes), #30 (gist viewer decode), #31 (event renderer) |
 | Parser Source Matrix completed for all 6 launch adapters | partial | Pi and Claude Code verified; remaining four `pending verification` |
 | Real-data verification CI job (opt-in, on schedule) | not started | Tracker #37 |
 | Mapping cheatsheet docs (per adapter) | partial | Adapter-side notes live in `docs/parser-source-matrix.md`; per-adapter cheatsheets pending |

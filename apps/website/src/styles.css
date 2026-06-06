@@ -1,0 +1,335 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--at-bg);
+  --color-fg: var(--at-fg);
+  --color-accent: var(--at-accent);
+  --color-muted: var(--at-muted);
+  --color-main: var(--at-border);
+  --color-panel: var(--at-accent);
+  --color-line: var(--at-border);
+  --color-line-muted: var(--at-border-muted);
+  --color-text: var(--at-fg);
+  --color-text-strong: var(--at-fg);
+  --font-mono: "Commit Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    --at-bg: #ffffff;
+    --at-fg: #000000;
+    --at-accent: #f5f5f5;
+    --at-muted: #717171;
+    --at-border: #000000;
+    --at-border-muted: color-mix(in srgb, var(--at-border) 16%, transparent);
+  }
+
+  html.dark-mode,
+  body.dark-mode {
+    --at-bg: #000000;
+    --at-fg: #ffffff;
+    --at-accent: #1a1a1a;
+    --at-muted: #a1a1a1;
+    --at-border: #ffffff;
+    --at-border-muted: color-mix(in srgb, var(--at-border) 18%, transparent);
+  }
+
+  * {
+    box-sizing: border-box;
+    border-radius: 0 !important;
+  }
+
+  html {
+    background: var(--at-bg);
+    color: var(--at-fg);
+    font-family: var(--font-mono);
+    font-feature-settings: "calt" 1, "kern" 1;
+    font-kerning: normal;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: geometricPrecision;
+  }
+
+  body {
+    margin: 0;
+    background: var(--at-bg);
+    color: var(--at-fg);
+    transition:
+      background-color 100ms ease,
+      color 100ms ease;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  code,
+  pre {
+    font-family: var(--font-mono);
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--at-bg);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--at-border);
+  }
+}
+
+@layer utilities {
+  .break-words {
+    overflow-wrap: anywhere;
+  }
+
+  .border-main {
+    border: 1px solid var(--at-border);
+  }
+
+  .border-b-main {
+    border-bottom: 1px solid var(--at-border);
+  }
+
+  .border-t-main {
+    border-top: 1px solid var(--at-border);
+  }
+
+  .border-r-main {
+    border-right: 1px solid var(--at-border);
+  }
+
+  .border-l-main {
+    border-left: 1px solid var(--at-border);
+  }
+
+  .btn-hover:hover {
+    background-color: var(--at-fg);
+    color: var(--at-bg);
+  }
+
+  .fixed-shell-header {
+    position: fixed;
+    top: env(safe-area-inset-top);
+    right: 0;
+    left: 0;
+    z-index: 40;
+  }
+
+  .fixed-shell-footer {
+    position: fixed;
+    right: 0;
+    bottom: env(safe-area-inset-bottom);
+    left: 0;
+    z-index: 40;
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  }
+
+  .fixed-page-scroll {
+    position: fixed;
+    top: calc(4rem + env(safe-area-inset-top));
+    right: 0;
+    bottom: calc(75px + env(safe-area-inset-bottom));
+    left: 0;
+    overflow-y: auto;
+  }
+
+  .code-syntax-keyword {
+    font-weight: 800;
+  }
+
+  .code-syntax-string {
+    color: var(--at-muted);
+    font-style: italic;
+  }
+
+  .code-syntax-key {
+    font-weight: 500;
+  }
+
+  .site-header {
+    contain: layout paint;
+  }
+
+  .site-footer {
+    contain: layout paint;
+  }
+}
+
+@layer components {
+  .markdown-body {
+    padding-top: 2.5rem;
+    color: var(--color-text);
+    font-size: 0.92rem;
+    line-height: 1.78;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4 {
+    position: relative;
+    max-width: 72ch;
+    margin: 3rem 0 1rem;
+    color: var(--color-text-strong);
+    font-weight: 700;
+    line-height: 1.18;
+    text-wrap: balance;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2 {
+    border-bottom: 1px solid var(--color-line);
+    padding-bottom: 0.75rem;
+  }
+
+  .markdown-body h1 {
+    font-size: 2.75rem;
+    letter-spacing: 0.02em;
+  }
+
+  .markdown-body h2 {
+    font-size: 2rem;
+  }
+
+  .markdown-body h3 {
+    font-size: 1.2rem;
+  }
+
+  .markdown-body h4 {
+    font-size: 1rem;
+  }
+
+  .markdown-body p,
+  .markdown-body li {
+    max-width: 72ch;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+
+  .markdown-body p {
+    color: var(--color-text);
+  }
+
+  .markdown-body a,
+  .markdown-body strong {
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body p,
+  .markdown-body ul,
+  .markdown-body ol,
+  .markdown-body blockquote,
+  .markdown-body pre,
+  .markdown-body table {
+    margin: 1rem 0 0;
+  }
+
+  .markdown-body ul,
+  .markdown-body ol {
+    padding-left: 1.4rem;
+  }
+
+  .markdown-body a {
+    color: var(--color-text-strong);
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-muted);
+    text-underline-offset: 0.18em;
+  }
+
+  .markdown-body a:hover {
+    text-decoration-color: var(--color-text);
+  }
+
+  .markdown-body code {
+    color: var(--color-text-strong);
+    font-size: 0.92em;
+  }
+
+  .markdown-body :not(pre) > code {
+    border: 1px solid var(--color-line-muted);
+    background: var(--color-panel);
+    padding: 0.08rem 0.24rem;
+  }
+
+  .markdown-body pre {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel);
+  }
+
+  .markdown-body table {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .markdown-body th,
+  .markdown-body td {
+    border: 1px solid var(--color-line-muted);
+    padding: 0.55rem;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body th {
+    color: var(--color-text-strong);
+    font-weight: 700;
+  }
+
+  .markdown-body pre code {
+    display: block;
+    min-width: 0;
+    padding: 1rem;
+    font-size: 0.78rem;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .markdown-body .shiki {
+    margin: 0;
+    background: transparent !important;
+  }
+
+  .markdown-body .shiki span {
+    color: var(--at-fg) !important;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .markdown-body .shiki .line {
+    display: block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .heading-anchor {
+    margin-left: 0.5rem;
+    color: var(--color-muted);
+    font-size: 0.8em;
+    text-decoration: none;
+  }
+
+  .heading-anchor:hover {
+    color: var(--color-text-strong);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a {
+    transition:
+      color 160ms ease-out,
+      border-color 160ms ease-out,
+      background-color 160ms ease-out,
+      text-decoration-color 160ms ease-out;
+  }
+}

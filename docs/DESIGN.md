@@ -2,124 +2,89 @@
 
 ## Design Language
 
-Agent Trail adopts a Kami-inspired product language: warm parchment canvas, ink-blue accent, serif-led hierarchy, tight editorial rhythm, and warm gray neutrals. The system should make trail artifacts feel durable and reviewable without turning dense tooling into a print document.
+Agent Trail uses a dark mono product language for the website and viewer shell: black and charcoal surfaces, thin sharp borders, grayscale text, Commit Mono typography, and compact artifact previews. The system should feel like a durable terminal record and a reference manual, not a hosted SaaS dashboard or a paper editorial page.
 
-Use strict Kami for public website pages, docs, share pages, one-pagers, release artifacts, and other static presentation surfaces. Use Kami-adapted product mode for the viewer and app UI: keep the palette, editorial restraint, and small-radius geometry, but allow system UI for labels, controls, forms, tables, and dense interaction.
+Public pages and app surfaces share the same visual vocabulary. The homepage stays mostly text: a brief format explanation, a short `.trail.jsonl` preview, spec/schema links, and reference implementation links. Spec pages prioritize readable long-form text and anchored headings. Viewer routes use denser product-mode layout while remaining non-functional until the viewer work lands.
 
 ## Color
 
-Use OKLCH tokens in implementation. Do not introduce a second chromatic accent without a specific product reason. OKLCH is available in modern evergreen browsers; provide hex fallbacks first, then override them inside `@supports (color: oklch(0% 0 0))` for older clients.
+Use Tailwind v4 theme tokens in `apps/website/src/styles.css`.
 
 ```css
-:root {
-  --parchment: #f5f4ed;
-  --ivory: #faf9f5;
-  --warm-sand: #e8e6dc;
-  --border: #e5e3d8;
-
-  --brand: #1b365d;
-  --brand-light: #2d5a8a;
-
-  --ink: #141413;
-  --muted: #504e49;
-  --stone: #595853;
-}
-
-@supports (color: oklch(0% 0 0)) {
-  :root {
-    --parchment: oklch(0.966 0.009 100.0);
-    --ivory: oklch(0.982 0.005 95.1);
-    --warm-sand: oklch(0.924 0.014 97.5);
-    --border: oklch(0.914 0.015 98.3);
-
-    --brand: oklch(0.333 0.077 257.7);
-    --brand-light: oklch(0.459 0.093 251.8);
-
-    --ink: oklch(0.191 0.002 106.6);
-    --muted: oklch(0.424 0.009 88.7);
-    --stone: oklch(0.460 0.009 99.0);
-  }
+@theme {
+  --color-bg: #020202;
+  --color-panel: #0b0b0b;
+  --color-line: #2e2e2e;
+  --color-line-muted: #161616;
+  --color-muted: #535353;
+  --color-text: #b2b2b2;
+  --color-text-strong: #f1f1f1;
 }
 ```
 
 Color rules:
 
-- Page backgrounds use `--parchment`; raised content uses `--ivory`; toolbars and low-emphasis surfaces use `--warm-sand`.
-- Primary text uses `--ink`. Secondary text uses `--muted`; metadata uses `--stone` only when contrast still passes.
-- `--brand` is for primary actions, links, focus rings, current navigation, validation highlights, and small editorial rules.
-- Avoid cool gray ramps. Warm neutral values should lean toward parchment, not slate.
-- Filled brand surfaces use ivory or parchment text, not dark text.
+- Page backgrounds use `--color-bg`; bounded previews use `--color-panel`.
+- Primary text uses `--color-text`; headings and important links use `--color-text-strong`.
+- `--color-muted` is for metadata only. Do not use it for body copy.
+- Borders use `--color-line` or `--color-line-muted`.
+- Keep the palette grayscale unless a future issue introduces a semantic state system.
 
 ## Typography
 
-Public and document surfaces:
-
-- Use Charter first, then Georgia, Palatino, "Times New Roman", serif.
-- If Charter is loaded as a web font, use `font-display: swap` or a fallback-metrics strategy that avoids invisible text and limits layout shift.
-- Let the serif carry headings and body. Use 400 for body and 500 for headings.
-- Keep body line length around 65 to 75 characters.
-- Use balanced wrapping for headings and pretty wrapping for long prose.
-- Avoid italics as a default voice. Use emphasis through weight, scale, and spacing.
-
-Kami-adapted product mode:
-
-- Use the serif for page titles, artifact names, summaries, empty states, and explanatory prose.
-- Use system UI for small controls, tables, filters, badges, command labels, form fields, and dense metadata.
-- Keep type scale tighter than the public site. Product UI should not use fluid hero sizing.
+- Use Commit Mono as the primary and only website font, loaded through `@fontsource/commit-mono`.
+- Use weights 400, 500, and 700 only.
+- Keep body text at `1rem` or larger. Use fixed responsive breakpoints, not viewport-fluid body sizing.
+- Use large but restrained titles. Avoid negative tracking.
+- Enable `font-feature-settings: "calt" 1, "kern" 1`.
+- Keep prose line length around 65 to 75 characters.
+- Use tabular, mono-friendly rhythm for JSONL previews, schema snippets, route literals, hashes, and package names.
 
 ## Layout
 
-Use a 4px spacing base with editorial grouping: tight clusters inside a workflow, more generous space between conceptual sections.
-
-Public pages may use asymmetric editorial layouts, wide text blocks, code/file previews, and artifact diagrams. App and viewer screens should use stable task layouts: sidebars, tabs, split panes, bounded tables, and predictable toolbars.
-
-Cards are allowed only for repeated items, previews, and bounded tools. Do not nest cards. Default radius is 8px; larger radii need a specific presentation use. Prefer borders or whisper shadows, not both as decoration.
+- Use a centered max-width shell with responsive horizontal padding.
+- Use thin top and bottom rules for structure.
+- Use sharp `1px` borders. Do not round cards, buttons, previews, or panels.
+- Cards are not part of the public homepage language. Use rows, rules, and bounded code previews instead.
+- Keep the homepage to the two approved sections unless a future issue expands launch content.
+- Avoid decorative icons, emoji marks, shadows, gradients, glass, bokeh, and generic SaaS section blocks.
 
 ## Components
 
-Buttons:
+Navigation:
 
-- Primary buttons use `--brand` fill with ivory text.
-- Secondary buttons use `--warm-sand` or transparent surfaces with a clear border.
-- Button labels use verb plus object.
+- Text-only brand and links.
+- Persistent top bar with a single bottom rule.
+- Active and hover states use brighter text, not color accents.
 
-Panels and previews:
+Links and buttons:
 
-- Trail previews, schema snippets, event timelines, and code blocks should feel like paper artifacts on parchment.
-- Use `--ivory` with a fine warm border for static previews.
-- Use stronger focus rings and clearer affordances for interactive panels.
+- Core links use sharp bordered text controls.
+- Link labels must be specific: "Read spec", "View schema", "GitHub", "Viewer".
 
-Tags and status:
+Previews:
 
-- Tags use solid fills, not translucent overlays.
-- Validation, warning, and error states need text labels or icons in addition to color.
-- Keep badge shapes compact; avoid pill-shaped decoration when a simple label works.
+- Trail previews use compact JSONL with line numbers.
+- Syntax emphasis is color-only; no decorative chrome.
 
-Tables and timelines:
+Reference implementation rows:
 
-- Use tabular numbers for token counts, hashes, durations, line numbers, and event counts.
-- Preserve row density for scanning.
-- Avoid zebra striping unless a table is wide enough to need it.
+- Show name, package or route label, and status.
+- Use `available`, `planned`, and `shell` status words.
+- MCP and skills remain planned links until packages or skill directories exist.
 
 ## Motion
 
-Motion should explain state. Use 150 to 250 ms transitions for hover, focus, selection, expansion, and loading state changes.
-
-Public pages may use restrained entrance motion for artifact reveals or timeline construction. Viewer and app surfaces should load directly into the task.
-
-Every animation needs a reduced-motion path. Do not hide content behind animation-triggered visibility.
+Motion is minimal and state-based. Use 150 to 200 ms transitions for hover and focus only. Respect reduced motion and do not hide content behind animation.
 
 ## Accessibility
 
-Contrast must meet WCAG AA at minimum: 4.5:1 for normal text and 3:1 for large text. For body text on parchment and ivory, target WCAG AAA at 7:1 when possible. Placeholder text must maintain at least 4.5:1 contrast.
-
-All controls need visible focus states. Tooltips can explain unfamiliar icons, but icon-only controls still need accessible names. Error and warning messages should describe the broken condition and the next action.
+Meet WCAG AA contrast at minimum. Body copy on `--color-bg` should use `--color-text`, not `--color-muted`. All interactive elements need visible focus outlines. Do not rely on color alone for status.
 
 ## Prohibited Patterns
 
-- Generic SaaS hero metrics, icon-card grids, and soft gradient product chrome.
-- AI-purple accents, cool gray dashboards, or blue-slate dark mode by default.
-- Beige or parchment surfaces without typographic craft.
-- Gradient text, glass panels, decorative bokeh, diagonal stripe backgrounds, and oversized rounded cards.
-- Ghost cards that combine a decorative border with a large soft shadow.
-- Vague copy such as "AI workflow", "supercharge", "streamline", "next-generation", or "game-changing".
+- Parchment, cream, beige, or paper surfaces for the website.
+- Serif or sans font pairings on the website.
+- Rounded cards, ghost cards, large soft shadows, gradient text, glass panels, or decorative symbols.
+- Adapter matrix or compatibility ledger content on the homepage unless a future issue reintroduces it.
+- Marketing claims, metrics blocks, testimonials, newsletter prompts, or hosted-SaaS positioning.
