@@ -1419,6 +1419,41 @@ test("non-JSON header line: row included with null agent/cwd, warning on stderr"
   expect(parsed[0]?.cwd).toBeNull();
 });
 
+test("malformed header lines are skipped before a later valid session header", async () => {
+  const { filePath, contentHash } = await seedTrail({
+    cwd: "/work/recovered",
+  });
+  const reg = await registerTrail(filePath, { storeRoot });
+  expect(reg.status).toBe("finalized");
+  await writeFile(
+    reg.objectPath as string,
+    `not json\n${JSON.stringify(["not-object"])}\n${JSON.stringify({
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      cwd: "/work/recovered",
+      content_hash: contentHash,
+    })}\n`,
+    "utf8",
+  );
+
+  const result = await runList({ json: true }, { storeRoot, adapters: [] });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  const parsed = JSON.parse(result.stdout) as Array<{
+    content_hash: string;
+    agent: string | null;
+    cwd: string | null;
+  }>;
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]?.content_hash).toBe(contentHash);
+  expect(parsed[0]?.agent).toBe("codex-cli");
+  expect(parsed[0]?.cwd).toBe("/work/recovered");
+});
+
 test("multi-session file -> 2 session rows + 1 trail row in registered rows", async () => {
   const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
 

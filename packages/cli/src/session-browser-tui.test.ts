@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { browserStateFromInput } from "./session-browser-state.ts";
 import {
   mountSessionBrowser,
   renderBrowserFrame,
   type SessionBrowserRow,
+  toggleScopeSafely,
 } from "./session-browser-tui.ts";
 
 const rows: SessionBrowserRow[] = [
@@ -363,6 +365,27 @@ test("browser scope shortcut reloads rows and updates header", async () => {
   } finally {
     setup.renderer.destroy();
   }
+});
+
+test("browser scope toggle handles reload rejection and restores loading state", async () => {
+  const state = browserStateFromInput({
+    rows: [rows[0] as SessionBrowserRow],
+    warnings: [],
+    scope: { mode: "cwd", label: "alpha" },
+    onToggleScope: async () => {
+      throw new Error("reload failed");
+    },
+  });
+  let updates = 0;
+
+  await toggleScopeSafely(state, () => {
+    updates += 1;
+  });
+
+  expect(updates).toBe(2);
+  expect(state.loading).toBe(false);
+  expect(state.scope).toEqual({ mode: "cwd", label: "alpha" });
+  expect(state.rows).toEqual([rows[0] as SessionBrowserRow]);
 });
 
 test("browser search mode ignores non-character keys without crashing", async () => {

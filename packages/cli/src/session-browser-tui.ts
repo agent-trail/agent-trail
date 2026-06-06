@@ -147,7 +147,7 @@ export function mountSessionBrowser(
       return;
     }
     if (key.name === "a" || key.sequence === "a") {
-      toggleScope(state, update).catch(() => {});
+      void toggleScopeSafely(state, update);
       return;
     }
     if (key.name === "t" || key.sequence === "t") {
@@ -246,4 +246,10 @@ async function toggleScope(state: BrowserState, update: () => void): Promise<voi
     state.loading = false;
     update();
   }
+}
+
+export async function toggleScopeSafely(state: BrowserState, update: () => void): Promise<void> {
+  try {
+    await toggleScope(state, update);
+  } catch {}
 }
