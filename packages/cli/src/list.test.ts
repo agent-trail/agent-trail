@@ -2,11 +2,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
-import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
+import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
-import { registerTrail } from "@agent-trail/store";
+import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
 import { runList, runListBrowser } from "./list.ts";
@@ -15,6 +15,8 @@ type SeedOpts = {
   agentName?: string;
   cwd?: string;
   id?: string;
+  name?: string;
+  firstText?: string;
 };
 
 async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; contentHash: string }> {
@@ -33,15 +35,28 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
     type: "user_message",
     id: "01HEVTA0000000000000000001",
     ts: "2026-05-17T14:00:05.000Z",
-    payload: { text: "hello" },
+    payload: { text: opts.firstText ?? "hello" },
   };
-  const draftBytes = `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`;
+  const records = [
+    header,
+    ...(opts.name === undefined
+      ? []
+      : [
+          {
+            type: "session_metadata_update",
+            id: "01HEVTA0000000000000000000",
+            ts: "2026-05-17T14:00:01.000Z",
+            payload: { field: "name", value: opts.name, reason: "external" },
+          },
+        ]),
+    userMsg,
+  ];
+  const draftBytes = `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
   const draftRecords = await parseJsonlString(draftBytes);
   const contentHash = computeContentHash(draftRecords);
   header.content_hash = contentHash;
-  const finalRecords = await parseJsonlString(
-    `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
-  );
+  const finalBytes = `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
+  const finalRecords = await parseJsonlString(finalBytes);
   const canonical = canonicalizeRecords(finalRecords);
 
   const dir = mkdtempSync(join(tmpdir(), "trail-cli-list-input-"));
@@ -684,35 +699,338 @@ test("runCli list uses injected adapters", async () => {
 });
 
 test("runCli list opens TUI in TTY", async () => {
+  const sourceDir = mkdtempSync(join(tmpdir(), "trail-cli-list-source-"));
+  const sourcePath = join(sourceDir, "source-session.jsonl");
+  await writeFile(
+    sourcePath,
+    `${JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "first source prompt from codex" },
+    })}\n`,
+    "utf8",
+  );
   let launched = false;
-  const result = await runCli(["list"], {
-    config: resolvedConfig(null),
-    adapters: [
-      stubAdapter("codex", [
-        {
-          id: "sess-tui",
-          adapter: "codex",
-          cwd: process.cwd(),
-          modifiedAt: "2026-05-17T14:00:00.000Z",
-        },
-      ]),
-    ],
-    storeRoot,
-    terminal: { isTTY: true },
-    runSessionBrowser: async ({ rows }) => {
-      launched = true;
-      expect(rows.map((row) => row.source_id)).toEqual(["sess-tui"]);
-      return { exitCode: 0, stdout: "", stderr: "" };
+  try {
+    const result = await runCli(["list"], {
+      config: resolvedConfig(null),
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-tui",
+            adapter: "codex",
+            cwd: process.cwd(),
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+            path: sourcePath,
+          },
+        ]),
+      ],
+      storeRoot,
+      terminal: { isTTY: true },
+      runSessionBrowser: async ({ rows, scope }) => {
+        launched = true;
+        expect(rows.map((row) => row.source_id)).toEqual(["sess-tui"]);
+        expect(rows[0]?.display_name).toBe("first source prompt from codex");
+        expect(scope?.mode).toBe("cwd");
+        expect(scope?.label).toBe(process.cwd().split("/").pop());
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(launched).toBe(true);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(sourceDir, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser prefers registered trail name for TUI rows", async () => {
+  const { filePath } = await seedTrail({ name: "Saved Trail Name", firstText: "fallback text" });
+  await registerTrail(filePath, { storeRoot });
+
+  let launched = false;
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/proj-a",
+      terminal: { isTTY: true },
+      runSessionBrowser: async ({ rows }) => {
+        launched = true;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.display_name).toBe("Saved Trail Name");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
     },
-  });
+  );
 
   expect(launched).toBe(true);
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser cwd scope keeps registered trail rows broad", async () => {
+  const registered = await seedTrail({
+    id: "01HSESS00000000000000BR0AD",
+    cwd: "/work/registered-other",
+    name: "Registered outside cwd",
+  });
+  const reg = await registerTrail(registered.filePath, { storeRoot });
+  expect(reg.status).toBe("finalized");
+
+  let launched = false;
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-current-cwd",
+            adapter: "codex",
+            cwd: "/work/current",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+          },
+          {
+            id: "sess-other-cwd",
+            adapter: "codex",
+            cwd: "/work/other",
+            modifiedAt: "2026-05-19T14:00:00.000Z",
+          },
+        ]),
+      ],
+      storeRoot,
+      defaultCwd: "/work/current",
+      terminal: { isTTY: true },
+      runSessionBrowser: async ({ rows, scope }) => {
+        launched = true;
+        expect(scope).toEqual({ mode: "cwd", label: "current" });
+        expect(rows).toContainEqual(expect.objectContaining({ source_id: "sess-current-cwd" }));
+        expect(rows).not.toContainEqual(expect.objectContaining({ source_id: "sess-other-cwd" }));
+        expect(rows).toContainEqual(
+          expect.objectContaining({ content_hash: registered.contentHash }),
+        );
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser infers registered row agent from original Codex source path", async () => {
+  const sourceDir = join(mkdtempSync(join(tmpdir(), "trail-cli-list-source-home-")), ".codex");
+  const sourcePath = join(sourceDir, "sessions", "2026", "06", "source.jsonl");
+  const contentHash = "b".repeat(64);
+  const storedPath = objectPath(storeRoot, contentHash);
+  mkdirSync(dirname(sourcePath), { recursive: true });
+  mkdirSync(dirname(storedPath), { recursive: true });
+  mkdirSync(join(storeRoot, "index"), { recursive: true });
+  await writeFile(
+    sourcePath,
+    `${JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "prompt from original codex source" },
+    })}\n`,
+    "utf8",
+  );
+  await writeFile(
+    storedPath,
+    `${JSON.stringify({
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000FBA",
+      ts: "2026-05-17T14:00:00.000Z",
+      cwd: "/work/from-trail",
+    })}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(storeRoot, "index", "objects.json"),
+    `${JSON.stringify({
+      version: 1,
+      entries: {
+        [contentHash]: {
+          registered_at: "2026-05-17T14:00:00.000Z",
+          source_path: sourcePath,
+          kind: "trail",
+        },
+      },
+    })}\n`,
+    "utf8",
+  );
+
+  let launched = false;
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [],
+        storeRoot,
+        defaultCwd: "/work/from-trail",
+        terminal: { isTTY: true },
+        runSessionBrowser: async ({ rows }) => {
+          launched = true;
+          expect(rows).toHaveLength(1);
+          expect(rows[0]?.agent).toBe("codex");
+          expect(rows[0]?.cwd).toBe("/work/from-trail");
+          expect(rows[0]?.display_name).toBe("prompt from original codex source");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect(launched).toBe(true);
+  } finally {
+    rmSync(dirname(dirname(dirname(dirname(sourcePath)))), { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser can reload TUI rows between cwd and all scopes", async () => {
+  const sourceDir = mkdtempSync(join(tmpdir(), "trail-cli-list-toggle-"));
+  const alphaPath = join(sourceDir, "alpha.jsonl");
+  const betaPath = join(sourceDir, "beta.jsonl");
+  await writeFile(
+    alphaPath,
+    `${JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "alpha prompt" },
+    })}\n`,
+    "utf8",
+  );
+  await writeFile(
+    betaPath,
+    `${JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "beta prompt" },
+    })}\n`,
+    "utf8",
+  );
+
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [
+          stubAdapter("codex", [
+            {
+              id: "sess-alpha",
+              adapter: "codex",
+              cwd: "/work/alpha",
+              modifiedAt: "2026-05-17T14:00:00.000Z",
+              path: alphaPath,
+            },
+            {
+              id: "sess-beta",
+              adapter: "codex",
+              cwd: "/work/beta",
+              modifiedAt: "2026-05-17T15:00:00.000Z",
+              path: betaPath,
+            },
+          ]),
+        ],
+        storeRoot,
+        defaultCwd: "/work/alpha",
+        terminal: { isTTY: true },
+        runSessionBrowser: async (input) => {
+          expect(input.scope).toEqual({ mode: "cwd", label: "alpha" });
+          expect(input.rows.map((row) => row.source_id)).toEqual(["sess-alpha"]);
+          const allInput = await input.onToggleScope?.("all");
+          expect(allInput?.scope).toEqual({ mode: "all", label: "all" });
+          expect(allInput?.rows.map((row) => row.source_id)).toEqual(["sess-beta", "sess-alpha"]);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(sourceDir, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser all scope asks adapters for all cwd roots", async () => {
+  const detectCalls: DetectOptions[] = [];
+  const adapter: TrailAdapter = {
+    name: "codex",
+    async detectSessions(options = {}) {
+      detectCalls.push(options);
+      if (options.allCwds === true) {
+        return [
+          {
+            id: "sess-alpha",
+            adapter: "codex",
+            cwd: "/work/alpha",
+            modifiedAt: "2026-05-17T14:00:00.000Z",
+          },
+          {
+            id: "sess-beta",
+            adapter: "codex",
+            cwd: "/work/beta",
+            modifiedAt: "2026-05-17T15:00:00.000Z",
+          },
+        ];
+      }
+      return [
+        {
+          id: "sess-alpha",
+          adapter: "codex",
+          cwd: "/work/alpha",
+          modifiedAt: "2026-05-17T14:00:00.000Z",
+        },
+      ];
+    },
+    async parseSession(): Promise<TrailFile> {
+      throw new Error("not needed");
+    },
+    async isAvailable() {
+      return true;
+    },
+    async sourceVersion() {
+      return null;
+    },
+    async sourceHealth() {
+      return {
+        adapter: "codex",
+        path: null,
+        present: true,
+        readable: true,
+        sessionCount: 2,
+        sourceVersion: null,
+        warnings: [],
+      };
+    },
+  };
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [adapter],
+      storeRoot,
+      defaultCwd: "/work/alpha",
+      terminal: { isTTY: true },
+      runSessionBrowser: async (input) => {
+        expect(input.rows.map((row) => row.source_id)).toEqual(["sess-alpha"]);
+        const allInput = await input.onToggleScope?.("all");
+        expect(allInput?.rows.map((row) => row.source_id)).toEqual(["sess-beta", "sess-alpha"]);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  expect(detectCalls).toEqual([{ cwd: "/work/alpha" }, { allCwds: true }]);
+});
+
 test("runListBrowser uses default OpenTUI handoff with custom streams", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
+  stdout.resume();
   setTimeout(() => stdin.write("q"), 10);
 
   const result = await runListBrowser(
@@ -1148,6 +1466,7 @@ test("multi-session file -> 2 session rows + 1 trail row in registered rows", as
   const allRows = JSON.parse(all.stdout) as Array<{
     content_hash: string;
     registered_kind: string;
+    agent: string | null;
   }>;
   expect(allRows).toHaveLength(3);
   expect(
@@ -1159,6 +1478,7 @@ test("multi-session file -> 2 session rows + 1 trail row in registered rows", as
   expect(allRows.find((r) => r.registered_kind === "trail")?.content_hash).toBe(
     stamped.envelopeHash as string,
   );
+  expect(allRows.find((r) => r.registered_kind === "trail")?.agent).toBe("codex-cli");
 
   rmSync(dir, { recursive: true, force: true });
 });

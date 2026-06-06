@@ -1,36 +1,40 @@
-import { type CliRenderer, createCliRenderer, type KeyEvent, TextRenderable } from "@opentui/core";
+import {
+  BoxRenderable,
+  type CliRenderer,
+  createCliRenderer,
+  type KeyEvent,
+  TextRenderable,
+} from "@opentui/core";
 import type { CliResult } from "./command.ts";
-import type { Row } from "./list-model.ts";
+import type {
+  BrowserState,
+  HeaderBackgroundRect,
+  SessionBrowserInput,
+} from "./session-browser-frame.ts";
+import {
+  browserStateFromInput,
+  COLOR_TABLE_HEADER_BG,
+  COLOR_TEXT,
+  clampSelection,
+  defaultScope,
+  exitResult,
+  filteredRows,
+  headerBackgroundRects,
+  nextTrailFilter,
+  renderStyledBrowserFrame,
+  rowIdentity,
+} from "./session-browser-frame.ts";
 import type { TerminalIo } from "./terminal.ts";
 
-export type SessionBrowserRow = Row;
+export type { SessionBrowserInput, SessionBrowserRow } from "./session-browser-frame.ts";
+export { renderBrowserFrame, sanitizeTerminalText } from "./session-browser-frame.ts";
 
 export type SessionBrowserTerminal = TerminalIo;
-
-type SessionBrowserInput = {
-  rows: SessionBrowserRow[];
-  warnings: string[];
-};
-
-type BrowserState = SessionBrowserInput & {
-  query: string;
-  searchMode: boolean;
-  selectedIndex: number;
-  openedIdentity: string | null;
-};
 
 export type MountedSessionBrowser = {
   waitForExit: () => Promise<CliResult>;
   state: () => BrowserState;
 };
-
-const MISSING = "-";
-const MAX_VISIBLE_ROWS = 12;
-// biome-ignore lint/complexity/useRegexLiterals: literal form trips noControlCharactersInRegex.
-const ANSI_ESCAPE_RE = new RegExp(
-  "\\u001B(?:\\][^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\)|[PX^_][^\\u001B]*(?:\\u001B\\\\)|\\[[0-?]*[ -/]*[@-~]|[@-Z\\\\-_])",
-  "g",
-);
 
 export async function runSessionBrowserTui(
   input: SessionBrowserInput,
@@ -49,8 +53,10 @@ export async function runSessionBrowserTui(
   });
   try {
     const app = mountSessionBrowser(renderer, input);
-    await renderer.idle();
-    return await app.waitForExit();
+    const exit = app.waitForExit();
+    const first = await Promise.race([renderer.idle().then(() => null), exit]);
+    if (first !== null) return first;
+    return await exit;
   } catch (error) {
     if (!renderer.isDestroyed) renderer.destroy();
     throw error;
@@ -61,32 +67,60 @@ export function mountSessionBrowser(
   renderer: CliRenderer,
   input: SessionBrowserInput,
 ): MountedSessionBrowser {
-  const state: BrowserState = {
-    rows: input.rows,
-    warnings: input.warnings,
-    query: "",
-    searchMode: false,
-    selectedIndex: 0,
-    openedIdentity: null,
-  };
+  const state = browserStateFromInput(input);
   let resolveExit: (result: CliResult) => void;
   const exitPromise = new Promise<CliResult>((resolve) => {
     resolveExit = resolve;
   });
   const root = new TextRenderable(renderer, {
-    content: renderBrowserFrame(state),
+    content: renderStyledBrowserFrame(state, renderer),
+    fg: COLOR_TEXT,
+    zIndex: 1,
     width: "100%",
     height: "100%",
+    overflow: "hidden",
+    truncate: true,
+    wrapMode: "none",
   });
+  const tableHeaderBackground = new BoxRenderable(renderer, {
+    backgroundColor: COLOR_TABLE_HEADER_BG,
+    border: false,
+    height: 0,
+    left: 0,
+    position: "absolute",
+    shouldFill: true,
+    top: 0,
+    width: 0,
+    zIndex: 0,
+  });
+  const previewHeaderBackground = new BoxRenderable(renderer, {
+    backgroundColor: COLOR_TABLE_HEADER_BG,
+    border: false,
+    height: 0,
+    left: 0,
+    position: "absolute",
+    shouldFill: true,
+    top: 0,
+    width: 0,
+    zIndex: 0,
+  });
+  const syncHeaderBackgrounds = () => {
+    const rects = headerBackgroundRects(renderer);
+    applyHeaderBackgroundRect(tableHeaderBackground, rects.table);
+    applyHeaderBackgroundRect(previewHeaderBackground, rects.preview);
+  };
 
   const update = () => {
     clampSelection(state);
-    root.content = renderBrowserFrame(state);
+    root.content = renderStyledBrowserFrame(state, renderer);
+    syncHeaderBackgrounds();
     renderer.requestRender();
   };
+  const onResize = () => update();
 
   const quit = () => {
     renderer.keyInput.off("keypress", onKey);
+    renderer.off("resize", onResize);
     if (!renderer.isDestroyed) renderer.destroy();
     resolveExit(exitResult(state));
   };
@@ -112,6 +146,17 @@ export function mountSessionBrowser(
       update();
       return;
     }
+    if (key.name === "a" || key.sequence === "a") {
+      void toggleScope(state, update);
+      return;
+    }
+    if (key.name === "t" || key.sequence === "t") {
+      state.trailFilter = nextTrailFilter(state.trailFilter);
+      state.selectedIndex = 0;
+      state.openedIdentity = null;
+      update();
+      return;
+    }
     if (key.name === "down" || key.name === "j") {
       state.selectedIndex += 1;
       update();
@@ -129,10 +174,15 @@ export function mountSessionBrowser(
     }
   };
 
+  syncHeaderBackgrounds();
+  renderer.root.add(tableHeaderBackground);
+  renderer.root.add(previewHeaderBackground);
   renderer.root.add(root);
   renderer.keyInput.on("keypress", onKey);
+  renderer.on("resize", onResize);
   renderer.once("destroy", () => {
     renderer.keyInput.off("keypress", onKey);
+    renderer.off("resize", onResize);
     resolveExit(exitResult(state));
   });
 
@@ -140,6 +190,19 @@ export function mountSessionBrowser(
     waitForExit: () => exitPromise,
     state: () => state,
   };
+}
+
+function applyHeaderBackgroundRect(box: BoxRenderable, rect: HeaderBackgroundRect | null): void {
+  box.visible = rect !== null;
+  if (rect === null) {
+    box.width = 0;
+    box.height = 0;
+    return;
+  }
+  box.left = rect.left;
+  box.top = rect.top;
+  box.width = rect.width;
+  box.height = rect.height;
 }
 
 function handleSearchKey(state: BrowserState, key: KeyEvent): void {
@@ -163,128 +226,24 @@ function handleSearchKey(state: BrowserState, key: KeyEvent): void {
   }
 }
 
-export function renderBrowserFrame(input: SessionBrowserInput | BrowserState): string {
-  const state: BrowserState =
-    "query" in input
-      ? input
-      : {
-          ...input,
-          query: "",
-          searchMode: false,
-          selectedIndex: 0,
-          openedIdentity: null,
-        };
-  const rows = filteredRows(state);
-  clampSelection(state);
-  const selected = rows[state.selectedIndex];
-  const visibleStart = selectedWindowStart(state.selectedIndex, rows.length);
-  const renderedRows =
-    rows.length === 0
-      ? ["No sessions found"]
-      : rows
-          .slice(visibleStart, visibleStart + MAX_VISIBLE_ROWS)
-          .map((row, index) => renderRow(row, visibleStart + index === state.selectedIndex));
-  const preview =
-    selected === undefined ? emptyPreview() : rowPreview(selected, state.openedIdentity);
-  const warnings =
-    state.warnings.length === 0
-      ? ""
-      : `Warnings: ${state.warnings.slice(0, 2).map(sanitizeTerminalText).join(" | ")}\n`;
-
-  return [
-    "Agent Trail Browser",
-    `Rows: ${rows.length}/${state.rows.length}  Search: ${state.query}${state.searchMode ? " _" : ""}`,
-    "",
-    "Sessions",
-    ...renderedRows,
-    "",
-    "Preview",
-    ...preview,
-    "",
-    warnings.length === 0 ? null : warnings.trimEnd(),
-    "Keys: j/k or arrows move  / search  enter open placeholder  q quit",
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
-}
-
-function renderRow(row: SessionBrowserRow, selected: boolean): string {
-  const marker = selected ? ">" : " ";
-  return `${marker} ${row.state} ${renderValue(row.agent)} ${renderValue(row.cwd)} ${renderValue(
-    row.latest_at,
-  )} ${shortIdentity(row)}`;
-}
-
-function rowPreview(row: SessionBrowserRow, openedIdentity: string | null): string[] {
-  const id = shortIdentity(row);
-  return [
-    openedIdentity === rowIdentity(row) ? `Open placeholder: ${id}` : "Selected row",
-    `state: ${row.state}`,
-    `agent: ${renderValue(row.agent)}`,
-    `cwd: ${renderValue(row.cwd)}`,
-    `time: ${renderValue(row.latest_at)}`,
-    `id: ${id}`,
-    `source: ${renderValue(row.source_path ?? row.registered_source_path)}`,
-  ];
-}
-
-function emptyPreview(): string[] {
-  return ["No row selected"];
-}
-
-function filteredRows(state: BrowserState): SessionBrowserRow[] {
-  const query = state.query.trim().toLowerCase();
-  if (query.length === 0) return state.rows;
-  return state.rows.filter((row) => rowSearchText(row).toLowerCase().includes(query));
-}
-
-function rowSearchText(row: SessionBrowserRow): string {
-  return Object.values(row)
-    .filter((value): value is string => typeof value === "string")
-    .join("\n");
-}
-
-function clampSelection(state: BrowserState): void {
-  const count = filteredRows(state).length;
-  if (count === 0) {
+async function toggleScope(state: BrowserState, update: () => void): Promise<void> {
+  if (state.onToggleScope === undefined || state.loading) return;
+  const nextScope = state.scope.mode === "cwd" ? "all" : "cwd";
+  state.loading = true;
+  update();
+  try {
+    const input = await state.onToggleScope(nextScope);
+    state.rows = input.rows;
+    state.warnings = input.warnings;
+    state.scope = input.scope ?? defaultScope();
+    state.onToggleScope = input.onToggleScope ?? state.onToggleScope;
+    state.query = "";
+    state.searchMode = false;
+    state.trailFilter = "all";
     state.selectedIndex = 0;
-    return;
+    state.openedIdentity = null;
+  } finally {
+    state.loading = false;
+    update();
   }
-  state.selectedIndex = Math.max(0, Math.min(state.selectedIndex, count - 1));
-}
-
-function selectedWindowStart(selectedIndex: number, rowCount: number): number {
-  if (rowCount <= MAX_VISIBLE_ROWS) return 0;
-  return Math.min(Math.max(0, selectedIndex - MAX_VISIBLE_ROWS + 1), rowCount - MAX_VISIBLE_ROWS);
-}
-
-function shortIdentity(row: SessionBrowserRow): string {
-  const id = row.source_id ?? row.content_hash ?? MISSING;
-  return sanitizeTerminalText(id).slice(0, 12);
-}
-
-function rowIdentity(row: SessionBrowserRow): string {
-  return row.source_id ?? row.content_hash ?? "";
-}
-
-function renderValue(value: string | null): string {
-  return value === null ? MISSING : sanitizeTerminalText(value);
-}
-
-export function sanitizeTerminalText(value: string): string {
-  let sanitized = "";
-  for (const char of value.replace(ANSI_ESCAPE_RE, "")) {
-    const code = char.charCodeAt(0);
-    sanitized += code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? " " : char;
-  }
-  return sanitized;
-}
-
-function exitResult(state: BrowserState): CliResult {
-  const warnings = state.warnings.map(sanitizeTerminalText);
-  return {
-    exitCode: 0,
-    stdout: "",
-    stderr: warnings.length === 0 ? "" : `${warnings.join("\n")}\n`,
-  };
 }

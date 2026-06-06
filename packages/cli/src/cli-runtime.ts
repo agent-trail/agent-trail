@@ -32,7 +32,16 @@ export type RunCliContext = {
   projectRoot?: string;
   storeRoot?: string;
   terminal?: TerminalIo;
-  runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<CliResult>;
+  runSessionBrowser?: (input: {
+    rows: Row[];
+    warnings: string[];
+    scope?: { mode: "cwd" | "all"; label: string };
+    onToggleScope?: (nextScope: "cwd" | "all") => Promise<{
+      rows: Row[];
+      warnings: string[];
+      scope?: { mode: "cwd" | "all"; label: string };
+    }>;
+  }) => Promise<CliResult>;
 };
 
 export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {
