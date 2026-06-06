@@ -1,0 +1,70 @@
+name: RFC / spec decision
+description: Propose a load-bearing Agent Trail format, schema, validation, package layout, or architecture decision.
+title: "rfc: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this before changing load-bearing shape such as normative format or schema semantics, validation terminology or behavior, versioning, hash semantics, artifact identity, package layout, durable architecture, or public URL shape.
+
+        RFCs are issue-based proposals for comments. Accepted outcomes land in the spec, schema, docs, ADRs, tests, fixtures, generated artifacts, or implementation PRs; there is no committed `docs/rfcs/` archive yet.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or decision
+      description: What decision needs to be made, and why now?
+    validations:
+      required: true
+  - type: textarea
+    id: affected-surface
+    attributes:
+      label: Affected contract surface
+      description: Name the spec section, schema records/properties, validation behavior, package APIs, CLI behavior, docs, ADRs, fixtures, or public URLs affected.
+      placeholder: spec.md section, schema.json path, package API, ADR number, fixture path, public URL, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: State the exact rule or direction to adopt.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List the plausible options and the tradeoff for each.
+      placeholder: |
+        - Option A:
+        - Option B:
+        - Option C:
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility-risk
+    attributes:
+      label: Compatibility risk
+      description: Describe whether this affects existing trail files, readers, writers, package consumers, URLs, or docs.
+    validations:
+      required: true
+  - type: textarea
+    id: implementation-verification-impact
+    attributes:
+      label: Implementation and verification impact
+      description: List the docs, ADRs, schema/type generation, fixtures, tests, package APIs, CLI behavior, or reference implementation code that must change if accepted.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Observable outcomes that prove the decision has been implemented.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
