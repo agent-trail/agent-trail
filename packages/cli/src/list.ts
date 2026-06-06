@@ -347,9 +347,14 @@ async function readHeader(storeRoot: string, contentHash: string): Promise<Heade
     for (const rawLine of lines) {
       const line = rawLine.replace(/\r$/, "");
       if (line.length === 0) continue;
-      const value = JSON.parse(line) as unknown;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { header: null, error: "header is not a JSON object" };
+        continue;
       }
       const object = value as Record<string, unknown>;
       firstObject ??= object;

@@ -147,7 +147,7 @@ export function mountSessionBrowser(
       return;
     }
     if (key.name === "a" || key.sequence === "a") {
-      void toggleScope(state, update);
+      toggleScope(state, update).catch(() => {});
       return;
     }
     if (key.name === "t" || key.sequence === "t") {

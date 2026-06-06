@@ -820,7 +820,8 @@ test("runListBrowser cwd scope keeps registered trail rows broad", async () => {
 });
 
 test("runListBrowser infers registered row agent without reading registered source path title", async () => {
-  const sourceDir = join(mkdtempSync(join(tmpdir(), "trail-cli-list-source-home-")), ".codex");
+  const tempRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-source-home-"));
+  const sourceDir = join(tempRoot, ".codex");
   const sourcePath = join(sourceDir, "sessions", "2026", "06", "source.jsonl");
   const contentHash = "b".repeat(64);
   const storedPath = objectPath(storeRoot, contentHash);
@@ -885,7 +886,7 @@ test("runListBrowser infers registered row agent without reading registered sour
     expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     expect(launched).toBe(true);
   } finally {
-    rmSync(dirname(dirname(dirname(dirname(sourcePath)))), { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
