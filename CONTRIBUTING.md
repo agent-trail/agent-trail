@@ -100,9 +100,9 @@ Use the strongest relevant check for the change:
 bun run check
 ```
 
-For narrower changes, use the targeted scripts documented in `AGENTS.md`, such
-as `bun run typecheck`, `bun run lint`, `bun run test`, `bun run check:schema`,
-or `bun run check:types`.
+For narrower changes, use the targeted scripts listed in `package.json`, such as
+`bun run typecheck`, `bun run lint`, `bun run test`, `bun run check:schema`, or
+`bun run check:types`.
 
 ## Pull requests
 
