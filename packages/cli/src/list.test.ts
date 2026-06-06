@@ -819,7 +819,7 @@ test("runListBrowser cwd scope keeps registered trail rows broad", async () => {
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
-test("runListBrowser infers registered row agent from original Codex source path", async () => {
+test("runListBrowser infers registered row agent without reading registered source path title", async () => {
   const sourceDir = join(mkdtempSync(join(tmpdir(), "trail-cli-list-source-home-")), ".codex");
   const sourcePath = join(sourceDir, "sessions", "2026", "06", "source.jsonl");
   const contentHash = "b".repeat(64);
@@ -876,7 +876,7 @@ test("runListBrowser infers registered row agent from original Codex source path
           expect(rows).toHaveLength(1);
           expect(rows[0]?.agent).toBe("codex");
           expect(rows[0]?.cwd).toBe("/work/from-trail");
-          expect(rows[0]?.display_name).toBe("prompt from original codex source");
+          expect(rows[0]?.display_name).toBeNull();
           return { exitCode: 0, stdout: "", stderr: "" };
         },
       },
@@ -1358,6 +1358,29 @@ test("resolveStoreRoot failure (no HOME, no AGENT_TRAIL_HOME): exit 1 friendly s
   process.env.AGENT_TRAIL_HOME = "";
   try {
     const result = await runList(undefined, { adapters: [] });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("store root");
+    expect(result.stderr).not.toMatch(/\.ts:\d+/);
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedTrailHome === undefined) delete process.env.AGENT_TRAIL_HOME;
+    else process.env.AGENT_TRAIL_HOME = savedTrailHome;
+  }
+});
+
+test("runListBrowser resolveStoreRoot failure returns friendly stderr", async () => {
+  const savedHome = process.env.HOME;
+  const savedTrailHome = process.env.AGENT_TRAIL_HOME;
+  process.env.HOME = "";
+  process.env.AGENT_TRAIL_HOME = "";
+  try {
+    const result = await runListBrowser(undefined, {
+      adapters: [],
+      terminal: { isTTY: true },
+    });
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");

@@ -7,9 +7,9 @@ import { addDiscoverCommand } from "./discover.ts";
 import { addDoctorCommand } from "./doctor.ts";
 import { addExportCommand } from "./export.ts";
 import { addListCommand, runListBrowser } from "./list.ts";
-import type { Row } from "./list-model.ts";
 import { addLoadCommand } from "./load.ts";
 import { addRegisterCommand } from "./register.ts";
+import type { SessionBrowserInput } from "./session-browser-state.ts";
 import { addShareCommand } from "./share.ts";
 import { addStatusCommand } from "./status.ts";
 import type { TerminalIo } from "./terminal.ts";
@@ -32,16 +32,7 @@ export type RunCliContext = {
   projectRoot?: string;
   storeRoot?: string;
   terminal?: TerminalIo;
-  runSessionBrowser?: (input: {
-    rows: Row[];
-    warnings: string[];
-    scope?: { mode: "cwd" | "all"; label: string };
-    onToggleScope?: (nextScope: "cwd" | "all") => Promise<{
-      rows: Row[];
-      warnings: string[];
-      scope?: { mode: "cwd" | "all"; label: string };
-    }>;
-  }) => Promise<CliResult>;
+  runSessionBrowser?: (input: SessionBrowserInput) => Promise<CliResult>;
 };
 
 export async function runCli(argv: string[], context: RunCliContext = {}): Promise<CliResult> {
