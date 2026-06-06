@@ -1,4 +1,5 @@
 import { open } from "node:fs/promises";
+import { basename } from "node:path";
 import {
   type DetectOptions,
   DISCOVERY_CONCURRENCY_LIMIT,
@@ -26,6 +27,8 @@ import {
   parseTimeBounds,
   renderJson,
 } from "./listing.ts";
+import { enrichBrowserRows } from "./session-browser-metadata.ts";
+import type { BrowserScopeMode, SessionBrowserInput } from "./session-browser-state.ts";
 import type { TerminalIo } from "./terminal.ts";
 
 export type RunListResult = {
@@ -37,6 +40,8 @@ export type RunListResult = {
 export type RunListOptions = {
   json?: boolean;
   plain?: boolean;
+  all?: boolean;
+  sourceCwd?: string;
   agent?: string;
   cwd?: string;
   since?: string;
@@ -53,7 +58,7 @@ export type RunListContext = {
   adapters?: readonly TrailAdapter[];
   defaultCwd?: string;
   terminal?: TerminalIo;
-  runSessionBrowser?: (input: { rows: Row[]; warnings: string[] }) => Promise<RunListResult>;
+  runSessionBrowser?: (input: SessionBrowserInput) => Promise<RunListResult>;
 };
 
 type SourceRow = {
@@ -200,7 +205,7 @@ async function collectListRows(
     if (!rowMatchesAgent(r, agentFilter)) return false;
     // Source discovery defaults to the current cwd for parity with `trail discover`,
     // while registered store rows stay broad unless the user explicitly passes --cwd.
-    if (options.cwd !== undefined && r.cwd !== options.cwd) return false;
+    if (options.all !== true && options.cwd !== undefined && r.cwd !== options.cwd) return false;
     return boundedBy(r.latest_at, sinceMs, untilMs);
   });
 
@@ -235,22 +240,76 @@ export async function runListBrowser(
   options: RunListOptions = {},
   context: RunListContext = {},
 ): Promise<RunListResult> {
-  const result = await collectListRows(options, context);
-  if ("stdout" in result) return result;
+  let storeRoot: string;
+  try {
+    storeRoot = resolveStoreRoot(context.storeRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `${message}\n` };
+  }
+  const browserCwd = options.cwd ?? context.defaultCwd ?? process.cwd();
+  const initialScope: BrowserScopeMode = options.all === true ? "all" : "cwd";
+  const input = await collectBrowserInput(options, context, storeRoot, initialScope, browserCwd);
+  if ("stdout" in input) return input;
   const runSessionBrowser =
     context.runSessionBrowser ??
-    (async (input: { rows: Row[]; warnings: string[] }) => {
+    (async (input: SessionBrowserInput) => {
       const { runSessionBrowserTui } = await import("./session-browser-tui.ts");
       return runSessionBrowserTui(input, context.terminal);
     });
-  return runSessionBrowser({
-    rows: result.rows,
-    warnings: result.warnings,
-  });
+  return runSessionBrowser(input);
 }
 
 export function shouldRunListBrowser(options: RunListOptions, terminal?: TerminalIo): boolean {
   return terminal?.isTTY === true && options.json !== true && options.plain !== true;
+}
+
+async function collectBrowserInput(
+  options: RunListOptions,
+  context: RunListContext,
+  storeRoot: string,
+  scope: BrowserScopeMode,
+  browserCwd: string,
+): Promise<SessionBrowserInput | RunListResult> {
+  const scopedOptions = browserScopedOptions(options, scope, browserCwd);
+  const result = await collectListRows(scopedOptions, context);
+  if ("stdout" in result) return result;
+  const rows = await enrichBrowserRows(storeRoot, result.rows);
+  return {
+    rows,
+    warnings: result.warnings,
+    scope: browserScope(scope, browserCwd),
+    onToggleScope: async (nextScope) => {
+      const next = await collectBrowserInput(options, context, storeRoot, nextScope, browserCwd);
+      if ("stdout" in next) {
+        return {
+          rows: [],
+          warnings: [next.stderr.trim() || "error: failed to load rows"],
+          scope: browserScope(nextScope, browserCwd),
+        };
+      }
+      return next;
+    },
+  };
+}
+
+function browserScopedOptions(
+  options: RunListOptions,
+  scope: BrowserScopeMode,
+  browserCwd: string,
+): RunListOptions {
+  if (scope === "all") return { ...options, all: true };
+  return { ...options, all: false, sourceCwd: browserCwd };
+}
+
+function browserScope(
+  scope: BrowserScopeMode,
+  browserCwd: string,
+): NonNullable<SessionBrowserInput["scope"]> {
+  return {
+    mode: scope,
+    label: scope === "all" ? "all" : basename(browserCwd) || browserCwd,
+  };
 }
 
 function renderText(rows: Row[]): string {
@@ -281,15 +340,28 @@ async function readHeader(storeRoot: string, contentHash: string): Promise<Heade
     const { bytesRead } = await handle.read(buf, 0, buf.byteLength, 0);
     if (bytesRead === 0) return { header: null, error: "empty object file" };
     const slice = buf.subarray(0, bytesRead);
-    const newlineIdx = slice.indexOf(0x0a);
-    const lineBytes = newlineIdx === -1 ? slice : slice.subarray(0, newlineIdx);
-    const line = new TextDecoder("utf-8").decode(lineBytes).replace(/\r$/, "");
-    if (line.length === 0) return { header: null, error: "empty header line" };
-    const value = JSON.parse(line) as unknown;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      return { header: null, error: "header is not a JSON object" };
+    const head = new TextDecoder("utf-8").decode(slice);
+    const lines = head.split("\n");
+    if (bytesRead === buf.byteLength && !head.endsWith("\n")) lines.pop();
+    let firstObject: Record<string, unknown> | null = null;
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, "");
+      if (line.length === 0) continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        continue;
+      }
+      const object = value as Record<string, unknown>;
+      firstObject ??= object;
+      if (object.type === "session") return { header: object, error: null };
     }
-    return { header: value as Record<string, unknown>, error: null };
+    if (firstObject === null) return { header: null, error: "empty header line" };
+    return { header: firstObject, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { header: null, error: message };
@@ -344,8 +416,15 @@ async function detectSourceRows(
     adapterMatchesAgent(a.name, agentFilter),
   );
   const detectOpts: DetectOptions = {};
-  const requestedCwd = options.cwd ?? context.defaultCwd ?? process.cwd();
-  if (requestedCwd !== undefined) detectOpts.cwd = requestedCwd;
+  const requestedCwd =
+    options.all === true
+      ? undefined
+      : (options.sourceCwd ?? options.cwd ?? context.defaultCwd ?? process.cwd());
+  if (options.all === true) {
+    detectOpts.allCwds = true;
+  } else if (requestedCwd !== undefined) {
+    detectOpts.cwd = requestedCwd;
+  }
   const perAdapter = await Promise.all(
     adapters.map(async (adapter) => {
       try {
@@ -358,7 +437,7 @@ async function detectSourceRows(
     }),
   );
   let refs = perAdapter.flat();
-  if (requestedCwd !== undefined) {
+  if (options.all !== true && requestedCwd !== undefined) {
     refs = refs.filter((r) => r.cwd === undefined || r.cwd === requestedCwd);
   }
   return refs.map((ref) => ({

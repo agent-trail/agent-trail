@@ -18,4 +18,5 @@ export type Row = {
   agent: string | null;
   cwd: string | null;
   latest_at: string | null;
+  display_name?: string | null;
 };

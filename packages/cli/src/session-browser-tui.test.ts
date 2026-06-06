@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { browserStateFromInput } from "./session-browser-state.ts";
 import {
   mountSessionBrowser,
   renderBrowserFrame,
   type SessionBrowserRow,
+  toggleScopeSafely,
 } from "./session-browser-tui.ts";
 
 const rows: SessionBrowserRow[] = [
@@ -23,6 +25,7 @@ const rows: SessionBrowserRow[] = [
     agent: "codex",
     cwd: "/work/alpha",
     latest_at: "2026-05-18T14:00:00.000Z",
+    display_name: "First source message for alpha",
   },
   {
     state: "registered",
@@ -40,6 +43,7 @@ const rows: SessionBrowserRow[] = [
     agent: "claude-code",
     cwd: "/work/beta",
     latest_at: "2026-05-17T14:00:00.000Z",
+    display_name: "Registered Trail Name",
   },
 ];
 
@@ -64,11 +68,156 @@ function sourceRow(index: number): SessionBrowserRow {
   };
 }
 
-test("browser frame renders empty state", () => {
-  const frame = renderBrowserFrame({ rows: [], warnings: [] });
+function compactLocalDate(value: string): string {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
+    date.getMinutes(),
+  ).padStart(2, "0")}`;
+}
 
-  expect(frame).toContain("Agent Trail Browser");
+test("browser frame renders empty state", () => {
+  const frame = renderBrowserFrame({ rows: [], warnings: [] }, { width: 120 });
+
+  expect(frame).toContain("AGENT TRAIL BROWSER");
+  expect(frame).toContain("TITLE");
+  expect(frame).toContain("AGENT");
+  expect(frame).toContain("DATE");
+  expect(frame).toContain("TRAIL");
+  expect(frame).toContain("PREVIEW");
   expect(frame).toContain("No sessions found");
+  expect(frame).toContain("No row selected");
+  expect(frame.split("\n")).toHaveLength(24);
+});
+
+test("browser frame renders session table columns and preview details", () => {
+  const frame = renderBrowserFrame(
+    { rows, warnings: [], scope: { mode: "cwd", label: "agent-trail" } },
+    { width: 120, height: 24 },
+  );
+
+  expect(frame).toContain("PROJECT agent-trail");
+  expect(frame).toContain("SEARCH -");
+  expect(frame).toContain("ROWS 2  FILTERED 2");
+  expect(frame).not.toContain("status:");
+  expect(frame).toContain("#");
+  expect(frame).toContain("DATE");
+  expect(frame).toContain("TITLE");
+  expect(frame).not.toContain("PROJECT│");
+  expect(frame).not.toContain("┼");
+  expect(frame).toContain("01");
+  expect(frame).toContain("02");
+  expect(frame).toContain("First source message for alpha");
+  expect(frame).toContain("codex");
+  expect(frame).toContain(compactLocalDate(rows[0]?.latest_at ?? ""));
+  expect(frame).toContain("NO");
+  expect(frame).toContain("Registered Trail Name");
+  expect(frame).toContain("claude-code");
+  expect(frame).toContain(compactLocalDate(rows[1]?.latest_at ?? ""));
+  expect(frame).toContain("YES");
+  expect(frame).toContain("NAME First source message for alpha");
+  expect(frame).toContain("TRAIL NO");
+  expect(frame).not.toContain("name:");
+  expect(frame).not.toContain("trail:");
+});
+
+test("browser frame renders all scope in header", () => {
+  const frame = renderBrowserFrame(
+    { rows, warnings: [], scope: { mode: "all", label: "all" } },
+    { width: 150, height: 24 },
+  );
+
+  expect(frame).toContain("PROJECT all");
+  expect(frame).toContain("PROJECT");
+  const sourceLine = frame.split("\n").find((line) => line.includes("First source"));
+  const registeredLine = frame.split("\n").find((line) => line.includes("Registered Trail Name"));
+  expect(sourceLine).toContain("alpha");
+  expect(sourceLine).not.toContain("/work/alpha");
+  expect(registeredLine).toContain("beta");
+  expect(registeredLine).not.toContain("/work/beta");
+});
+
+test("browser frame wraps long preview fields instead of ellipsizing them", () => {
+  const frame = renderBrowserFrame(
+    {
+      rows: [
+        {
+          ...rows[0],
+          display_name:
+            "Very long session title that should wrap into the preview pane instead of using ellipsis",
+        } as SessionBrowserRow,
+      ],
+      warnings: [],
+    },
+    { width: 120, height: 24 },
+  );
+
+  expect(frame).toContain("NAME Very long session title");
+  expect(frame).toContain("pane instead of using ellipsis");
+  expect(frame).not.toContain("NAME Very long session title...");
+});
+
+test("browser frame lets table title use available column width beyond 80 characters", () => {
+  const title =
+    "This table title is intentionally longer than eighty characters and should keep rendering past that earlier fixed cap";
+  const frame = renderBrowserFrame(
+    {
+      rows: [
+        {
+          ...rows[0],
+          display_name: title,
+        } as SessionBrowserRow,
+      ],
+      warnings: [],
+    },
+    { width: 180, height: 24 },
+  );
+
+  expect(frame).toContain("This table title is intentionally longer than eighty characters");
+  expect(frame).toContain("earlier fixed cap");
+});
+
+test("browser frame caps preview name field at three lines", () => {
+  const frame = renderBrowserFrame(
+    {
+      rows: [
+        {
+          ...rows[0],
+          display_name:
+            "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty",
+        } as SessionBrowserRow,
+      ],
+      warnings: [],
+    },
+    { width: 120, height: 24 },
+  );
+  const nameLines = frame
+    .split("\n")
+    .filter((line) => line.includes("│ NAME ") || line.includes("│      "));
+
+  expect(nameLines.slice(0, 3)).toHaveLength(3);
+  expect(frame).not.toContain("seventeen eighteen");
+});
+
+test("browser frame omits body row rules and separates table from preview", () => {
+  const frame = renderBrowserFrame(
+    { rows: [rows[0] as SessionBrowserRow], warnings: [] },
+    {
+      width: 120,
+      height: 16,
+    },
+  );
+  const lines = frame.split("\n");
+  const headerIndex = lines.findIndex((line) => line.includes("TITLE"));
+  const bottomRuleIndex = lines.findIndex((line) => line.includes("└"));
+  const bodyLines = lines.slice(headerIndex + 1, bottomRuleIndex);
+
+  expect(frame).toContain("┐  ┌");
+  expect(frame).toContain("│  │");
+  expect(lines[headerIndex + 1]).not.toContain("├");
+  expect(bodyLines.some((line) => line.includes("├"))).toBe(false);
+  expect(bodyLines.some((line) => line.includes("┼"))).toBe(false);
 });
 
 test("browser TUI renders rows and destroys cleanly", async () => {
@@ -78,9 +227,9 @@ test("browser TUI renders rows and destroys cleanly", async () => {
     await setup.renderOnce();
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Agent Trail Browser");
-    expect(frame).toContain("sess-alpha");
-    expect(frame).toContain("claude-code");
+    expect(frame).toContain("AGENT TRAIL BROWSER");
+    expect(frame).toContain("First sour");
+    expect(frame).toContain("NO");
 
     setup.mockInput.pressKey("q");
     await app.waitForExit();
@@ -91,7 +240,7 @@ test("browser TUI renders rows and destroys cleanly", async () => {
 });
 
 test("browser navigation updates selected row preview", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const setup = await createTestRenderer({ width: 120, height: 30 });
   try {
     mountSessionBrowser(setup.renderer, { rows, warnings: [] });
     await setup.renderOnce();
@@ -100,35 +249,41 @@ test("browser navigation updates selected row preview", async () => {
     await setup.renderOnce();
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("> registered claude-code");
-    expect(frame).toContain("id: aaaaaaaaaaaa");
+    expect(frame).not.toContain(">");
+    expect(frame).toContain("Registered Tra");
+    expect(frame).toContain("AGENT claude-code");
+    expect(frame).toContain("TRAIL YES");
+    expect(frame).toContain("STATE registered");
+    expect(frame).toContain("ID aaaaaaaaaaaa");
   } finally {
     setup.renderer.destroy();
   }
 });
 
 test("browser navigation keeps selected row visible after first page", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const setup = await createTestRenderer({ width: 120, height: 24 });
   try {
-    const manyRows = Array.from({ length: 13 }, (_value, index) => sourceRow(index));
+    const manyRows = Array.from({ length: 25 }, (_value, index) => sourceRow(index));
     mountSessionBrowser(setup.renderer, { rows: manyRows, warnings: [] });
     await setup.renderOnce();
 
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < 24; i += 1) {
       setup.mockInput.pressArrow("down");
     }
     await setup.renderOnce();
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("> source codex /work/row-12");
-    expect(frame).not.toContain("sess-00");
+    expect(frame).not.toContain(">");
+    expect(frame).toContain("row-24.jsonl");
+    expect(frame).toContain("CWD /work/row-24");
+    expect(frame).not.toContain("row-00.jsonl");
   } finally {
     setup.renderer.destroy();
   }
 });
 
 test("browser search filters rows and keeps deterministic selection", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const setup = await createTestRenderer({ width: 120, height: 24 });
   try {
     mountSessionBrowser(setup.renderer, { rows, warnings: [] });
     await setup.renderOnce();
@@ -138,12 +293,99 @@ test("browser search filters rows and keeps deterministic selection", async () =
     await setup.renderOnce();
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Search: beta");
-    expect(frame).toContain("> registered claude-code");
-    expect(frame).not.toContain("sess-alpha");
+    expect(frame).toContain("FILTERED 1");
+    expect(frame).toContain("SEARCH beta_");
+    expect(frame).not.toContain(">");
+    expect(frame).toContain("Registered Tra");
+    expect(frame).toContain("AGENT claude-code");
+    expect(frame).not.toContain("First source");
   } finally {
     setup.renderer.destroy();
   }
+});
+
+test("browser trail shortcut filters registered and unregistered rows", async () => {
+  const setup = await createTestRenderer({ width: 130, height: 24 });
+  try {
+    mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("t");
+    await setup.renderOnce();
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("TRAIL YES");
+    expect(frame).toContain("FILTERED 1");
+    expect(frame).toContain("Registered Tra");
+    expect(frame).not.toContain("First source message for alpha");
+
+    setup.mockInput.pressKey("t");
+    await setup.renderOnce();
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("TRAIL NO");
+    expect(frame).toContain("FILTERED 1");
+    expect(frame).toContain("First source message for alpha");
+    expect(frame).not.toContain("Registered Tra");
+
+    setup.mockInput.pressKey("t");
+    await setup.renderOnce();
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("TRAIL all");
+    expect(frame).toContain("FILTERED 2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("browser scope shortcut reloads rows and updates header", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    mountSessionBrowser(setup.renderer, {
+      rows: [rows[0] as SessionBrowserRow],
+      warnings: [],
+      scope: { mode: "cwd", label: "alpha" },
+      onToggleScope: async (nextScope) => ({
+        rows,
+        warnings: [],
+        scope: { mode: nextScope, label: nextScope === "all" ? "all" : "alpha" },
+      }),
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("a");
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PROJECT all");
+    expect(frame).toContain("PROJECT");
+    expect(frame).toContain("ROWS 2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("browser scope toggle handles reload rejection and restores loading state", async () => {
+  const state = browserStateFromInput({
+    rows: [rows[0] as SessionBrowserRow],
+    warnings: [],
+    scope: { mode: "cwd", label: "alpha" },
+    onToggleScope: async () => {
+      throw new Error("reload failed");
+    },
+  });
+  let updates = 0;
+
+  await toggleScopeSafely(state, () => {
+    updates += 1;
+  });
+
+  expect(updates).toBe(2);
+  expect(state.loading).toBe(false);
+  expect(state.scope).toEqual({ mode: "cwd", label: "alpha" });
+  expect(state.rows).toEqual([rows[0] as SessionBrowserRow]);
 });
 
 test("browser search mode ignores non-character keys without crashing", async () => {
@@ -157,26 +399,42 @@ test("browser search mode ignores non-character keys without crashing", async ()
     await setup.renderOnce();
 
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Search:  _");
-    expect(frame).toContain("> source codex");
+    expect(frame).toContain("SEARCH _");
+    expect(frame).not.toContain(">");
+    expect(frame).toContain("First sour");
   } finally {
     setup.renderer.destroy();
   }
 });
 
+test("browser frame collapses preview on narrow terminals", () => {
+  const frame = renderBrowserFrame({ rows, warnings: [] }, { width: 104, height: 8 });
+  const lines = frame.split("\n");
+
+  expect(lines).toHaveLength(8);
+  expect(frame).toContain("TITLE");
+  expect(frame).toContain("TRAIL");
+  expect(frame).not.toContain("PREVIEW");
+  expect(frame).not.toContain("│PREVIEW");
+  expect(lines.every((line) => line.length <= 104)).toBe(true);
+});
+
 test("browser frame strips terminal control sequences from rendered content", () => {
-  const frame = renderBrowserFrame({
-    rows: [
-      {
-        ...sourceRow(0),
-        source_id: "evil\x1b]52;c;secret\x07-id",
-        agent: "codex\x1b[31m-red",
-        cwd: "/work/\x1b[31mred\nnext",
-        source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
-      },
-    ],
-    warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
-  });
+  const frame = renderBrowserFrame(
+    {
+      rows: [
+        {
+          ...sourceRow(0),
+          source_id: "evil\x1b]52;c;secret\x07-id",
+          agent: "codex\x1b[31m-red",
+          cwd: "/work/\x1b[31mred\nnext",
+          source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
+        },
+      ],
+      warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
+    },
+    { width: 120 },
+  );
 
   expect(frame).not.toContain("\x1b");
   expect(frame).not.toContain("]52");
@@ -188,7 +446,7 @@ test("browser frame strips terminal control sequences from rendered content", ()
 });
 
 test("enter opens selected row placeholder", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const setup = await createTestRenderer({ width: 120, height: 24 });
   try {
     mountSessionBrowser(setup.renderer, { rows, warnings: [] });
     await setup.renderOnce();
@@ -205,7 +463,7 @@ test("enter opens selected row placeholder", async () => {
 });
 
 test("enter opens registered row placeholder by content hash", async () => {
-  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const setup = await createTestRenderer({ width: 120, height: 24 });
   try {
     mountSessionBrowser(setup.renderer, { rows, warnings: [] });
     await setup.renderOnce();
