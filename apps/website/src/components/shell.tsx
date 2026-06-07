@@ -1,40 +1,10 @@
-import { useEffect, useState } from "react";
+import type { ThemeName } from "../theme.tsx";
+import { useTheme } from "../theme.tsx";
 import { BrandMark, cn, FOCUS_RING, GitHubIcon, RouteLink } from "./ui.tsx";
 
 type ChromeRoute = "home" | "spec" | "viewer";
 
-type ThemeRuntime = {
-  document?: {
-    body: { classList: Pick<DOMTokenListLike, "toggle"> };
-    documentElement: { classList: DOMTokenListLike };
-  };
-  localStorage?: { setItem: (key: string, value: string) => void };
-};
-
-type DOMTokenListLike = {
-  contains: (token: string) => boolean;
-  toggle: (token: string, force?: boolean) => boolean;
-};
-
 const GITHUB_URL = "https://github.com/agent-trail/agent-trail";
-
-function getIsDarkMode() {
-  const runtime = globalThis as typeof globalThis & ThemeRuntime;
-  const doc = runtime.document;
-  if (doc === undefined) return false;
-  return doc.documentElement.classList.contains("dark-mode");
-}
-
-function toggleTheme() {
-  const runtime = globalThis as typeof globalThis & ThemeRuntime;
-  const doc = runtime.document;
-  if (doc === undefined) return undefined;
-  const shouldUseDark = !doc.documentElement.classList.contains("dark-mode");
-  doc.documentElement.classList.toggle("dark-mode", shouldUseDark);
-  doc.body.classList.toggle("dark-mode", shouldUseDark);
-  runtime.localStorage?.setItem("agent-trail-theme", shouldUseDark ? "dark" : "light");
-  return shouldUseDark;
-}
 
 export function SiteNav({ current }: { current?: ChromeRoute }) {
   if (current !== "home") return <CompactHeader current={current} />;
@@ -43,30 +13,29 @@ export function SiteNav({ current }: { current?: ChromeRoute }) {
 
 function CompactHeader({ current }: { current?: ChromeRoute }) {
   const compactLinks = [
-    { href: "/", label: "Home", key: "home" },
-    { href: "/spec/latest", label: "Read", key: "spec" },
+    { href: "/spec/latest", label: "Spec", key: "spec" },
     { href: "/schema/latest.json", label: "Schema", key: "schema" },
+    { href: "/view/gist/example", label: "Viewer", key: "viewer" },
     { href: "/spec/latest", label: "Documentation", key: "documentation" },
   ];
 
   return (
     <header className="site-header fixed-shell-header border-b-main m-0 flex min-h-16 w-full items-center bg-bg px-5 py-3 text-[11px] tracking-[0.28em] uppercase md:px-8">
       <div className="flex w-full flex-wrap items-center gap-x-8 gap-y-3">
-        <BrandMark />
-        <nav className="flex flex-wrap items-center gap-x-6 gap-y-2" aria-label="Site routes">
-          {compactLinks.map((link) => (
-            <HeaderTextLink
-              current={current}
-              href={link.href}
-              key={link.key}
-              label={link.label}
-              preload={preloadForHref(link.href)}
-              routeKey={link.key}
-            />
-          ))}
-        </nav>
-        <div className="ml-auto flex items-center gap-6 text-muted">
-          <span>v0.1.0 / Draft</span>
+        <BrandMark withMeta />
+        <div className="ml-auto flex flex-wrap items-center gap-x-8 gap-y-3">
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2" aria-label="Site routes">
+            {compactLinks.map((link) => (
+              <HeaderTextLink
+                current={current}
+                href={link.href}
+                key={link.key}
+                label={link.label}
+                preload={preloadForHref(link.href)}
+                routeKey={link.key}
+              />
+            ))}
+          </nav>
           <GitHubButton />
         </div>
       </div>
@@ -76,7 +45,7 @@ function CompactHeader({ current }: { current?: ChromeRoute }) {
 
 function HomeHeader({ current }: { current?: ChromeRoute }) {
   const homeLinks = [
-    { href: "/spec/latest", label: "Read", key: "spec" },
+    { href: "/spec/latest", label: "Spec", key: "spec" },
     { href: "/schema/latest.json", label: "Schema", key: "schema" },
     { href: "/view/gist/example", label: "Viewer", key: "viewer" },
     { href: "/spec/latest", label: "Documentation", key: "documentation" },
@@ -84,7 +53,7 @@ function HomeHeader({ current }: { current?: ChromeRoute }) {
 
   return (
     <header className="site-header px-4 pt-4 md:px-8 md:pt-8 lg:px-12 lg:pt-12">
-      <div className="mx-auto mb-12 flex w-full max-w-5xl items-start justify-between gap-4">
+      <div className="mx-auto mb-12 flex w-full max-w-5xl items-center justify-between gap-4">
         <BrandMark withMeta />
         <GitHubButton size="large" />
       </div>
@@ -153,7 +122,7 @@ function HomeGridLink({
 }) {
   const isCurrent = current === routeKey;
   const className = cn(
-    "btn-hover border-b-main border-r-main p-3 text-center text-[10px] font-bold tracking-widest text-fg uppercase no-underline data-[current=true]:bg-fg data-[current=true]:text-bg",
+    "btn-hover border-b-main border-r-main p-3 text-center text-xs font-bold tracking-widest text-fg uppercase no-underline data-[current=true]:bg-fg data-[current=true]:text-bg",
     FOCUS_RING,
   );
 
@@ -178,8 +147,8 @@ function preloadForHref(href: string) {
 export function SiteFooter({ variant }: { variant: "home" | "full" }) {
   const className =
     variant === "home"
-      ? "site-footer border-t-main mx-auto mb-4 w-[calc(100%-2rem)] max-w-5xl pt-10 pb-10 text-[10px] text-muted md:mb-8 md:w-[calc(100%-4rem)] lg:mb-12 lg:w-[calc(100%-6rem)]"
-      : "site-footer fixed-shell-footer border-t-main flex w-full flex-wrap items-center justify-between gap-x-8 gap-y-3 bg-bg px-5 pt-5 text-[11px] text-muted md:px-8";
+      ? "site-footer border-t-main mx-auto mb-4 w-[calc(100%-2rem)] max-w-5xl pt-10 pb-10 text-xs text-muted md:mb-8 md:w-[calc(100%-4rem)] lg:mb-12 lg:w-[calc(100%-6rem)]"
+      : "site-footer fixed-shell-footer border-t-main flex w-full flex-wrap items-center justify-between gap-x-8 gap-y-3 bg-bg px-5 pt-5 text-xs text-muted md:px-8";
 
   return (
     <footer className={className}>
@@ -194,58 +163,84 @@ export function SiteFooter({ variant }: { variant: "home" | "full" }) {
           </p>
           <p className="m-0 uppercase">© 2026 Agent Trail / Apache-2.0</p>
         </div>
-        <nav
-          className="flex flex-wrap items-center gap-x-7 gap-y-2 tracking-wider uppercase"
-          aria-label="Footer routes"
-        >
-          <RouteLink
-            className={cn("font-bold no-underline hover:text-fg", FOCUS_RING)}
-            href={GITHUB_URL}
-          >
-            GitHub
-          </RouteLink>
-          <RouteLink
-            className={cn("font-bold no-underline hover:text-fg", FOCUS_RING)}
-            href="/spec/latest"
-          >
-            Documentation
-          </RouteLink>
-          <RouteLink
-            className={cn("font-bold no-underline hover:text-fg", FOCUS_RING)}
-            href="/schema/latest.json"
-          >
-            Schema
-          </RouteLink>
-          <ThemeModeButton />
+        <nav className="flex flex-wrap items-center gap-x-7 gap-y-2" aria-label="Theme">
+          <ThemeSwitcher />
         </nav>
       </div>
     </footer>
   );
 }
 
-export function ThemeModeButton() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+export function ThemeSwitcher() {
+  const { setTheme, theme, themes } = useTheme();
+  return (
+    <fieldset className="m-0 border-0 p-0">
+      <legend className="sr-only">Theme</legend>
+      <div className="border-main inline-grid grid-cols-3 bg-accent p-0.5">
+        {themes.map((option) => {
+          const isActive = theme === option;
+          return (
+            <button
+              aria-label={`Use ${option} theme`}
+              aria-pressed={isActive}
+              className={cn(
+                "inline-flex items-center justify-center gap-1.5 px-2 py-1 font-mono text-[11px] font-bold tracking-tight uppercase",
+                "border-0 bg-transparent text-muted hover:text-fg",
+                isActive && "bg-fg text-bg hover:text-bg",
+                FOCUS_RING,
+              )}
+              key={option}
+              onClick={() => setTheme(option)}
+              type="button"
+            >
+              <ThemeGlyph theme={option} />
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
 
-  useEffect(() => {
-    setIsDarkMode(getIsDarkMode());
-  }, []);
+function ThemeGlyph({ theme }: { theme: ThemeName }) {
+  const className = "size-3 shrink-0";
+  if (theme === "light") {
+    return (
+      <svg aria-hidden="true" className={className} fill="none" viewBox="0 0 16 16">
+        <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
+        <path
+          d="M8 1.25v2M8 12.75v2M1.25 8h2M12.75 8h2M3 3l1.4 1.4M11.6 11.6 13 13M13 3l-1.4 1.4M4.4 11.6 3 13"
+          stroke="currentColor"
+          strokeLinecap="square"
+          strokeWidth="1.8"
+        />
+      </svg>
+    );
+  }
+
+  if (theme === "dark") {
+    return (
+      <svg aria-hidden="true" className={className} fill="none" viewBox="0 0 16 16">
+        <path
+          d="M12.5 10.4A5.5 5.5 0 0 1 5.6 3.5 5.7 5.7 0 1 0 12.5 10.4Z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.8"
+        />
+      </svg>
+    );
+  }
 
   return (
-    <button
-      aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
-      aria-pressed={isDarkMode}
-      className={cn(
-        "border-0 bg-transparent p-0 font-mono text-[11px] font-bold tracking-wider text-muted uppercase hover:text-fg",
-        FOCUS_RING,
-      )}
-      onClick={() => {
-        const nextIsDarkMode = toggleTheme();
-        if (nextIsDarkMode !== undefined) setIsDarkMode(nextIsDarkMode);
-      }}
-      type="button"
-    >
-      {isDarkMode ? "Dark" : "Light"}
-    </button>
+    <svg aria-hidden="true" className={className} fill="none" viewBox="0 0 16 16">
+      <path
+        d="m8 1.8 1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4L2.2 6l4-.6L8 1.8Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
+      />
+    </svg>
   );
 }
 

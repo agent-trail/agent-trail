@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@fontsource/commit-mono": "^5.2.5",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@n8tb1t/use-scroll-position": "^4.0.0",
     "@tanstack/react-router": "^1.170.11",
     "@tanstack/react-start": "^1.168.19",

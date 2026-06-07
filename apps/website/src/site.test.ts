@@ -4,7 +4,7 @@ import type { ComponentType } from "react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ThemeModeButton } from "./components/shell.tsx";
+import { ThemeSwitcher } from "./components/shell.tsx";
 import { SpecPage } from "./components/spec-page.tsx";
 import { ArrowGlyph, RouteLink } from "./components/ui.tsx";
 import {
@@ -30,8 +30,8 @@ test("landing page model contains the minimal dark mono homepage content", async
 
   expect(model.title).toBe("Agent Trail");
   expect(model.hook).toBe("open format for coding agent sessions");
-  expect(model.summary).toContain("portable JSONL format");
-  expect(model.summary).toContain("messages, tool calls, tool results");
+  expect(model.summary).toContain("durable JSONL artifact");
+  expect(model.summary).toContain("readable, streamable, versionable");
   expect(model.codePreview.split("\n")).toHaveLength(10);
   expect(model.primaryLinks).toEqual([
     { href: "/spec/latest", label: "Read spec" },
@@ -79,9 +79,10 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
   expect(versioned.license).toBe("Apache-2.0");
   expect(latest.version).toBe(versioned.version);
   expect(latest.html).toBe(versioned.html);
-  expect(versioned.html).toContain('id="agent-trail-specification"');
-  expect(versioned.html).toContain('href="#agent-trail-specification"');
-  expect(versioned.html).toContain('aria-label="Link to Agent Trail Specification"');
+  expect(versioned.html).not.toContain('id="agent-trail-specification"');
+  expect(versioned.html).toContain('id="1-motivation"');
+  expect(versioned.html).toContain('href="#1-motivation"');
+  expect(versioned.html).toContain('aria-label="Link to 1. Motivation"');
   expect(versioned.html).toContain("<pre><code");
   expect(versioned.sections[0]).toEqual({
     id: "agent-trail-specification",
@@ -97,12 +98,46 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
   expect(versioned.sampleBlocks.some((sample) => sample.sectionIds.includes("4-terminology"))).toBe(
     true,
   );
+  expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
+    "17-formal-schema",
+  );
+  expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
+    "18-examples",
+  );
+  expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain("changelog");
+  expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
+    "appendix-a-minimal-valid-record",
+  );
+  expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain("license");
   for (const sample of versioned.sampleBlocks) {
-    expect(sample.lines.length).toBeGreaterThan(0);
+    expect(sample.lines.length).toBeGreaterThan(5);
     for (const line of sample.lines) {
       expect(JSON.parse(line)).toHaveProperty("type");
     }
   }
+  const allSampleLines = versioned.sampleBlocks.flatMap((sample) => sample.lines);
+  expect(allSampleLines.join("\n")).not.toContain("<pending>");
+  expect(allSampleLines.join("\n")).not.toContain('"type":"summary"');
+  expect(
+    versioned.sampleBlocks
+      .find((sample) => sample.sectionIds.includes("10-canonical-tool-taxonomy"))
+      ?.lines.join("\n"),
+  ).toContain('"tool":"mcp_call"');
+  expect(
+    versioned.sampleBlocks
+      .find((sample) => sample.sectionIds.includes("12-tree-and-branching"))
+      ?.lines.join("\n"),
+  ).toContain('"type":"branch_summary"');
+  expect(
+    versioned.sampleBlocks
+      .find((sample) => sample.sectionIds.includes("13-canonical-agent-registry"))
+      ?.lines.join("\n"),
+  ).toContain('"name":"codex-cli"');
+  expect(
+    versioned.sampleBlocks
+      .find((sample) => sample.sectionIds.includes("14-truncation-overflow-and-raw-source-size"))
+      ?.lines.join("\n"),
+  ).toContain('"elided":true');
   expect(latest.sections).toEqual(versioned.sections);
   expect(latest.glossaryTerms).toEqual(versioned.glossaryTerms);
   expect(latest.sampleBlocks).toEqual(versioned.sampleBlocks);
@@ -170,10 +205,11 @@ test("accessibility primitives expose names, states, and hidden decoration", () 
     href: string;
   }>;
 
-  expect(renderToStaticMarkup(createElement(ThemeModeButton))).toContain(
-    'aria-label="Switch to dark mode"',
+  expect(renderToStaticMarkup(createElement(ThemeSwitcher))).toContain(
+    'aria-label="Use light theme"',
   );
-  expect(renderToStaticMarkup(createElement(ThemeModeButton))).toContain('aria-pressed="false"');
+  expect(renderToStaticMarkup(createElement(ThemeSwitcher))).toContain('aria-pressed="true"');
+  expect(renderToStaticMarkup(createElement(ThemeSwitcher))).toContain("black");
   expect(renderToStaticMarkup(createElement(ArrowGlyph))).toContain('aria-hidden="true"');
   expect(
     renderToStaticMarkup(
@@ -202,6 +238,7 @@ test("spec reader renders accessible sidebars and contextual samples", async () 
   });
   const markup = renderToStaticMarkup(createElement(SpecPage, { model }));
 
+  expect(markup).toContain('id="agent-trail-specification"');
   expect(markup).toContain('aria-label="Specification navigation map"');
   expect(markup).toContain('aria-label="Contextual trail JSONL samples"');
   expect(markup).toContain('aria-label="Collapse navigation map"');
@@ -209,6 +246,7 @@ test("spec reader renders accessible sidebars and contextual samples", async () 
   expect(markup).toContain('aria-current="true"');
   expect(markup).toContain("Navigation_map");
   expect(markup).toContain("Sample trail JSONL");
-  expect(markup).toContain("Conversation core");
+  expect(markup).not.toContain("one file / active section");
+  expect(markup).toContain("sample-line-highlight");
   expect(markup).not.toContain("Spec glossary and section map");
 });

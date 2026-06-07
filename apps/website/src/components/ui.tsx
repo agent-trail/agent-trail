@@ -63,19 +63,31 @@ export function RouteLink({
 
 export function BrandMark({ withMeta = false }: { withMeta?: boolean }) {
   return (
-    <RouteLink className="inline-flex flex-col gap-1 no-underline" href="/">
-      <span className="border-main inline-block px-2 py-1 text-xs font-bold tracking-widest text-fg uppercase">
-        Agent Trail Spec
-      </span>
+    <RouteLink className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 no-underline" href="/">
+      <BrandRhombus className="text-sm" label="Agent Trail" />
       {withMeta ? (
-        <span className="text-[10px] text-muted">v0.1.0 / Draft / Apache-2.0</span>
+        <span className="text-xs tracking-normal text-muted normal-case">
+          v0.1.0 / Draft / Apache-2.0
+        </span>
       ) : null}
     </RouteLink>
   );
 }
 
+export function BrandRhombus({ className, label }: { className?: string; label: string }) {
+  return (
+    <span
+      className={cn("inline-block leading-none font-bold tracking-[0.08em] uppercase", className)}
+    >
+      <span className="inline-block bg-fg px-3 py-1 text-bg [transform:skewX(-14deg)]">
+        <span className="inline-block [transform:skewX(14deg)]">{label}</span>
+      </span>
+    </span>
+  );
+}
+
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="m-0 text-[10px] tracking-[0.2em] text-muted uppercase">{children}</p>;
+  return <p className="m-0 text-xs tracking-[0.2em] text-muted uppercase">{children}</p>;
 }
 
 export function ArrowGlyph() {
@@ -104,7 +116,7 @@ export function BorderedActionLink({
       href={href}
       preload={preload}
     >
-      <span className="text-xs font-bold tracking-widest uppercase">{label}</span>
+      <span className="text-sm font-bold tracking-widest uppercase">{label}</span>
       <ArrowGlyph />
     </RouteLink>
   );
@@ -113,7 +125,7 @@ export function BorderedActionLink({
 export function SplitRuleHeading({ children }: { children: ReactNode }) {
   return (
     <div className="mb-12 flex h-px w-full items-center justify-center bg-main">
-      <span className="bg-bg px-4 text-[10px] font-bold tracking-[0.4em] text-muted uppercase">
+      <span className="bg-bg px-4 text-xs font-bold tracking-[0.4em] text-muted uppercase">
         {children}
       </span>
     </div>

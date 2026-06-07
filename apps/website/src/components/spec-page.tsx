@@ -1,6 +1,7 @@
 import { useOverflowScrollPosition } from "@n8tb1t/use-scroll-position";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SpecPageModel, SpecSampleBlock, SpecSection } from "../site.ts";
+import { JsonlCode } from "./jsonl-code.tsx";
 import { cn, FOCUS_RING } from "./ui.tsx";
 
 const LEFT_STORAGE_KEY = "agent-trail-spec-left-collapsed";
@@ -61,11 +62,10 @@ function SpecReaderLayout({ model }: { model: SpecPageModel }) {
       />
       <SpecArticle model={model} onArticleRef={handleArticleRef} />
       <SpecSampleRail
-        activeSampleId={activeSample?.id}
+        activeSectionId={activeSectionId}
+        activeSample={activeSample}
         collapsed={rightCollapsed}
         onToggle={() => setRightCollapsed((collapsed) => !collapsed)}
-        samples={model.sampleBlocks}
-        scrollToSection={scrollToSection}
       />
     </div>
   );
@@ -87,24 +87,34 @@ function SpecSidebar({
   sections: SpecSection[];
 }) {
   const activeRef = useRef<SpecSidebarLinkElement>(null);
+  const groups = useMemo(() => groupSpecSections(sections), [sections]);
+  const sectionLabels = useMemo(() => sectionLabelsById(sections), [sections]);
 
   useEffect(() => {
     if (collapsed || activeSectionId === "") return;
     activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [activeSectionId, collapsed]);
 
+  if (collapsed) {
+    return (
+      <CollapsedSidebarRail
+        label="navigation map"
+        onToggle={onToggle}
+        side="left"
+        title="Navigation_map"
+      />
+    );
+  }
+
   return (
     <aside
-      className={cn(
-        "relative hidden min-h-0 border-r-main bg-bg xl:flex",
-        collapsed ? "w-8" : "w-72",
-      )}
+      className="relative hidden min-h-0 w-72 border-r-main bg-accent xl:flex"
       aria-label="Specification navigation map"
     >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-12 shrink-0 items-center justify-between border-b-main p-4">
           <h2 className="m-0 text-[10px] font-bold tracking-[0.28em] text-muted uppercase">
-            {collapsed ? "" : "Navigation_map"}
+            Navigation_map
           </h2>
           <SidebarToggle
             collapsed={collapsed}
@@ -114,53 +124,60 @@ function SpecSidebar({
           />
         </div>
         <nav
-          className={cn(
-            "min-h-0 flex-1 scroll-smooth overflow-y-auto p-4",
-            collapsed ? "hidden" : "block",
-          )}
+          className="min-h-0 flex-1 scroll-smooth overflow-y-auto px-4 py-5"
           aria-label="Specification sections"
         >
-          <ol className="mt-4 grid list-none gap-1 p-0">
-            {sections.map((section) => (
-              <li key={section.id}>
-                <a
-                  aria-current={activeSectionId === section.id ? "true" : undefined}
-                  className={cn(
-                    "block px-2 py-1 text-[11px] no-underline",
-                    section.level > 2 ? "pl-5 text-[10px]" : "font-bold",
-                    activeSectionId === section.id
-                      ? "bg-fg text-bg"
-                      : "text-muted hover:bg-accent hover:text-fg",
-                    FOCUS_RING,
-                  )}
-                  href={`#${section.id}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    scrollToSection(section.id);
-                  }}
-                  ref={
-                    activeSectionId === section.id
-                      ? (node) => {
-                          activeRef.current = node as SpecSidebarLinkElement | null;
+          <div className="grid gap-7">
+            {groups.map((group) => (
+              <section key={group.label}>
+                <h3 className="m-0 mb-3 text-[10px] font-bold tracking-[0.14em] text-muted uppercase">
+                  {group.label}
+                </h3>
+                <ol className="grid list-none gap-1 p-0">
+                  {group.sections.map((section) => (
+                    <li key={section.id}>
+                      <a
+                        aria-current={activeSectionId === section.id ? "true" : undefined}
+                        className={cn(
+                          "block py-1 text-xs leading-5 no-underline",
+                          section.level > 2 ? "pl-3 text-[11px]" : "font-bold",
+                          section.level > 3 ? "pl-6 text-[10px]" : "",
+                          activeSectionId === section.id
+                            ? "bg-fg px-2 text-bg"
+                            : "px-2 text-fg/80 hover:bg-bg hover:text-fg",
+                          FOCUS_RING,
+                        )}
+                        href={`#${section.id}`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          scrollToSection(section.id);
+                        }}
+                        ref={
+                          activeSectionId === section.id
+                            ? (node) => {
+                                activeRef.current = node as SpecSidebarLinkElement | null;
+                              }
+                            : undefined
                         }
-                      : undefined
-                  }
-                >
-                  <span className="mr-2 text-[9px] opacity-70">
-                    {String(section.index + 1).padStart(2, "0")}
-                  </span>
-                  {section.title}
-                </a>
-              </li>
+                      >
+                        <span
+                          className={cn(
+                            "mr-2 text-[9px]",
+                            activeSectionId === section.id ? "text-bg" : "text-muted",
+                          )}
+                        >
+                          {sectionLabels.get(section.id) ?? formatSectionIndex(section)}
+                        </span>
+                        {cleanSectionTitle(section.title)}
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </section>
             ))}
-          </ol>
+          </div>
         </nav>
-        <div
-          className={cn(
-            "shrink-0 justify-between border-t-main bg-bg p-4 text-[10px] font-bold tracking-[0.22em] text-muted uppercase",
-            collapsed ? "hidden" : "flex",
-          )}
-        >
+        <div className="flex shrink-0 justify-between border-t-main bg-accent p-4 text-[10px] font-bold tracking-[0.22em] text-muted uppercase">
           <span>Progress</span>
           <span>{String(progress).padStart(3, "0")}%</span>
         </div>
@@ -179,15 +196,19 @@ function SpecArticle({
   const renderedMarkdownProps = {
     dangerouslySetInnerHTML: { __html: model.html },
   };
+  const rootSectionId = model.sections[0]?.id;
 
   return (
     <article
-      className="min-h-full min-w-0 scroll-smooth overflow-y-auto px-5 py-8 md:px-10 lg:px-16"
+      className="min-h-full min-w-0 scroll-smooth overflow-y-auto bg-bg px-5 py-8 md:px-10 lg:px-16"
       ref={onArticleRef}
     >
-      <header className="mx-auto grid w-full max-w-4xl gap-4 border-b-main pb-10">
+      <header className="mx-auto grid w-full max-w-3xl gap-4 border-b-main pb-10">
         <p className="m-0 text-[10px] tracking-[0.3em] text-muted uppercase">Specification</p>
-        <h1 className="text-balance text-4xl leading-tight font-bold sm:text-5xl">
+        <h1
+          className="text-balance text-4xl leading-tight font-bold tracking-[0.015em] sm:text-5xl"
+          id={rootSectionId}
+        >
           Agent Trail Specification
         </h1>
         <p className="m-0 max-w-[72ch] text-pretty text-sm leading-7">
@@ -195,8 +216,8 @@ function SpecArticle({
           {model.license}.
         </p>
       </header>
-      <div className="markdown-body mx-auto w-full max-w-4xl" {...renderedMarkdownProps} />
-      <footer className="mx-auto mt-16 w-full max-w-4xl border-t-main pt-5 text-sm text-muted">
+      <div className="markdown-body mx-auto w-full max-w-3xl" {...renderedMarkdownProps} />
+      <footer className="mx-auto mt-16 w-full max-w-3xl border-t-main pt-5 text-sm text-muted">
         Agent Trail v{model.version} · {model.status} · {model.license}
       </footer>
     </article>
@@ -204,31 +225,36 @@ function SpecArticle({
 }
 
 function SpecSampleRail({
-  activeSampleId,
+  activeSample,
+  activeSectionId,
   collapsed,
   onToggle,
-  samples,
-  scrollToSection,
 }: {
-  activeSampleId: string | undefined;
+  activeSample: SpecSampleBlock | undefined;
+  activeSectionId: string;
   collapsed: boolean;
   onToggle: () => void;
-  samples: SpecSampleBlock[];
-  scrollToSection: (sectionId: string) => void;
 }) {
-  const activeRef = useRef<SpecSampleElement>(null);
+  const { previousSample, visibleSample } = useAnimatedSample(activeSample);
+  const highlightedLines = useMemo(
+    () => new Set(visibleSample?.highlightLinesBySectionId[activeSectionId] ?? []),
+    [activeSectionId, visibleSample],
+  );
 
-  useEffect(() => {
-    if (collapsed || activeSampleId === undefined) return;
-    activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [activeSampleId, collapsed]);
+  if (collapsed) {
+    return (
+      <CollapsedSidebarRail
+        label="trail samples"
+        onToggle={onToggle}
+        side="right"
+        title="Sample trail JSONL"
+      />
+    );
+  }
 
   return (
     <aside
-      className={cn(
-        "relative hidden min-h-0 min-w-0 border-l-main bg-bg xl:flex",
-        collapsed ? "w-8" : "w-full",
-      )}
+      className="relative hidden min-h-0 min-w-0 border-l-main bg-bg xl:flex"
       aria-label="Contextual trail JSONL samples"
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -240,60 +266,112 @@ function SpecSampleRail({
             side="right"
           />
           <h2 className="m-0 text-[10px] font-bold tracking-[0.28em] text-muted uppercase">
-            {collapsed ? "" : "Sample trail JSONL"}
+            Sample trail JSONL
           </h2>
-          <span
-            className={cn("ml-auto text-[9px] text-muted uppercase", collapsed ? "hidden" : "")}
-          >
+          <span className="ml-auto text-[9px] text-muted uppercase">
             application/vnd.trail+jsonl
           </span>
         </div>
-        <div
-          className={cn(
-            "min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4",
-            "scroll-smooth",
-            collapsed ? "hidden" : "block",
-          )}
-        >
-          <div className="grid gap-3">
-            {samples.map((sample) => {
-              const isActive = activeSampleId === sample.id;
-              const targetSectionId = sample.sectionIds[0];
-              return (
-                <button
-                  aria-current={isActive ? "true" : undefined}
-                  className={cn(
-                    "w-full border-main bg-bg p-4 text-left transition-opacity",
-                    targetSectionId === undefined ? "cursor-default" : "btn-hover",
-                    isActive ? "bg-accent opacity-100" : "opacity-45",
-                    FOCUS_RING,
-                  )}
-                  disabled={targetSectionId === undefined}
-                  key={sample.id}
-                  onClick={() => {
-                    if (targetSectionId !== undefined) scrollToSection(targetSectionId);
-                  }}
-                  ref={
-                    isActive
-                      ? (node) => {
-                          activeRef.current = node as SpecSampleElement | null;
-                        }
-                      : undefined
-                  }
-                  type="button"
-                >
-                  <h3 className="m-0 mb-3 text-[10px] font-bold tracking-widest uppercase">
-                    {"// "}
-                    {sample.title}
-                  </h3>
-                  <pre className="m-0 max-w-full overflow-hidden text-[10px] leading-5 whitespace-pre-wrap break-words">
-                    <code className="break-words">{sample.lines.join("\n")}</code>
-                  </pre>
-                </button>
-              );
-            })}
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-4">
+          <div className="relative h-full min-h-0">
+            {previousSample === undefined ? null : (
+              <SpecSamplePanel
+                className="spec-sample-panel-exit absolute inset-x-0 top-0 pointer-events-none"
+                highlightedLines={new Set()}
+                sample={previousSample}
+              />
+            )}
+            {visibleSample === undefined ? (
+              <div className="border-main bg-accent p-5 text-xs text-muted">
+                No contextual trail sample for this section.
+              </div>
+            ) : (
+              <SpecSamplePanel
+                className="spec-sample-panel-enter"
+                highlightedLines={highlightedLines}
+                key={visibleSample.id}
+                sample={visibleSample}
+              />
+            )}
           </div>
         </div>
+      </div>
+    </aside>
+  );
+}
+
+function SpecSamplePanel({
+  className,
+  highlightedLines,
+  sample,
+}: {
+  className?: string;
+  highlightedLines: Set<number>;
+  sample: SpecSampleBlock;
+}) {
+  return (
+    <section
+      className={cn("border-main flex max-h-full min-h-0 flex-col bg-accent p-5", className)}
+      aria-live="polite"
+    >
+      <div className="mb-5 flex shrink-0 items-center justify-between gap-4 border-b-main pb-3">
+        <h3 className="m-0 text-[10px] font-bold tracking-widest uppercase">
+          {"// "}
+          {sample.title}
+        </h3>
+      </div>
+      <pre className="m-0 min-h-0 max-w-full flex-1 overflow-auto text-[11px] leading-6 whitespace-pre-wrap break-words">
+        <JsonlCode
+          className="grid gap-1 break-words"
+          lineClassName={(index) =>
+            cn(
+              "block break-words px-2 py-1 whitespace-pre-wrap",
+              highlightedLines.has(index) && "sample-line-highlight",
+            )
+          }
+          lines={sample.lines}
+        />
+      </pre>
+    </section>
+  );
+}
+
+function useAnimatedSample(activeSample: SpecSampleBlock | undefined) {
+  const [visibleSample, setVisibleSample] = useState(activeSample);
+  const [previousSample, setPreviousSample] = useState<SpecSampleBlock | undefined>();
+
+  useEffect(() => {
+    if (activeSample?.id === visibleSample?.id) return;
+    setPreviousSample(visibleSample);
+    setVisibleSample(activeSample);
+    const timeout = setTimeout(() => setPreviousSample(undefined), 180);
+    return () => clearTimeout(timeout);
+  }, [activeSample, visibleSample]);
+
+  return { previousSample, visibleSample };
+}
+
+function CollapsedSidebarRail({
+  label,
+  onToggle,
+  side,
+  title,
+}: {
+  label: string;
+  onToggle: () => void;
+  side: "left" | "right";
+  title: string;
+}) {
+  return (
+    <aside
+      aria-label={title}
+      className={cn(
+        "relative hidden min-h-0 w-px shrink-0 overflow-visible bg-bg xl:block",
+        side === "left" ? "border-r-main" : "border-l-main",
+      )}
+    >
+      <div className={cn("absolute top-2 z-10", side === "left" ? "left-2" : "right-2")}>
+        <SidebarToggle collapsed={true} label={label} onToggle={onToggle} side={side} />
       </div>
     </aside>
   );
@@ -315,14 +393,23 @@ function SidebarToggle({
       aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
       aria-pressed={collapsed}
       className={cn(
-        "btn-hover border-main flex size-6 shrink-0 items-center justify-center bg-bg text-[10px] font-bold",
+        "btn-hover border-main group relative flex size-6 shrink-0 items-center justify-center bg-bg text-[10px] font-bold",
         side === "left" ? "order-last" : "order-first",
         FOCUS_RING,
       )}
       onClick={onToggle}
+      title="Toggle sidebar"
       type="button"
     >
       {collapsed ? "+" : "-"}
+      <span
+        className={cn(
+          "pointer-events-none absolute top-1/2 z-20 -translate-y-1/2 border-main bg-bg px-2 py-1 text-[10px] font-bold whitespace-nowrap text-fg uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
+          side === "left" ? "left-full ml-2" : "right-full mr-2",
+        )}
+      >
+        Toggle sidebar
+      </span>
     </button>
   );
 }
@@ -362,13 +449,114 @@ type SpecHeadingElement = {
   scrollIntoView: (options: { block: "start"; behavior: "smooth" }) => void;
 };
 
-type SpecSampleElement = {
-  scrollIntoView: (options: { block: "center"; behavior: "smooth" }) => void;
-};
-
 type SpecSidebarLinkElement = {
   scrollIntoView: (options: { block: "center"; behavior: "smooth" }) => void;
 };
+
+type SpecNavGroup = {
+  label: string;
+  sections: SpecSection[];
+};
+
+function groupSpecSections(sections: SpecSection[]): SpecNavGroup[] {
+  const groups = new Map<string, SpecSection[]>();
+  let currentSectionNumber: number | undefined;
+
+  for (const section of sections) {
+    const sectionNumber = sectionNumberOf(section.title);
+    if (sectionNumber !== undefined) currentSectionNumber = sectionNumber;
+    const label = navGroupLabel(section, sectionNumber ?? currentSectionNumber);
+    const group = groups.get(label) ?? [];
+    group.push(section);
+    groups.set(label, group);
+  }
+  return Array.from(groups, ([label, groupedSections]) => ({ label, sections: groupedSections }));
+}
+
+function navGroupLabel(section: SpecSection, sectionNumber: number | undefined): string {
+  if (isReferenceSection(section.title)) return "REFERENCE";
+  if (section.index === 0 || sectionNumber === undefined || sectionNumber <= 4) return "CORE";
+  if (sectionNumber <= 8) return "STRUCTURE";
+  if (sectionNumber <= 10) return "EVENTS";
+  if (sectionNumber <= 13) return "EXTENSIONS";
+  if (sectionNumber <= 16) return "VALIDATION";
+  return "REFERENCE";
+}
+
+function isReferenceSection(title: string): boolean {
+  const normalized = title.toLowerCase();
+  return (
+    normalized === "changelog" ||
+    normalized.startsWith("appendix ") ||
+    normalized.startsWith("license") ||
+    normalized.startsWith("v0.")
+  );
+}
+
+function sectionNumberOf(title: string): number | undefined {
+  const match = /^(\d+)/.exec(title);
+  if (match?.[1] === undefined) return undefined;
+  return Number.parseInt(match[1], 10);
+}
+
+function formatSectionIndex(section: SpecSection): string {
+  const numberMatch = /^(\d+(?:\.\d+)*)/.exec(section.title);
+  if (numberMatch?.[1] !== undefined) return numberMatch[1];
+  return String(section.index).padStart(2, "0");
+}
+
+function sectionLabelsById(sections: SpecSection[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  let counters: number[] = [];
+
+  for (const section of sections) {
+    const explicitNumber = /^(\d+(?:\.\d+)*)/.exec(section.title)?.[1];
+    if (explicitNumber !== undefined) {
+      const explicitCounters = explicitNumber.split(".").map((part) => Number.parseInt(part, 10));
+      if (shouldUseGeneratedLabelForExplicitCounter(counters, explicitCounters)) {
+        counters = nextCountersAtDepth(counters, explicitCounters.length);
+      } else {
+        counters = explicitCounters;
+      }
+      labels.set(section.id, counters.join("."));
+      continue;
+    }
+
+    if (section.index === 0 || section.level <= 1) {
+      labels.set(section.id, String(section.index).padStart(2, "0"));
+      continue;
+    }
+
+    const depth = section.level - 1;
+    counters = nextCountersAtDepth(counters, depth);
+    labels.set(section.id, counters.join("."));
+  }
+
+  return labels;
+}
+
+function shouldUseGeneratedLabelForExplicitCounter(
+  currentCounters: number[],
+  explicitCounters: number[],
+): boolean {
+  const depth = explicitCounters.length;
+  if (depth === 0 || currentCounters.length < depth) return false;
+  const parentMatches = explicitCounters
+    .slice(0, -1)
+    .every((part, index) => currentCounters[index] === part);
+  return parentMatches && (explicitCounters.at(-1) ?? 0) <= (currentCounters[depth - 1] ?? 0);
+}
+
+function nextCountersAtDepth(counters: number[], depth: number): number[] {
+  const next = counters.slice(0, depth);
+  while (next.length < depth) next.push(0);
+  next[depth - 1] = (next[depth - 1] ?? 0) + 1;
+  return next;
+}
+
+function cleanSectionTitle(title: string): string {
+  return title.replace(/^\d+(?:\.\d+)*\.?\s+/, "");
+}
 
 function useActiveSpecSection(article: SpecScrollElement | null, sections: SpecSection[]) {
   const [activeSectionId, setActiveSectionId] = useState(sections[0]?.id ?? "");
