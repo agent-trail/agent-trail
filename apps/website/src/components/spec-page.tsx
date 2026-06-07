@@ -162,7 +162,7 @@ function SpecSidebar({
                       >
                         <span
                           className={cn(
-                            "mr-2 text-[9px]",
+                            "mr-2 text-[9px] tabular-nums",
                             activeSectionId === section.id ? "text-bg" : "text-muted",
                           )}
                         >
@@ -179,7 +179,7 @@ function SpecSidebar({
         </nav>
         <div className="flex shrink-0 justify-between border-t-main bg-accent p-4 text-[10px] font-bold tracking-[0.22em] text-muted uppercase">
           <span>Progress</span>
-          <span>{String(progress).padStart(3, "0")}%</span>
+          <span className="tabular-nums">{String(progress).padStart(3, "0")}%</span>
         </div>
       </div>
     </aside>
@@ -393,7 +393,7 @@ function SidebarToggle({
       aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
       aria-pressed={collapsed}
       className={cn(
-        "btn-hover border-main group relative flex size-6 shrink-0 items-center justify-center bg-bg text-[10px] font-bold",
+        "btn-hover hit-area-40 border-main group relative flex size-6 shrink-0 items-center justify-center bg-bg text-[10px] font-bold",
         side === "left" ? "order-last" : "order-first",
         FOCUS_RING,
       )}
@@ -404,7 +404,7 @@ function SidebarToggle({
       {collapsed ? "+" : "-"}
       <span
         className={cn(
-          "pointer-events-none absolute top-1/2 z-20 -translate-y-1/2 border-main bg-bg px-2 py-1 text-[10px] font-bold whitespace-nowrap text-fg uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
+          "sidebar-toggle-tooltip pointer-events-none absolute top-1/2 z-20 border-main bg-bg px-2 py-1 text-[10px] font-bold whitespace-nowrap text-fg uppercase opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
           side === "left" ? "left-full ml-2" : "right-full mr-2",
         )}
       >

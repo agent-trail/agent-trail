@@ -88,7 +88,7 @@ function HeaderTextLink({
 }) {
   const isCurrent = current === routeKey;
   const className = cn(
-    "font-bold hover:text-fg",
+    "hit-area-40 relative inline-flex items-center font-bold hover:text-fg",
     FOCUS_RING,
     isCurrent
       ? "text-fg underline decoration-fg decoration-1 underline-offset-4"
@@ -184,7 +184,7 @@ export function ThemeSwitcher() {
               aria-label={`Use ${option} theme`}
               aria-pressed={isActive}
               className={cn(
-                "inline-flex items-center justify-center gap-1.5 px-2 py-1 font-mono text-[11px] font-bold tracking-tight uppercase",
+                "hit-area-40 inline-flex min-h-8 min-w-10 items-center justify-center gap-1.5 px-2 py-1 font-mono text-[11px] font-bold tracking-tight uppercase",
                 "border-0 bg-transparent text-muted hover:text-fg",
                 isActive && "bg-fg text-bg hover:text-bg",
                 FOCUS_RING,
