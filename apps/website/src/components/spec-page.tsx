@@ -237,7 +237,7 @@ function SpecSampleRail({
 }) {
   const { previousSample, visibleSample } = useAnimatedSample(activeSample);
   const highlightedLines = useMemo(
-    () => new Set(visibleSample?.highlightLinesBySectionId[activeSectionId] ?? []),
+    () => new Set(visibleSample?.highlightLinesBySectionId?.[activeSectionId] ?? []),
     [activeSectionId, visibleSample],
   );
 
@@ -425,7 +425,7 @@ function useStoredCollapsedState(key: string) {
       return;
     }
 
-    setCollapsed(runtime.matchMedia?.("(max-width: 1279px)").matches ?? false);
+    setCollapsed(runtime.matchMedia?.("(max-width: 1279px)")?.matches ?? false);
   }, [key]);
 
   useEffect(() => {
@@ -615,7 +615,7 @@ function useActiveSpecSection(article: SpecScrollElement | null, sections: SpecS
       if (article === null) return;
 
       const heading = article.querySelector(`[id="${escapeSelectorAttribute(sectionId)}"]`);
-      if (heading === undefined || heading === null) return;
+      if (heading === null) return;
 
       const current = programmaticScrollRef.current;
       if (current?.settleTimeout !== undefined) clearTimeout(current.settleTimeout);
@@ -660,7 +660,7 @@ function useActiveSpecSection(article: SpecScrollElement | null, sections: SpecS
     if (article === null) return;
     const runtime = globalThis as BrowserRuntime;
 
-    const initialHash = runtime.location?.hash.replace(/^#/, "");
+    const initialHash = runtime.location?.hash?.replace(/^#/, "");
     if (initialHash !== undefined && initialHash !== "") {
       article
         .querySelector(`[id="${escapeSelectorAttribute(initialHash)}"]`)
@@ -674,7 +674,7 @@ function useActiveSpecSection(article: SpecScrollElement | null, sections: SpecS
     if (article === null) return;
     const runtime = globalThis as BrowserRuntime;
     const handleHashChange = () => {
-      const sectionId = runtime.location?.hash.replace(/^#/, "");
+      const sectionId = runtime.location?.hash?.replace(/^#/, "");
       if (sectionId === undefined || sectionId === "") return;
       beginProgrammaticScroll(sectionId, false);
     };
