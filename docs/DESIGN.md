@@ -59,7 +59,7 @@ Navigation:
 
 Links and buttons:
 
-- Core links use sharp bordered text controls.
+- Core links use sharp-bordered text controls.
 - Link labels must be specific: "Read spec", "View schema", "GitHub", "Viewer".
 
 Previews:

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { buildPageMetadata } from "../metadata.ts";
 
 export const Route = createFileRoute("/$")({
@@ -17,12 +17,12 @@ function NotFoundRoute() {
             Route not found
           </h1>
         </div>
-        <a
+        <Link
           className="border-main btn-hover inline-flex w-fit px-6 py-4 text-[0.72rem] font-bold uppercase tracking-[0.22em] no-underline"
-          href="/"
+          to="/"
         >
           Back home
-        </a>
+        </Link>
       </div>
     </main>
   );

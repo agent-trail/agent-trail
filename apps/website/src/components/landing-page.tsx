@@ -59,7 +59,7 @@ export function LandingPage({ model }: { model: LandingPageModel }) {
             <h2 id="reference-title" className="sr-only">
               Reference implementations
             </h2>
-            {Array.from(model.referenceImplementations.entries()).map(([index, surface]) => (
+            {model.referenceImplementations.map((surface, index) => (
               <RouteLink
                 className={cn(
                   "btn-hover group flex min-h-56 flex-col gap-8 border-b-main border-r-main p-6 no-underline",

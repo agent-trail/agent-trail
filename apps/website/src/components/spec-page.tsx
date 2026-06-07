@@ -687,7 +687,55 @@ function useActiveSpecSection(article: SpecScrollElement | null, sections: SpecS
 }
 
 function escapeSelectorAttribute(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const runtime = globalThis as typeof globalThis & {
+    CSS?: { escape?: (value: string) => string };
+  };
+  return runtime.CSS?.escape?.(value) ?? cssEscape(value);
+}
+
+function cssEscape(value: string): string {
+  let escaped = "";
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    const char = value.charAt(index);
+
+    if (codeUnit === 0x0000) {
+      escaped += "\uFFFD";
+      continue;
+    }
+
+    if (
+      (codeUnit >= 0x0001 && codeUnit <= 0x001f) ||
+      codeUnit === 0x007f ||
+      (index === 0 && codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
+      (index === 1 && codeUnit >= 0x0030 && codeUnit <= 0x0039 && value.charCodeAt(0) === 0x002d)
+    ) {
+      escaped += `\\${codeUnit.toString(16)} `;
+      continue;
+    }
+
+    if (index === 0 && codeUnit === 0x002d && value.length === 1) {
+      escaped += "\\-";
+      continue;
+    }
+
+    if (
+      codeUnit >= 0x0080 ||
+      codeUnit === 0x002d ||
+      codeUnit === 0x005f ||
+      (codeUnit >= 0x0030 && codeUnit <= 0x0039) ||
+      (codeUnit >= 0x0041 && codeUnit <= 0x005a) ||
+      (codeUnit >= 0x0061 && codeUnit <= 0x007a)
+    ) {
+      escaped += char;
+      continue;
+    }
+
+    escaped += `\\${char}`;
+  }
+
+  return escaped;
 }
 
 function collectSectionHeadings(

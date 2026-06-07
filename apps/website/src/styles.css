@@ -448,7 +448,6 @@
     color: var(--at-fg) !important;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
-    word-break: break-word;
   }
 
   .markdown-body .shiki .line {
@@ -456,7 +455,6 @@
     max-width: 100%;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
-    word-break: break-word;
   }
 
   .heading-anchor {

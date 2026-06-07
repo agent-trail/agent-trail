@@ -13,7 +13,7 @@ export function JsonlCode({
 
   return (
     <code className={className}>
-      {Array.from(lines.entries()).map(([index, line]) => {
+      {lines.map((line, index) => {
         const className =
           typeof lineClassName === "function" ? lineClassName(index, line) : lineClassName;
         const lineCount = (lineKeys.get(line) ?? 0) + 1;

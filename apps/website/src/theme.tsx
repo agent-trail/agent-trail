@@ -50,7 +50,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (media === undefined) return;
 
     const syncSystemTheme = (event: { matches: boolean }) => {
-      if (runtime.localStorage?.getItem(THEME_STORAGE_KEY) !== null) return;
+      if (safeGetStoredTheme() !== null) return;
       const nextTheme = event.matches ? "dark" : "light";
       setThemeState(nextTheme);
       applyTheme(nextTheme);
@@ -64,8 +64,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => ({
       resolvedTheme: theme,
       setTheme: (nextTheme) => {
-        const runtime = globalThis as ThemeRuntime;
-        runtime.localStorage?.setItem(THEME_STORAGE_KEY, nextTheme);
+        safeSetStoredTheme(nextTheme);
         setThemeState(nextTheme);
         applyTheme(nextTheme);
       },
@@ -84,9 +83,27 @@ export function useTheme() {
 
 function readInitialTheme(): ThemeName {
   const runtime = globalThis as ThemeRuntime;
-  const stored = runtime.localStorage?.getItem(THEME_STORAGE_KEY);
+  const stored = safeGetStoredTheme();
   if (isThemeName(stored)) return stored;
-  return runtime.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return runtime.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+}
+
+function safeGetStoredTheme(): string | null {
+  try {
+    const runtime = globalThis as ThemeRuntime;
+    return runtime.localStorage?.getItem(THEME_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function safeSetStoredTheme(theme: ThemeName): void {
+  try {
+    const runtime = globalThis as ThemeRuntime;
+    runtime.localStorage?.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Ignore persistence failures; the active theme still updates in memory and DOM state.
+  }
 }
 
 function applyTheme(theme: ThemeName) {
