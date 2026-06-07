@@ -443,8 +443,157 @@ function buildSpecSampleBlocks(sections: SpecSection[]): SpecSampleBlock[] {
   });
 }
 
+const sampleIds = new Map<string, string>();
+
 function trailLine(type: string, id: string, rest: Record<string, unknown>): string {
-  return JSON.stringify({ type, id, ...rest });
+  return JSON.stringify(
+    normalizeSampleRecord({
+      type,
+      id: sampleId(id),
+      ...(rewriteSampleRefs(rest) as Record<string, unknown>),
+    }),
+  );
+}
+
+function sampleId(seed: string): string {
+  const existing = sampleIds.get(seed);
+  if (existing !== undefined) return existing;
+  const next = `00000000-0000-4000-8000-${String(sampleIds.size + 1).padStart(12, "0")}`;
+  sampleIds.set(seed, next);
+  return next;
+}
+
+function rewriteSampleRefs(value: unknown): unknown {
+  if (typeof value === "string" && looksLikeLegacySampleId(value)) return sampleId(value);
+  if (Array.isArray(value)) return value.map((item) => rewriteSampleRefs(item));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, rewriteSampleRefs(entry)]),
+    );
+  }
+  return value;
+}
+
+function looksLikeLegacySampleId(value: string): boolean {
+  return value.startsWith("01H") || /^00000000-0000-0000-0000-000000000\d{3}$/.test(value);
+}
+
+function normalizeSampleRecord(record: Record<string, unknown>): Record<string, unknown> {
+  if (record.type === "trail") {
+    delete record.content_hash;
+    const sessions = record.sessions;
+    if (Array.isArray(sessions)) {
+      record.sessions = sessions.map((session) => {
+        if (session === null || typeof session !== "object") return session;
+        const entry = session as Record<string, unknown>;
+        return {
+          id: entry.id,
+          agent: typeof entry.agent === "string" ? entry.agent : "codex-cli",
+        };
+      });
+    }
+  }
+
+  if (record.type === "session") {
+    delete record.content_hash;
+    const agent = record.agent as Record<string, unknown> | undefined;
+    if (agent?.name === "trail-cli") agent.name = "codex-cli";
+    const forkFrom = record.fork_from as Record<string, unknown> | undefined;
+    if (forkFrom !== undefined) {
+      if (forkFrom.session_id === undefined) forkFrom.session_id = sampleId("sample-fork-parent");
+      delete forkFrom.content_hash;
+    }
+    const redactedFrom = record.redacted_from as Record<string, unknown> | undefined;
+    if (redactedFrom !== undefined) delete record.redacted_from;
+  }
+
+  if (record.type === "session_metadata_update") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    if (typeof payload?.cwd === "string") {
+      record.payload = {
+        field: "x-agent-trail/cwd",
+        value: payload.cwd,
+        reason: "runtime_inferred",
+      };
+    }
+    if (payload?.agent !== undefined) {
+      record.payload = {
+        field: "agent.model_default",
+        value: "claude-sonnet-4-5",
+        reason: "runtime_inferred",
+      };
+    }
+  }
+
+  if (record.type === "session_summary") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    if (payload !== undefined && payload.scope === undefined) {
+      record.payload = { scope: "session", ...payload };
+    }
+  }
+
+  if (record.type === "task_plan_update") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    const tasks = payload?.tasks;
+    if (payload !== undefined && Array.isArray(tasks)) {
+      record.payload = {
+        ...payload,
+        items: tasks.map((task) => {
+          if (task === null || typeof task !== "object") return task;
+          const entry = task as Record<string, unknown>;
+          return {
+            id: entry.id,
+            content: entry.title ?? entry.content,
+            status: entry.status,
+          };
+        }),
+      };
+      delete (record.payload as Record<string, unknown>).tasks;
+    }
+  }
+
+  if (record.type === "tool_call") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    const args = payload?.args as Record<string, unknown> | undefined;
+    if (payload?.tool === "file_edit" && args?.diff === undefined) {
+      payload.args = { path: args?.path, diff: "diff omitted for compact sample" };
+    }
+  }
+
+  if (record.type === "tool_result") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    if (payload?.content_hash !== undefined) {
+      payload.output = `content_hash ${payload.content_hash}`;
+      delete payload.content_hash;
+    }
+    if (payload?.truncated === true && payload.output_size === undefined) {
+      payload.output_size = payload.original_bytes ?? 0;
+    }
+    delete payload?.original_bytes;
+  }
+
+  if (record.type === "system_event") {
+    const payload = record.payload as Record<string, unknown> | undefined;
+    if (payload?.kind === "capability_change") {
+      record.type = "capability_change";
+      record.payload = {
+        scope: "tool",
+        reason: "registered",
+        added: Array.isArray(payload.capabilities)
+          ? payload.capabilities.map((capability) => ({ name: String(capability) }))
+          : [],
+      };
+      return record;
+    }
+    if (payload?.kind === "diagnostic") {
+      record.payload = {
+        kind: payload.severity === "warning" ? "agent_warning" : "task_completed",
+        data: { code: payload.code },
+      };
+    }
+  }
+
+  return record;
 }
 
 function sectionIdsForMainSection(sections: SpecSection[], mainSection: SpecSection): string[] {

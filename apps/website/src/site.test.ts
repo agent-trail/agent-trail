@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { validateTrailString } from "../../../packages/core/src/index.ts";
 import { ThemeSwitcher } from "./components/shell.tsx";
 import { SpecPage } from "./components/spec-page.tsx";
 import { ArrowGlyph, RouteLink } from "./components/ui.tsx";
@@ -114,6 +115,8 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
     for (const line of sample.lines) {
       expect(JSON.parse(line)).toHaveProperty("type");
     }
+    const diagnostics = await validateTrailString(`${sample.lines.join("\n")}\n`);
+    expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
   }
   const allSampleLines = versioned.sampleBlocks.flatMap((sample) => sample.lines);
   expect(allSampleLines.join("\n")).not.toContain("<pending>");
