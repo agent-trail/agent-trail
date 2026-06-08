@@ -433,13 +433,15 @@ trail list [--json|--plain] [--source all|source|registered] [--agent <name>] [-
 trail status [--json]
 trail view <id-or-path> [--format text|json] [--full]
 trail register <file|adapter:id> [--json]
-trail share <id> [--public] [--dry-run] [--skip-redaction]
+trail share <id> [--dry-run] [--yes] [--json] [--skip-redaction] [--keep-remote-url]
 trail load <url> [--out <path>]
 trail export <id> [--out <path>] [--force]
 trail validate <file>
 trail adapters list [--json]
 trail adapters status [--json]
 ```
+
+`trail share` targets registered store object IDs (full hashes or unique lowercase hex prefixes), not raw file paths. `--yes` bypasses the standard upload confirmation, but `--skip-redaction` still requires a separate explicit unredacted-share confirmation.
 
 **`trail doctor` behavior:**
 

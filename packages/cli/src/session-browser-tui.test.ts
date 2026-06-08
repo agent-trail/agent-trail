@@ -118,6 +118,9 @@ test("browser frame renders session table columns and preview details", () => {
   expect(frame).toContain("YES");
   expect(frame).toContain("NAME First source message for alpha");
   expect(frame).toContain("TRAIL NO");
+  expect(frame).toContain("enter open");
+  expect(frame).toContain("a all");
+  expect(frame).toContain("t trail");
   expect(frame).not.toContain("name:");
   expect(frame).not.toContain("trail:");
 });
@@ -388,6 +391,33 @@ test("browser scope toggle handles reload rejection and restores loading state",
   expect(state.rows).toEqual([rows[0] as SessionBrowserRow]);
 });
 
+test("browser scope toggle refreshes row action handlers from reloaded input", async () => {
+  const state = browserStateFromInput({
+    rows: [rows[0] as SessionBrowserRow],
+    warnings: [],
+    scope: { mode: "cwd", label: "alpha" },
+    onShare: async () => ({ message: "old share" }),
+    onExport: async () => ({ message: "old export" }),
+    onCopyUrl: async () => ({ message: "old copy" }),
+    onToggleScope: async () => ({
+      rows: [rows[1] as SessionBrowserRow],
+      warnings: [],
+      scope: { mode: "all", label: "all" },
+      onShare: async () => ({ message: "new share" }),
+      onExport: async () => ({ message: "new export" }),
+      onCopyUrl: async () => ({ message: "new copy" }),
+    }),
+  });
+
+  await toggleScopeSafely(state, () => {});
+
+  expect(await state.onShare?.(rows[1] as SessionBrowserRow)).toEqual({ message: "new share" });
+  expect(await state.onExport?.(rows[1] as SessionBrowserRow)).toEqual({ message: "new export" });
+  expect(await state.onCopyUrl?.("https://agent-trail.dev/view/gist/new")).toEqual({
+    message: "new copy",
+  });
+});
+
 test("browser search mode ignores non-character keys without crashing", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24 });
   try {
@@ -420,21 +450,20 @@ test("browser frame collapses preview on narrow terminals", () => {
 });
 
 test("browser frame strips terminal control sequences from rendered content", () => {
-  const frame = renderBrowserFrame(
-    {
-      rows: [
-        {
-          ...sourceRow(0),
-          source_id: "evil\x1b]52;c;secret\x07-id",
-          agent: "codex\x1b[31m-red",
-          cwd: "/work/\x1b[31mred\nnext",
-          source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
-        },
-      ],
-      warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
-    },
-    { width: 120 },
-  );
+  const state = browserStateFromInput({
+    rows: [
+      {
+        ...sourceRow(0),
+        source_id: "evil\x1b]52;c;secret\x07-id",
+        agent: "codex\x1b[31m-red",
+        cwd: "/work/\x1b[31mred\nnext",
+        source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
+      },
+    ],
+    warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
+  });
+  state.actionMessage = "status \x1b]52;c;secret\x07ok";
+  const frame = renderBrowserFrame(state, { width: 120 });
 
   expect(frame).not.toContain("\x1b");
   expect(frame).not.toContain("]52");
@@ -443,6 +472,7 @@ test("browser frame strips terminal control sequences from rendered content", ()
   expect(frame).toContain("codex-red");
   expect(frame).toContain("/work/red next");
   expect(frame).toContain("warning: skip line");
+  expect(frame).toContain("STATUS status ok");
 });
 
 test("enter opens selected row placeholder", async () => {
@@ -475,6 +505,516 @@ test("enter opens registered row placeholder by content hash", async () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Open placeholder");
     expect(frame).toContain("aaaaaaaaaaaa");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut dispatches selected source row and records share URL", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const calls: SessionBrowserRow[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        calls.push(row);
+        return {
+          message: "Shared https://agent-trail.dev/view/gist/sourceid",
+          url: "https://agent-trail.dev/view/gist/sourceid",
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(calls).toEqual([]);
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(calls.map((row) => row.source_id)).toEqual(["sess-alpha"]);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Share created");
+    expect(frame).toContain("/sourceid");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share modal switches from confirmation to uploading progress before showing link", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  let resolveUpload: ((value: { message: string; url: string }) => void) | undefined;
+  const longUrl = `https://agent-trail.dev/view/gist/${"a".repeat(80)}XYZTAIL`;
+  try {
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (_row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return await new Promise((resolve) => {
+          resolveUpload = resolve;
+        });
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("Uploading share");
+    expect(frame).toContain("Uploading gist");
+    expect(frame).not.toContain("[");
+    expect(frame).not.toContain("Uploading...");
+    expect(frame).not.toContain("Share created");
+
+    resolveUpload?.({
+      message: `Shared ${longUrl}`,
+      url: longUrl,
+    });
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("Share created");
+    expect(frame).toContain("XYZTAIL");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut reuses prior URL for the same row without confirming again", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (_row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: "Shared https://agent-trail.dev/view/gist/reuseid",
+          url: "https://agent-trail.dev/view/gist/reuseid",
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/reuseid");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+
+    const frame = setup.captureCharFrame();
+    expect(shareCalls).toBe(1);
+    expect(frame).toContain("Share created");
+    expect(frame).toContain("/reuseid");
+    expect(frame).not.toContain("Confirm share");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a URL for a different source path with the same source id", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const first = {
+    ...(rows[0] as SessionBrowserRow),
+    source_id: "duplicate-source",
+    source_path: "/tmp/one.jsonl",
+    display_name: "First duplicate source",
+  } as SessionBrowserRow;
+  const second = {
+    ...(rows[0] as SessionBrowserRow),
+    source_id: "duplicate-source",
+    source_path: "/tmp/two.jsonl",
+    display_name: "Second duplicate source",
+    latest_at: "2026-05-18T14:01:00.000Z",
+  } as SessionBrowserRow;
+
+  try {
+    const sharedPaths: string[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows: [first, second],
+      warnings: [],
+      onShare: async (row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        sharedPaths.push(row.source_path ?? "");
+        const id = row.source_path === "/tmp/one.jsonl" ? "oneid" : "twoid";
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/${id}`,
+          url: `https://agent-trail.dev/view/gist/${id}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/oneid");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressArrow("down");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(sharedPaths).toEqual(["/tmp/one.jsonl", "/tmp/two.jsonl"]);
+    expect(setup.captureCharFrame()).toContain("/twoid");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a cached URL when source is newer than registration", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const staleRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const changedRow = {
+    ...staleRow,
+    source_modified_at: "2026-05-18T14:01:00.000Z",
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [staleRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/${shareCalls}`,
+          rows: shareCalls === 1 ? [changedRow] : [row],
+          url: `https://agent-trail.dev/view/gist/${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/1");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a cached URL when source timestamp is malformed", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const stableRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const malformedRow = {
+    ...stableRow,
+    source_modified_at: "not-a-date",
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [stableRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/malformed-${shareCalls}`,
+          rows: shareCalls === 1 ? [malformedRow] : [row],
+          url: `https://agent-trail.dev/view/gist/malformed-${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/malformed-2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a cached URL when source revision is unknown", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const stableRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const unknownRevisionRow = {
+    ...stableRow,
+    source_modified_at: null,
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [stableRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/unknown-${shareCalls}`,
+          rows: shareCalls === 1 ? [unknownRevisionRow] : [row],
+          url: `https://agent-trail.dev/view/gist/unknown-${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/unknown-2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut dispatches selected registered row by content hash", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const calls: SessionBrowserRow[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        calls.push(row);
+        return { message: "Shared registered" };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(calls).toEqual([]);
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(calls.map((row) => row.content_hash)).toEqual(["a".repeat(64)]);
+    expect(setup.captureCharFrame()).toContain("Shared registered");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share confirmation dialog can cancel before upload dispatch", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const calls: SessionBrowserRow[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        calls.push(row);
+        return { message: "Shared" };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Y/Enter share");
+
+    setup.mockInput.pressKey("n");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(calls).toEqual([]);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Share cancelled");
+    expect(frame).not.toContain("Confirm share");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("export shortcut dispatches selected rows", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const calls: string[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onExport: async (row) => {
+        calls.push(row.source_id ?? row.content_hash ?? "");
+        return { message: "Exported" };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("e");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressKey("e");
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(calls).toEqual(["sess-alpha", "a".repeat(64)]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("copy shortcut requires a shared URL and dispatches copy handler", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const copied: string[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onShare: async (_row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: "Shared",
+          url: "https://agent-trail.dev/view/gist/copyid",
+        };
+      },
+      onCopyUrl: async (url) => {
+        copied.push(url);
+        return { message: "Copied URL" };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("No share URL to copy");
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Share created");
+
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(copied).toEqual(["https://agent-trail.dev/view/gist/copyid"]);
+    expect(setup.captureCharFrame()).toContain("Copied URL");
   } finally {
     setup.renderer.destroy();
   }

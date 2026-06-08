@@ -1,5 +1,5 @@
 import { open } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   type DetectOptions,
   DISCOVERY_CONCURRENCY_LIMIT,
@@ -18,6 +18,7 @@ import type { Command } from "commander";
 import { cliDefaultAdapters, type TrailAdapter } from "./adapters.ts";
 import { addExamples, type ResultWriter } from "./command.ts";
 import type { ResolvedConfig } from "./config.ts";
+import { runExport } from "./export.ts";
 import type { Row, RowKind } from "./list-model.ts";
 import {
   adapterMatchesAgent,
@@ -27,8 +28,10 @@ import {
   parseTimeBounds,
   renderJson,
 } from "./listing.ts";
+import { registerFromAdapter } from "./register.ts";
 import { enrichBrowserRows } from "./session-browser-metadata.ts";
 import type { BrowserScopeMode, SessionBrowserInput } from "./session-browser-state.ts";
+import { type GistUpload, runShare } from "./share.ts";
 import type { TerminalIo } from "./terminal.ts";
 
 export type RunListResult = {
@@ -59,6 +62,9 @@ export type RunListContext = {
   defaultCwd?: string;
   terminal?: TerminalIo;
   runSessionBrowser?: (input: SessionBrowserInput) => Promise<RunListResult>;
+  confirmShare?: (message: string) => Promise<boolean>;
+  gistUpload?: GistUpload;
+  exportDir?: string;
 };
 
 type SourceRow = {
@@ -279,6 +285,50 @@ async function collectBrowserInput(
     rows,
     warnings: result.warnings,
     scope: browserScope(scope, browserCwd),
+    onShare: async (row, actionContext) => {
+      const registered = await ensureBrowserRowRegistered(row, options, context, storeRoot);
+      const shared = await runShare(
+        { id: registered.contentHash, json: true },
+        {
+          storeRoot,
+          confirm: context.confirmShare ?? actionContext?.confirm,
+          gistUpload: context.gistUpload,
+        },
+      );
+      if (shared.exitCode !== 0) {
+        throw new Error(shared.stderr.trim() || "share failed");
+      }
+      const parsed = parseShareJson(shared.stdout);
+      const next = await collectBrowserInput(options, context, storeRoot, scope, browserCwd);
+      const refreshedRows = "stdout" in next ? undefined : next.rows;
+      if (parsed.status === "cancelled") {
+        return { message: "Share cancelled.", rows: refreshedRows };
+      }
+      const url = typeof parsed.url === "string" ? parsed.url : undefined;
+      return {
+        message: url === undefined ? "Shared trail" : `Shared ${url}`,
+        rows: refreshedRows,
+        url,
+      };
+    },
+    onExport: async (row) => {
+      const registered = await ensureBrowserRowRegistered(row, options, context, storeRoot);
+      const out = browserExportPath(context.exportDir ?? browserCwd, registered.contentHash);
+      const exported = await runExport({ id: registered.contentHash, out }, { storeRoot });
+      if (exported.exitCode !== 0) {
+        throw new Error(exported.stderr.trim() || "export failed");
+      }
+      const next = await collectBrowserInput(options, context, storeRoot, scope, browserCwd);
+      return {
+        message: `Exported ${registered.contentHash.slice(0, SHORT_HASH_LEN)} to ${out}`,
+        rows: "stdout" in next ? undefined : next.rows,
+      };
+    },
+    onCopyUrl: async (url) => {
+      if (context.terminal?.stdout === undefined) return { message: "Copy unsupported" };
+      writeOsc52(context.terminal.stdout, url);
+      return { message: "Copied URL" };
+    },
     onToggleScope: async (nextScope) => {
       const next = await collectBrowserInput(options, context, storeRoot, nextScope, browserCwd);
       if ("stdout" in next) {
@@ -291,6 +341,78 @@ async function collectBrowserInput(
       return next;
     },
   };
+}
+
+type BrowserRegistration = { contentHash: string };
+
+async function ensureBrowserRowRegistered(
+  row: Row,
+  _options: RunListOptions,
+  context: RunListContext,
+  storeRoot: string,
+): Promise<BrowserRegistration> {
+  if (canReuseRegisteredHash(row)) {
+    return { contentHash: row.content_hash };
+  }
+  if (row.source_id === null || row.source_agent === null) {
+    throw new Error("selected row has no source session to register");
+  }
+  const adapters = context.adapters ?? cliDefaultAdapters();
+  const adapter = adapters.find((candidate) => candidate.name === row.source_agent);
+  if (adapter === undefined) {
+    throw new Error(`no adapter available for ${row.source_agent}`);
+  }
+  const reg = await registerFromAdapter(
+    {
+      id: row.source_id,
+      adapter: row.source_agent,
+      cwd: row.source_cwd ?? undefined,
+      modifiedAt: row.source_modified_at ?? undefined,
+      path: row.source_path ?? undefined,
+    },
+    { adapter, storeRoot },
+  );
+  if (reg.contentHash === null) {
+    throw new Error(`register failed: ${reg.status}`);
+  }
+  return { contentHash: reg.contentHash };
+}
+
+function canReuseRegisteredHash(row: Row): row is Row & { content_hash: string } {
+  if (row.content_hash === null) return false;
+  if (row.source_id === null) return true;
+  return !sourceIsNewerThanRegistration(row);
+}
+
+function sourceIsNewerThanRegistration(row: Row): boolean {
+  if (row.source_id === null) return false;
+  if (row.source_modified_at === null || row.registered_at === null) return true;
+  const sourceMs = Date.parse(row.source_modified_at);
+  const registeredMs = Date.parse(row.registered_at);
+  if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) return true;
+  return sourceMs > registeredMs;
+}
+
+export function parseShareJson(stdout: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout) as unknown;
+  } catch {
+    throw new Error("share returned invalid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("share returned invalid JSON");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function browserExportPath(dir: string, contentHash: string): string {
+  return join(dir, `${contentHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl`);
+}
+
+function writeOsc52(stdout: NodeJS.WriteStream, text: string): void {
+  const payload = Buffer.from(text, "utf8").toString("base64");
+  stdout.write(`\u001b]52;c;${payload}\u0007`);
 }
 
 function browserScopedOptions(
@@ -452,6 +574,7 @@ async function detectSourceRows(
 function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Row[] {
   const rows: Row[] = [];
   const usedRegistered = new Set<number>();
+  const sourcePathMatches = new Map<string, RegisteredRow>();
   for (const source of sourceRows) {
     const matchIndex = findNewestPathMatch(source, registeredRows, usedRegistered);
     if (matchIndex === -1) {
@@ -459,12 +582,30 @@ function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Ro
       continue;
     }
     usedRegistered.add(matchIndex);
-    rows.push(toUnified(source, registeredRows[matchIndex] as RegisteredRow));
+    const match = registeredRows[matchIndex] as RegisteredRow;
+    if (source.source_path !== null) sourcePathMatches.set(source.source_path, match);
+    rows.push(toUnified(source, match));
   }
   for (const [index, registered] of registeredRows.entries()) {
-    if (!usedRegistered.has(index)) rows.push(toUnified(null, registered));
+    if (usedRegistered.has(index)) continue;
+    if (isObsoleteSourcePathDuplicate(registered, sourcePathMatches)) {
+      continue;
+    }
+    rows.push(toUnified(null, registered));
   }
   return rows;
+}
+
+function isObsoleteSourcePathDuplicate(
+  registered: RegisteredRow,
+  sourcePathMatches: Map<string, RegisteredRow>,
+): boolean {
+  if (registered.registered_source_path === null) return false;
+  const match = sourcePathMatches.get(registered.registered_source_path);
+  if (match === undefined) return false;
+  const comparison = compareNullableTimestamps(registered.registered_at, match.registered_at);
+  if (comparison < 0) return true;
+  return registered.registered_kind === "trail" && comparison === 0;
 }
 
 function findNewestPathMatch(
@@ -478,9 +619,18 @@ function findNewestPathMatch(
   for (const [index, registered] of registeredRows.entries()) {
     if (usedRegistered.has(index)) continue;
     if (registered.registered_source_path !== source.source_path) continue;
+    const current =
+      matchIndex === -1 ? null : (registeredRows[matchIndex] as RegisteredRow | undefined);
+    const timestampComparison =
+      current === null || current === undefined
+        ? 1
+        : compareNullableTimestamps(registered.registered_at, matchRegisteredAt);
     if (
       matchIndex === -1 ||
-      compareNullableTimestamps(registered.registered_at, matchRegisteredAt) > 0
+      timestampComparison > 0 ||
+      (timestampComparison === 0 &&
+        registered.registered_kind === "trail" &&
+        current?.registered_kind !== "trail")
     ) {
       matchIndex = index;
       matchRegisteredAt = registered.registered_at;

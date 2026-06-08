@@ -138,9 +138,9 @@ const HELP_CASES: HelpCase[] = [
   },
   {
     command: "share",
-    usage: "Usage: trail share [options] <path>",
-    flags: ["--dry-run", "-y, --yes", "--skip-redaction", "--keep-remote-url"],
-    example: "trail share session.trail.jsonl --dry-run",
+    usage: "Usage: trail share [options] <id>",
+    flags: ["--dry-run", "-y, --yes", "--json", "--skip-redaction", "--keep-remote-url"],
+    example: "trail share abcdef12 --dry-run",
   },
   {
     command: "load",
@@ -366,8 +366,9 @@ test("trail share help exposes Commander-owned options", async () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
-  expect(result.stdout).toContain("Usage: trail share [options] <path>");
+  expect(result.stdout).toContain("Usage: trail share [options] <id>");
   expect(result.stdout).toContain("--dry-run");
+  expect(result.stdout).toContain("--json");
   expect(result.stdout).toContain("--skip-redaction");
 });
 

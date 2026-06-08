@@ -105,7 +105,7 @@ export function renderBrowserFrame(
   const preview =
     selected === undefined
       ? emptyPreview()
-      : rowPreview(selected, state.openedIdentity, previewContentWidth);
+      : rowPreview(selected, state.openedIdentity, state.actionMessage, previewContentWidth);
   const body = Array.from({ length: layout.bodyRows }, (_value, index) =>
     layout.split
       ? renderBoxedPaneLine(
@@ -215,10 +215,14 @@ function renderTableCells(cells: TableCells, columns: ReturnType<typeof tableCol
 function rowPreview(
   row: SessionBrowserRow,
   openedIdentity: string | null,
+  actionMessage: string | null,
   contentWidth: number,
 ): string[] {
   const id = shortIdentity(row);
   return airyPreview([
+    ...(actionMessage === null
+      ? []
+      : previewFieldLines("STATUS", sanitizeTerminalText(actionMessage), contentWidth)),
     openedIdentity === rowIdentity(row) ? `Open placeholder: ${id}` : "Selected row",
     ...previewFieldLines("NAME", rowPreviewName(row), contentWidth, PREVIEW_NAME_MAX_LINES),
     previewFieldLine("AGENT", renderValue(row.agent)),
@@ -276,10 +280,15 @@ function renderHeader(state: BrowserState, width: number): string {
 function renderFooter(state: BrowserState, filteredCount: number, width: number): string {
   const warnings = state.warnings.slice(0, 2).map(sanitizeTerminalText);
   const rowCounts = `ROWS ${state.rows.length}  FILTERED ${filteredCount}`;
-  const left = warnings.length === 0 ? rowCounts : `${rowCounts}  WARN ${warnings.join(" | ")}`;
+  const status =
+    state.actionMessage === null ? "" : `  STATUS ${sanitizeTerminalText(state.actionMessage)}`;
+  const left =
+    warnings.length === 0
+      ? `${rowCounts}${status}`
+      : `${rowCounts}  WARN ${warnings.join(" | ")}${status}`;
   return alignBetween(
     left,
-    "keys: j/k move  a scope  t trail  / search  enter open  q quit",
+    "keys: j/k move  enter open  s/e/y  a all  t trail  / search  q quit",
     width,
   );
 }

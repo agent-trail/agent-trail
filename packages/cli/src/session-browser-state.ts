@@ -12,11 +12,27 @@ export type BrowserScope = {
 
 export type TrailFilter = "all" | "registered" | "unregistered";
 
+export type SessionBrowserActionResult = {
+  message: string;
+  rows?: SessionBrowserRow[];
+  url?: string;
+};
+
+export type SessionBrowserActionContext = {
+  confirm: (message: string) => Promise<boolean>;
+};
+
 export type SessionBrowserInput = {
   rows: SessionBrowserRow[];
   warnings: string[];
   scope?: BrowserScope;
   onToggleScope?: (nextScope: BrowserScopeMode) => Promise<SessionBrowserInput>;
+  onShare?: (
+    row: SessionBrowserRow,
+    context?: SessionBrowserActionContext,
+  ) => Promise<SessionBrowserActionResult>;
+  onExport?: (row: SessionBrowserRow) => Promise<SessionBrowserActionResult>;
+  onCopyUrl?: (url: string) => Promise<SessionBrowserActionResult>;
 };
 
 export type BrowserState = SessionBrowserInput & {
@@ -27,6 +43,9 @@ export type BrowserState = SessionBrowserInput & {
   selectedIndex: number;
   openedIdentity: string | null;
   loading: boolean;
+  actionMessage: string | null;
+  latestShareUrl: string | null;
+  shareUrls: Map<string, string>;
 };
 
 export const MISSING = "-";
@@ -53,6 +72,9 @@ export function browserStateFromInput(input: SessionBrowserInput | BrowserState)
         selectedIndex: 0,
         openedIdentity: null,
         loading: false,
+        actionMessage: null,
+        latestShareUrl: null,
+        shareUrls: new Map(),
       };
 }
 

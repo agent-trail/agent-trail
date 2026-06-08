@@ -9,7 +9,7 @@ import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agen
 import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { runList, runListBrowser } from "./list.ts";
+import { parseShareJson, runList, runListBrowser } from "./list.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -117,6 +117,36 @@ function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
         sessionCount: refs.length,
         sourceVersion: null,
         warnings: [],
+      };
+    },
+  };
+}
+
+function parseableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    ...stubAdapter(name, refs),
+    async parseSession(ref): Promise<TrailFile> {
+      return {
+        groups: [
+          {
+            header: {
+              type: "session",
+              schema_version: "0.1.0",
+              id: "01HSESS0000000000000000001",
+              ts: "2026-05-17T14:00:00.000Z",
+              agent: { name: name === "codex" ? "codex-cli" : name },
+              cwd: ref.cwd,
+            },
+            entries: [
+              {
+                type: "user_message",
+                id: "01HEVTA0000000000000000001",
+                ts: "2026-05-17T14:00:05.000Z",
+                payload: { text: "source action trail" },
+              },
+            ],
+          },
+        ],
       };
     },
   };
@@ -350,7 +380,7 @@ test("collapsed rows use the newer source or registered timestamp as latest_at",
   expect(parsed[0]?.latest_at).toBe("2026-05-19T14:00:00.000Z");
 });
 
-test("duplicate registered source paths collapse to the newest registered row", async () => {
+test("duplicate registered source paths collapse to the newest source-backed row", async () => {
   const first = await seedTrail({ id: "01HSESS00000000000000D0101", cwd: "/work/dupe" });
   const second = await seedTrail({ id: "01HSESS00000000000000D0102", cwd: "/work/dupe" });
   await registerTrail(first.filePath, { storeRoot, sourcePath: first.filePath });
@@ -381,7 +411,76 @@ test("duplicate registered source paths collapse to the newest registered row", 
   const parsed = JSON.parse(result.stdout) as Array<{ state: string; content_hash: string | null }>;
   expect(parsed).toEqual([
     expect.objectContaining({ state: "source+registered", content_hash: second.contentHash }),
-    expect.objectContaining({ state: "registered", content_hash: first.contentHash }),
+  ]);
+});
+
+test("source rows hide trail objects backed by the same source path", async () => {
+  const source = await seedTrail({ id: "01HSESS00000000000000D0201", cwd: "/work/source-backed" });
+  await registerTrail(source.filePath, { storeRoot, sourcePath: source.filePath });
+  const trailHash = "c".repeat(64);
+  mkdirSync(dirname(objectPath(storeRoot, trailHash)), { recursive: true });
+  await writeFile(
+    objectPath(storeRoot, trailHash),
+    await readFile(source.filePath, "utf8"),
+    "utf8",
+  );
+  await writeFile(
+    join(storeRoot, "index", "objects.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [source.contentHash]: {
+            registered_at: "2026-05-17T14:00:00.000Z",
+            source_path: source.filePath,
+            kind: "session",
+          },
+          [trailHash]: {
+            registered_at: "2026-05-19T14:00:00.000Z",
+            source_path: source.filePath,
+            kind: "trail",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await overrideRegisteredAt(storeRoot, {
+    [source.contentHash]: "2026-05-17T14:00:00.000Z",
+    [trailHash]: "2026-05-19T14:00:00.000Z",
+  });
+
+  const result = await runList(
+    { json: true, cwd: "/work/source-backed" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-source-backed",
+            adapter: "codex",
+            cwd: "/work/source-backed",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: source.filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{
+    state: string;
+    content_hash: string | null;
+    source_id: string | null;
+  }>;
+  expect(parsed).toEqual([
+    expect.objectContaining({
+      state: "source+registered",
+      source_id: "sess-source-backed",
+      content_hash: trailHash,
+    }),
   ]);
 });
 
@@ -769,6 +868,289 @@ test("runListBrowser prefers registered trail name for TUI rows", async () => {
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action registers source row before sharing", async () => {
+  const refs: SessionRef[] = [
+    {
+      id: "sess-share-source",
+      adapter: "codex",
+      cwd: "/work/actions",
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-action.jsonl",
+    },
+  ];
+  const uploaded: string[] = [];
+  let launched = false;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        uploaded.push(filename);
+        return { gistId: "tuishareid" };
+      },
+      runSessionBrowser: async (input) => {
+        launched = true;
+        const row = input.rows[0];
+        expect(row?.state).toBe("source");
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/tuishareid");
+        expect(shared?.rows?.[0]?.state).toBe("source+registered");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(uploaded).toHaveLength(1);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action reuses registered hash", async () => {
+  const { filePath, contentHash } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  let launched = false;
+  const filenames: string[] = [];
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        filenames.push(filename);
+        return { gistId: "registeredid" };
+      },
+      runSessionBrowser: async (input) => {
+        launched = true;
+        const row = input.rows[0];
+        expect(row?.content_hash).toBe(contentHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/registeredid");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(filenames[0]).toBe(`trail-${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action re-registers stale source-backed rows", async () => {
+  const { filePath, contentHash: staleHash } = await seedTrail({
+    cwd: "/work/actions",
+    firstText: "old source content",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [staleHash]: "2026-05-17T14:00:00.000Z" });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-stale-source",
+      adapter: "codex",
+      cwd: "/work/actions",
+      modifiedAt: "2026-05-18T14:00:00.000Z",
+      path: filePath,
+    },
+  ];
+  let sharedFilename: string | null = null;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        sharedFilename = filename;
+        return { gistId: "freshid" };
+      },
+      runSessionBrowser: async (input) => {
+        const row = input.rows[0];
+        expect(row?.state).toBe("source+registered");
+        expect(row?.content_hash).toBe(staleHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/freshid");
+        expect(shared?.rows?.[0]?.content_hash).not.toBe(staleHash);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(sharedFilename).not.toBe(`trail-${staleHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action re-registers source-backed rows with malformed source timestamp", async () => {
+  const { filePath, contentHash: staleHash } = await seedTrail({
+    cwd: "/work/actions",
+    firstText: "old malformed timestamp content",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [staleHash]: "2026-05-17T14:00:00.000Z" });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-malformed-source-time",
+      adapter: "codex",
+      cwd: "/work/actions",
+      modifiedAt: "not-a-date",
+      path: filePath,
+    },
+  ];
+  let sharedFilename: string | null = null;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        sharedFilename = filename;
+        return { gistId: "malformedtimeid" };
+      },
+      runSessionBrowser: async (input) => {
+        const row = input.rows[0];
+        expect(row?.state).toBe("source+registered");
+        expect(row?.content_hash).toBe(staleHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/malformedtimeid");
+        expect(shared?.rows?.[0]?.content_hash).not.toBe(staleHash);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(sharedFilename).not.toBe(`trail-${staleHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action re-registers source-backed rows with missing source timestamp", async () => {
+  const { filePath, contentHash: staleHash } = await seedTrail({
+    cwd: "/work/actions",
+    firstText: "old missing timestamp content",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [staleHash]: "2026-05-17T14:00:00.000Z" });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-missing-source-time",
+      adapter: "codex",
+      cwd: "/work/actions",
+      path: filePath,
+    },
+  ];
+  let sharedFilename: string | null = null;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        sharedFilename = filename;
+        return { gistId: "missingsourcetimeid" };
+      },
+      runSessionBrowser: async (input) => {
+        const row = input.rows[0];
+        expect(row?.state).toBe("source+registered");
+        expect(row?.content_hash).toBe(staleHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/missingsourcetimeid");
+        expect(shared?.rows?.[0]?.content_hash).not.toBe(staleHash);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(sharedFilename).not.toBe(`trail-${staleHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("parseShareJson rejects malformed successful share output", () => {
+  expect(() => parseShareJson("not json")).toThrow("share returned invalid JSON");
+  expect(() => parseShareJson("[]")).toThrow("share returned invalid JSON");
+});
+
+test("runListBrowser export action writes canonical bytes with existing export path", async () => {
+  const { filePath, contentHash } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  const exportDir = mkdtempSync(join(tmpdir(), "trail-cli-list-export-"));
+  let launched = false;
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [],
+        storeRoot,
+        defaultCwd: "/work/actions",
+        exportDir,
+        terminal: { isTTY: true },
+        runSessionBrowser: async (input) => {
+          launched = true;
+          const exported = await input.onExport?.(input.rows[0]!);
+          expect(exported?.message).toContain(contentHash.slice(0, 12));
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    const out = join(exportDir, `${contentHash.slice(0, 12)}.trail.jsonl`);
+    expect(await readFile(out, "utf8")).toBe(await readFile(filePath, "utf8"));
+    expect(launched).toBe(true);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(exportDir, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser copy action writes OSC52 when stdout exists", async () => {
+  const { filePath } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  const stdout = new PassThrough() as unknown as NodeJS.WriteStream;
+  const chunks: string[] = [];
+  (stdout as unknown as PassThrough).on("data", (chunk) => chunks.push(String(chunk)));
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true, stdout },
+      runSessionBrowser: async (input) => {
+        const copied = await input.onCopyUrl?.("https://agent-trail.dev/view/gist/copyid");
+        expect(copied?.message).toBe("Copied URL");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(chunks.join("")).toContain("\u001b]52;c;");
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
 test("runListBrowser cwd scope keeps registered trail rows broad", async () => {
   const registered = await seedTrail({
     id: "01HSESS00000000000000BR0AD",
@@ -1032,7 +1414,7 @@ test("runListBrowser uses default OpenTUI handoff with custom streams", async ()
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   stdout.resume();
-  setTimeout(() => stdin.write("q"), 10);
+  setTimeout(() => stdin.write("q"), 100);
 
   const result = await runListBrowser(
     {},
@@ -1538,6 +1920,118 @@ test("multi-session file -> 2 session rows + 1 trail row in registered rows", as
     stamped.envelopeHash as string,
   );
   expect(allRows.find((r) => r.registered_kind === "trail")?.agent).toBe("codex-cli");
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("source-backed multi-session rows keep session rows and back the source row with the file-level trail hash", async () => {
+  const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
+
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000B001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000B01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTB0000000000000000B01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000B02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTB0000000000000000B02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "ok" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-list-ms-source-"));
+  const filePath = join(dir, "multi.trail.jsonl");
+  await writeFile(filePath, canon(records), "utf8");
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "source-backed-multi",
+            adapter: "codex",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const rows = JSON.parse(result.stdout) as Array<{
+    state: string;
+    content_hash: string;
+    registered_kind: string;
+  }>;
+  expect(rows).toHaveLength(3);
+  expect(rows).toContainEqual(
+    expect.objectContaining({
+      state: "source+registered",
+      content_hash: stamped.envelopeHash,
+      registered_kind: "trail",
+    }),
+  );
+  expect(rows).toContainEqual(
+    expect.objectContaining({
+      state: "registered",
+      content_hash: stamped.sessionHashes[0],
+      registered_kind: "session",
+    }),
+  );
+  expect(rows).toContainEqual(
+    expect.objectContaining({
+      state: "registered",
+      content_hash: stamped.sessionHashes[1],
+      registered_kind: "session",
+    }),
+  );
 
   rmSync(dir, { recursive: true, force: true });
 });

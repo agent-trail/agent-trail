@@ -25,6 +25,8 @@ export const COLOR_MUTED = "#858585";
 export const COLOR_PREVIEW_LABEL = "#e0e0e0";
 export const COLOR_SELECTED_FG = "#ff9c9c";
 export const COLOR_TABLE_HEADER_BG = "#171717";
+export const COLOR_CONFIRM_DIALOG_BG = "#2a2118";
+export const COLOR_STATUS_DIALOG_BG = "#18242a";
 
 export function styleBrowserFrame(
   frame: string,
