@@ -498,6 +498,7 @@ function renderStatusDialogText(dialog: StatusDialogState, width: number, height
 }
 
 function wrapDialogLine(value: string, width: number): string[] {
+  if (width <= 0) return [""];
   const words = value
     .trim()
     .split(/\s+/)
@@ -506,8 +507,21 @@ function wrapDialogLine(value: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
+    if (word.length > width) {
+      let remaining = word;
+      while (remaining.length > 0) {
+        if (line.length > 0) {
+          lines.push(line);
+          line = "";
+          continue;
+        }
+        lines.push(remaining.slice(0, width));
+        remaining = remaining.slice(width);
+      }
+      continue;
+    }
     if (line.length === 0) {
-      line = word.slice(0, width);
+      line = word;
       continue;
     }
     if (line.length + 1 + word.length <= width) {
@@ -673,7 +687,7 @@ function cachedShareUrl(
   row: BrowserState["rows"][number],
 ): string | undefined {
   for (const key of shareCacheKeys(row)) {
-    const url = state.shareUrls[key];
+    const url = state.shareUrls.get(key);
     if (url !== undefined) return url;
   }
   return undefined;
@@ -685,17 +699,21 @@ function rememberShareUrl(
   url: string,
 ): void {
   for (const key of shareCacheKeys(row)) {
-    state.shareUrls[key] = url;
+    state.shareUrls.set(key, url);
   }
 }
 
 function shareCacheKeys(row: BrowserState["rows"][number]): string[] {
   const keys: string[] = [];
-  if (row.content_hash !== null && !sourceIsNewerThanRegistration(row)) {
+  const hasSource = row.source_id !== null;
+  const revision = sourceRevision(row);
+  if (
+    row.content_hash !== null &&
+    (!hasSource || (revision !== null && !sourceIsNewerThanRegistration(row)))
+  ) {
     keys.push(`hash:${row.content_hash}`);
   }
-  const revision = sourceRevision(row);
-  if (revision === null) return [...new Set(keys)];
+  if (revision === null) return hasSource ? [] : [...new Set(keys)];
   if (row.source_agent !== null && row.source_path !== null) {
     keys.push(`source-path:${row.source_agent}:${row.source_path}:${revision}`);
   }
@@ -714,7 +732,8 @@ function sourceRevision(row: BrowserState["rows"][number]): string | null {
 }
 
 function sourceIsNewerThanRegistration(row: BrowserState["rows"][number]): boolean {
-  if (row.source_modified_at === null || row.registered_at === null) return false;
+  if (row.source_id === null) return false;
+  if (row.source_modified_at === null || row.registered_at === null) return true;
   const sourceMs = Date.parse(row.source_modified_at);
   const registeredMs = Date.parse(row.registered_at);
   if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) return true;

@@ -45,7 +45,7 @@ export type BrowserState = SessionBrowserInput & {
   loading: boolean;
   actionMessage: string | null;
   latestShareUrl: string | null;
-  shareUrls: Record<string, string>;
+  shareUrls: Map<string, string>;
 };
 
 export const MISSING = "-";
@@ -74,7 +74,7 @@ export function browserStateFromInput(input: SessionBrowserInput | BrowserState)
         loading: false,
         actionMessage: null,
         latestShareUrl: null,
-        shareUrls: {},
+        shareUrls: new Map(),
       };
 }
 

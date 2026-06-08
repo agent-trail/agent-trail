@@ -351,7 +351,7 @@ async function ensureBrowserRowRegistered(
   context: RunListContext,
   storeRoot: string,
 ): Promise<BrowserRegistration> {
-  if (row.content_hash !== null && !sourceIsNewerThanRegistration(row)) {
+  if (canReuseRegisteredHash(row)) {
     return { contentHash: row.content_hash };
   }
   if (row.source_id === null || row.source_agent === null) {
@@ -378,10 +378,15 @@ async function ensureBrowserRowRegistered(
   return { contentHash: reg.contentHash };
 }
 
+function canReuseRegisteredHash(row: Row): row is Row & { content_hash: string } {
+  if (row.content_hash === null) return false;
+  if (row.source_id === null) return true;
+  return !sourceIsNewerThanRegistration(row);
+}
+
 function sourceIsNewerThanRegistration(row: Row): boolean {
-  if (row.source_id === null || row.source_modified_at === null || row.registered_at === null) {
-    return false;
-  }
+  if (row.source_id === null) return false;
+  if (row.source_modified_at === null || row.registered_at === null) return true;
   const sourceMs = Date.parse(row.source_modified_at);
   const registeredMs = Date.parse(row.registered_at);
   if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) return true;

@@ -552,6 +552,7 @@ test("share shortcut dispatches selected source row and records share URL", asyn
 test("share modal switches from confirmation to uploading progress before showing link", async () => {
   const setup = await createTestRenderer({ width: 120, height: 24 });
   let resolveUpload: ((value: { message: string; url: string }) => void) | undefined;
+  const longUrl = `https://agent-trail.dev/view/gist/${"a".repeat(80)}XYZTAIL`;
   try {
     mountSessionBrowser(setup.renderer, {
       rows,
@@ -582,8 +583,8 @@ test("share modal switches from confirmation to uploading progress before showin
     expect(frame).not.toContain("Share created");
 
     resolveUpload?.({
-      message: "Shared https://agent-trail.dev/view/gist/progressid",
-      url: "https://agent-trail.dev/view/gist/progressid",
+      message: `Shared ${longUrl}`,
+      url: longUrl,
     });
     await setup.renderOnce();
     await setup.renderOnce();
@@ -591,7 +592,7 @@ test("share modal switches from confirmation to uploading progress before showin
 
     frame = setup.captureCharFrame();
     expect(frame).toContain("Share created");
-    expect(frame).toContain("/progressid");
+    expect(frame).toContain("XYZTAIL");
   } finally {
     setup.renderer.destroy();
   }
@@ -813,6 +814,63 @@ test("share shortcut does not reuse a cached URL when source timestamp is malfor
 
     expect(shareCalls).toBe(2);
     expect(setup.captureCharFrame()).toContain("/malformed-2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a cached URL when source revision is unknown", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const stableRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const unknownRevisionRow = {
+    ...stableRow,
+    source_modified_at: null,
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [stableRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/unknown-${shareCalls}`,
+          rows: shareCalls === 1 ? [unknownRevisionRow] : [row],
+          url: `https://agent-trail.dev/view/gist/unknown-${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/unknown-2");
   } finally {
     setup.renderer.destroy();
   }

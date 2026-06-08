@@ -1040,6 +1040,52 @@ test("runListBrowser share action re-registers source-backed rows with malformed
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action re-registers source-backed rows with missing source timestamp", async () => {
+  const { filePath, contentHash: staleHash } = await seedTrail({
+    cwd: "/work/actions",
+    firstText: "old missing timestamp content",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [staleHash]: "2026-05-17T14:00:00.000Z" });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-missing-source-time",
+      adapter: "codex",
+      cwd: "/work/actions",
+      path: filePath,
+    },
+  ];
+  let sharedFilename: string | null = null;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        sharedFilename = filename;
+        return { gistId: "missingsourcetimeid" };
+      },
+      runSessionBrowser: async (input) => {
+        const row = input.rows[0];
+        expect(row?.state).toBe("source+registered");
+        expect(row?.content_hash).toBe(staleHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/missingsourcetimeid");
+        expect(shared?.rows?.[0]?.content_hash).not.toBe(staleHash);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(sharedFilename).not.toBe(`trail-${staleHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
 test("parseShareJson rejects malformed successful share output", () => {
   expect(() => parseShareJson("not json")).toThrow("share returned invalid JSON");
   expect(() => parseShareJson("[]")).toThrow("share returned invalid JSON");
