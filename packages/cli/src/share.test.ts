@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   computeContentHash,
   computeTrailEnvelopeContentHash,
   parseJsonlString,
+  stampTrail,
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
-import { registerTrail } from "@agent-trail/store";
+import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { RunShareContext, RunShareOptions, RunShareResult } from "./share.ts";
 import { runShare as runShareCommand } from "./share.ts";
@@ -175,6 +176,31 @@ test("unknown full hash: exits 1 with diagnostic, no confirm or upload", async (
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain(`share: unknown id: ${missing}`);
   expect(confirmCalled).toBe(false);
+  expect(uploadCalled).toBe(false);
+});
+
+test("unregistered full hash with existing object file is rejected", async () => {
+  const { filePath, contentHash } = await seedTrail();
+  const target = objectPath(storeRoot, contentHash);
+  mkdirSync(dirname(target), { recursive: true });
+  await writeFile(target, await Bun.file(filePath).text(), "utf8");
+  let uploadCalled = false;
+  const gistUpload = async () => {
+    uploadCalled = true;
+    return { gistId: "should-not-upload" };
+  };
+
+  const result = await runShare([contentHash, "--json"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(`share: unknown id: ${contentHash}`);
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "error",
+    content_hash: null,
+    redaction: null,
+    copied: false,
+    error: { message: `share: unknown id: ${contentHash}` },
+  });
   expect(uploadCalled).toBe(false);
 });
 
@@ -593,6 +619,91 @@ test("trail with envelope: shared payload carries both session and envelope cont
   expect(sharedRecords[1]?.value.type).toBe("session");
   expect(verifyContentHash(sharedRecords).status).toBe("match");
   expect(verifyTrailEnvelopeContentHash(sharedRecords).status).toBe("match");
+});
+
+test("multi-session session hash shares only the selected session group", async () => {
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000S001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000S01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTS0000000000000000S01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "first session should not upload" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000S02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTS0000000000000000S02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "second session should upload" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-share-ms-"));
+  const filePath = join(dir, "multi.trail.jsonl");
+  await writeFile(filePath, canonicalizeRecords(records), "utf8");
+  await registerTrail(filePath, { storeRoot });
+  let captured: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    captured = payload;
+    return { gistId: "sessionhashid" };
+  };
+
+  const result = await runShare([stamped.sessionHashes[1] as string, "--yes"], {
+    storeRoot,
+    gistUpload,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(captured).not.toBeNull();
+  const decoded = decodePayload(captured as unknown as Uint8Array);
+  const sharedRecords = await parseJsonlString(decoded);
+  expect(sharedRecords.map((record) => record.value.type)).toEqual(["session", "user_message"]);
+  expect(sharedRecords[0]?.value.id).toBe("01HSESS0000000000000000S02");
+  expect(decoded).toContain("second session should upload");
+  expect(decoded).not.toContain("first session should not upload");
+  expect(verifyContentHash(sharedRecords).status).toBe("match");
+
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("short prefix: unique index match resolves to full hash", async () => {

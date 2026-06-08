@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
-import { type JsonlRecord, parseJsonlString } from "@agent-trail/core";
+import {
+  canonicalizeRecords,
+  type JsonlRecord,
+  parseJsonlString,
+  splitSessionGroups,
+} from "@agent-trail/core";
 import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
 import {
   IndexCorruptError,
@@ -86,7 +91,7 @@ export async function runShare(
   let records: JsonlRecord[];
   try {
     const raw = await readFile(objectFile, "utf8");
-    records = await parseJsonlString(raw);
+    records = extractShareRecords(await parseJsonlString(raw), contentHash);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return shareErrorReturn(
@@ -266,10 +271,6 @@ async function resolveShareId(
       stderr: `share: invalid id: ${id} (expected 8–64 hex chars)\n`,
     };
   }
-  if (FULL_HASH_RE.test(id)) {
-    return { contentHash: id, objectFile: objectPath(storeRoot, id) };
-  }
-
   let index: IndexFile;
   try {
     index = await readIndex(storeRoot);
@@ -278,6 +279,12 @@ async function resolveShareId(
       return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
     }
     throw error;
+  }
+  if (FULL_HASH_RE.test(id)) {
+    if (index.entries[id] === undefined) {
+      return { exitCode: 1, stdout: "", stderr: `share: unknown id: ${id}\n` };
+    }
+    return { contentHash: id, objectFile: objectPath(storeRoot, id) };
   }
   const matches = Object.keys(index.entries).filter(
     (h) => FULL_HASH_RE.test(h) && h.startsWith(id),
@@ -297,6 +304,30 @@ async function resolveShareId(
   }
   const contentHash = matches[0] as string;
   return { contentHash, objectFile: objectPath(storeRoot, contentHash) };
+}
+
+function extractShareRecords(records: JsonlRecord[], contentHash: string): JsonlRecord[] {
+  const split = splitSessionGroups(records);
+  if (split.groups.length <= 1) return records;
+  const matchIndex = split.groups.findIndex(
+    (group) => (group.header.value as { content_hash?: unknown }).content_hash === contentHash,
+  );
+  if (matchIndex === -1) return records;
+  const group = split.groups[matchIndex];
+  if (group === undefined) return records;
+  const slice = [group.header, ...group.entries];
+  return parseCanonicalRecords(canonicalizeRecords(slice));
+}
+
+function parseCanonicalRecords(canonical: string): JsonlRecord[] {
+  return canonical
+    .trimEnd()
+    .split("\n")
+    .map((raw, index) => ({
+      line: index + 1,
+      raw,
+      value: JSON.parse(raw) as Record<string, unknown>,
+    }));
 }
 
 function canonicalizePreparedRecords(records: JsonlRecord[]): string {
