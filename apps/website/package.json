@@ -15,9 +15,36 @@
   },
   "homepage": "https://github.com/agent-trail/agent-trail#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
-    "check": "bun --version >/dev/null"
+    "dev": "vite dev",
+    "build": "vite build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "check": "bun test && vite build && bun run typecheck"
+  },
+  "dependencies": {
+    "@fontsource/commit-mono": "^5.2.5",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@n8tb1t/use-scroll-position": "^4.0.0",
+    "@tanstack/react-router": "^1.170.11",
+    "@tanstack/react-start": "^1.168.19",
+    "clsx": "^2.1.1",
+    "h3-v2": "npm:h3@2.0.1-rc.20",
+    "markdown-it": "^14.2.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "shiki": "^4.2.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.0.16"
   }
 }

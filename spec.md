@@ -86,7 +86,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Adapter** | Software that reads a source agent's storage and emits a trail file. |
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
-| **Canonical event** | One of the mandatory or optional event types in §9. |
+| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#9-3-optional-event-types). |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism. |
@@ -279,7 +279,7 @@ The envelope MUST NOT carry a `parent_id`. It is not part of the event graph.
 
 The trail envelope (§8.0), the session header (§8), and every event entry (§9.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use a reverse-DNS or `x-<adapter>/` namespace to avoid collisions (`com.example.team`, `x-acme/build_id`, `io.entire.checkpoint_id`). The validator treats `meta` as opaque; it contributes to whichever `content_hash` tier covers its host record (§7.4): `meta` on the session header or any event entry feeds the session-level hash, and `meta` on the trail envelope feeds the file-level hash.
 
-For verbatim source-event preservation, use `source.raw` (§9.6, §14.1) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
+For verbatim source-event preservation, use `source.raw` ([§9.1](#9-1-base-shape), [§9.7](#9-7-source-envelope-referencing), [§14.1](#14-1-source-raw-elision-and-redaction)) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
 This draft defines one standard event-entry `meta` key: `redaction_count` (§15). Other standard keys may be promoted in later minor bumps based on observed usage.
 
@@ -723,7 +723,7 @@ When the upstream source does not provide item ids, or provides empty or whitesp
 
 #### `tool_call`
 
-The agent invoked a tool. Tool kinds use the taxonomy in §10.
+The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-tool-taxonomy).
 
 ```jsonc
 {
@@ -742,12 +742,12 @@ The agent invoked a tool. Tool kinds use the taxonomy in §10.
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `tool` | yes | string | canonical tool kind (§10) |
+| `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
 
 #### `tool_result`
 
-The result of a `tool_call`. References the call via `for_id`. Writers omit `for_id` when the source does not provide a reliable match. Readers may tolerate legacy/null values; when `for_id` is null or missing, see §9.5.
+The result of a `tool_call`. References the call via `for_id`. Writers omit `for_id` when the source does not provide a reliable match. Readers may tolerate legacy/null values; when `for_id` is null or missing, see [§9.5](#9-5-tool-call-terminal-pairing).
 
 ```jsonc
 {
@@ -814,7 +814,7 @@ Bare unknown `scope` and `reason` values are writer-strict errors. Readers are t
 ##### `tool_result.payload.meta` — structured outputs
 
 `output` is a display string. When the source tool returned structured data, writers MAY also
-populate `meta`, an object keyed by the originating `tool_call.tool` (the canonical tool kind, §10).
+populate `meta`, an object keyed by the originating `tool_call.tool` (the canonical tool kind, [§10](#10-canonical-tool-taxonomy)).
 Consumers that understand a kind read `meta.<toolKind>`; everyone else falls back to `output`. `meta`
 is optional and additive — existing writers that emit only `output` stay valid.
 
@@ -1006,7 +1006,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types (§9.3). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types ([§9.3](#9-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 
@@ -1401,7 +1401,7 @@ Readers must tolerate unknown types:
 - Render with a generic fallback.
 - Do not abort parsing.
 
-Writers MUST NOT invent new top-level event types in v0.1 writer-strict output. Use the `other` tool kind (§10) or `source.raw` for adapter-specific data, or `meta` (§8.0.3 / §11) for vendor extensions. Reader-tolerant parsing may preserve unknown future event types at runtime; this tolerance is not part of the writer schema.
+Writers MUST NOT invent new top-level event types in v0.1 writer-strict output. Use the `other` tool kind ([§10](#10-canonical-tool-taxonomy)) or `source.raw` ([§9.1](#9-1-base-shape), [§14.1](#14-1-source-raw-elision-and-redaction)) for adapter-specific data, or `meta` ([§8.0.3](#8-0-3-the-meta-extension-convention) / [§11](#11-vendor-extensions)) for vendor extensions. Reader-tolerant parsing may preserve unknown future event types at runtime; this tolerance is not part of the writer schema.
 
 ### 9.7 Source envelope referencing
 
@@ -1439,7 +1439,7 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` |
 | `other` | `{ name, args }` |
 
-Checklist and plan snapshots use `task_plan_update` (§9) rather than `tool_call`.
+Checklist and plan snapshots use `task_plan_update` ([§9.2](#9-2-mandatory-event-types)) rather than `tool_call`.
 
 ### 10.1 `file_edit`
 
@@ -1515,7 +1515,7 @@ Readers may preserve, ignore, or render `meta` fields. They must not abort on un
 
 `entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
 
-The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` (§14.1) instead. See §8.0.3 for the full convention.
+The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` ([§14.1](#14-1-source-raw-elision-and-redaction)) instead. See [§8.0.3](#8-0-3-the-meta-extension-convention) for the full convention.
 
 ---
 

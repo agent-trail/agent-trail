@@ -10,6 +10,8 @@
     "includes": [
       "packages/**/*.ts",
       "apps/**/*.ts",
+      "apps/**/*.tsx",
+      "!apps/**/routeTree.gen.ts",
       "scripts/**/*.ts",
       "packages/**/package.json",
       "apps/**/package.json",
