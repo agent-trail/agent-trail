@@ -12,6 +12,7 @@ import {
   verifyContentHash,
   verifyTrailEnvelopeContentHash,
 } from "@agent-trail/core";
+import { registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { RunShareContext, RunShareOptions, RunShareResult } from "./share.ts";
 import { runShare as runShareCommand } from "./share.ts";
@@ -69,6 +70,15 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
   return { filePath, contentHash };
 }
 
+async function seedRegistered(
+  opts: SeedOpts = {},
+): Promise<{ filePath: string; contentHash: string }> {
+  const seed = await seedTrail(opts);
+  const reg = await registerTrail(seed.filePath, { storeRoot });
+  if (reg.contentHash === null) throw new Error(`seed register failed: ${reg.status}`);
+  return { filePath: seed.filePath, contentHash: reg.contentHash };
+}
+
 let storeRoot: string;
 
 function shareOptions(argv: string[]): RunShareOptions {
@@ -82,11 +92,13 @@ function shareOptions(argv: string[]): RunShareOptions {
       options.skipRedaction = true;
     } else if (arg === "--keep-remote-url") {
       options.keepRemoteUrl = true;
-    } else if (options.path === undefined) {
-      options.path = arg;
+    } else if (arg === "--json") {
+      options.json = true;
+    } else if (options.id === undefined) {
+      options.id = arg;
     }
   }
-  if (options.path === undefined) throw new Error("test helper missing path");
+  if (options.id === undefined) throw new Error("test helper missing id");
   return options as RunShareOptions;
 }
 
@@ -102,7 +114,7 @@ afterEach(() => {
   rmSync(storeRoot, { recursive: true, force: true });
 });
 
-test("missing path arg: exits 1 with usage on stderr", async () => {
+test("missing id arg: exits 1 with usage on stderr", async () => {
   const result = await runCli(["share"]);
 
   expect(result.exitCode).toBe(1);
@@ -110,17 +122,17 @@ test("missing path arg: exits 1 with usage on stderr", async () => {
   expect(result.stderr).toContain("Usage: trail share");
 });
 
-test("trail missing finalized content_hash: exits 1 with spec-referenced message", async () => {
-  const { filePath } = await seedTrail({ stampHash: false });
+test("file path input is rejected and not registered", async () => {
+  const { filePath } = await seedTrail();
   const result = await runShare([filePath, "--dry-run"], { storeRoot });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("missing finalized content_hash");
-  expect(result.stderr).toContain("spec §7.3");
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("share: invalid id");
 });
 
 test("normal mode, confirm accepted: registers, prints summary, uploads and prints viewer URL", async () => {
-  const { filePath, contentHash } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   const confirmCalls: string[] = [];
   const confirm = async (msg: string): Promise<boolean> => {
     confirmCalls.push(msg);
@@ -132,7 +144,7 @@ test("normal mode, confirm accepted: registers, prints summary, uploads and prin
     return { gistId: "abc123" };
   };
 
-  const result = await runShare([filePath], { storeRoot, confirm, gistUpload });
+  const result = await runShare([contentHash], { storeRoot, confirm, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -144,10 +156,8 @@ test("normal mode, confirm accepted: registers, prints summary, uploads and prin
   expect(uploadCalls).toBe(1);
 });
 
-test("invalid trail: exits 1 with diagnostics on stderr, no confirm or upload", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trail-cli-share-bad-"));
-  const badPath = join(dir, "bad.trail.jsonl");
-  await writeFile(badPath, "not json\n", "utf8");
+test("unknown full hash: exits 1 with diagnostic, no confirm or upload", async () => {
+  const missing = "0".repeat(64);
   let confirmCalled = false;
   const confirm = async (): Promise<boolean> => {
     confirmCalled = true;
@@ -159,45 +169,45 @@ test("invalid trail: exits 1 with diagnostics on stderr, no confirm or upload", 
     return { gistId: "should-not-happen" };
   };
 
-  const result = await runShare([badPath], { storeRoot, confirm, gistUpload });
+  const result = await runShare([missing], { storeRoot, confirm, gistUpload });
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr.length).toBeGreaterThan(0);
+  expect(result.stderr).toContain(`share: unknown id: ${missing}`);
   expect(confirmCalled).toBe(false);
   expect(uploadCalled).toBe(false);
 });
 
-test("--skip-redaction --yes: warning still printed, no confirms, uploads and prints viewer URL", async () => {
-  const { filePath } = await seedTrail();
-  let confirmCalled = false;
+test("--skip-redaction --yes: warning still printed, unredacted confirm required", async () => {
+  const { contentHash } = await seedRegistered();
+  let confirmCalled = 0;
   const confirm = async (): Promise<boolean> => {
-    confirmCalled = true;
-    return false;
+    confirmCalled += 1;
+    return true;
   };
   const gistUpload = async () => ({ gistId: "skipid" });
 
-  const result = await runShare([filePath, "--skip-redaction", "--yes"], {
+  const result = await runShare([contentHash, "--skip-redaction", "--yes"], {
     storeRoot,
     confirm,
     gistUpload,
   });
 
   expect(result.exitCode).toBe(0);
-  expect(confirmCalled).toBe(false);
+  expect(confirmCalled).toBe(1);
   expect(result.stderr).toContain("WARNING");
   expect(result.stdout).toContain("https://agent-trail.dev/view/gist/skipid");
 });
 
 test("--skip-redaction: first confirm yes, second no -> cancelled, no upload pending", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   let call = 0;
   const confirm = async (): Promise<boolean> => {
     call += 1;
     return call === 1;
   };
 
-  const result = await runShare([filePath, "--skip-redaction"], { storeRoot, confirm });
+  const result = await runShare([contentHash, "--skip-redaction"], { storeRoot, confirm });
 
   expect(result.exitCode).toBe(0);
   expect(call).toBe(2);
@@ -207,7 +217,7 @@ test("--skip-redaction: first confirm yes, second no -> cancelled, no upload pen
 });
 
 test("--skip-redaction: stderr warning, two confirms required, both accepted -> uploads and prints viewer URL", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   const confirmCalls: string[] = [];
   const confirm = async (msg: string): Promise<boolean> => {
     confirmCalls.push(msg);
@@ -215,7 +225,11 @@ test("--skip-redaction: stderr warning, two confirms required, both accepted -> 
   };
   const gistUpload = async () => ({ gistId: "twoyes" });
 
-  const result = await runShare([filePath, "--skip-redaction"], { storeRoot, confirm, gistUpload });
+  const result = await runShare([contentHash, "--skip-redaction"], {
+    storeRoot,
+    confirm,
+    gistUpload,
+  });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain("WARNING");
@@ -227,15 +241,16 @@ test("--skip-redaction: stderr warning, two confirms required, both accepted -> 
 
 test("--skip-redaction --yes uploads raw registered object bytes", async () => {
   const fakeKey = `sk-${"A".repeat(40)}`;
-  const { filePath, contentHash } = await seedTrail({ text: `please use key ${fakeKey} now` });
+  const { contentHash } = await seedRegistered({ text: `please use key ${fakeKey} now` });
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
     captured = payload;
     return { gistId: "rawid" };
   };
 
-  const result = await runShare([filePath, "--skip-redaction", "--yes"], {
+  const result = await runShare([contentHash, "--skip-redaction", "--yes"], {
     storeRoot,
+    confirm: async () => true,
     gistUpload,
   });
 
@@ -246,27 +261,71 @@ test("--skip-redaction --yes uploads raw registered object bytes", async () => {
   expect(decoded).toContain(contentHash);
 });
 
-test("upload filename is <short-hash>.trail.jsonl.gz.b64", async () => {
-  const { filePath, contentHash } = await seedTrail();
+test("upload filename sorts after the extensionless metadata title file", async () => {
+  const { contentHash } = await seedRegistered();
   const captured: { filename?: string } = {};
   const gistUpload = async (_payload: Uint8Array, filename: string) => {
     captured.filename = filename;
     return { gistId: "fnid" };
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
 
   expect(result.exitCode).toBe(0);
-  expect(captured.filename).toBe(`${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(captured.filename).toBe(`trail-${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+});
+
+test("upload receives gist metadata for title file and preview description", async () => {
+  const { contentHash } = await seedRegistered();
+  const captured: {
+    filename?: string;
+    metadata?: Parameters<NonNullable<RunShareContext["gistUpload"]>>[2];
+  } = {};
+  const gistUpload: NonNullable<RunShareContext["gistUpload"]> = async (
+    _payload,
+    filename,
+    metadata,
+  ) => {
+    captured.filename = filename;
+    captured.metadata = metadata;
+    return { gistId: "metaid" };
+  };
+
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  expect(captured.filename).toBe(`trail-${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(captured.metadata).toEqual({
+    contentHash,
+    metadataFilename: `trail-${contentHash.slice(0, 12)}`,
+    payloadHash: contentHash,
+    redactionSkipped: false,
+    title: `Agent Trail share: ${contentHash.slice(0, 12)}`,
+    viewerBaseUrl: "https://agent-trail.dev/view/gist",
+  });
+});
+
+test("gist metadata update warning does not fail a shared upload", async () => {
+  const { contentHash } = await seedRegistered();
+  const gistUpload = async () => ({
+    gistId: "warnid",
+    warning: "gist metadata update failed: edit failed",
+  });
+
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toContain("WARNING: gist metadata update failed: edit failed");
+  expect(result.stdout).toContain("https://agent-trail.dev/view/gist/warnid");
 });
 
 test("gistUpload failure: exit 1, stderr contains error and gh auth hint, no viewer URL", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   const gistUpload = async () => {
     throw new Error("gh: command not found");
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("gh: command not found");
@@ -276,14 +335,14 @@ test("gistUpload failure: exit 1, stderr contains error and gh auth hint, no vie
 
 test("upload payload is gzipped base64 of the redacted JSONL", async () => {
   const fakeKey = `sk-${"A".repeat(40)}`;
-  const { filePath } = await seedTrail({ text: `please use key ${fakeKey} now` });
+  const { contentHash } = await seedRegistered({ text: `please use key ${fakeKey} now` });
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
     captured = payload;
     return { gistId: "payloadid" };
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(captured).not.toBeNull();
@@ -296,14 +355,14 @@ test("upload payload is gzipped base64 of the redacted JSONL", async () => {
 
 test("upload payload of redacted-with-secrets trail has a finalized content_hash", async () => {
   const fakeKey = `sk-${"A".repeat(40)}`;
-  const { filePath } = await seedTrail({ text: `please use key ${fakeKey} now` });
+  const { contentHash } = await seedRegistered({ text: `please use key ${fakeKey} now` });
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
     captured = payload;
     return { gistId: "hashid" };
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
 
   expect(result.exitCode).toBe(0);
   const decoded = decodePayload(captured as unknown as Uint8Array);
@@ -314,9 +373,9 @@ test("upload payload of redacted-with-secrets trail has a finalized content_hash
 
 test("redaction summary reports counts for secrets in trail payload", async () => {
   const fakeKey = `sk-${"A".repeat(40)}`;
-  const { filePath } = await seedTrail({ text: `please use key ${fakeKey} now` });
+  const { contentHash } = await seedRegistered({ text: `please use key ${fakeKey} now` });
 
-  const result = await runShare([filePath, "--dry-run"], { storeRoot });
+  const result = await runShare([contentHash, "--dry-run"], { storeRoot });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("Redaction summary");
@@ -325,7 +384,7 @@ test("redaction summary reports counts for secrets in trail payload", async () =
 });
 
 test("--dry-run: registers, prints summary, no confirm, no upload", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   let confirmCalled = false;
   const confirm = async (): Promise<boolean> => {
     confirmCalled = true;
@@ -337,7 +396,7 @@ test("--dry-run: registers, prints summary, no confirm, no upload", async () => 
     return { gistId: "should-not-happen" };
   };
 
-  const result = await runShare([filePath, "--dry-run"], { storeRoot, confirm, gistUpload });
+  const result = await runShare([contentHash, "--dry-run"], { storeRoot, confirm, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -348,7 +407,7 @@ test("--dry-run: registers, prints summary, no confirm, no upload", async () => 
 });
 
 test("--yes bypasses confirmation and prints viewer URL", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   let confirmCalled = false;
   const confirm = async (): Promise<boolean> => {
     confirmCalled = true;
@@ -356,7 +415,7 @@ test("--yes bypasses confirmation and prints viewer URL", async () => {
   };
   const gistUpload = async () => ({ gistId: "yesid" });
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, confirm, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, confirm, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -365,12 +424,12 @@ test("--yes bypasses confirmation and prints viewer URL", async () => {
 });
 
 test("non-TTY default confirm: throws are caught, cancels with actionable hint to use --yes", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   const confirm = async (): Promise<boolean> => {
     throw new ReferenceError("prompt is not defined");
   };
 
-  const result = await runShare([filePath], { storeRoot, confirm });
+  const result = await runShare([contentHash], { storeRoot, confirm });
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain("Share cancelled");
@@ -378,7 +437,7 @@ test("non-TTY default confirm: throws are caught, cancels with actionable hint t
 });
 
 test("normal mode, confirm declined: exits 0 with Share cancelled and no upload", async () => {
-  const { filePath } = await seedTrail();
+  const { contentHash } = await seedRegistered();
   const confirm = async (): Promise<boolean> => false;
   let uploadCalled = false;
   const gistUpload = async () => {
@@ -386,7 +445,7 @@ test("normal mode, confirm declined: exits 0 with Share cancelled and no upload"
     return { gistId: "should-not-happen" };
   };
 
-  const result = await runShare([filePath], { storeRoot, confirm, gistUpload });
+  const result = await runShare([contentHash], { storeRoot, confirm, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toBe("");
@@ -397,7 +456,7 @@ test("normal mode, confirm declined: exits 0 with Share cancelled and no upload"
 
 test("default share strips vcs.remote_url from uploaded gist and counts it in the summary", async () => {
   const remoteUrl = "https://github.com/agent-trail/agent-trail";
-  const { filePath } = await seedTrail({
+  const { contentHash } = await seedRegistered({
     vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
   });
   let captured: Uint8Array | null = null;
@@ -406,7 +465,7 @@ test("default share strips vcs.remote_url from uploaded gist and counts it in th
     return { gistId: "strip-id" };
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([contentHash, "--yes"], { storeRoot, gistUpload });
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).not.toContain("--keep-remote-url");
@@ -418,7 +477,7 @@ test("default share strips vcs.remote_url from uploaded gist and counts it in th
 
 test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a warning, and suppresses the summary count", async () => {
   const remoteUrl = "https://github.com/agent-trail/agent-trail";
-  const { filePath } = await seedTrail({
+  const { contentHash } = await seedRegistered({
     vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
   });
   let captured: Uint8Array | null = null;
@@ -427,7 +486,7 @@ test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a w
     return { gistId: "keep-id" };
   };
 
-  const result = await runShare([filePath, "--keep-remote-url", "--yes"], {
+  const result = await runShare([contentHash, "--keep-remote-url", "--yes"], {
     storeRoot,
     gistUpload,
   });
@@ -483,6 +542,8 @@ test("trail with envelope: shared payload carries both session and envelope cont
   const dir = mkdtempSync(join(tmpdir(), "trail-cli-share-envelope-"));
   const filePath = join(dir, "session.trail.jsonl");
   await writeFile(filePath, finalBytes, "utf8");
+  const reg = await registerTrail(filePath, { storeRoot });
+  if (reg.contentHash === null) throw new Error(`seed register failed: ${reg.status}`);
 
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
@@ -490,7 +551,7 @@ test("trail with envelope: shared payload carries both session and envelope cont
     return { gistId: "envelopeid" };
   };
 
-  const result = await runShare([filePath, "--yes"], { storeRoot, gistUpload });
+  const result = await runShare([reg.contentHash, "--yes"], { storeRoot, gistUpload });
 
   if (result.exitCode !== 0) {
     throw new Error(`share failed: ${result.stderr}`);
@@ -502,4 +563,121 @@ test("trail with envelope: shared payload carries both session and envelope cont
   expect(sharedRecords[1]?.value.type).toBe("session");
   expect(verifyContentHash(sharedRecords).status).toBe("match");
   expect(verifyTrailEnvelopeContentHash(sharedRecords).status).toBe("match");
+});
+
+test("short prefix: unique index match resolves to full hash", async () => {
+  const { contentHash } = await seedRegistered();
+  const prefix = contentHash.slice(0, 12);
+  const gistUpload = async () => ({ gistId: "prefixid" });
+
+  const result = await runShare([prefix, "--yes"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(contentHash);
+  expect(result.stdout).toContain("https://agent-trail.dev/view/gist/prefixid");
+});
+
+test("short prefix: ambiguous match exits 1 and lists candidates", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const hashA = `deadbeef${"a".repeat(56)}`;
+  const hashB = `deadbeef${"b".repeat(56)}`;
+  const indexDir = join(storeRoot, "index");
+  mkdirSync(indexDir, { recursive: true });
+  writeFileSync(
+    join(indexDir, "objects.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [hashA]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+          [hashB]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = await runShare(["deadbeef", "--dry-run"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("share: ambiguous id: deadbeef");
+  expect(result.stderr).toContain(hashA);
+  expect(result.stderr).toContain(hashB);
+});
+
+test("--json dry-run emits stable object shape", async () => {
+  const { contentHash } = await seedRegistered();
+
+  const result = await runShare([contentHash, "--dry-run", "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "dry_run",
+    content_hash: contentHash,
+    redaction: { skipped: false, summary: { counts: {}, samples: [] } },
+    redacted_content_hash: contentHash,
+    copied: false,
+  });
+});
+
+test("--json shared emits gist fields and URL", async () => {
+  const { contentHash } = await seedRegistered();
+  const gistUpload = async () => ({ gistId: "jsonid" });
+
+  const result = await runShare([contentHash, "--yes", "--json"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "shared",
+    content_hash: contentHash,
+    redaction: { skipped: false, summary: { counts: {}, samples: [] } },
+    redacted_content_hash: contentHash,
+    gist_id: "jsonid",
+    url: "https://agent-trail.dev/view/gist/jsonid",
+    copied: false,
+  });
+});
+
+test("--json cancelled emits status without uploading", async () => {
+  const { contentHash } = await seedRegistered();
+  let uploadCalled = false;
+  const gistUpload = async () => {
+    uploadCalled = true;
+    return { gistId: "nope" };
+  };
+
+  const result = await runShare([contentHash, "--json"], {
+    storeRoot,
+    confirm: async () => false,
+    gistUpload,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(uploadCalled).toBe(false);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    status: "cancelled",
+    content_hash: contentHash,
+    copied: false,
+  });
+});
+
+test("--json upload failure emits stable failure object and gh auth hint", async () => {
+  const { contentHash } = await seedRegistered();
+  const gistUpload = async () => {
+    throw new Error("gh: command not found");
+  };
+
+  const result = await runShare([contentHash, "--yes", "--json"], { storeRoot, gistUpload });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("gh auth login");
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    status: "upload_failed",
+    content_hash: contentHash,
+    copied: false,
+  });
 });

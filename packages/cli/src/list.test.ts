@@ -122,6 +122,36 @@ function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
   };
 }
 
+function parseableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    ...stubAdapter(name, refs),
+    async parseSession(ref): Promise<TrailFile> {
+      return {
+        groups: [
+          {
+            header: {
+              type: "session",
+              schema_version: "0.1.0",
+              id: "01HSESS0000000000000000001",
+              ts: "2026-05-17T14:00:00.000Z",
+              agent: { name: name === "codex" ? "codex-cli" : name },
+              cwd: ref.cwd,
+            },
+            entries: [
+              {
+                type: "user_message",
+                id: "01HEVTA0000000000000000001",
+                ts: "2026-05-17T14:00:05.000Z",
+                payload: { text: "source action trail" },
+              },
+            ],
+          },
+        ],
+      };
+    },
+  };
+}
+
 function throwingAdapter(name: string, message: string): TrailAdapter {
   return {
     name,
@@ -350,7 +380,7 @@ test("collapsed rows use the newer source or registered timestamp as latest_at",
   expect(parsed[0]?.latest_at).toBe("2026-05-19T14:00:00.000Z");
 });
 
-test("duplicate registered source paths collapse to the newest registered row", async () => {
+test("duplicate registered source paths collapse to the newest source-backed row", async () => {
   const first = await seedTrail({ id: "01HSESS00000000000000D0101", cwd: "/work/dupe" });
   const second = await seedTrail({ id: "01HSESS00000000000000D0102", cwd: "/work/dupe" });
   await registerTrail(first.filePath, { storeRoot, sourcePath: first.filePath });
@@ -381,7 +411,76 @@ test("duplicate registered source paths collapse to the newest registered row", 
   const parsed = JSON.parse(result.stdout) as Array<{ state: string; content_hash: string | null }>;
   expect(parsed).toEqual([
     expect.objectContaining({ state: "source+registered", content_hash: second.contentHash }),
-    expect.objectContaining({ state: "registered", content_hash: first.contentHash }),
+  ]);
+});
+
+test("source rows hide trail objects backed by the same source path", async () => {
+  const source = await seedTrail({ id: "01HSESS00000000000000D0201", cwd: "/work/source-backed" });
+  await registerTrail(source.filePath, { storeRoot, sourcePath: source.filePath });
+  const trailHash = "c".repeat(64);
+  mkdirSync(dirname(objectPath(storeRoot, trailHash)), { recursive: true });
+  await writeFile(
+    objectPath(storeRoot, trailHash),
+    await readFile(source.filePath, "utf8"),
+    "utf8",
+  );
+  await writeFile(
+    join(storeRoot, "index", "objects.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [source.contentHash]: {
+            registered_at: "2026-05-17T14:00:00.000Z",
+            source_path: source.filePath,
+            kind: "session",
+          },
+          [trailHash]: {
+            registered_at: "2026-05-19T14:00:00.000Z",
+            source_path: source.filePath,
+            kind: "trail",
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await overrideRegisteredAt(storeRoot, {
+    [source.contentHash]: "2026-05-17T14:00:00.000Z",
+    [trailHash]: "2026-05-19T14:00:00.000Z",
+  });
+
+  const result = await runList(
+    { json: true, cwd: "/work/source-backed" },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "sess-source-backed",
+            adapter: "codex",
+            cwd: "/work/source-backed",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: source.filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const parsed = JSON.parse(result.stdout) as Array<{
+    state: string;
+    content_hash: string | null;
+    source_id: string | null;
+  }>;
+  expect(parsed).toEqual([
+    expect.objectContaining({
+      state: "source+registered",
+      source_id: "sess-source-backed",
+      content_hash: trailHash,
+    }),
   ]);
 });
 
@@ -769,6 +868,144 @@ test("runListBrowser prefers registered trail name for TUI rows", async () => {
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action registers source row before sharing", async () => {
+  const refs: SessionRef[] = [
+    {
+      id: "sess-share-source",
+      adapter: "codex",
+      cwd: "/work/actions",
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-action.jsonl",
+    },
+  ];
+  const uploaded: string[] = [];
+  let launched = false;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        uploaded.push(filename);
+        return { gistId: "tuishareid" };
+      },
+      runSessionBrowser: async (input) => {
+        launched = true;
+        const row = input.rows[0];
+        expect(row?.state).toBe("source");
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/tuishareid");
+        expect(shared?.rows?.[0]?.state).toBe("source+registered");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(uploaded).toHaveLength(1);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action reuses registered hash", async () => {
+  const { filePath, contentHash } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  let launched = false;
+  const filenames: string[] = [];
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        filenames.push(filename);
+        return { gistId: "registeredid" };
+      },
+      runSessionBrowser: async (input) => {
+        launched = true;
+        const row = input.rows[0];
+        expect(row?.content_hash).toBe(contentHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/registeredid");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(filenames[0]).toBe(`trail-${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser export action writes canonical bytes with existing export path", async () => {
+  const { filePath, contentHash } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  const exportDir = mkdtempSync(join(tmpdir(), "trail-cli-list-export-"));
+  let launched = false;
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [],
+        storeRoot,
+        defaultCwd: "/work/actions",
+        exportDir,
+        terminal: { isTTY: true },
+        runSessionBrowser: async (input) => {
+          launched = true;
+          const exported = await input.onExport?.(input.rows[0]!);
+          expect(exported?.message).toContain(contentHash.slice(0, 12));
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    const out = join(exportDir, `${contentHash.slice(0, 12)}.trail.jsonl`);
+    expect(await readFile(out, "utf8")).toBe(await readFile(filePath, "utf8"));
+    expect(launched).toBe(true);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(exportDir, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser copy action writes OSC52 when stdout exists", async () => {
+  const { filePath } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  const stdout = new PassThrough() as unknown as NodeJS.WriteStream;
+  const chunks: string[] = [];
+  (stdout as unknown as PassThrough).on("data", (chunk) => chunks.push(String(chunk)));
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true, stdout },
+      runSessionBrowser: async (input) => {
+        const copied = await input.onCopyUrl?.("https://agent-trail.dev/view/gist/copyid");
+        expect(copied?.message).toBe("Copied URL");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(chunks.join("")).toContain("\u001b]52;c;");
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
 test("runListBrowser cwd scope keeps registered trail rows broad", async () => {
   const registered = await seedTrail({
     id: "01HSESS00000000000000BR0AD",
@@ -1032,7 +1269,7 @@ test("runListBrowser uses default OpenTUI handoff with custom streams", async ()
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   stdout.resume();
-  setTimeout(() => stdin.write("q"), 10);
+  setTimeout(() => stdin.write("q"), 100);
 
   const result = await runListBrowser(
     {},

@@ -43,9 +43,11 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   const raw = await seedRawTrail();
   let uploadedPayload: Uint8Array | null = null;
   let uploadedFilename = "";
+  const registered = await registerTrail(raw.path, { storeRoot: shareStoreRoot });
+  expect(registered.contentHash).toBe(raw.envelopeHash);
 
   const share = await runShare(
-    { path: raw.path, yes: true },
+    { id: raw.envelopeHash, yes: true },
     {
       storeRoot: shareStoreRoot,
       gistUpload: async (payload, filename) => {
@@ -86,7 +88,7 @@ test("share -> load -> export preserves finalized redacted trail and store metad
   if (sharedEnvelopeHash === undefined || sharedSessionHash === undefined) {
     throw new Error("shared payload missing finalized hashes");
   }
-  expect(uploadedFilename).toBe(`${sharedEnvelopeHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(uploadedFilename).toBe(`trail-${sharedEnvelopeHash.slice(0, 12)}.trail.jsonl.gz.b64`);
 
   const gistFetch: GistFetch = async () => ({
     payload,
