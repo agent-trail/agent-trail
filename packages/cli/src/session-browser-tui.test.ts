@@ -676,6 +676,64 @@ test("share shortcut does not reuse a URL for a different source path with the s
   }
 });
 
+test("share shortcut does not reuse a cached URL when source is newer than registration", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const staleRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const changedRow = {
+    ...staleRow,
+    source_modified_at: "2026-05-18T14:01:00.000Z",
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [staleRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/${shareCalls}`,
+          rows: shareCalls === 1 ? [changedRow] : [row],
+          url: `https://agent-trail.dev/view/gist/${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/1");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("share shortcut dispatches selected registered row by content hash", async () => {
   const setup = await createTestRenderer({ width: 120, height: 24 });
   try {

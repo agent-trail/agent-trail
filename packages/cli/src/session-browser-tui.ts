@@ -688,18 +688,36 @@ function rememberShareUrl(
 
 function shareCacheKeys(row: BrowserState["rows"][number]): string[] {
   const keys: string[] = [];
-  if (row.content_hash !== null) keys.push(`hash:${row.content_hash}`);
+  if (row.content_hash !== null && !sourceIsNewerThanRegistration(row)) {
+    keys.push(`hash:${row.content_hash}`);
+  }
+  const revision = sourceRevision(row);
+  if (revision === null) return [...new Set(keys)];
   if (row.source_agent !== null && row.source_path !== null) {
-    keys.push(`source-path:${row.source_agent}:${row.source_path}`);
+    keys.push(`source-path:${row.source_agent}:${row.source_path}:${revision}`);
   }
   if (row.source_agent !== null && row.source_id !== null) {
     keys.push(
       row.source_path === null
-        ? `source:${row.source_agent}:${row.source_id}`
-        : `source:${row.source_agent}:${row.source_id}:${row.source_path}`,
+        ? `source:${row.source_agent}:${row.source_id}:${revision}`
+        : `source:${row.source_agent}:${row.source_id}:${row.source_path}:${revision}`,
     );
   }
   return [...new Set(keys)];
+}
+
+function sourceRevision(row: BrowserState["rows"][number]): string | null {
+  return row.source_modified_at;
+}
+
+function sourceIsNewerThanRegistration(row: BrowserState["rows"][number]): boolean {
+  if (row.source_modified_at === null || row.registered_at === null) return false;
+  const sourceMs = Date.parse(row.source_modified_at);
+  const registeredMs = Date.parse(row.registered_at);
+  if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) {
+    return row.source_modified_at > row.registered_at;
+  }
+  return sourceMs > registeredMs;
 }
 
 export async function runRowActionSafely(

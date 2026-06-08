@@ -637,6 +637,37 @@ test("short prefix: ambiguous match exits 1 and lists candidates", async () => {
   expect(result.stderr).toContain(hashB);
 });
 
+test("--json short prefix ambiguous match emits parseable error object", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const hashA = `deadbeef${"a".repeat(56)}`;
+  const hashB = `deadbeef${"b".repeat(56)}`;
+  const indexDir = join(storeRoot, "index");
+  mkdirSync(indexDir, { recursive: true });
+  writeFileSync(
+    join(indexDir, "objects.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [hashA]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+          [hashB]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = await runShare(["deadbeef", "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed.status).toBe("error");
+  expect(parsed.error.message).toContain("share: ambiguous id: deadbeef");
+  expect(parsed.error.message).toContain(hashA);
+  expect(parsed.error.message).toContain(hashB);
+});
+
 test("--json dry-run emits stable object shape", async () => {
   const { contentHash } = await seedRegistered();
 
@@ -647,10 +678,24 @@ test("--json dry-run emits stable object shape", async () => {
   expect(JSON.parse(result.stdout)).toEqual({
     status: "dry_run",
     content_hash: contentHash,
-    redaction: { skipped: false, summary: { counts: {}, samples: [] } },
+    redaction: { skipped: false, summary: { counts: {} } },
     redacted_content_hash: contentHash,
     copied: false,
   });
+});
+
+test("--json redaction summary omits secret samples", async () => {
+  const fakeKey = `sk-${"A".repeat(40)}`;
+  const { contentHash } = await seedRegistered({ text: `please use key ${fakeKey} now` });
+
+  const result = await runShare([contentHash, "--dry-run", "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  const parsed = JSON.parse(result.stdout);
+  expect(parsed.redaction.summary).toEqual({ counts: { openai_api_key: 1 } });
+  expect(result.stdout).not.toContain("samples");
+  expect(result.stdout).not.toContain("sk-");
+  expect(result.stdout).not.toContain("AAAA");
 });
 
 test("--json shared emits gist fields and URL", async () => {
@@ -664,7 +709,7 @@ test("--json shared emits gist fields and URL", async () => {
   expect(JSON.parse(result.stdout)).toEqual({
     status: "shared",
     content_hash: contentHash,
-    redaction: { skipped: false, summary: { counts: {}, samples: [] } },
+    redaction: { skipped: false, summary: { counts: {} } },
     redacted_content_hash: contentHash,
     gist_id: "jsonid",
     url: "https://agent-trail.dev/view/gist/jsonid",

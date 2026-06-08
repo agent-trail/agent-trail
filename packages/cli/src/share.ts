@@ -53,11 +53,15 @@ type ShareStatus = "dry_run" | "cancelled" | "shared" | "upload_failed";
 type ShareSuccessJson = {
   status: ShareStatus;
   content_hash: string;
-  redaction: { skipped: boolean; summary: RedactionSummary | null };
+  redaction: { skipped: boolean; summary: ShareRedactionSummary | null };
   redacted_content_hash?: string;
   gist_id?: string;
   url?: string;
   copied: false;
+};
+
+type ShareRedactionSummary = {
+  counts: Record<string, number>;
 };
 
 type ShareJson =
@@ -309,10 +313,15 @@ function jsonResult(
   return {
     status,
     content_hash: contentHash,
-    redaction: { skipped, summary },
+    redaction: { skipped, summary: safeRedactionSummary(summary) },
     ...(skipped ? {} : { redacted_content_hash: redactedContentHash }),
     copied: false,
   };
+}
+
+function safeRedactionSummary(summary: RedactionSummary | null): ShareRedactionSummary | null {
+  if (summary === null) return null;
+  return { counts: summary.counts };
 }
 
 function shareReturn(
@@ -369,7 +378,7 @@ async function tryConfirm(
     return {
       ok: false,
       reason:
-        "share: interactive confirmation unavailable (no TTY). Re-run with --yes to bypass prompts.",
+        "share: interactive confirmation unavailable (no TTY). Re-run with --yes to bypass standard prompts; unredacted sharing still requires explicit confirmation.",
     };
   }
 }
@@ -380,7 +389,11 @@ export function addShareCommand(program: Command, writeResult: ResultWriter): vo
       .command("share")
       .argument("<id>")
       .option("--dry-run", "Redact without uploading.", false)
-      .option("-y, --yes", "Bypass confirmation prompts.", false)
+      .option(
+        "-y, --yes",
+        "Bypass standard confirmation prompts; unredacted sharing still requires confirmation.",
+        false,
+      )
       .option("--json", "Print share result as JSON.", false)
       .option("--skip-redaction", "Share raw unredacted trail content.", false)
       .option("--keep-remote-url", "Preserve vcs.remote_url in shared content.", false)

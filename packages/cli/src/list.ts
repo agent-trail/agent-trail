@@ -351,7 +351,9 @@ async function ensureBrowserRowRegistered(
   context: RunListContext,
   storeRoot: string,
 ): Promise<BrowserRegistration> {
-  if (row.content_hash !== null) return { contentHash: row.content_hash };
+  if (row.content_hash !== null && !sourceIsNewerThanRegistration(row)) {
+    return { contentHash: row.content_hash };
+  }
   if (row.source_id === null || row.source_agent === null) {
     throw new Error("selected row has no source session to register");
   }
@@ -374,6 +376,13 @@ async function ensureBrowserRowRegistered(
     throw new Error(`register failed: ${reg.status}`);
   }
   return { contentHash: reg.contentHash };
+}
+
+function sourceIsNewerThanRegistration(row: Row): boolean {
+  if (row.source_id === null || row.source_modified_at === null || row.registered_at === null) {
+    return false;
+  }
+  return compareNullableTimestamps(row.source_modified_at, row.registered_at) > 0;
 }
 
 function parseShareJson(stdout: string): Record<string, unknown> {
