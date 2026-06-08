@@ -284,5 +284,9 @@ function renderFooter(state: BrowserState, filteredCount: number, width: number)
     warnings.length === 0
       ? `${rowCounts}${status}`
       : `${rowCounts}  WARN ${warnings.join(" | ")}${status}`;
-  return alignBetween(left, "keys: j/k move  s share  e export  y copy  / search  q quit", width);
+  return alignBetween(
+    left,
+    "keys: j/k move  enter open  s/e/y  a all  t trail  / search  q quit",
+    width,
+  );
 }

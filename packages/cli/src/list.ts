@@ -591,9 +591,18 @@ function findNewestPathMatch(
   for (const [index, registered] of registeredRows.entries()) {
     if (usedRegistered.has(index)) continue;
     if (registered.registered_source_path !== source.source_path) continue;
+    const current =
+      matchIndex === -1 ? null : (registeredRows[matchIndex] as RegisteredRow | undefined);
+    const timestampComparison =
+      current === null || current === undefined
+        ? 1
+        : compareNullableTimestamps(registered.registered_at, matchRegisteredAt);
     if (
       matchIndex === -1 ||
-      compareNullableTimestamps(registered.registered_at, matchRegisteredAt) > 0
+      timestampComparison > 0 ||
+      (timestampComparison === 0 &&
+        registered.registered_kind === "trail" &&
+        current?.registered_kind !== "trail")
     ) {
       matchIndex = index;
       matchRegisteredAt = registered.registered_at;

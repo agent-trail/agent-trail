@@ -118,6 +118,9 @@ test("browser frame renders session table columns and preview details", () => {
   expect(frame).toContain("YES");
   expect(frame).toContain("NAME First source message for alpha");
   expect(frame).toContain("TRAIL NO");
+  expect(frame).toContain("enter open");
+  expect(frame).toContain("a all");
+  expect(frame).toContain("t trail");
   expect(frame).not.toContain("name:");
   expect(frame).not.toContain("trail:");
 });
@@ -606,6 +609,68 @@ test("share shortcut reuses prior URL for the same row without confirming again"
     expect(frame).toContain("Share created");
     expect(frame).toContain("/reuseid");
     expect(frame).not.toContain("Confirm share");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a URL for a different source path with the same source id", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const first = {
+    ...(rows[0] as SessionBrowserRow),
+    source_id: "duplicate-source",
+    source_path: "/tmp/one.jsonl",
+    display_name: "First duplicate source",
+  } as SessionBrowserRow;
+  const second = {
+    ...(rows[0] as SessionBrowserRow),
+    source_id: "duplicate-source",
+    source_path: "/tmp/two.jsonl",
+    display_name: "Second duplicate source",
+    latest_at: "2026-05-18T14:01:00.000Z",
+  } as SessionBrowserRow;
+
+  try {
+    const sharedPaths: string[] = [];
+    mountSessionBrowser(setup.renderer, {
+      rows: [first, second],
+      warnings: [],
+      onShare: async (row, context) => {
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        sharedPaths.push(row.source_path ?? "");
+        const id = row.source_path === "/tmp/one.jsonl" ? "oneid" : "twoid";
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/${id}`,
+          url: `https://agent-trail.dev/view/gist/${id}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("/oneid");
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressArrow("down");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(sharedPaths).toEqual(["/tmp/one.jsonl", "/tmp/two.jsonl"]);
+    expect(setup.captureCharFrame()).toContain("/twoid");
   } finally {
     setup.renderer.destroy();
   }

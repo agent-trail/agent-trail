@@ -687,9 +687,18 @@ function rememberShareUrl(
 }
 
 function shareCacheKeys(row: BrowserState["rows"][number]): string[] {
-  const keys = [rowIdentity(row), row.source_id ?? "", row.content_hash ?? ""].filter(
-    (key) => key.length > 0,
-  );
+  const keys: string[] = [];
+  if (row.content_hash !== null) keys.push(`hash:${row.content_hash}`);
+  if (row.source_agent !== null && row.source_path !== null) {
+    keys.push(`source-path:${row.source_agent}:${row.source_path}`);
+  }
+  if (row.source_agent !== null && row.source_id !== null) {
+    keys.push(
+      row.source_path === null
+        ? `source:${row.source_agent}:${row.source_id}`
+        : `source:${row.source_agent}:${row.source_id}:${row.source_path}`,
+    );
+  }
   return [...new Set(keys)];
 }
 

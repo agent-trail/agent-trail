@@ -1778,3 +1778,100 @@ test("multi-session file -> 2 session rows + 1 trail row in registered rows", as
 
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("source-backed multi-session rows collapse to the file-level trail hash", async () => {
+  const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
+
+  const records = [
+    {
+      line: 1,
+      raw: "",
+      value: {
+        type: "trail",
+        schema_version: "0.1.0",
+        id: "01HTRA0X00000000000000B001",
+        ts: "2026-05-17T14:00:00.000Z",
+        producer: "trail-cli/0.3.0",
+      },
+    },
+    {
+      line: 2,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000B01",
+        ts: "2026-05-17T14:00:00.000Z",
+        agent: { name: "codex-cli" },
+      },
+    },
+    {
+      line: 3,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTB0000000000000000B01",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hi" },
+      },
+    },
+    {
+      line: 4,
+      raw: "",
+      value: {
+        type: "session",
+        schema_version: "0.1.0",
+        id: "01HSESS0000000000000000B02",
+        ts: "2026-05-17T14:05:00.000Z",
+        agent: { name: "claude-code" },
+      },
+    },
+    {
+      line: 5,
+      raw: "",
+      value: {
+        type: "user_message",
+        id: "01HEVTB0000000000000000B02",
+        ts: "2026-05-17T14:05:05.000Z",
+        payload: { text: "ok" },
+      },
+    },
+  ];
+  const stamped = stampTrail(records);
+  const dir = mkdtempSync(join(tmpdir(), "trail-cli-list-ms-source-"));
+  const filePath = join(dir, "multi.trail.jsonl");
+  await writeFile(filePath, canon(records), "utf8");
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+
+  const result = await runList(
+    { json: true },
+    {
+      storeRoot,
+      adapters: [
+        stubAdapter("codex", [
+          {
+            id: "source-backed-multi",
+            adapter: "codex",
+            modifiedAt: "2026-05-18T14:00:00.000Z",
+            path: filePath,
+          },
+        ]),
+      ],
+    },
+  );
+
+  const rows = JSON.parse(result.stdout) as Array<{
+    state: string;
+    content_hash: string;
+    registered_kind: string;
+  }>;
+  expect(rows).toEqual([
+    expect.objectContaining({
+      state: "source+registered",
+      content_hash: stamped.envelopeHash,
+      registered_kind: "trail",
+    }),
+  ]);
+
+  rmSync(dir, { recursive: true, force: true });
+});

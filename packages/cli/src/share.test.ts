@@ -178,6 +178,36 @@ test("unknown full hash: exits 1 with diagnostic, no confirm or upload", async (
   expect(uploadCalled).toBe(false);
 });
 
+test("--json unknown id emits parseable error object", async () => {
+  const missing = "0".repeat(64);
+
+  const result = await runShare([missing, "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(`share: unknown id: ${missing}`);
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "error",
+    content_hash: null,
+    redaction: null,
+    copied: false,
+    error: { message: `share: unknown id: ${missing}` },
+  });
+});
+
+test("--json invalid id emits parseable error object", async () => {
+  const result = await runShare(["not-a-hash", "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("share: invalid id");
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "error",
+    content_hash: null,
+    redaction: null,
+    copied: false,
+    error: { message: "share: invalid id: not-a-hash (expected 8–64 hex chars)" },
+  });
+});
+
 test("--skip-redaction --yes: warning still printed, unredacted confirm required", async () => {
   const { contentHash } = await seedRegistered();
   let confirmCalled = 0;

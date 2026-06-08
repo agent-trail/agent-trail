@@ -50,7 +50,7 @@ const VALID_ID_RE = /^[0-9a-f]{8,64}$/;
 
 type ShareStatus = "dry_run" | "cancelled" | "shared" | "upload_failed";
 
-type ShareJson = {
+type ShareSuccessJson = {
   status: ShareStatus;
   content_hash: string;
   redaction: { skipped: boolean; summary: RedactionSummary | null };
@@ -60,13 +60,23 @@ type ShareJson = {
   copied: false;
 };
 
+type ShareJson =
+  | ShareSuccessJson
+  | {
+      status: "error";
+      content_hash: null;
+      redaction: null;
+      copied: false;
+      error: { message: string };
+    };
+
 export async function runShare(
   options: RunShareOptions,
   context: RunShareContext = {},
 ): Promise<RunShareResult> {
   const id = options.id;
   const resolved = await resolveShareId(id, context.storeRoot);
-  if ("exitCode" in resolved) return resolved;
+  if ("exitCode" in resolved) return shareErrorReturn(resolved, options);
   const { contentHash, objectFile } = resolved;
 
   let records: JsonlRecord[];
@@ -75,10 +85,13 @@ export async function runShare(
     records = await parseJsonlString(raw);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { exitCode: 1, stdout: "", stderr: `share: unknown id: ${id}\n` };
+      return shareErrorReturn(
+        { exitCode: 1, stdout: "", stderr: `share: unknown id: ${id}\n` },
+        options,
+      );
     }
     const message = error instanceof Error ? error.message : String(error);
-    return { exitCode: 1, stdout: "", stderr: `share: ${message}\n` };
+    return shareErrorReturn({ exitCode: 1, stdout: "", stderr: `share: ${message}\n` }, options);
   }
 
   const stdoutLines: string[] = [];
@@ -178,11 +191,14 @@ export async function runShare(
     payload = Buffer.from(base64, "ascii");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      exitCode: 1,
-      stdout: options.json === true ? "" : `${stdoutLines.join("\n")}\n`,
-      stderr: `${stderr}share: ${message}\n`,
-    };
+    return shareErrorReturn(
+      {
+        exitCode: 1,
+        stdout: options.json === true ? "" : `${stdoutLines.join("\n")}\n`,
+        stderr: `${stderr}share: ${message}\n`,
+      },
+      options,
+    );
   }
 
   const filename = `trail-${payloadHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl.gz.b64`;
@@ -289,7 +305,7 @@ function jsonResult(
   skipped: boolean,
   summary: RedactionSummary | null,
   redactedContentHash: string,
-): ShareJson {
+): ShareSuccessJson {
   return {
     status,
     content_hash: contentHash,
@@ -310,6 +326,21 @@ function shareReturn(
     return { exitCode, stdout: `${JSON.stringify(json)}\n`, stderr };
   }
   return { exitCode, stdout: textStdout, stderr };
+}
+
+function shareErrorReturn(result: RunShareResult, options: RunShareOptions): RunShareResult {
+  if (options.json !== true) return result;
+  return {
+    exitCode: result.exitCode,
+    stdout: `${JSON.stringify({
+      status: "error",
+      content_hash: null,
+      redaction: null,
+      copied: false,
+      error: { message: result.stderr.trim() || "share failed" },
+    } satisfies ShareJson)}\n`,
+    stderr: result.stderr,
+  };
 }
 
 function formatSummary(summary: RedactionSummary): string[] {
