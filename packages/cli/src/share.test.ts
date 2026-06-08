@@ -607,6 +607,38 @@ test("short prefix: unique index match resolves to full hash", async () => {
   expect(result.stdout).toContain("https://agent-trail.dev/view/gist/prefixid");
 });
 
+test("--json short prefix with missing object emits unknown id error", async () => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const hash = `facefeed${"a".repeat(56)}`;
+  const indexDir = join(storeRoot, "index");
+  mkdirSync(indexDir, { recursive: true });
+  writeFileSync(
+    join(indexDir, "objects.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        entries: {
+          [hash]: { registered_at: "2026-05-17T14:00:00.000Z", source_path: null },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const result = await runShare(["facefeed", "--json"], { storeRoot });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("share: unknown id: facefeed");
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "error",
+    content_hash: null,
+    redaction: null,
+    copied: false,
+    error: { message: "share: unknown id: facefeed" },
+  });
+});
+
 test("short prefix: ambiguous match exits 1 and lists candidates", async () => {
   const { mkdirSync, writeFileSync } = await import("node:fs");
   const hashA = `deadbeef${"a".repeat(56)}`;

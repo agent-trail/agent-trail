@@ -582,6 +582,9 @@ async function toggleScope(state: BrowserState, update: () => void): Promise<voi
     state.warnings = input.warnings;
     state.scope = input.scope ?? defaultScope();
     state.onToggleScope = input.onToggleScope ?? state.onToggleScope;
+    state.onShare = input.onShare ?? state.onShare;
+    state.onExport = input.onExport ?? state.onExport;
+    state.onCopyUrl = input.onCopyUrl ?? state.onCopyUrl;
     state.query = "";
     state.searchMode = false;
     state.trailFilter = "all";
@@ -714,9 +717,7 @@ function sourceIsNewerThanRegistration(row: BrowserState["rows"][number]): boole
   if (row.source_modified_at === null || row.registered_at === null) return false;
   const sourceMs = Date.parse(row.source_modified_at);
   const registeredMs = Date.parse(row.registered_at);
-  if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) {
-    return row.source_modified_at > row.registered_at;
-  }
+  if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) return true;
   return sourceMs > registeredMs;
 }
 

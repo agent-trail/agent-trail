@@ -391,6 +391,33 @@ test("browser scope toggle handles reload rejection and restores loading state",
   expect(state.rows).toEqual([rows[0] as SessionBrowserRow]);
 });
 
+test("browser scope toggle refreshes row action handlers from reloaded input", async () => {
+  const state = browserStateFromInput({
+    rows: [rows[0] as SessionBrowserRow],
+    warnings: [],
+    scope: { mode: "cwd", label: "alpha" },
+    onShare: async () => ({ message: "old share" }),
+    onExport: async () => ({ message: "old export" }),
+    onCopyUrl: async () => ({ message: "old copy" }),
+    onToggleScope: async () => ({
+      rows: [rows[1] as SessionBrowserRow],
+      warnings: [],
+      scope: { mode: "all", label: "all" },
+      onShare: async () => ({ message: "new share" }),
+      onExport: async () => ({ message: "new export" }),
+      onCopyUrl: async () => ({ message: "new copy" }),
+    }),
+  });
+
+  await toggleScopeSafely(state, () => {});
+
+  expect(await state.onShare?.(rows[1] as SessionBrowserRow)).toEqual({ message: "new share" });
+  expect(await state.onExport?.(rows[1] as SessionBrowserRow)).toEqual({ message: "new export" });
+  expect(await state.onCopyUrl?.("https://agent-trail.dev/view/gist/new")).toEqual({
+    message: "new copy",
+  });
+});
+
 test("browser search mode ignores non-character keys without crashing", async () => {
   const setup = await createTestRenderer({ width: 80, height: 24 });
   try {
@@ -423,21 +450,20 @@ test("browser frame collapses preview on narrow terminals", () => {
 });
 
 test("browser frame strips terminal control sequences from rendered content", () => {
-  const frame = renderBrowserFrame(
-    {
-      rows: [
-        {
-          ...sourceRow(0),
-          source_id: "evil\x1b]52;c;secret\x07-id",
-          agent: "codex\x1b[31m-red",
-          cwd: "/work/\x1b[31mred\nnext",
-          source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
-        },
-      ],
-      warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
-    },
-    { width: 120 },
-  );
+  const state = browserStateFromInput({
+    rows: [
+      {
+        ...sourceRow(0),
+        source_id: "evil\x1b]52;c;secret\x07-id",
+        agent: "codex\x1b[31m-red",
+        cwd: "/work/\x1b[31mred\nnext",
+        source_path: "/tmp/\x1bPpayload\x1b\\session.jsonl",
+      },
+    ],
+    warnings: ["warning: \x1b]52;c;secret\x07skip\rline"],
+  });
+  state.actionMessage = "status \x1b]52;c;secret\x07ok";
+  const frame = renderBrowserFrame(state, { width: 120 });
 
   expect(frame).not.toContain("\x1b");
   expect(frame).not.toContain("]52");
@@ -446,6 +472,7 @@ test("browser frame strips terminal control sequences from rendered content", ()
   expect(frame).toContain("codex-red");
   expect(frame).toContain("/work/red next");
   expect(frame).toContain("warning: skip line");
+  expect(frame).toContain("STATUS status ok");
 });
 
 test("enter opens selected row placeholder", async () => {
@@ -729,6 +756,63 @@ test("share shortcut does not reuse a cached URL when source is newer than regis
 
     expect(shareCalls).toBe(2);
     expect(setup.captureCharFrame()).toContain("/2");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("share shortcut does not reuse a cached URL when source timestamp is malformed", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const stableRow = {
+    ...(rows[0] as SessionBrowserRow),
+    state: "source+registered",
+    content_hash: "b".repeat(64),
+    registered_at: "2026-05-18T14:00:00.000Z",
+    source_modified_at: "2026-05-18T14:00:00.000Z",
+  } as SessionBrowserRow;
+  const malformedRow = {
+    ...stableRow,
+    source_modified_at: "not-a-date",
+  } as SessionBrowserRow;
+
+  try {
+    let shareCalls = 0;
+    mountSessionBrowser(setup.renderer, {
+      rows: [stableRow],
+      warnings: [],
+      onShare: async (row, context) => {
+        shareCalls += 1;
+        if ((await context?.confirm("Share selected trail?")) !== true) {
+          return { message: "Share cancelled." };
+        }
+        return {
+          message: `Shared https://agent-trail.dev/view/gist/malformed-${shareCalls}`,
+          rows: shareCalls === 1 ? [malformedRow] : [row],
+          url: `https://agent-trail.dev/view/gist/malformed-${shareCalls}`,
+        };
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    setup.mockInput.pressKey("s");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Confirm share");
+    setup.mockInput.pressKey("y");
+    await setup.renderOnce();
+    await setup.renderOnce();
+    await setup.renderOnce();
+
+    expect(shareCalls).toBe(2);
+    expect(setup.captureCharFrame()).toContain("/malformed-2");
   } finally {
     setup.renderer.destroy();
   }

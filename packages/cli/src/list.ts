@@ -1,5 +1,5 @@
 import { open } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   type DetectOptions,
   DISCOVERY_CONCURRENCY_LIMIT,
@@ -295,12 +295,12 @@ async function collectBrowserInput(
           gistUpload: context.gistUpload,
         },
       );
-      const parsed = parseShareJson(shared.stdout);
-      const next = await collectBrowserInput(options, context, storeRoot, scope, browserCwd);
-      const refreshedRows = "stdout" in next ? undefined : next.rows;
       if (shared.exitCode !== 0) {
         throw new Error(shared.stderr.trim() || "share failed");
       }
+      const parsed = parseShareJson(shared.stdout);
+      const next = await collectBrowserInput(options, context, storeRoot, scope, browserCwd);
+      const refreshedRows = "stdout" in next ? undefined : next.rows;
       if (parsed.status === "cancelled") {
         return { message: "Share cancelled.", rows: refreshedRows };
       }
@@ -382,22 +382,27 @@ function sourceIsNewerThanRegistration(row: Row): boolean {
   if (row.source_id === null || row.source_modified_at === null || row.registered_at === null) {
     return false;
   }
-  return compareNullableTimestamps(row.source_modified_at, row.registered_at) > 0;
+  const sourceMs = Date.parse(row.source_modified_at);
+  const registeredMs = Date.parse(row.registered_at);
+  if (Number.isNaN(sourceMs) || Number.isNaN(registeredMs)) return true;
+  return sourceMs > registeredMs;
 }
 
-function parseShareJson(stdout: string): Record<string, unknown> {
+export function parseShareJson(stdout: string): Record<string, unknown> {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(stdout) as unknown;
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    parsed = JSON.parse(stdout) as unknown;
   } catch {
-    return {};
+    throw new Error("share returned invalid JSON");
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("share returned invalid JSON");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function browserExportPath(dir: string, contentHash: string): string {
-  return `${dir.replace(/\/$/, "")}/${contentHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl`;
+  return join(dir, `${contentHash.slice(0, SHORT_HASH_LEN)}.trail.jsonl`);
 }
 
 function writeOsc52(stdout: NodeJS.WriteStream, text: string): void {
@@ -564,9 +569,7 @@ async function detectSourceRows(
 function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Row[] {
   const rows: Row[] = [];
   const usedRegistered = new Set<number>();
-  const sourcePaths = new Set(
-    sourceRows.flatMap((source) => (source.source_path === null ? [] : [source.source_path])),
-  );
+  const sourcePathMatches = new Map<string, RegisteredRow>();
   for (const source of sourceRows) {
     const matchIndex = findNewestPathMatch(source, registeredRows, usedRegistered);
     if (matchIndex === -1) {
@@ -574,19 +577,30 @@ function mergeRows(sourceRows: SourceRow[], registeredRows: RegisteredRow[]): Ro
       continue;
     }
     usedRegistered.add(matchIndex);
-    rows.push(toUnified(source, registeredRows[matchIndex] as RegisteredRow));
+    const match = registeredRows[matchIndex] as RegisteredRow;
+    if (source.source_path !== null) sourcePathMatches.set(source.source_path, match);
+    rows.push(toUnified(source, match));
   }
   for (const [index, registered] of registeredRows.entries()) {
     if (usedRegistered.has(index)) continue;
-    if (
-      registered.registered_source_path !== null &&
-      sourcePaths.has(registered.registered_source_path)
-    ) {
+    if (isObsoleteSourcePathDuplicate(registered, sourcePathMatches)) {
       continue;
     }
     rows.push(toUnified(null, registered));
   }
   return rows;
+}
+
+function isObsoleteSourcePathDuplicate(
+  registered: RegisteredRow,
+  sourcePathMatches: Map<string, RegisteredRow>,
+): boolean {
+  if (registered.registered_source_path === null) return false;
+  const match = sourcePathMatches.get(registered.registered_source_path);
+  if (match === undefined) return false;
+  const comparison = compareNullableTimestamps(registered.registered_at, match.registered_at);
+  if (comparison < 0) return true;
+  return registered.registered_kind === "trail" && comparison === 0;
 }
 
 function findNewestPathMatch(

@@ -220,7 +220,9 @@ function rowPreview(
 ): string[] {
   const id = shortIdentity(row);
   return airyPreview([
-    ...(actionMessage === null ? [] : previewFieldLines("STATUS", actionMessage, contentWidth)),
+    ...(actionMessage === null
+      ? []
+      : previewFieldLines("STATUS", sanitizeTerminalText(actionMessage), contentWidth)),
     openedIdentity === rowIdentity(row) ? `Open placeholder: ${id}` : "Selected row",
     ...previewFieldLines("NAME", rowPreviewName(row), contentWidth, PREVIEW_NAME_MAX_LINES),
     previewFieldLine("AGENT", renderValue(row.agent)),

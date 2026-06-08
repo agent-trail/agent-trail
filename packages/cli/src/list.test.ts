@@ -9,7 +9,7 @@ import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agen
 import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { runList, runListBrowser } from "./list.ts";
+import { parseShareJson, runList, runListBrowser } from "./list.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -993,6 +993,58 @@ test("runListBrowser share action re-registers stale source-backed rows", async 
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action re-registers source-backed rows with malformed source timestamp", async () => {
+  const { filePath, contentHash: staleHash } = await seedTrail({
+    cwd: "/work/actions",
+    firstText: "old malformed timestamp content",
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  await overrideRegisteredAt(storeRoot, { [staleHash]: "2026-05-17T14:00:00.000Z" });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-malformed-source-time",
+      adapter: "codex",
+      cwd: "/work/actions",
+      modifiedAt: "not-a-date",
+      path: filePath,
+    },
+  ];
+  let sharedFilename: string | null = null;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [parseableAdapter("codex", refs)],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      confirmShare: async () => true,
+      gistUpload: async (_payload, filename) => {
+        sharedFilename = filename;
+        return { gistId: "malformedtimeid" };
+      },
+      runSessionBrowser: async (input) => {
+        const row = input.rows[0];
+        expect(row?.state).toBe("source+registered");
+        expect(row?.content_hash).toBe(staleHash);
+        const shared = await input.onShare?.(row!);
+        expect(shared?.url).toBe("https://agent-trail.dev/view/gist/malformedtimeid");
+        expect(shared?.rows?.[0]?.content_hash).not.toBe(staleHash);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(sharedFilename).not.toBe(`trail-${staleHash.slice(0, 12)}.trail.jsonl.gz.b64`);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("parseShareJson rejects malformed successful share output", () => {
+  expect(() => parseShareJson("not json")).toThrow("share returned invalid JSON");
+  expect(() => parseShareJson("[]")).toThrow("share returned invalid JSON");
+});
+
 test("runListBrowser export action writes canonical bytes with existing export path", async () => {
   const { filePath, contentHash } = await seedTrail({ cwd: "/work/actions" });
   await registerTrail(filePath, { storeRoot });
@@ -1826,7 +1878,7 @@ test("multi-session file -> 2 session rows + 1 trail row in registered rows", as
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("source-backed multi-session rows collapse to the file-level trail hash", async () => {
+test("source-backed multi-session rows keep session rows and back the source row with the file-level trail hash", async () => {
   const { stampTrail, canonicalizeRecords: canon } = await import("@agent-trail/core");
 
   const records = [
@@ -1912,13 +1964,28 @@ test("source-backed multi-session rows collapse to the file-level trail hash", a
     content_hash: string;
     registered_kind: string;
   }>;
-  expect(rows).toEqual([
+  expect(rows).toHaveLength(3);
+  expect(rows).toContainEqual(
     expect.objectContaining({
       state: "source+registered",
       content_hash: stamped.envelopeHash,
       registered_kind: "trail",
     }),
-  ]);
+  );
+  expect(rows).toContainEqual(
+    expect.objectContaining({
+      state: "registered",
+      content_hash: stamped.sessionHashes[0],
+      registered_kind: "session",
+    }),
+  );
+  expect(rows).toContainEqual(
+    expect.objectContaining({
+      state: "registered",
+      content_hash: stamped.sessionHashes[1],
+      registered_kind: "session",
+    }),
+  );
 
   rmSync(dir, { recursive: true, force: true });
 });
