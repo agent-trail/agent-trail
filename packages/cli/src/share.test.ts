@@ -703,6 +703,26 @@ test("multi-session session hash shares only the selected session group", async 
   expect(decoded).not.toContain("first session should not upload");
   expect(verifyContentHash(sharedRecords).status).toBe("match");
 
+  captured = null;
+  const rawResult = await runShare(
+    [stamped.sessionHashes[1] as string, "--skip-redaction", "--yes"],
+    {
+      storeRoot,
+      confirm: async () => true,
+      gistUpload,
+    },
+  );
+
+  expect(rawResult.exitCode).toBe(0);
+  expect(captured).not.toBeNull();
+  const decodedRaw = decodePayload(captured as unknown as Uint8Array);
+  const sharedRawRecords = await parseJsonlString(decodedRaw);
+  expect(sharedRawRecords.map((record) => record.value.type)).toEqual(["session", "user_message"]);
+  expect(sharedRawRecords[0]?.value.id).toBe("01HSESS0000000000000000S02");
+  expect(decodedRaw).toContain("second session should upload");
+  expect(decodedRaw).not.toContain("first session should not upload");
+  expect(verifyContentHash(sharedRawRecords).status).toBe("match");
+
   rmSync(dir, { recursive: true, force: true });
 });
 

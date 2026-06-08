@@ -191,7 +191,7 @@ export async function runShare(
   try {
     let jsonl: Buffer;
     if (options.skipRedaction === true) {
-      jsonl = await readFile(objectFile);
+      jsonl = Buffer.from(canonicalizePreparedRecords(records), "utf8");
     } else {
       jsonl = Buffer.from(canonicalizePreparedRecords(redactedRecords as JsonlRecord[]), "utf8");
     }
