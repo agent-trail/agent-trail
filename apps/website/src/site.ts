@@ -13,7 +13,7 @@ export type LandingLink = {
 export type ReferenceImplementation = {
   name: string;
   packageLabel: string;
-  status: "available" | "planned" | "shell";
+  status: "available" | "planned";
   href: string;
 };
 
@@ -123,8 +123,8 @@ const REFERENCE_IMPLEMENTATIONS: ReferenceImplementation[] = [
   {
     name: "Gist viewer",
     packageLabel: "/view/gist/:gistId",
-    status: "shell",
-    href: "/view/gist/example",
+    status: "available",
+    href: `${GITHUB_URL}/issues/30`,
   },
 ];
 
