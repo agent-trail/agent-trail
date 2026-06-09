@@ -102,7 +102,13 @@ test("landing page model contains the minimal dark mono homepage content", async
   );
   expect(
     model.referenceImplementations.find((surface) => surface.name === "Gist viewer")?.href,
-  ).toBe("/view/gist/example");
+  ).toBe("https://github.com/agent-trail/agent-trail/issues/30");
+  expect(model.referenceImplementations.find((surface) => surface.name === "Gist viewer")).toEqual({
+    name: "Gist viewer",
+    packageLabel: "/view/gist/:gistId",
+    status: "available",
+    href: "https://github.com/agent-trail/agent-trail/issues/30",
+  });
 });
 
 test("spec page model renders anchored HTML for version and latest aliases", async () => {
@@ -318,6 +324,78 @@ test("gist viewer model turns invalid trail content into error state with diagno
   expect(model.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(true);
 });
 
+test("gist viewer model turns malformed JSONL into error state with diagnostics", async () => {
+  const malformedPayloadText = gzipSync(Buffer.from('{"type":"session"\n', "utf8")).toString(
+    "base64",
+  );
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "malformed.trail.jsonl.gz.b64",
+      payloadText: malformedPayloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/malformed",
+    }),
+  });
+
+  expect(model.status).toBe("error");
+  if (model.status !== "error") throw new Error("expected error model");
+  expect(model.message).toContain("Shared trail contains invalid JSONL");
+  expect(model.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "invalid_jsonl",
+      line: 1,
+      severity: "error",
+    }),
+  );
+});
+
+test("gist viewer model rejects graph-invalid duplicate ids", async () => {
+  const header = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  };
+  const first = {
+    type: "user_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: "first" },
+  };
+  const duplicate = {
+    type: "agent_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-17T14:00:06.000Z",
+    payload: { text: "duplicate" },
+  };
+  const payloadText = gzipSync(
+    Buffer.from(
+      `${JSON.stringify(header)}\n${JSON.stringify(first)}\n${JSON.stringify(duplicate)}\n`,
+    ),
+  ).toString("base64");
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "duplicate.trail.jsonl.gz.b64",
+      payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/duplicate",
+    }),
+  });
+
+  expect(model.status).toBe("error");
+  if (model.status !== "error") throw new Error("expected error model");
+  expect(model.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "duplicate_id",
+      line: 3,
+      severity: "error",
+    }),
+  );
+});
+
 test("gist viewer model rejects oversized compressed and decoded payloads", async () => {
   const oversizedBase64 = "A".repeat(GIST_VIEWER_LIMITS.maxBase64Chars + 1);
   const compressedFailure = await buildGistViewerModel({
@@ -332,6 +410,22 @@ test("gist viewer model rejects oversized compressed and decoded payloads", asyn
   expect(compressedFailure.status).toBe("error");
   if (compressedFailure.status !== "error") throw new Error("expected error model");
   expect(compressedFailure.message).toContain("payload exceeds");
+
+  const oversizedCompressed = Buffer.alloc(GIST_VIEWER_LIMITS.maxCompressedBytes + 1).toString(
+    "base64",
+  );
+  const compressedBytesFailure = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "compressed-large.trail.jsonl.gz.b64",
+      payloadText: oversizedCompressed,
+      sourceUrl: "https://gist.githubusercontent.com/raw/compressed-large",
+    }),
+  });
+
+  expect(compressedBytesFailure.status).toBe("error");
+  if (compressedBytesFailure.status !== "error") throw new Error("expected error model");
+  expect(compressedBytesFailure.message).toContain("compressed payload exceeds");
 
   const largeDecoded = gzipSync(Buffer.from("a".repeat(GIST_VIEWER_LIMITS.maxDecodedBytes + 1)));
   const decodedFailure = await buildGistViewerModel({
@@ -370,9 +464,11 @@ test("gist viewer model returns a bounded preview for large valid trails", async
 test("github gist payload fetcher selects the single shared payload file", async () => {
   const seed = await seedSharedTrailPayload();
   const calls: string[] = [];
-  const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
+  const signals: unknown[] = [];
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const href = String(url);
     calls.push(href);
+    signals.push(init?.signal);
     if (href.includes("api.github.com")) {
       return Response.json({
         files: {
@@ -401,6 +497,10 @@ test("github gist payload fetcher selects the single shared payload file", async
     "https://api.github.com/gists/abc123def4567890abcd",
     "https://gist.githubusercontent.com/raw/trail",
   ]);
+  expect(signals).toHaveLength(2);
+  for (const signal of signals) {
+    expect(signal).toBeInstanceOf(AbortSignal);
+  }
 });
 
 test("github gist payload fetcher rejects missing, duplicate, and raw fetch failures", async () => {
@@ -442,6 +542,55 @@ test("github gist payload fetcher rejects missing, duplicate, and raw fetch fail
   };
   await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", rawFailure)).rejects.toThrow(
     "GitHub raw payload returned 404 Not Found",
+  );
+});
+
+test("github gist payload fetcher bounds metadata before parsing raw payloads", async () => {
+  const oversizedMetadata = async (): Promise<Response> =>
+    new Response(" ".repeat(GIST_VIEWER_LIMITS.maxMetadataChars + 1));
+  await expect(
+    fetchGistPayloadFromGitHub("abc123def4567890abcd", oversizedMetadata),
+  ).rejects.toThrow(`payload exceeds ${GIST_VIEWER_LIMITS.maxMetadataChars} characters`);
+
+  const tooManyFiles = async (): Promise<Response> =>
+    Response.json({
+      files: Object.fromEntries(
+        Array.from({ length: GIST_VIEWER_LIMITS.maxMetadataFiles + 1 }, (_, index) => [
+          `file-${index}.txt`,
+          {
+            filename: `file-${index}.txt`,
+            raw_url: `https://gist.githubusercontent.com/raw/${index}`,
+          },
+        ]),
+      ),
+    });
+  await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", tooManyFiles)).rejects.toThrow(
+    `gist metadata lists more than ${GIST_VIEWER_LIMITS.maxMetadataFiles} files`,
+  );
+
+  const declaredTooLarge = async (): Promise<Response> =>
+    Response.json({
+      files: {
+        payload: {
+          filename: "payload.trail.jsonl.gz.b64",
+          raw_url: "https://gist.githubusercontent.com/raw/payload",
+          size: GIST_VIEWER_LIMITS.maxBase64Chars + 1,
+        },
+      },
+    });
+  await expect(
+    fetchGistPayloadFromGitHub("abc123def4567890abcd", declaredTooLarge),
+  ).rejects.toThrow(`declared payload size exceeds ${GIST_VIEWER_LIMITS.maxBase64Chars} bytes`);
+});
+
+test("github gist payload fetcher reports aborted requests as timeouts", async () => {
+  const aborted = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    throw new DOMException("aborted", "AbortError");
+  };
+
+  await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", aborted)).rejects.toThrow(
+    `GitHub request timed out after ${GIST_VIEWER_LIMITS.fetchTimeoutMs}ms`,
   );
 });
 

@@ -4,7 +4,7 @@
 
 Agent Trail uses a dark mono product language for the website and viewer shell: black and charcoal surfaces, thin sharp borders, grayscale text, Commit Mono typography, and compact artifact previews. The system should feel like a durable terminal record and a reference manual, not a hosted SaaS dashboard or a paper editorial page.
 
-Public pages and app surfaces share the same visual vocabulary. The homepage stays mostly text: a brief format explanation, a short `.trail.jsonl` preview, spec/schema links, and reference implementation links. Spec pages prioritize readable long-form text and anchored headings. Viewer routes use denser product-mode layout while remaining non-functional until the viewer work lands.
+Public pages and app surfaces share the same visual vocabulary. The homepage stays mostly text: a brief format explanation, a short `.trail.jsonl` preview, spec/schema links, and reference implementation links. Spec pages prioritize readable long-form text and anchored headings. Viewer routes use denser product-mode layout for shared trail loading, validation diagnostics, and bounded JSONL previews.
 
 ## Color
 
@@ -70,7 +70,7 @@ Previews:
 Reference implementation rows:
 
 - Show name, package or route label, and status.
-- Use `available`, `planned`, and `shell` status words.
+- Use `available` and `planned` status words.
 - MCP and skills remain planned links until packages or skill directories exist.
 
 ## Motion

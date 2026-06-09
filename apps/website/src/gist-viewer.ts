@@ -46,7 +46,10 @@ export type FetchGistPayload = (gistId: string) => Promise<GistPayload>;
 export type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export const GIST_VIEWER_LIMITS = {
-  maxBase64Chars: 2_000_000,
+  fetchTimeoutMs: 10_000,
+  maxMetadataChars: 512_000,
+  maxMetadataFiles: 100,
+  maxBase64Chars: 2_100_000,
   maxCompressedBytes: 1_500_000,
   maxDecodedBytes: 8_000_000,
   maxPreviewBytes: 65_536,
@@ -64,6 +67,16 @@ type SessionGroup = {
   header: TrailRecord;
   records: TrailRecord[];
 };
+
+class JsonlParseError extends Error {
+  constructor(
+    readonly line: number,
+    message: string,
+  ) {
+    super(`line ${line}: ${message}`);
+    this.name = "JsonlParseError";
+  }
+}
 
 export async function buildGistViewerModel({
   gistId,
@@ -90,7 +103,20 @@ export async function buildGistViewerModel({
     return viewerError(gistId, `Failed to decode shared trail payload: ${errorMessage(error)}`);
   }
 
-  const parsed = await validateTrailJsonl(jsonl);
+  let parsed: Awaited<ReturnType<typeof validateTrailJsonl>>;
+  try {
+    parsed = await validateTrailJsonl(jsonl);
+  } catch (error) {
+    return viewerError(gistId, `Shared trail contains invalid JSONL: ${errorMessage(error)}`, [
+      {
+        line: error instanceof JsonlParseError ? error.line : 1,
+        path: "/",
+        severity: "error",
+        code: "invalid_jsonl",
+        message: errorMessage(error),
+      },
+    ]);
+  }
   const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (errors.length > 0) {
     return {
@@ -127,17 +153,27 @@ export async function fetchGistPayloadFromGitHub(
   gistId: string,
   fetchImpl: HttpFetch = fetch,
 ): Promise<GistPayload> {
-  const response = await fetchImpl(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    `https://api.github.com/gists/${encodeURIComponent(gistId)}`,
+    {
+      headers: { Accept: "application/vnd.github+json" },
+    },
+  );
   if (!response.ok) {
     throw new Error(`GitHub returned ${response.status} ${response.statusText}`);
   }
-  const value = (await response.json()) as {
-    files?: Record<string, { filename?: string; raw_url?: string | null } | null>;
+  const value = JSON.parse(
+    await readResponseTextWithLimit(response, GIST_VIEWER_LIMITS.maxMetadataChars),
+  ) as {
+    files?: Record<string, { filename?: string; raw_url?: string | null; size?: unknown } | null>;
   };
-  const files = Object.values(value.files ?? {}).filter(
-    (file): file is { filename: string; raw_url: string } =>
+  const metadataFiles = Object.values(value.files ?? {});
+  if (metadataFiles.length > GIST_VIEWER_LIMITS.maxMetadataFiles) {
+    throw new Error(`gist metadata lists more than ${GIST_VIEWER_LIMITS.maxMetadataFiles} files`);
+  }
+  const files = metadataFiles.filter(
+    (file): file is { filename: string; raw_url: string; size?: unknown } =>
       typeof file?.filename === "string" &&
       file.filename.endsWith(".trail.jsonl.gz.b64") &&
       typeof file.raw_url === "string",
@@ -146,8 +182,15 @@ export async function fetchGistPayloadFromGitHub(
     throw new Error(`expected exactly one .trail.jsonl.gz.b64 file, found ${files.length}`);
   }
 
-  const file = files[0] as { filename: string; raw_url: string };
-  const raw = await fetchImpl(file.raw_url);
+  const file = files[0] as { filename: string; raw_url: string; size?: unknown };
+  if (
+    typeof file.size === "number" &&
+    Number.isFinite(file.size) &&
+    file.size > GIST_VIEWER_LIMITS.maxBase64Chars
+  ) {
+    throw new Error(`declared payload size exceeds ${GIST_VIEWER_LIMITS.maxBase64Chars} bytes`);
+  }
+  const raw = await fetchWithTimeout(fetchImpl, file.raw_url);
   if (!raw.ok) {
     throw new Error(`GitHub raw payload returned ${raw.status} ${raw.statusText}`);
   }
@@ -156,6 +199,33 @@ export async function fetchGistPayloadFromGitHub(
     payloadText: await readResponseTextWithLimit(raw, GIST_VIEWER_LIMITS.maxBase64Chars),
     sourceUrl: file.raw_url,
   };
+}
+
+async function fetchWithTimeout(
+  fetchImpl: HttpFetch,
+  input: string | URL | Request,
+  init: RequestInit = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GIST_VIEWER_LIMITS.fetchTimeoutMs);
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`GitHub request timed out after ${GIST_VIEWER_LIMITS.fetchTimeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException ||
+      (typeof error === "object" && error !== null && "name" in error)) &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
 }
 
 async function validateTrailJsonl(text: string): Promise<{
@@ -180,6 +250,7 @@ async function validateTrailJsonl(text: string): Promise<{
   }
 
   const groups = splitSessionGroups(records, diagnostics);
+  validateRecordTopology(records, diagnostics);
   await verifyContentHashes(groups, records, diagnostics);
   return { diagnostics, groups, records };
 }
@@ -190,9 +261,14 @@ function parseTrailJsonl(text: string): TrailRecord[] {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] as string;
     if (line.trim().length === 0) continue;
-    const value = JSON.parse(line) as unknown;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch (error) {
+      throw new JsonlParseError(i + 1, errorMessage(error));
+    }
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error(`line ${i + 1} is not a JSON object`);
+      throw new JsonlParseError(i + 1, "line is not a JSON object");
     }
     records.push({ line: i + 1, value: value as Record<string, unknown> });
   }
@@ -234,6 +310,72 @@ function splitSessionGroups(
     });
   }
   return groups;
+}
+
+function validateRecordTopology(records: TrailRecord[], diagnostics: ViewerDiagnostic[]): void {
+  const seenIds = new Map<string, TrailRecord>();
+  for (const record of records) {
+    const id = record.value.id;
+    if (typeof id !== "string") continue;
+    const prior = seenIds.get(id);
+    if (prior !== undefined) {
+      diagnostics.push({
+        line: record.line,
+        path: "/id",
+        severity: "error",
+        code: "duplicate_id",
+        message: `duplicate id ${id} also appears on line ${prior.line}`,
+      });
+      continue;
+    }
+    seenIds.set(id, record);
+  }
+
+  for (const record of records) {
+    const parentId = record.value.parent_id;
+    if (typeof parentId !== "string") continue;
+    if (!seenIds.has(parentId)) {
+      diagnostics.push({
+        line: record.line,
+        path: "/parent_id",
+        severity: "error",
+        code: "unknown_parent_id",
+        message: `parent_id ${parentId} does not reference a record in this trail`,
+      });
+    }
+  }
+
+  const recordsById = new Map<string, TrailRecord>();
+  for (const record of records) {
+    const id = record.value.id;
+    if (typeof id === "string" && !recordsById.has(id)) recordsById.set(id, record);
+  }
+  for (const record of recordsById.values()) {
+    if (hasParentCycle(record, recordsById)) {
+      diagnostics.push({
+        line: record.line,
+        path: "/parent_id",
+        severity: "error",
+        code: "parent_cycle",
+        message: "parent_id chain contains a cycle",
+      });
+    }
+  }
+}
+
+function hasParentCycle(record: TrailRecord, recordsById: Map<string, TrailRecord>): boolean {
+  const visited = new Set<string>();
+  let current: TrailRecord | undefined = record;
+  while (current !== undefined) {
+    const id = current.value.id;
+    if (typeof id !== "string") return false;
+    if (visited.has(id)) return true;
+    visited.add(id);
+    const parentId = current.value.parent_id;
+    if (typeof parentId !== "string") return false;
+    current = recordsById.get(parentId);
+  }
+  return false;
 }
 
 async function verifyContentHashes(
@@ -391,13 +533,17 @@ function recordValidator(): ReturnType<Ajv2020["compile"]> {
   return validateRecord;
 }
 
-function viewerError(gistId: string, message: string): GistViewerModel {
+function viewerError(
+  gistId: string,
+  message: string,
+  diagnostics: ViewerDiagnostic[] = [],
+): GistViewerModel {
   return {
     title: "Trail viewer",
     status: "error",
     gistId,
     message,
-    diagnostics: [],
+    diagnostics,
   };
 }
 
