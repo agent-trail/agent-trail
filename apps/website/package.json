@@ -25,6 +25,7 @@
     "check": "bun test && vite build && bun run typecheck"
   },
   "dependencies": {
+    "@agent-trail/core": "workspace:*",
     "@fontsource/commit-mono": "^5.2.5",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@n8tb1t/use-scroll-position": "^4.0.0",

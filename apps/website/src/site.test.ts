@@ -1,13 +1,21 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import type { ComponentType } from "react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { validateTrailString } from "../../../packages/core/src/index.ts";
+import {
+  canonicalizeRecords,
+  computeContentHash,
+  parseJsonlString,
+  validateTrailString,
+} from "../../../packages/core/src/index.ts";
 import { ThemeSwitcher } from "./components/shell.tsx";
 import { SpecPage } from "./components/spec-page.tsx";
 import { ArrowGlyph, RouteLink } from "./components/ui.tsx";
+import { ViewerShell } from "./components/viewer-shell.tsx";
+import { buildGistViewerModel } from "./gist-viewer.ts";
 import {
   buildPageMetadata,
   DEFAULT_DESCRIPTION,
@@ -15,14 +23,39 @@ import {
   pageTitle,
   SITE_ORIGIN,
 } from "./metadata.ts";
-import {
-  buildLandingPageModel,
-  buildSchemaResponse,
-  buildSpecPageModel,
-  buildViewerShellModel,
-} from "./site.ts";
+import { buildLandingPageModel, buildSchemaResponse, buildSpecPageModel } from "./site.ts";
 
 const repoRoot = new URL("../../../", import.meta.url);
+
+async function seedSharedTrailPayload(
+  opts: { overrideHash?: string; text?: string } = {},
+): Promise<{ contentHash: string; filename: string; payloadText: string }> {
+  const header: Record<string, unknown> = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: "codex-cli" },
+  };
+  const userMsg = {
+    type: "user_message",
+    id: "01HEVTA0000000000000000001",
+    ts: "2026-05-17T14:00:05.000Z",
+    payload: { text: opts.text ?? "hello from shared trail" },
+  };
+  const draft = `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`;
+  const contentHash = computeContentHash(await parseJsonlString(draft));
+  header.content_hash = opts.overrideHash ?? contentHash;
+  const canonical = canonicalizeRecords(
+    await parseJsonlString(`${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`),
+  );
+  const payloadText = gzipSync(Buffer.from(canonical, "utf8")).toString("base64");
+  return {
+    contentHash,
+    filename: `${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`,
+    payloadText,
+  };
+}
 
 test("landing page model contains the minimal dark mono homepage content", async () => {
   const model = await buildLandingPageModel({
@@ -161,15 +194,145 @@ test("schema aliases return canonical schema JSON with schema content type", asy
   expect(latest.contentType).toBe("application/schema+json");
 });
 
-test("viewer shell exposes gist id without claiming decode behavior", () => {
-  const model = buildViewerShellModel({ gistId: "abc123" });
+test("gist viewer model loads a valid shared trail through the injected gist fetcher", async () => {
+  const seed = await seedSharedTrailPayload();
 
-  expect(model.gistId).toBe("abc123");
-  expect(model.title).toBe("Trail viewer shell");
-  expect(model.status).toBe("coming later");
-  expect(model.body).toContain("abc123");
-  expect(model.body).not.toContain("fetches");
-  expect(model.body).not.toContain("decodes");
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async (gistId) => ({
+      filename: seed.filename,
+      payloadText: seed.payloadText,
+      sourceUrl: `https://gist.githubusercontent.com/${gistId}/raw/${seed.filename}`,
+    }),
+  });
+
+  expect(model.gistId).toBe("abc123def4567890abcd");
+  expect(model.title).toBe("Trail viewer");
+  expect(model.status).toBe("loaded");
+  if (model.status !== "loaded") throw new Error("expected loaded model");
+  expect(model.filename).toBe(seed.filename);
+  expect(model.contentHash).toBe(seed.contentHash);
+  expect(model.diagnostics).toEqual([]);
+  expect(model.summary).toEqual({
+    records: 2,
+    sessions: 1,
+    warnings: 0,
+  });
+  expect(model.preview).toContain("hello from shared trail");
+});
+
+test("gist viewer model keeps hash mismatches as warnings", async () => {
+  const seed = await seedSharedTrailPayload({ overrideHash: "0".repeat(64) });
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: seed.filename,
+      payloadText: seed.payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/hash-mismatch",
+    }),
+  });
+
+  expect(model.status).toBe("loaded");
+  if (model.status !== "loaded") throw new Error("expected loaded model");
+  expect(model.summary.warnings).toBe(1);
+  expect(model.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "content_hash_mismatch",
+      severity: "warning",
+    }),
+  );
+});
+
+test("gist viewer model turns fetch and decode failures into error state", async () => {
+  const fetchFailure = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => {
+      throw new Error("not found");
+    },
+  });
+
+  expect(fetchFailure).toEqual({
+    title: "Trail viewer",
+    status: "error",
+    gistId: "abc123def4567890abcd",
+    message: "Failed to fetch gist payload: not found",
+    diagnostics: [],
+  });
+
+  const decodeFailure = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "broken.trail.jsonl.gz.b64",
+      payloadText: "not-base64-gzip",
+      sourceUrl: "https://gist.githubusercontent.com/raw/broken",
+    }),
+  });
+
+  expect(decodeFailure.status).toBe("error");
+  if (decodeFailure.status !== "error") throw new Error("expected error model");
+  expect(decodeFailure.message).toContain("Failed to decode shared trail payload");
+});
+
+test("gist viewer model rejects non-gist ids without fetching", async () => {
+  let fetchCalled = false;
+
+  const model = await buildGistViewerModel({
+    gistId: "example",
+    fetchGistPayload: async () => {
+      fetchCalled = true;
+      throw new Error("should not fetch");
+    },
+  });
+
+  expect(model).toEqual({
+    title: "Trail viewer",
+    status: "error",
+    gistId: "example",
+    message: "Unsupported gist id: expected 20-32 lowercase hex characters.",
+    diagnostics: [],
+  });
+  expect(fetchCalled).toBe(false);
+});
+
+test("gist viewer model turns invalid trail content into error state with diagnostics", async () => {
+  const invalidJsonl = '{"type":"session","schema_version":"0.1.0"}\n';
+  const invalidPayloadText = gzipSync(Buffer.from(invalidJsonl, "utf8")).toString("base64");
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "invalid.trail.jsonl.gz.b64",
+      payloadText: invalidPayloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/invalid",
+    }),
+  });
+
+  expect(model.status).toBe("error");
+  if (model.status !== "error") throw new Error("expected error model");
+  expect(model.message).toBe("Shared trail failed reader-tolerant validation.");
+  expect(model.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(true);
+});
+
+test("viewer shell renders loaded shared trail state and warnings", async () => {
+  const seed = await seedSharedTrailPayload({ overrideHash: "0".repeat(64) });
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: seed.filename,
+      payloadText: seed.payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/hash-mismatch",
+    }),
+  });
+
+  const markup = renderToStaticMarkup(createElement(ViewerShell, { model }));
+
+  expect(markup).toContain("abc123def4567890abcd");
+  expect(markup).toContain(seed.filename);
+  expect(markup).toContain("Loaded");
+  expect(markup).toContain("Records");
+  expect(markup).toContain("content_hash_mismatch");
+  expect(markup).toContain("hello from shared trail");
 });
 
 test("metadata helper emits stable canonical and social defaults", () => {
