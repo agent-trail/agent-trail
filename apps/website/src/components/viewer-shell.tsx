@@ -93,7 +93,7 @@ function DiagnosticsList({
         {diagnostics.map((diagnostic) => (
           <li
             className="list-none border-main px-4 py-3 text-sm"
-            key={`${diagnostic.line}:${diagnostic.path}:${diagnostic.code}`}
+            key={`${diagnostic.line}:${diagnostic.path}:${diagnostic.code}:${diagnostic.message}`}
           >
             <span className="font-bold">{diagnostic.code}</span>: {diagnostic.message}
           </li>
