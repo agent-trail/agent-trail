@@ -15,7 +15,11 @@ import { ThemeSwitcher } from "./components/shell.tsx";
 import { SpecPage } from "./components/spec-page.tsx";
 import { ArrowGlyph, RouteLink } from "./components/ui.tsx";
 import { ViewerShell } from "./components/viewer-shell.tsx";
-import { buildGistViewerModel } from "./gist-viewer.ts";
+import {
+  buildGistViewerModel,
+  fetchGistPayloadFromGitHub,
+  GIST_VIEWER_LIMITS,
+} from "./gist-viewer.ts";
 import {
   buildPageMetadata,
   DEFAULT_DESCRIPTION,
@@ -314,6 +318,133 @@ test("gist viewer model turns invalid trail content into error state with diagno
   expect(model.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(true);
 });
 
+test("gist viewer model rejects oversized compressed and decoded payloads", async () => {
+  const oversizedBase64 = "A".repeat(GIST_VIEWER_LIMITS.maxBase64Chars + 1);
+  const compressedFailure = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "large.trail.jsonl.gz.b64",
+      payloadText: oversizedBase64,
+      sourceUrl: "https://gist.githubusercontent.com/raw/large",
+    }),
+  });
+
+  expect(compressedFailure.status).toBe("error");
+  if (compressedFailure.status !== "error") throw new Error("expected error model");
+  expect(compressedFailure.message).toContain("payload exceeds");
+
+  const largeDecoded = gzipSync(Buffer.from("a".repeat(GIST_VIEWER_LIMITS.maxDecodedBytes + 1)));
+  const decodedFailure = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "zip-bomb.trail.jsonl.gz.b64",
+      payloadText: largeDecoded.toString("base64"),
+      sourceUrl: "https://gist.githubusercontent.com/raw/zip-bomb",
+    }),
+  });
+
+  expect(decodedFailure.status).toBe("error");
+  if (decodedFailure.status !== "error") throw new Error("expected error model");
+  expect(decodedFailure.message).toContain("decoded payload exceeds");
+});
+
+test("gist viewer model returns a bounded preview for large valid trails", async () => {
+  const seed = await seedSharedTrailPayload({ text: "x".repeat(90_000) });
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: seed.filename,
+      payloadText: seed.payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/large-valid",
+    }),
+  });
+
+  expect(model.status).toBe("loaded");
+  if (model.status !== "loaded") throw new Error("expected loaded model");
+  expect(model.previewBytes).toBeGreaterThan(GIST_VIEWER_LIMITS.maxPreviewBytes);
+  expect(model.previewTruncated).toBe(true);
+  expect(model.preview.length).toBeLessThan(model.previewBytes);
+});
+
+test("github gist payload fetcher selects the single shared payload file", async () => {
+  const seed = await seedSharedTrailPayload();
+  const calls: string[] = [];
+  const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
+    const href = String(url);
+    calls.push(href);
+    if (href.includes("api.github.com")) {
+      return Response.json({
+        files: {
+          "notes.md": {
+            filename: "notes.md",
+            raw_url: "https://gist.githubusercontent.com/raw/notes",
+          },
+          [seed.filename]: {
+            filename: seed.filename,
+            raw_url: "https://gist.githubusercontent.com/raw/trail",
+          },
+        },
+      });
+    }
+    return new Response(seed.payloadText);
+  };
+
+  const payload = await fetchGistPayloadFromGitHub("abc123def4567890abcd", fetchImpl);
+
+  expect(payload).toEqual({
+    filename: seed.filename,
+    payloadText: seed.payloadText,
+    sourceUrl: "https://gist.githubusercontent.com/raw/trail",
+  });
+  expect(calls).toEqual([
+    "https://api.github.com/gists/abc123def4567890abcd",
+    "https://gist.githubusercontent.com/raw/trail",
+  ]);
+});
+
+test("github gist payload fetcher rejects missing, duplicate, and raw fetch failures", async () => {
+  const missing = async (): Promise<Response> => Response.json({ files: {} });
+  await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", missing)).rejects.toThrow(
+    "expected exactly one .trail.jsonl.gz.b64 file, found 0",
+  );
+
+  const duplicate = async (): Promise<Response> =>
+    Response.json({
+      files: {
+        a: {
+          filename: "a.trail.jsonl.gz.b64",
+          raw_url: "https://gist.githubusercontent.com/raw/a",
+        },
+        b: {
+          filename: "b.trail.jsonl.gz.b64",
+          raw_url: "https://gist.githubusercontent.com/raw/b",
+        },
+      },
+    });
+  await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", duplicate)).rejects.toThrow(
+    "expected exactly one .trail.jsonl.gz.b64 file, found 2",
+  );
+
+  const rawFailure = async (url: string | URL | Request): Promise<Response> => {
+    const href = String(url);
+    if (href.includes("api.github.com")) {
+      return Response.json({
+        files: {
+          payload: {
+            filename: "payload.trail.jsonl.gz.b64",
+            raw_url: "https://gist.githubusercontent.com/raw/payload",
+          },
+        },
+      });
+    }
+    return new Response("missing", { status: 404, statusText: "Not Found" });
+  };
+  await expect(fetchGistPayloadFromGitHub("abc123def4567890abcd", rawFailure)).rejects.toThrow(
+    "GitHub raw payload returned 404 Not Found",
+  );
+});
+
 test("viewer shell renders loaded shared trail state and warnings", async () => {
   const seed = await seedSharedTrailPayload({ overrideHash: "0".repeat(64) });
   const model = await buildGistViewerModel({
@@ -333,6 +464,25 @@ test("viewer shell renders loaded shared trail state and warnings", async () => 
   expect(markup).toContain("Records");
   expect(markup).toContain("content_hash_mismatch");
   expect(markup).toContain("hello from shared trail");
+});
+
+test("viewer shell renders validation diagnostics for error state", async () => {
+  const invalidJsonl = '{"type":"session","schema_version":"0.1.0"}\n';
+  const invalidPayloadText = gzipSync(Buffer.from(invalidJsonl, "utf8")).toString("base64");
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "invalid.trail.jsonl.gz.b64",
+      payloadText: invalidPayloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/invalid",
+    }),
+  });
+
+  const markup = renderToStaticMarkup(createElement(ViewerShell, { model }));
+
+  expect(markup).toContain("Shared trail failed reader-tolerant validation.");
+  expect(markup).toContain("Diagnostics");
+  expect(markup).toContain("required");
 });
 
 test("metadata helper emits stable canonical and social defaults", () => {

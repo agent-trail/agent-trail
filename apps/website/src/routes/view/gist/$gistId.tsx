@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ViewerShell } from "../../../components/viewer-shell.tsx";
-import { loadGistViewerModel } from "../../../gist-viewer-server.ts";
+import { buildGistViewerModel } from "../../../gist-viewer.ts";
 import { buildPageMetadata } from "../../../metadata.ts";
 
 export const Route = createFileRoute("/view/gist/$gistId")({
-  loader: ({ params }) => loadGistViewerModel({ data: { gistId: params.gistId } }),
+  loader: ({ params }) => buildGistViewerModel({ gistId: params.gistId }),
   head: ({ params }) =>
     buildPageMetadata({
       path: `/view/gist/${encodeURIComponent(params.gistId)}`,

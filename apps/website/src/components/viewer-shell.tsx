@@ -28,27 +28,21 @@ export function ViewerShell({ model }: { model: ViewerModel }) {
           </div>
           {model.status === "loaded" ? <LoadedDetails model={model} /> : null}
         </dl>
-        {model.status === "loaded" && model.diagnostics.length > 0 ? (
-          <section aria-labelledby="viewer-warnings" className="grid gap-3">
-            <h2 id="viewer-warnings" className="text-sm font-bold tracking-[0.18em] uppercase">
-              Warnings
-            </h2>
-            <ul className="m-0 grid gap-2 p-0">
-              {model.diagnostics.map((diagnostic) => (
-                <li
-                  className="list-none border-main px-4 py-3 text-sm"
-                  key={`${diagnostic.line}:${diagnostic.path}:${diagnostic.code}`}
-                >
-                  <span className="font-bold">{diagnostic.code}</span>: {diagnostic.message}
-                </li>
-              ))}
-            </ul>
-          </section>
+        {"diagnostics" in model && model.diagnostics.length > 0 ? (
+          <DiagnosticsList diagnostics={model.diagnostics} />
         ) : null}
         {model.status === "loaded" ? (
-          <pre className="max-h-[28rem] overflow-auto border-main p-4 text-xs leading-5">
-            <code>{model.preview}</code>
-          </pre>
+          <section aria-labelledby="viewer-preview" className="grid gap-3">
+            <h2 id="viewer-preview" className="text-sm font-bold tracking-[0.18em] uppercase">
+              JSONL preview
+            </h2>
+            <p className="m-0 text-sm text-muted">
+              {model.previewBytes} bytes{model.previewTruncated ? ", truncated" : ""}
+            </p>
+            <pre className="max-h-[28rem] overflow-auto border-main p-4 text-xs leading-5">
+              <code>{model.preview}</code>
+            </pre>
+          </section>
         ) : null}
       </section>
     </FixedPageScroll>
@@ -83,4 +77,28 @@ function bodyText(model: ViewerModel): string {
   }
   if (model.status === "error") return model.message;
   return model.body;
+}
+
+function DiagnosticsList({
+  diagnostics,
+}: {
+  diagnostics: Extract<GistViewerModel, { status: "loaded" }>["diagnostics"];
+}) {
+  return (
+    <section aria-labelledby="viewer-diagnostics" className="grid gap-3">
+      <h2 id="viewer-diagnostics" className="text-sm font-bold tracking-[0.18em] uppercase">
+        Diagnostics
+      </h2>
+      <ul className="m-0 grid gap-2 p-0">
+        {diagnostics.map((diagnostic) => (
+          <li
+            className="list-none border-main px-4 py-3 text-sm"
+            key={`${diagnostic.line}:${diagnostic.path}:${diagnostic.code}`}
+          >
+            <span className="font-bold">{diagnostic.code}</span>: {diagnostic.message}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

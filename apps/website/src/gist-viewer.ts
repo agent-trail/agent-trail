@@ -1,10 +1,14 @@
-import { gunzipSync } from "node:zlib";
-import {
-  type Diagnostic,
-  parseJsonlString,
-  splitSessionGroups,
-  validateTrailString,
-} from "@agent-trail/core";
+import schema from "@agent-trail/schema";
+import Ajv2020 from "ajv/dist/2020";
+import canonicalize from "canonicalize";
+
+export type ViewerDiagnostic = {
+  line: number;
+  path: string;
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+};
 
 export type GistViewerModel =
   | {
@@ -14,20 +18,22 @@ export type GistViewerModel =
       filename: string;
       sourceUrl: string;
       contentHash: string | null;
-      diagnostics: Diagnostic[];
+      diagnostics: ViewerDiagnostic[];
       summary: {
         records: number;
         sessions: number;
         warnings: number;
       };
       preview: string;
+      previewTruncated: boolean;
+      previewBytes: number;
     }
   | {
       title: "Trail viewer";
       status: "error";
       gistId: string;
       message: string;
-      diagnostics: Diagnostic[];
+      diagnostics: ViewerDiagnostic[];
     };
 
 export type GistPayload = {
@@ -37,8 +43,27 @@ export type GistPayload = {
 };
 
 export type FetchGistPayload = (gistId: string) => Promise<GistPayload>;
+export type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+export const GIST_VIEWER_LIMITS = {
+  maxBase64Chars: 2_000_000,
+  maxCompressedBytes: 1_500_000,
+  maxDecodedBytes: 8_000_000,
+  maxPreviewBytes: 65_536,
+} as const;
 
 const GIST_ID_RE = /^[0-9a-f]{20,32}$/;
+const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+
+type TrailRecord = {
+  line: number;
+  value: Record<string, unknown>;
+};
+
+type SessionGroup = {
+  header: TrailRecord;
+  records: TrailRecord[];
+};
 
 export async function buildGistViewerModel({
   gistId,
@@ -60,45 +85,49 @@ export async function buildGistViewerModel({
 
   let jsonl: string;
   try {
-    jsonl = decodeSharedTrailPayload(fetched.payloadText);
+    jsonl = await decodeSharedTrailPayload(fetched.payloadText);
   } catch (error) {
     return viewerError(gistId, `Failed to decode shared trail payload: ${errorMessage(error)}`);
   }
 
-  const diagnostics = await validateTrailString(jsonl, { profile: "reader-tolerant" });
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const parsed = await validateTrailJsonl(jsonl);
+  const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (errors.length > 0) {
     return {
       title: "Trail viewer",
       status: "error",
       gistId,
       message: "Shared trail failed reader-tolerant validation.",
-      diagnostics,
+      diagnostics: parsed.diagnostics,
     };
   }
 
-  const records = await parseJsonlString(jsonl);
-  const split = splitSessionGroups(records);
-  const header = split.groups[0]?.header.value as { content_hash?: unknown } | undefined;
+  const firstHash = parsed.groups[0]?.header.value.content_hash;
+  const preview = buildPreview(jsonl);
   return {
     title: "Trail viewer",
     status: "loaded",
     gistId,
     filename: fetched.filename,
     sourceUrl: fetched.sourceUrl,
-    contentHash: typeof header?.content_hash === "string" ? header.content_hash : null,
-    diagnostics,
+    contentHash: typeof firstHash === "string" ? firstHash : null,
+    diagnostics: parsed.diagnostics,
     summary: {
-      records: records.length,
-      sessions: split.groups.length,
-      warnings: diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length,
+      records: parsed.records.length,
+      sessions: parsed.groups.length,
+      warnings: parsed.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length,
     },
-    preview: jsonl,
+    preview: preview.text,
+    previewTruncated: preview.truncated,
+    previewBytes: preview.bytes,
   };
 }
 
-async function fetchGistPayloadFromGitHub(gistId: string): Promise<GistPayload> {
-  const response = await fetch(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
+export async function fetchGistPayloadFromGitHub(
+  gistId: string,
+  fetchImpl: HttpFetch = fetch,
+): Promise<GistPayload> {
+  const response = await fetchImpl(`https://api.github.com/gists/${encodeURIComponent(gistId)}`, {
     headers: { Accept: "application/vnd.github+json" },
   });
   if (!response.ok) {
@@ -116,20 +145,250 @@ async function fetchGistPayloadFromGitHub(gistId: string): Promise<GistPayload> 
   if (files.length !== 1) {
     throw new Error(`expected exactly one .trail.jsonl.gz.b64 file, found ${files.length}`);
   }
+
   const file = files[0] as { filename: string; raw_url: string };
-  const raw = await fetch(file.raw_url);
+  const raw = await fetchImpl(file.raw_url);
   if (!raw.ok) {
     throw new Error(`GitHub raw payload returned ${raw.status} ${raw.statusText}`);
   }
   return {
     filename: file.filename,
-    payloadText: (await raw.text()).trim(),
+    payloadText: await readResponseTextWithLimit(raw, GIST_VIEWER_LIMITS.maxBase64Chars),
     sourceUrl: file.raw_url,
   };
 }
 
-function decodeSharedTrailPayload(payloadText: string): string {
-  return gunzipSync(Buffer.from(payloadText.trim(), "base64")).toString("utf8");
+async function validateTrailJsonl(text: string): Promise<{
+  diagnostics: ViewerDiagnostic[];
+  groups: SessionGroup[];
+  records: TrailRecord[];
+}> {
+  const records = parseTrailJsonl(text);
+  const diagnostics: ViewerDiagnostic[] = [];
+  const validate = recordValidator();
+  for (const record of records) {
+    if (validate(record.value)) continue;
+    for (const error of validate.errors ?? []) {
+      diagnostics.push({
+        line: record.line,
+        path: error.instancePath || "/",
+        severity: "error",
+        code: error.keyword,
+        message: error.message ?? "record failed schema validation",
+      });
+    }
+  }
+
+  const groups = splitSessionGroups(records, diagnostics);
+  await verifyContentHashes(groups, records, diagnostics);
+  return { diagnostics, groups, records };
+}
+
+function parseTrailJsonl(text: string): TrailRecord[] {
+  const records: TrailRecord[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] as string;
+    if (line.trim().length === 0) continue;
+    const value = JSON.parse(line) as unknown;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`line ${i + 1} is not a JSON object`);
+    }
+    records.push({ line: i + 1, value: value as Record<string, unknown> });
+  }
+  return records;
+}
+
+function splitSessionGroups(
+  records: TrailRecord[],
+  diagnostics: ViewerDiagnostic[],
+): SessionGroup[] {
+  const groups: SessionGroup[] = [];
+  let current: SessionGroup | undefined;
+  for (const record of records) {
+    if (record.value.type === "trail") continue;
+    if (record.value.type === "session") {
+      current = { header: record, records: [record] };
+      groups.push(current);
+      continue;
+    }
+    if (current === undefined) {
+      diagnostics.push({
+        line: record.line,
+        path: "/type",
+        severity: "error",
+        code: "events_before_first_session_header",
+        message: "event appears before first session header",
+      });
+      continue;
+    }
+    current.records.push(record);
+  }
+  if (groups.length === 0) {
+    diagnostics.push({
+      line: 1,
+      path: "/type",
+      severity: "error",
+      code: "missing_header",
+      message: "trail must contain at least one session header",
+    });
+  }
+  return groups;
+}
+
+async function verifyContentHashes(
+  groups: SessionGroup[],
+  records: TrailRecord[],
+  diagnostics: ViewerDiagnostic[],
+): Promise<void> {
+  for (const group of groups) {
+    await verifyRecordHash(group.records, group.header, "session", diagnostics);
+  }
+  const envelope = records[0]?.value.type === "trail" ? records[0] : undefined;
+  if (envelope !== undefined) {
+    await verifyRecordHash(records, envelope, "trail", diagnostics);
+  }
+}
+
+async function verifyRecordHash(
+  records: TrailRecord[],
+  hashedRecord: TrailRecord,
+  recordType: "session" | "trail",
+  diagnostics: ViewerDiagnostic[],
+): Promise<void> {
+  const expected = hashedRecord.value.content_hash;
+  if (expected === undefined || expected === "<pending>") return;
+  if (typeof expected !== "string" || !CONTENT_HASH_RE.test(expected)) {
+    diagnostics.push({
+      line: hashedRecord.line,
+      path: "/content_hash",
+      severity: "error",
+      code: "content_hash_invalid",
+      message: "content_hash must be 64 lowercase hex characters",
+    });
+    return;
+  }
+  const actual = await sha256Hex(canonicalizeForHash(records, hashedRecord, recordType));
+  if (actual !== expected) {
+    diagnostics.push({
+      line: hashedRecord.line,
+      path: "/content_hash",
+      severity: "warning",
+      code: "content_hash_mismatch",
+      message: `content_hash does not match canonical bytes (computed ${actual})`,
+    });
+  }
+}
+
+function canonicalizeForHash(
+  records: TrailRecord[],
+  hashedRecord: TrailRecord,
+  recordType: "session" | "trail",
+): string {
+  const lines = records.map((record) => {
+    const value =
+      record === hashedRecord
+        ? { ...record.value, type: recordType, content_hash: "<pending>" }
+        : record.value;
+    const canonical = canonicalize(value);
+    if (canonical === undefined) throw new Error(`cannot canonicalize line ${record.line}`);
+    return canonical;
+  });
+  return `${lines.join("\n")}\n`;
+}
+
+async function decodeSharedTrailPayload(payloadText: string): Promise<string> {
+  const base64 = payloadText.replace(/\s+/g, "");
+  if (base64.length > GIST_VIEWER_LIMITS.maxBase64Chars) {
+    throw new Error(`payload exceeds ${GIST_VIEWER_LIMITS.maxBase64Chars} base64 characters`);
+  }
+  const compressed = base64ToBytes(base64);
+  if (compressed.byteLength > GIST_VIEWER_LIMITS.maxCompressedBytes) {
+    throw new Error(`compressed payload exceeds ${GIST_VIEWER_LIMITS.maxCompressedBytes} bytes`);
+  }
+  const decoded = await gunzipWithLimit(compressed, GIST_VIEWER_LIMITS.maxDecodedBytes);
+  return new TextDecoder().decode(decoded);
+}
+
+async function gunzipWithLimit(compressed: Uint8Array, maxBytes: number): Promise<Uint8Array> {
+  const compressedBytes = compressed.buffer.slice(
+    compressed.byteOffset,
+    compressed.byteOffset + compressed.byteLength,
+  ) as ArrayBuffer;
+  const stream = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error(`decoded payload exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+async function readResponseTextWithLimit(response: Response, maxChars: number): Promise<string> {
+  if (response.body === null) {
+    const text = await response.text();
+    if (text.length > maxChars) throw new Error(`payload exceeds ${maxChars} characters`);
+    return text.trim();
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let output = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    output += value;
+    if (output.length > maxChars) {
+      await reader.cancel();
+      throw new Error(`payload exceeds ${maxChars} characters`);
+    }
+  }
+  return output.trim();
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function buildPreview(text: string): { bytes: number; text: string; truncated: boolean } {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.byteLength <= GIST_VIEWER_LIMITS.maxPreviewBytes) {
+    return { bytes: bytes.byteLength, text, truncated: false };
+  }
+  const previewBytes = bytes.slice(0, GIST_VIEWER_LIMITS.maxPreviewBytes);
+  return {
+    bytes: bytes.byteLength,
+    text: `${new TextDecoder().decode(previewBytes)}\n… preview truncated at ${GIST_VIEWER_LIMITS.maxPreviewBytes} bytes`,
+    truncated: true,
+  };
+}
+
+let validateRecord: ReturnType<Ajv2020["compile"]> | undefined;
+
+function recordValidator(): ReturnType<Ajv2020["compile"]> {
+  validateRecord ??= new Ajv2020({ strict: false }).compile(schema);
+  return validateRecord;
 }
 
 function viewerError(gistId: string, message: string): GistViewerModel {
