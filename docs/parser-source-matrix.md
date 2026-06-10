@@ -604,12 +604,13 @@ Inline image/document blocks are captured as `user_message.attachments` with con
 `sha256:` refs when the decoded bytes are below the inline cap; oversized inline media keeps
 attachment metadata without decoding into a URI.
 
+Claude Code `SessionEnd` hook progress and hook-success records map to the first-class `session_end` event, not `system_event.kind`.
+
 Emitted `system_event.kind` values (spec §9.3):
 
 Reserved lifecycle vocabulary (cross-agent portable):
 
 - `session_start` — `progress` envelope with `data.hookEvent == "SessionStart"`, plus continuation-preamble user messages.
-- `session_end` — `progress` envelope with `data.hookEvent == "SessionEnd"`.
 - `turn_end` — `progress` envelope with `data.hookEvent == "Stop"`, plus `system` envelope with `subtype == "stop_hook_summary"`.
 - `subagent_end` — `progress` envelope with `data.hookEvent == "SubagentStop"`.
 - `pre_tool_use` — `progress` envelope with `data.hookEvent == "PreToolUse"`.
@@ -624,7 +625,7 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 
-Note: `system_event.kind:"permission_mode_change"` remains schema-accepted as a deprecated v0.1.0 compatibility value. Current adapters do not emit it.
+Permission-mode envelopes map to `mode_change{scope:"permission"}`, not `system_event.kind`.
 
 Reserved diagnostic vocabulary (cross-agent portable):
 

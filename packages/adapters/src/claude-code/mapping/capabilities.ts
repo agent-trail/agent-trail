@@ -1,7 +1,7 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import { isNonEmptyString } from "../../task-plan.ts";
-import { hookEventToKind } from "../envelope-mappers.ts";
+import { hookEventToKind, isSessionEndHookEvent } from "../envelope-mappers.ts";
 import { type CcEnvelope, isObject, jsonString, stringValue } from "../source.ts";
 import {
   gate,
@@ -261,6 +261,20 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
     const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
     const toolCallId = hookToolCallId(attachment);
+    const source = src(
+      hookSuccessSourceRecord(record, attachment, isLegacyAttachment),
+      originalType,
+    );
+    if (isSessionEndHookEvent(hookEvent)) {
+      return [
+        {
+          type: "session_end",
+          payload: { reason: "complete" },
+          source,
+          meta: meta(record),
+        },
+      ];
+    }
     return [
       {
         type: "system_event",
@@ -270,7 +284,7 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
           data: hookSuccessData(attachment),
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(hookSuccessSourceRecord(record, attachment, isLegacyAttachment), originalType),
+        source,
         meta: meta(record, { callId: toolCallId }),
       },
     ];

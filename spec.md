@@ -80,6 +80,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Session bundle** | A trail file with one or more session groups. At session-group level the bundle is a forest; each group may itself be linear or tree-native. |
 | **Child session** | A separate session group or external session spawned or forked from another session, linked by the child header's `fork_from`. |
 | **Event** | Any object after the header line; one unit of session content. |
+| **Turn** | One user-prompt-to-agent-completion cycle as delimited by the source. `turn_id` values are opaque source-correlation tokens; readers MUST NOT require them to resolve to any entry. |
 | **File-level content hash** | SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. |
 | **Session-level content hash** | SHA-256 of the canonical bytes covering ONLY the session header and its events (envelope excluded), with the session header's `content_hash` pinned to `<pending>`. |
 | **Entry** | Equivalent to "event"; either term may appear. |
@@ -381,7 +382,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
 | `meta` | no | object | vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention (§8.0.3 / §11) |
 
-When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
+When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`; see the §9.3 quarantine convention. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 
@@ -575,7 +576,7 @@ Every adapter must be able to emit these when the source data contains the corre
 
 #### `user_message`
 
-A message from the human user.
+A user-role message. By default this is text typed by the human user; `payload.origin` marks runtime-injected or mixed user-role content.
 
 ```jsonc
 {
@@ -594,7 +595,10 @@ A message from the human user.
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
 | `text` | yes | string | the user's input |
+| `origin` | no | enum or extension | `user`, `injected`, `mixed`, or `x-<adapter>/<name>`. Absent means `user`. |
 | `attachments` | no | array | images or files by reference |
+
+`origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
 
 Attachment `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
 
@@ -956,6 +960,8 @@ A summary entry. Used for whole-session summaries. Branch and compaction summari
 | `text` | yes | string | the summary |
 | `model` | no | string | model that produced the summary |
 
+Multiple `session_summary` entries are allowed. The last one in file order is authoritative; position is unconstrained.
+
 ### 9.3 Optional event types
 
 Part of the canonical vocabulary. Adapters need not emit them. Readers must tolerate them either way.
@@ -1006,14 +1012,13 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types ([§9.3](#9-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#9-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 
 | `kind` | When to use |
 | --- | --- |
 | `session_start` | Explicit mid-stream session-start marker (header already covers, useful for tooling that splits on events). |
-| `session_end` | Clean exit marker. |
 | `turn_start` | User prompt accepted, agent begins work. |
 | `turn_end` | Agent finishes a turn. |
 | `subagent_start` | A spawned subagent begins. |
@@ -1023,7 +1028,6 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `hook_fired` | Generic adapter-emitted hook trace. |
 | `permission_request` | Agent asked the user for tool approval. |
 | `permission_decision` | User allowed/denied a specific tool invocation. |
-| `permission_mode_change` | Deprecated compatibility value for v0.1.0 trails. New writers MUST emit `mode_change` with `scope:"permission"` instead. |
 | `cwd_change` | Working directory shifted. |
 | `env_snapshot` | Shell/env state capture. |
 
@@ -1034,11 +1038,14 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `task_started` | Source emits a structured task/step begin marker. | `{ task_id, title? }` |
 | `task_completed` | Pair to `task_started`. May be synthesized at EOF for unclosed tasks (set `source.synthesized: true`). | `{ task_id, summary?, status? }` |
 | `plan_completed` | Source emits a plan or todo completion marker without a full plan snapshot. | `{ plan_id, preview? }` |
-| `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error). Distinct from `user_interrupt`. | `{ reason }` |
+| `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error) with no tool in flight. Distinct from `user_interrupt`. | `{ reason }` |
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call. | `{ decision, tool_call_id }` |
-| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `session_end` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
+| `context_injected` | Runtime injected standalone context that should remain visible outside a `user_message`. | `{ source_kind, name?, size_bytes? }` |
+| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
+
+Use `tool_call_aborted{scope:"turn"}` for stops in a tool-invocation context where no specific call is identifiable. Use `system_event.kind:"turn_aborted"` for model/system-level turn stops with no tool in flight.
 
 ##### Reserved diagnostic vocabulary
 
@@ -1067,7 +1074,6 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 | --- | --- |
 | `permission_request` | `{ tool_call_id?: string, capability?: string, prompt?: string }` |
 | `permission_decision` | `{ decision: "allow" \| "deny", tool_call_id?: string, capability?: string }` |
-| `permission_mode_change` | Deprecated v0.1.0 compatibility shape `{ to: string, from?: string }`. New writers MUST use `mode_change{scope:"permission"}`. |
 
 ##### Extension policy and promotion
 
@@ -1075,6 +1081,7 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 - Anything else must use `x-<adapter>/<name>` form, e.g. `x-claudecode/notification`.
 - Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
+- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<adapter>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§8.2).
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
 #### `capability_change`
@@ -1167,7 +1174,7 @@ Chain-of-thought or reasoning block.
 }
 ```
 
-`level`: `low` | `medium` | `high` | `xhigh`.
+`level` is a non-empty source-defined string. Readers MUST treat unknown level tokens as opaque.
 
 #### `user_interrupt`
 
@@ -1324,6 +1331,8 @@ Active reasoning/thinking level changed or was first observed. This records the 
 | `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
 | `turn_id` | no | string | source turn id associated with the observation |
 | `data` | no | object | curated adapter metadata for this level axis |
+
+Recommended thinking-level vocabulary is `none`, `low`, `medium`, `high`, and `xhigh`. This vocabulary is not schema-enforced; source-defined tokens remain valid and opaque to readers.
 
 #### `session_terminated`
 
@@ -1749,6 +1758,7 @@ Initial public draft. v0.1.0 defines:
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
+- During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
 
 ---
 

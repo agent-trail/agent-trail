@@ -1116,7 +1116,6 @@ test("writer-strict accepts a system_event with an x-<adapter>/<name> extension 
 
 test.each([
   "session_start",
-  "session_end",
   "turn_start",
   "turn_end",
   "subagent_start",
@@ -1126,7 +1125,6 @@ test.each([
   "hook_fired",
   "permission_request",
   "permission_decision",
-  "permission_mode_change",
   "cwd_change",
   "env_snapshot",
   "task_started",
@@ -1134,6 +1132,7 @@ test.each([
   "plan_completed",
   "turn_aborted",
   "tool_decision",
+  "context_injected",
   "hook_progress",
   "queue_operation",
   "heartbeat",
@@ -1158,6 +1157,92 @@ test.each([
   });
 
   expect(diagnostics).toEqual([]);
+});
+
+const duplicateSystemEventKinds = ["session_end", ["permission", "mode", "change"].join("_")];
+
+test.each(
+  duplicateSystemEventKinds,
+)("writer-strict rejects duplicate system_event kind %s", (kind) => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: `{"type":"system_event","id":"01HEVTSE000000000000000004","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"${kind}"}}`,
+    value: {
+      type: "system_event",
+      id: "01HEVTSE000000000000000004",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { kind },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/kind")).toBe(true);
+});
+
+test("writer-strict accepts source-defined agent_thinking levels", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"agent_thinking","id":"00000000-0000-0000-0000-000000001201","ts":"2026-05-17T14:00:30.000Z","payload":{"text":"reasoning","level":"ultrathink"}}',
+    value: {
+      type: "agent_thinking",
+      id: "00000000-0000-0000-0000-000000001201",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { text: "reasoning", level: "ultrathink" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("writer-strict rejects empty agent_thinking levels", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"agent_thinking","id":"00000000-0000-0000-0000-000000001202","ts":"2026-05-17T14:00:30.000Z","payload":{"text":"reasoning","level":""}}',
+    value: {
+      type: "agent_thinking",
+      id: "00000000-0000-0000-0000-000000001202",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { text: "reasoning", level: "" },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/level")).toBe(true);
+});
+
+test.each([
+  "user",
+  "injected",
+  "mixed",
+  "x-acme/paste",
+])("writer-strict accepts user_message origin %s", (origin) => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: `{"type":"user_message","id":"00000000-0000-0000-0000-000000001203","ts":"2026-05-17T14:00:30.000Z","payload":{"text":"hello","origin":"${origin}"}}`,
+    value: {
+      type: "user_message",
+      id: "00000000-0000-0000-0000-000000001203",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { text: "hello", origin },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("writer-strict rejects bare unknown user_message origin", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"user_message","id":"00000000-0000-0000-0000-000000001204","ts":"2026-05-17T14:00:30.000Z","payload":{"text":"hello","origin":"bot"}}',
+    value: {
+      type: "user_message",
+      id: "00000000-0000-0000-0000-000000001204",
+      ts: "2026-05-17T14:00:30.000Z",
+      payload: { text: "hello", origin: "bot" },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/origin")).toBe(
+    true,
+  );
 });
 
 test("writer-strict rejects a bare unknown diagnostic-looking system_event kind", () => {

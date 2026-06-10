@@ -1,8 +1,16 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import { systemEventData, systemEventKind, systemEventText } from "../envelope-mappers.ts";
-import { type CcEnvelope, isObject, stringValue } from "../source.ts";
+import { type CcEnvelope, isObject, jsonObjectValue, stringValue } from "../source.ts";
 import { gate, hookFailureDraft, meta, type Raw, src } from "./shared.ts";
+
+function isSessionEndProgress(record: CcEnvelope): boolean {
+  if (record.type !== "progress") return false;
+  const data = jsonObjectValue(record.data);
+  return (
+    stringValue(data?.type) === "hook_progress" && stringValue(data?.hookEvent) === "SessionEnd"
+  );
+}
 
 function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw> {
   return defineMapping<Raw>({
@@ -11,6 +19,22 @@ function systemEvent(payloadType: string, allowNoUuid: boolean): MappingDef<Raw>
       const record = raw as CcEnvelope;
       if (!gate(record, allowNoUuid)) return [];
       const synthesized = typeof record.uuid !== "string";
+      if (isSessionEndProgress(record)) {
+        return [
+          {
+            type: "session_end",
+            payload: { reason: "complete" },
+            source: src(
+              record,
+              payloadType,
+              undefined,
+              undefined,
+              synthesized ? { synthesized: true } : undefined,
+            ),
+            meta: meta(record),
+          },
+        ];
+      }
       const data = systemEventData(record);
       const drafts: TrailEntryDraft[] = [
         {
