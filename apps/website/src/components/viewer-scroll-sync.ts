@@ -58,7 +58,7 @@ export type SidebarCenterRequest = {
 
 export function useViewerScrollSync(items: TranscriptItem[]): {
   activeItemId: string;
-  onTranscriptScrollRoot: (node: unknown) => void;
+  onTranscriptScrollRoot: (node: HTMLElement | null) => void;
   sidebarCenterRequest: SidebarCenterRequest | null;
   scrollToItem: (itemId: string) => void;
 } {
@@ -75,8 +75,8 @@ export function useViewerScrollSync(items: TranscriptItem[]): {
     targetItemId: string;
   } | null>(null);
   const sidebarCenterTokenRef = useRef(0);
-  const onTranscriptScrollRoot = useCallback((node: unknown) => {
-    setScrollRoot(node as ViewerScrollRoot | null);
+  const onTranscriptScrollRoot = useCallback((node: HTMLElement | null) => {
+    setScrollRoot(node as unknown as ViewerScrollRoot | null);
   }, []);
 
   const setActiveItem = useCallback((itemId: string) => {

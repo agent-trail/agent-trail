@@ -28,7 +28,7 @@ export function TranscriptPane({
 }: {
   items: TranscriptItem[];
   model: ViewerModel;
-  onScrollRoot: (node: unknown) => void;
+  onScrollRoot: (node: HTMLElement | null) => void;
 }) {
   const deadLinkGuardCleanupRef = useRef<(() => void) | null>(null);
   const handleScrollRoot = useCallback(

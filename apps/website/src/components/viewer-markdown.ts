@@ -11,8 +11,14 @@ const defaultMarkdownLinkOpen =
   viewerMarkdown.renderer.rules.link_open ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
 
+viewerMarkdown.renderer.rules.image = () => "";
+
 viewerMarkdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
+  const href = token?.attrGet("href");
+  if (token !== undefined && !isAllowedMarkdownHref(href)) {
+    token.attrSet("href", "#");
+  }
   if (token?.attrGet("href") === "#") {
     token.attrJoin("class", "viewer-dead-link");
     token.attrSet("aria-disabled", "true");
@@ -35,10 +41,16 @@ export function normalizeInvalidLinkDestinations(markdown: string): string {
 }
 
 export function preventDeadMarkdownLinkNavigation(event: {
+  composedPath?: () => readonly (EventTarget | undefined)[];
   preventDefault: () => void;
   target: EventTarget | null;
 }): void {
-  if (!isDeadMarkdownLinkEventTarget(event.target)) return;
+  if (!isDeadMarkdownLinkEventTarget(event.target)) {
+    const path = event.composedPath?.() ?? [];
+    if (!path.some((target) => target !== undefined && isDeadMarkdownLinkEventTarget(target))) {
+      return;
+    }
+  }
   event.preventDefault();
 }
 
@@ -70,6 +82,13 @@ function hasClickListeners(root: unknown): root is {
 export function isDeadMarkdownLinkEventTarget(target: EventTarget | null): boolean {
   if (!hasClosest(target)) return false;
   return target.closest('a.viewer-dead-link,a[href="#"][aria-disabled="true"]') !== null;
+}
+
+function isAllowedMarkdownHref(href: string | null | undefined): boolean {
+  if (href === undefined || href === null) return false;
+  if (href === "#") return true;
+  const normalizedHref = href.trim().toLowerCase();
+  return normalizedHref.startsWith("https://") || normalizedHref.startsWith("http://");
 }
 
 function hasClosest(target: EventTarget | null): target is EventTarget & {

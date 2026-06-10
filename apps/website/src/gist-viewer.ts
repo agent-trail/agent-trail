@@ -16,6 +16,7 @@ export type ViewerEventKind =
   | "fallback"
   | "notice"
   | "summary"
+  | "tool_aborted"
   | "tool_call"
   | "tool_result"
   | "user";
@@ -30,7 +31,14 @@ export type ViewerEvent = {
   body: string | null;
   meta: { label: string; value: string }[];
   rawJson?: string;
+  sessionIndex: number;
   status?: "error" | "ok" | "unknown";
+  tool?: {
+    forId?: string;
+    name?: string;
+    scope?: string;
+    semanticCallId?: string;
+  };
 };
 
 export type GistViewerModel =
@@ -508,15 +516,17 @@ const KNOWN_RECORD_TYPES = new Set([
 ]);
 
 function buildViewerEvents(groups: SessionGroup[]): ViewerEvent[] {
-  return groups.flatMap((group) => group.entries.map(viewerEventFromRecord));
+  return groups.flatMap((group, sessionIndex) =>
+    group.entries.map((record) => viewerEventFromRecord(record, sessionIndex)),
+  );
 }
 
-function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
+function viewerEventFromRecord(record: TrailRecord, sessionIndex: number): ViewerEvent {
   const type = stringValue(record.value.type) ?? "unknown";
   const payload = objectValue(record.value.payload);
 
   if (type === "user_message") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.text) ?? null,
       kind: "user",
       meta: attachmentMeta(payload),
@@ -525,7 +535,7 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
   }
 
   if (type === "agent_message") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.text) ?? null,
       kind: "agent",
       meta: [
@@ -538,7 +548,7 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
   }
 
   if (type === "agent_thinking") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.text) ?? null,
       kind: "agent",
       meta: [
@@ -551,32 +561,63 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
 
   if (type === "tool_call") {
     const tool = stringValue(payload?.tool) ?? "unknown";
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: summarizeArgs(objectValue(payload?.args)) ?? null,
       kind: "tool_call",
       meta: argsMeta(objectValue(payload?.args)),
       title: `Tool call: ${tool}`,
+      tool: {
+        name: tool,
+        ...optionalToolField("semanticCallId", readSemanticCallId(record.value)),
+      },
     });
   }
 
   if (type === "tool_result") {
     const ok = booleanValue(payload?.ok);
-    return baseEvent(record, {
+    const forId = stringValue(payload?.for_id);
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.output) ?? stringValue(payload?.error) ?? null,
       kind: "tool_result",
       meta: [
-        ...optionalMeta("for", stringValue(payload?.for_id)),
+        ...optionalMeta("for", forId),
         ...optionalMeta("truncated", booleanValue(payload?.truncated)?.toString()),
         ...optionalMeta("bytes", numberValue(payload?.output_size)?.toString()),
         ...attachmentMeta(payload),
       ],
       status: ok === undefined ? "unknown" : ok ? "ok" : "error",
       title: `Tool result: ${ok === undefined ? "unknown" : ok ? "ok" : "error"}`,
+      tool: {
+        ...optionalToolField("forId", forId),
+        ...optionalToolField("semanticCallId", readSemanticCallId(record.value)),
+      },
+    });
+  }
+
+  if (type === "tool_call_aborted") {
+    const forId = stringValue(payload?.for_id);
+    const scope = stringValue(payload?.scope);
+    return baseEvent(record, sessionIndex, {
+      body: stringValue(payload?.reason) ?? null,
+      kind: "tool_aborted",
+      meta: [
+        ...optionalMeta("for", forId),
+        ...optionalMeta("scope", scope),
+        ...optionalMeta("reason", stringValue(payload?.reason)),
+        ...optionalMeta("blocked by", stringValue(payload?.blocked_by)),
+      ],
+      status: "error",
+      title: `Tool aborted: ${stringValue(payload?.reason) ?? "unknown"}`,
+      tool: {
+        ...optionalToolField("forId", forId),
+        ...optionalToolField("scope", scope),
+        ...optionalToolField("semanticCallId", readSemanticCallId(record.value)),
+      },
     });
   }
 
   if (type === "session_summary") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.text) ?? null,
       kind: "summary",
       meta: optionalMeta("scope", stringValue(payload?.scope)),
@@ -585,7 +626,7 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
   }
 
   if (type === "branch_point") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.reason) ?? null,
       kind: "notice",
       meta: optionalMeta("from", stringValue(payload?.from_id)),
@@ -594,7 +635,7 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
   }
 
   if (type === "branch_summary") {
-    return baseEvent(record, {
+    return baseEvent(record, sessionIndex, {
       body: stringValue(payload?.summary) ?? null,
       kind: "notice",
       meta: optionalMeta("abandoned", stringValue(payload?.abandoned_branch_id)),
@@ -602,7 +643,7 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
     });
   }
 
-  return baseEvent(record, {
+  return baseEvent(record, sessionIndex, {
     body: fallbackBody(payload),
     kind: "fallback",
     meta: [],
@@ -613,11 +654,13 @@ function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
 
 function baseEvent(
   record: TrailRecord,
-  opts: Omit<ViewerEvent, "id" | "line" | "ts" | "type">,
+  sessionIndex: number,
+  opts: Omit<ViewerEvent, "id" | "line" | "sessionIndex" | "ts" | "type">,
 ): ViewerEvent {
   return {
     id: stringValue(record.value.id) ?? null,
     line: record.line,
+    sessionIndex,
     ts: stringValue(record.value.ts) ?? null,
     type: stringValue(record.value.type) ?? "unknown",
     ...opts,
@@ -647,6 +690,16 @@ function optionalMeta(
   value: string | undefined,
 ): { label: string; value: string }[] {
   return value === undefined || value.length === 0 ? [] : [{ label, value }];
+}
+
+function optionalToolField<K extends string>(key: K, value: string | undefined): Record<K, string> {
+  return value === undefined || value.length === 0
+    ? ({} as Record<K, string>)
+    : ({ [key]: value } as Record<K, string>);
+}
+
+function readSemanticCallId(value: Record<string, unknown>): string | undefined {
+  return stringValue(objectValue(value.semantic)?.call_id);
 }
 
 function summarizeArgs(args: Record<string, unknown> | undefined): string | null {

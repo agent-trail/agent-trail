@@ -5,6 +5,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  preventDeadMarkdownLinkNavigation,
+  renderViewerMarkdown,
+} from "./components/viewer-markdown.ts";
+import {
   buildTranscriptItemsForViewer,
   isScrollInterruptionKey,
   resolveProgrammaticSettledItem,
@@ -175,9 +179,8 @@ test("viewer shell renders user, agent, and tool events only", async () => {
   expect(markup).toContain("group-open/thinking:hidden");
   expect(markup).toContain('<details class="viewer-tool-event-details');
   expect(markup).not.toContain('<details open="" class="viewer-tool-event-details');
-  expect(markup).not.toContain("Session summary");
+  expect(markup).not.toContain("viewer-event-details");
   expect(markup).not.toContain("Core events rendered.");
-  expect(markup).not.toContain("Unknown record: future_event");
   expect(markup).not.toContain("future shape");
   expect(markup).toContain("reader_tolerant_unknown_record");
 });
@@ -242,6 +245,61 @@ test("viewer shell groups consecutive tool calls into one collapsible tool group
   expect(markup).toContain("2 total");
   expect(markup).not.toContain("viewer-terminal-block");
   expect(markup).not.toContain("<details open");
+});
+
+test("viewer shell renders aborted tool calls and preserves non-shell result text", async () => {
+  const seed = await seedSharedTrailRecords([
+    {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { tool: "file_search", args: { query: "useTrail" } },
+    },
+    {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: {
+        for_id: "01HEVTA0000000000000000001",
+        ok: true,
+        output: "Result: src/useTrail.ts\n\nplain output",
+      },
+    },
+    {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000003",
+      ts: "2026-05-17T14:00:07.000Z",
+      payload: { tool: "shell_command", args: { command: "sleep 10" } },
+    },
+    {
+      type: "tool_call_aborted",
+      id: "01HEVTA0000000000000000004",
+      ts: "2026-05-17T14:00:08.000Z",
+      payload: {
+        for_id: "01HEVTA0000000000000000003",
+        reason: "user_interrupt",
+        scope: "tool_call",
+      },
+    },
+  ]);
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: seed.filename,
+      payloadText: seed.payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/aborted-tools",
+    }),
+  });
+
+  const markup = renderToStaticMarkup(createElement(ViewerShell, { model }));
+
+  expect(markup).toContain("Tool_group: 2 Events");
+  expect(markup).toContain("Tool aborted: user_interrupt");
+  expect(markup).toContain(">reason:</dt>");
+  expect(markup).toContain("user_interrupt");
+  expect(markup).toContain("Result: src/useTrail.ts");
+  expect(markup).toContain("plain output");
+  expect(markup).not.toContain(">result:</dt>");
 });
 
 test("viewer shell renders file edit diffs with diff rows and fallback code blocks", async () => {
@@ -310,6 +368,7 @@ test("viewer shell keeps tool-only groups bounded by original trail adjacency", 
       kind: "agent",
       line: 4,
       meta: [],
+      sessionIndex: 0,
       ts: "2026-05-17T14:00:09.000Z",
       title: "Agent message",
       type: "agent_message",
@@ -332,6 +391,92 @@ test("viewer shell keeps tool-only groups bounded by original trail adjacency", 
   expect(items[1]?.kind).toBe("tool_group");
   if (items[1]?.kind !== "tool_group") throw new Error("expected second item to be tool group");
   expect(items[1].items).toHaveLength(2);
+});
+
+test("viewer shell pairs tool results by semantic and sequential fallback", () => {
+  const semanticItems = buildTranscriptItemsForViewer(
+    [
+      toolCallEvent(2, "01HEVTA0000000000000000001", "file_search", {
+        semanticCallId: "call-1",
+      }),
+      toolResultEvent(3, "01HEVTA0000000000000000002", undefined, {
+        semanticCallId: "call-1",
+      }),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+  expect(semanticItems).toHaveLength(1);
+  expect(semanticItems[0]?.kind).toBe("tool");
+  if (semanticItems[0]?.kind !== "tool") throw new Error("expected paired semantic tool item");
+  expect(semanticItems[0].call?.id).toBe("01HEVTA0000000000000000001");
+  expect(semanticItems[0].result?.id).toBe("01HEVTA0000000000000000002");
+
+  const sequentialItems = buildTranscriptItemsForViewer(
+    [
+      toolCallEvent(2, "01HEVTA0000000000000000003", "file_read"),
+      toolResultEvent(3, "01HEVTA0000000000000000004", undefined),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+  expect(sequentialItems).toHaveLength(1);
+  expect(sequentialItems[0]?.kind).toBe("tool");
+  if (sequentialItems[0]?.kind !== "tool") throw new Error("expected paired sequential tool item");
+  expect(sequentialItems[0].call?.id).toBe("01HEVTA0000000000000000003");
+  expect(sequentialItems[0].result?.id).toBe("01HEVTA0000000000000000004");
+});
+
+test("viewer shell keeps paired tool results in file order across non-tool events", () => {
+  const items = buildTranscriptItemsForViewer(
+    [
+      toolCallEvent(2, "01HEVTA0000000000000000001", "file_search"),
+      {
+        body: "Intervening response.",
+        id: "01HEVTA0000000000000000002",
+        kind: "agent",
+        line: 3,
+        meta: [],
+        sessionIndex: 0,
+        ts: "2026-05-17T14:00:07.500Z",
+        title: "Agent message",
+        type: "agent_message",
+      },
+      toolResultEvent(4, "01HEVTA0000000000000000003", "01HEVTA0000000000000000001"),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+
+  expect(items).toHaveLength(3);
+  expect(items[0]?.kind).toBe("tool");
+  expect(items[1]?.kind).toBe("agent");
+  expect(items[2]?.kind).toBe("tool");
+  if (items[0]?.kind !== "tool" || items[2]?.kind !== "tool") {
+    throw new Error("expected separate tool call/result items");
+  }
+  expect(items[0].call?.id).toBe("01HEVTA0000000000000000001");
+  expect(items[0].result).toBeUndefined();
+  expect(items[2].call).toBeUndefined();
+  expect(items[2].result?.id).toBe("01HEVTA0000000000000000003");
+});
+
+test("viewer shell does not pair tool results across session boundaries", () => {
+  const items = buildTranscriptItemsForViewer(
+    [
+      toolCallEvent(2, "01HEVTA0000000000000000001", "file_search", { sessionIndex: 0 }),
+      toolResultEvent(4, "01HEVTA0000000000000000002", undefined, { sessionIndex: 1 }),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+
+  expect(items).toHaveLength(2);
+  expect(items[0]?.kind).toBe("tool");
+  expect(items[1]?.kind).toBe("tool");
+  if (items[0]?.kind !== "tool" || items[1]?.kind !== "tool") {
+    throw new Error("expected separate cross-session tool events");
+  }
+  expect(items[0].call?.id).toBe("01HEVTA0000000000000000001");
+  expect(items[0].result).toBeUndefined();
+  expect(items[1].call).toBeUndefined();
+  expect(items[1].result?.id).toBe("01HEVTA0000000000000000002");
 });
 
 test("viewer shell renders user messages as safe markdown", async () => {
@@ -361,6 +506,34 @@ test("viewer shell renders user messages as safe markdown", async () => {
   expect(markup).toContain('<a href="https://example.com">docs</a>');
   expect(markup).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   expect(markup).not.toContain("<script>");
+});
+
+test("viewer markdown disables unsafe link schemes and dead-link clicks", () => {
+  const markup = renderViewerMarkdown(
+    "[safe](https://example.com) [app](vscode://file/etc/passwd) [ssh](ssh://example.com) ![pixel](https://attacker.example/pixel)\n\n![ref][image]\n\n[image]: https://attacker.example/ref",
+  );
+
+  expect(markup).toContain('<a href="https://example.com">safe</a>');
+  expect(markup).toContain('href="#"');
+  expect(markup).toContain('class="viewer-dead-link"');
+  expect(markup).not.toContain("vscode://");
+  expect(markup).not.toContain("ssh://");
+  expect(markup).not.toContain("<img");
+  expect(markup).not.toContain("attacker.example");
+
+  let prevented = false;
+  const deadAnchor = {
+    closest: (selector: string) =>
+      selector === 'a.viewer-dead-link,a[href="#"][aria-disabled="true"]' ? deadAnchor : null,
+  } as unknown as EventTarget;
+  preventDeadMarkdownLinkNavigation({
+    composedPath: () => [{} as EventTarget, deadAnchor],
+    preventDefault: () => {
+      prevented = true;
+    },
+    target: {} as EventTarget,
+  });
+  expect(prevented).toBe(true);
 });
 
 test("viewer shell renders redacted local path markdown links", async () => {
@@ -504,31 +677,58 @@ test("viewer shell renders an empty filtered event state", async () => {
   expect(markup).toContain("No events match selected filters.");
 });
 
-function toolCallEvent(line: number, id: string, tool: string): ViewerEvent {
+function toolCallEvent(
+  line: number,
+  id: string,
+  tool: string,
+  opts: { semanticCallId?: string; sessionIndex?: number } = {},
+): ViewerEvent {
   return {
     body: tool,
     id,
     kind: "tool_call",
     line,
     meta: [],
+    sessionIndex: opts.sessionIndex ?? 0,
     ts: "2026-05-17T14:00:07.000Z",
     title: `Tool call: ${tool}`,
+    tool: { name: tool, ...toolOptions(opts) },
     type: "tool_call",
   };
 }
 
-function toolResultEvent(line: number, id: string, forId: string): ViewerEvent {
+function toolResultEvent(
+  line: number,
+  id: string,
+  forId?: string,
+  opts: { semanticCallId?: string; sessionIndex?: number } = {},
+): ViewerEvent {
   return {
     body: `${forId} output`,
     id,
     kind: "tool_result",
     line,
-    meta: [{ label: "for", value: forId }],
+    meta: forId === undefined ? [] : [{ label: "for", value: forId }],
+    sessionIndex: opts.sessionIndex ?? 0,
     status: "ok",
     ts: "2026-05-17T14:00:08.000Z",
     title: "Tool result: ok",
+    tool: { ...(forId === undefined ? {} : { forId }), ...toolOptions(opts) },
     type: "tool_result",
   };
+}
+
+const DEFAULT_TEST_FILTERS = {
+  agent: true,
+  thinking: true,
+  tool: true,
+  user: true,
+};
+
+function toolOptions(opts: { semanticCallId?: string; sessionIndex?: number }): {
+  semanticCallId?: string;
+} {
+  return opts.semanticCallId === undefined ? {} : { semanticCallId: opts.semanticCallId };
 }
 
 test("viewer shell renders validation diagnostics for error state", async () => {

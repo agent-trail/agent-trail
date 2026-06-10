@@ -21,7 +21,7 @@ export function ToolCard({
   index: number;
   item: Extract<TranscriptItem, { kind: "tool" }>;
 }) {
-  const primary = item.call ?? item.result;
+  const primary = item.call ?? item.result ?? item.abort;
   if (primary === undefined) return null;
 
   return (
@@ -97,7 +97,7 @@ function ToolDetails({
           FOCUS_RING,
         )}
       >
-        <span>{item.call?.title ?? item.result?.title ?? "Tool event"}</span>
+        <span>{item.call?.title ?? item.result?.title ?? item.abort?.title ?? "Tool event"}</span>
         <span className="text-[10px] font-normal text-muted">
           <span className="group-open/tool:hidden">[+]</span>
           <span className="hidden group-open/tool:inline">[-]</span>
@@ -110,9 +110,11 @@ function ToolDetails({
 
 function ToolEventBody({ className, item }: { className?: string; item: ToolTranscriptItem }) {
   const resultLabel = item.result?.title ?? "Tool result";
+  const abortLabel = item.abort?.title ?? "Tool aborted";
   return (
     <div className={cn("grid gap-3", className)}>
       {item.call !== undefined ? <ToolCallBody event={item.call} /> : null}
+      {item.abort !== undefined ? <ToolAbortPanel event={item.abort} label={abortLabel} /> : null}
       {item.result !== undefined ? (
         <ToolResultPanel
           event={item.result}
@@ -143,7 +145,9 @@ function ToolResultPanel({
   label: string;
   terminal: boolean;
 }) {
-  const parsedBody = parseToolResultBody(event.body);
+  const parsedBody = terminal
+    ? parseToolResultBody(event.body)
+    : { meta: [], output: event.body ?? "" };
   const meta = [...resultMeta(event), ...parsedBody.meta];
   return (
     <details className="viewer-result-details group/result min-w-0 border-main bg-bg">
@@ -168,6 +172,25 @@ function ToolResultPanel({
         )}
       </div>
     </details>
+  );
+}
+
+function ToolAbortPanel({ event, label }: { event: ViewerEvent; label: string }) {
+  const meta = resultMeta(event);
+  return (
+    <section className="viewer-result-details min-w-0 border-main bg-bg">
+      <div className="viewer-result-summary flex min-h-7 items-center justify-between gap-4 bg-accent px-3 py-1.5 text-[10px] font-bold tracking-[0.12em] uppercase tabular-nums">
+        <span>{label}</span>
+      </div>
+      <div className="grid gap-2 border-t-main p-3">
+        {meta.length > 0 ? <ToolMetaItems items={meta} /> : null}
+        {event.body !== null && event.body.length > 0 ? (
+          <pre className="m-0 min-w-0 whitespace-pre-wrap break-words text-xs leading-5">
+            <code>{event.body}</code>
+          </pre>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
