@@ -36,27 +36,31 @@ export function sanitizeJsonStrings<T>(value: T): T {
   if (value === null || typeof value !== "object") {
     return value;
   }
+  if (!needsJsonStringSanitization(value)) {
+    return value;
+  }
 
+  return cloneSanitizedJsonStrings(value) as T;
+}
+
+function needsJsonStringSanitization(value: object): boolean {
   const seen = new WeakSet<object>();
-  const stack: object[] = [];
-  const push = (item: unknown) => {
-    if (item === null || typeof item !== "object" || seen.has(item)) return;
-    seen.add(item);
-    stack.push(item);
-  };
+  const stack: object[] = [value];
+  seen.add(value);
 
-  push(value);
   while (stack.length > 0) {
     const current = stack.pop();
     if (current === undefined) continue;
 
     if (Array.isArray(current)) {
-      for (let i = 0; i < current.length; i += 1) {
-        const child = current[i];
+      for (const child of current) {
         if (typeof child === "string") {
-          current[i] = sanitizeJsonString(child);
-        } else {
-          push(child);
+          if (sanitizeJsonString(child) !== child) return true;
+          continue;
+        }
+        if (child !== null && typeof child === "object" && !seen.has(child)) {
+          seen.add(child);
+          stack.push(child);
         }
       }
       continue;
@@ -64,19 +68,61 @@ export function sanitizeJsonStrings<T>(value: T): T {
 
     const obj = current as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
+      if (sanitizeJsonString(key) !== key) return true;
       const child = obj[key];
-      const sanitizedKey = sanitizeJsonString(key);
-      const sanitizedChild = typeof child === "string" ? sanitizeJsonString(child) : child;
-      if (sanitizedKey !== key) {
-        delete obj[key];
-        obj[sanitizedKey] = sanitizedChild;
-      } else {
-        obj[key] = sanitizedChild;
+      if (typeof child === "string") {
+        if (sanitizeJsonString(child) !== child) return true;
+        continue;
       }
-      push(sanitizedChild);
+      if (child !== null && typeof child === "object" && !seen.has(child)) {
+        seen.add(child);
+        stack.push(child);
+      }
     }
   }
-  return value;
+
+  return false;
+}
+
+function cloneSanitizedJsonStrings(value: object): object {
+  const root = Array.isArray(value) ? new Array(value.length) : {};
+  const seen = new WeakMap<object, object>([[value, root]]);
+  const stack: Array<{ source: object; target: object }> = [{ source: value, target: root }];
+
+  const cloneChild = (child: unknown): unknown => {
+    if (typeof child === "string") return sanitizeJsonString(child);
+    if (child === null || typeof child !== "object") return child;
+
+    const existing = seen.get(child);
+    if (existing !== undefined) return existing;
+
+    const cloned = Array.isArray(child) ? new Array(child.length) : {};
+    seen.set(child, cloned);
+    stack.push({ source: child, target: cloned });
+    return cloned;
+  };
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    const { source, target } = current;
+
+    if (Array.isArray(source)) {
+      const targetArray = target as unknown[];
+      for (let i = 0; i < source.length; i += 1) {
+        targetArray[i] = cloneChild(source[i]);
+      }
+      continue;
+    }
+
+    const sourceObj = source as Record<string, unknown>;
+    const targetObj = target as Record<string, unknown>;
+    for (const key of Object.keys(sourceObj)) {
+      targetObj[sanitizeJsonString(key)] = cloneChild(sourceObj[key]);
+    }
+  }
+
+  return root;
 }
 
 export function sanitizeTrailFile<T extends object>(trail: T): T {

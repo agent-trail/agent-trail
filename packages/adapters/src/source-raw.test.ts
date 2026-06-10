@@ -42,17 +42,24 @@ test("redactValue redacts a top-level string containing a credential", () => {
 
 test("redactValue and source raw sizing replace lone surrogates", () => {
   const loneSurrogate = String.fromCharCode(0xdc00);
-  const input = { [`bad${loneSurrogate}`]: "key", bad: `bad ${loneSurrogate}`, validPair: "ok 😀" };
+  const badKey = `bad${loneSurrogate}`;
+  const input = { [badKey]: "key", bad: `bad ${loneSurrogate}`, validPair: "ok 😀" };
 
   const redacted = redactValue(input) as Record<string, unknown>;
   expect(redacted["bad�"]).toBe("key");
   expect(redacted.bad).toBe("bad �");
   expect(redacted.validPair).toBe("ok 😀");
+  expect(redacted).not.toBe(input);
+  expect(input[badKey]).toBe("key");
+  expect(input.bad).toBe(`bad ${loneSurrogate}`);
 
   const { value } = enforceSourceRawSize(input);
   expect((value as Record<string, unknown>)["bad�"]).toBe("key");
   expect((value as Record<string, unknown>).bad).toBe("bad �");
   expect((value as Record<string, unknown>).validPair).toBe("ok 😀");
+  expect(value).not.toBe(input);
+  expect(input[badKey]).toBe("key");
+  expect(input.bad).toBe(`bad ${loneSurrogate}`);
 });
 
 test("enforceSourceRawSize sanitizes deeply nested raw values without recursion overflow", () => {
