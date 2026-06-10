@@ -227,6 +227,34 @@ test("gist viewer model warns for ill-formed strings in reader-tolerant validati
   );
 });
 
+test("gist viewer model rejects calendar-invalid timestamps", async () => {
+  const jsonl = [
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-02-30T00:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+  ].join("\n");
+  const payloadText = gzipSync(Buffer.from(`${jsonl}\n`, "utf8")).toString("base64");
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "invalid-timestamp.trail.jsonl.gz.b64",
+      payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/invalid-timestamp",
+    }),
+  });
+
+  expect(model.status).toBe("error");
+  if (model.status !== "error") throw new Error("expected error model");
+  expect(model.diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 1,
+      path: "/ts",
+      severity: "error",
+      code: "invalid_timestamp",
+    }),
+  );
+});
+
 test("gist viewer model turns fetch and decode failures into error state", async () => {
   const fetchFailure = await buildGistViewerModel({
     gistId: "abc123def4567890abcd",

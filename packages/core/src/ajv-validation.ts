@@ -1,6 +1,7 @@
 import schema from "@agent-trail/schema" with { type: "json" };
 import type { ErrorObject, ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
+import { timestampDiagnostics } from "./business-rules.ts";
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { illFormedStringDiagnostics } from "./string-well-formedness.ts";
@@ -73,12 +74,14 @@ export function getEventValidator(eventType: string): ValidateFunction<unknown> 
 export function validateWriterStrictRecord(record: JsonlRecord): Diagnostic[] {
   const validate = pickRecordValidator(record);
   const stringDiagnostics = illFormedStringDiagnostics(record, "error");
+  const timestampDiagnosticList = timestampDiagnostics(record);
   if (validate(record.value)) {
-    return stringDiagnostics;
+    return stringDiagnostics.concat(timestampDiagnosticList);
   }
   return (validate.errors as ErrorObject[])
     .map((error) => diagnosticFromSchemaError(error, record.line))
-    .concat(stringDiagnostics);
+    .concat(stringDiagnostics)
+    .concat(timestampDiagnosticList);
 }
 
 function pickRecordValidator(record: JsonlRecord): ValidateFunction<unknown> {

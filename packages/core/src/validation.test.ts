@@ -29,6 +29,29 @@ test("accepts the minimal writer-strict session header", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("validateWriterStrictRecord rejects calendar-invalid timestamps", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-02-30T00:00:00.000Z","agent":{"name":"codex-cli"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-02-30T00:00:00.000Z",
+      agent: { name: "codex-cli" },
+    },
+  });
+
+  expect(diagnostics).toContainEqual({
+    line: 1,
+    path: "/ts",
+    severity: "error",
+    code: "invalid_timestamp",
+    message: "Timestamp must be a valid UTC ISO-8601 value with millisecond precision",
+  });
+});
+
 test("writer-strict ids require uppercase ULIDs and lowercase UUIDs", () => {
   const canonicalUuid = validateWriterStrictRecord({
     line: 1,
@@ -843,6 +866,32 @@ test("reader-tolerant profile preserves reserved future event types", async () =
       severity: "warning",
       code: "reader_tolerant_unknown_record",
       message: 'Unknown event type "error" preserved for reader-tolerant parsing',
+    },
+  ]);
+});
+
+test("validateTrailString rejects calendar-invalid timestamps that match the schema regex", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-02-30T00:00:00.000Z","stream":{"state":"open","started_at":"2026-99-99T99:99:99.999Z"},"agent":{"name":"codex-cli"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics.filter((diagnostic) => diagnostic.code === "invalid_timestamp")).toEqual([
+    {
+      line: 1,
+      path: "/ts",
+      severity: "error",
+      code: "invalid_timestamp",
+      message: "Timestamp must be a valid UTC ISO-8601 value with millisecond precision",
+    },
+    {
+      line: 1,
+      path: "/stream/started_at",
+      severity: "error",
+      code: "invalid_timestamp",
+      message: "Timestamp must be a valid UTC ISO-8601 value with millisecond precision",
     },
   ]);
 });

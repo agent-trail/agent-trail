@@ -272,6 +272,7 @@ async function validateTrailJsonl(text: string): Promise<{
   const validate = recordValidator();
   for (const record of records) {
     diagnostics.push(...illFormedStringDiagnostics(record, "warning"));
+    diagnostics.push(...timestampDiagnostics(record));
     if (validate(record.value)) continue;
     if (isReaderTolerantUnknownRecord(record)) {
       diagnostics.push({
@@ -355,6 +356,47 @@ function illFormedStringDiagnostics(
   }
 
   return diagnostics;
+}
+
+const WRITER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const INVALID_TIMESTAMP_MESSAGE =
+  "Timestamp must be a valid UTC ISO-8601 value with millisecond precision";
+
+function timestampDiagnostics(record: TrailRecord): ViewerDiagnostic[] {
+  const diagnostics: ViewerDiagnostic[] = [];
+  appendTimestampDiagnostic(diagnostics, record.line, "/ts", record.value.ts);
+
+  if (record.value.type === "session") {
+    const stream = record.value.stream;
+    if (stream !== null && typeof stream === "object" && !Array.isArray(stream)) {
+      appendTimestampDiagnostic(
+        diagnostics,
+        record.line,
+        "/stream/started_at",
+        (stream as Record<string, unknown>).started_at,
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+function appendTimestampDiagnostic(
+  diagnostics: ViewerDiagnostic[],
+  line: number,
+  path: string,
+  value: unknown,
+): void {
+  if (typeof value !== "string" || !WRITER_TIMESTAMP_PATTERN.test(value)) return;
+  const parsed = new Date(value);
+  if (Number.isFinite(parsed.getTime()) && parsed.toISOString() === value) return;
+  diagnostics.push({
+    line,
+    path,
+    severity: "error",
+    code: "invalid_timestamp",
+    message: INVALID_TIMESTAMP_MESSAGE,
+  });
 }
 
 function illFormedStringDiagnostic(

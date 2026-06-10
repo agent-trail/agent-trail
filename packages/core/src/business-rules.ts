@@ -18,6 +18,8 @@ import { isHeaderLikeRecord } from "./validation-utils.ts";
  *   - `vcsRemoteUrlDiagnostics` — flags `vcs.remote_url` values containing
  *     `user:pass@` credentials; promotes to error when the password appears
  *     to be URL-encoded (writer leaked deliberately-encoded credentials).
+ *   - `timestampDiagnostics` — enforces the spec §16.4 calendar-valid UTC
+ *     millisecond timestamp rule that JSON Schema regex alone cannot express.
  */
 
 // userinfo with explicit password (user:pass@host). Url-encoded passwords
@@ -128,6 +130,50 @@ export function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
       }`,
     }),
   ];
+}
+
+const WRITER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const INVALID_TIMESTAMP_MESSAGE =
+  "Timestamp must be a valid UTC ISO-8601 value with millisecond precision";
+
+export function timestampDiagnostics(record: JsonlRecord): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const value = record.value as Record<string, unknown>;
+  appendTimestampDiagnostic(diagnostics, record.line, "/ts", value.ts);
+
+  if (value.type === "session") {
+    const stream = value.stream;
+    if (stream !== null && typeof stream === "object" && !Array.isArray(stream)) {
+      appendTimestampDiagnostic(
+        diagnostics,
+        record.line,
+        "/stream/started_at",
+        (stream as Record<string, unknown>).started_at,
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+function appendTimestampDiagnostic(
+  diagnostics: Diagnostic[],
+  line: number,
+  path: string,
+  value: unknown,
+): void {
+  if (typeof value !== "string" || !WRITER_TIMESTAMP_PATTERN.test(value)) return;
+  const parsed = new Date(value);
+  if (Number.isFinite(parsed.getTime()) && parsed.toISOString() === value) return;
+  diagnostics.push(
+    createDiagnostic({
+      line,
+      path,
+      severity: "error",
+      code: "invalid_timestamp",
+      message: INVALID_TIMESTAMP_MESSAGE,
+    }),
+  );
 }
 
 function matchesPattern(text: string, pattern: RedactionPattern): boolean {
