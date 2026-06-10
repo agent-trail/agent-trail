@@ -609,6 +609,17 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
     "task_plan_update",
   ]);
   expect(group.entries[2]?.payload).toEqual({ text: "hello opencode" });
+  expect(group.entries[3]?.payload).toEqual({
+    text: "Need inspect file.",
+    model: "claude-sonnet-4-5",
+    usage: {
+      input_tokens: 11,
+      output_tokens: 7,
+      reasoning_tokens: 3,
+      cache_read_tokens: 2,
+      cache_creation_tokens: 1,
+    },
+  });
   expect(group.entries[4]?.payload).toEqual({
     tool: "file_read",
     args: { path: "README.md", range: [1, 6] },
@@ -621,13 +632,6 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.entries[6]?.payload).toEqual({
     text: "Read complete.",
     model: "claude-sonnet-4-5",
-    usage: {
-      input_tokens: 11,
-      output_tokens: 7,
-      reasoning_tokens: 3,
-      cache_read_tokens: 2,
-      cache_creation_tokens: 1,
-    },
   });
   expect(group.entries.every((entry) => entry.meta?.["dev.opencode.raw_type"] !== undefined)).toBe(
     true,

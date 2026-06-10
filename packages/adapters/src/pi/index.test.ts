@@ -292,7 +292,7 @@ test("parseSession() attaches Pi assistant envelope usage to the first derived n
   const text = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
   const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
 
-  expect((thinking?.payload as { usage?: Record<string, unknown> }).usage).toEqual({
+  expect((thinking?.payload as { usage?: Record<string, unknown> })?.usage).toEqual({
     input_tokens: 321,
     output_tokens: 45,
     context_input_tokens: 321,
