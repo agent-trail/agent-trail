@@ -1445,6 +1445,20 @@ test("mapTool promotes common Codex function calls out of other", () => {
     tool: "shell_input",
     args: { input: "yes\n", command_id: "cmd-1", session_id: "42" },
   });
+  expect(
+    mapTool("write_stdin", {
+      chars: "yes\n",
+      command_id: "01hevta0000000000000000001",
+      session_id: "00000000-0000-5000-8000-ABCDEFABCDEF",
+    }),
+  ).toEqual({
+    tool: "shell_input",
+    args: {
+      input: "yes\n",
+      command_id: "01hevta0000000000000000001",
+      session_id: "00000000-0000-5000-8000-ABCDEFABCDEF",
+    },
+  });
   expect(mapTool("write_stdin", { chars: "", session_id: 42 })).toEqual({
     tool: "shell_output",
     args: { command_id: "42" },

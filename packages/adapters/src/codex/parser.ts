@@ -156,8 +156,8 @@ export function shellCommandFromArgs(args: Record<string, unknown>): string | un
   return undefined;
 }
 
-function idString(value: unknown): string | undefined {
-  if (typeof value === "string") return canonicalizeIdentityString(value);
+function opaqueIdString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
 }
@@ -250,8 +250,8 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   }
   if (rawName === "write_stdin") {
     const input = stringValue(args.chars);
-    const commandId = idString(args.command_id);
-    const sessionId = idString(args.session_id);
+    const commandId = opaqueIdString(args.command_id);
+    const sessionId = opaqueIdString(args.session_id);
     if (input !== undefined && input.length > 0) {
       return {
         tool: "shell_input",

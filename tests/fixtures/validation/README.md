@@ -348,8 +348,6 @@ Expected:
 - strict: `error ill_formed_string /payload/text line 2`
 - reader-tolerant: `warning ill_formed_string /payload/text line 2`
 
-Expected (reader-tolerant, exact set): single `warning content_hash_mismatch /content_hash line 1` — severity downgraded from error to warning, message unchanged.
-
 #### `hash-mismatch/content-hash-invalid-hex.trail.jsonl`
 
 Header `content_hash` is a non-hex string.
