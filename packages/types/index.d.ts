@@ -49,6 +49,9 @@ export type Header = {
    * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
    */
   id: string;
+  name?: string;
+  description?: string;
+  tags?: string[];
   /**
    * Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted.
    */
@@ -232,6 +235,9 @@ export interface TrailEnvelope {
   tags?: string[];
   vcs?: Vcs;
   fork_from?: {
+    /**
+     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     */
     trail_id: string;
     content_hash?: Sha256Hex;
   };
@@ -256,7 +262,7 @@ export interface TrailEnvelope {
   };
 }
 export interface Vcs {
-  type: "git" | "jj" | "hg" | "svn";
+  type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
   revision: string;
   /**
    * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).

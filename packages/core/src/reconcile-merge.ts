@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { canonicalizeRecords, stampTrail } from "./hash.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { parseFidelityForEvents } from "./parse-fidelity.ts";
@@ -20,7 +21,18 @@ import type { ReconcileGroup, ReconcileWarning, SegmentInput } from "./reconcile
 //                           `buildMergedHeader` already inherits these.
 //   All other fields      — late-bind by default via the spread (agent, source, etc).
 const STABLE_FIELDS = ["id", "type", "schema_version", "session_uid"] as const;
-const LATE_BINDING_FIELDS = ["stream", "content_hash", "vcs", "cwd", "meta"] as const;
+const LATE_BINDING_FIELDS = [
+  "stream",
+  "content_hash",
+  "vcs",
+  "cwd",
+  "name",
+  "description",
+  "tags",
+  "meta",
+] as const;
+const HEADER_METADATA_FIELDS = ["name", "description", "tags"] as const;
+type HeaderMetadataField = (typeof HEADER_METADATA_FIELDS)[number];
 
 export function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup {
   const warnings: ReconcileWarning[] = [];
@@ -65,6 +77,7 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
   const seenEventIds = new Set<string>();
   let eventsDeduped = 0;
   let prevContentHash: string | null | undefined;
+  let latestSegmentEventStartIndex = 0;
 
   // Track stable-field divergence across segment headers.
   const firstHeader = findHeader(sorted[0]?.records ?? []);
@@ -118,6 +131,7 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
     }
 
     const isFinal = i === sorted.length - 1;
+    if (isFinal) latestSegmentEventStartIndex = mergedEvents.length;
     for (const record of member.records) {
       const value = record.value;
       const type = value.type;
@@ -139,7 +153,7 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
         continue;
       }
       if (id !== undefined) seenEventIds.add(id);
-      mergedEvents.push(record);
+      mergedEvents.push(cloneRecord(record));
     }
 
     const ch = stringField(header, "content_hash");
@@ -147,8 +161,16 @@ export function mergeGroup(sessionUid: string, members: SegmentInput[]): Reconci
   }
 
   const mergedHeaderRecord = buildMergedHeader(sorted);
-  const mergedRecords: JsonlRecord[] = [mergedHeaderRecord, ...mergedEvents];
   const mergedHeaderValue = mergedHeaderRecord.value as Record<string, unknown>;
+  appendHeaderMetadataReplayCorrections(
+    mergedHeaderValue,
+    mergedEvents,
+    seenEventIds,
+    sessionUid,
+    latestSegmentEventStartIndex,
+  );
+  const mergedRecords: JsonlRecord[] = [mergedHeaderRecord, ...mergedEvents];
+  renumberMergedRecords(mergedRecords);
   mergedHeaderValue.parse_fidelity = parseFidelityForEvents(mergedEvents);
   // The merged trail is a fresh artifact whose canonical bytes differ from
   // any single segment. Re-stamp `content_hash` over the merged bytes so the
@@ -203,4 +225,128 @@ function buildMergedHeader(sorted: SegmentInput[]): JsonlRecord {
   void LATE_BINDING_FIELDS;
 
   return synthesizeRecord(merged, 1);
+}
+
+function renumberMergedRecords(records: JsonlRecord[]): void {
+  for (const [index, record] of records.entries()) {
+    record.line = index + 1;
+  }
+}
+
+function cloneRecord(record: JsonlRecord): JsonlRecord {
+  return { line: record.line, raw: record.raw, value: record.value };
+}
+
+function appendHeaderMetadataReplayCorrections(
+  header: Record<string, unknown>,
+  events: JsonlRecord[],
+  seenEventIds: Set<string>,
+  sessionUid: string,
+  insertionIndex: number,
+): void {
+  const effective: Partial<Record<HeaderMetadataField, string | string[]>> = {};
+  for (const field of HEADER_METADATA_FIELDS) {
+    const value = metadataValueForField(field, header[field]);
+    if (value !== undefined) effective[field] = value;
+  }
+
+  for (const record of events.slice(0, insertionIndex)) {
+    const value = record.value;
+    if (value.type !== "session_metadata_update" || !isObject(value.payload)) continue;
+    const field = value.payload.field;
+    if (!isHeaderMetadataField(field)) continue;
+    const next = metadataValueForField(field, value.payload.value);
+    if (next !== undefined) effective[field] = next;
+  }
+
+  let correctionIndex = boundedCorrectionInsertionIndex(events, insertionIndex);
+  for (const field of HEADER_METADATA_FIELDS) {
+    const target = metadataValueForField(field, header[field]);
+    if (target === undefined || shallowEqual(effective[field], target)) continue;
+    const previousValue = effective[field];
+    const payload: Record<string, unknown> = {
+      field,
+      value: cloneMetadataValue(target),
+      reason: "runtime_inferred",
+    };
+    if (previousValue !== undefined) payload.previous_value = cloneMetadataValue(previousValue);
+    const id = synthesizedMetadataUpdateId(sessionUid, field, target, seenEventIds);
+    seenEventIds.add(id);
+    events.splice(
+      correctionIndex,
+      0,
+      synthesizeRecord(
+        {
+          type: "session_metadata_update",
+          id,
+          ts: latestTimestamp(header, events.slice(0, correctionIndex)),
+          payload,
+          source: {
+            agent: "x-agent-trail-reconciler",
+            original_type: "reconcile.header_metadata_late_bind",
+            synthesized: true,
+          },
+        },
+        correctionIndex + 2,
+      ),
+    );
+    correctionIndex += 1;
+    effective[field] = target;
+  }
+}
+
+function boundedCorrectionInsertionIndex(events: JsonlRecord[], insertionIndex: number): number {
+  return Math.max(0, Math.min(insertionIndex, events.length));
+}
+
+function isHeaderMetadataField(value: unknown): value is HeaderMetadataField {
+  return value === "name" || value === "description" || value === "tags";
+}
+
+function metadataValueForField(
+  field: HeaderMetadataField,
+  value: unknown,
+): string | string[] | undefined {
+  if (field === "tags") {
+    return Array.isArray(value) && value.every((tag) => typeof tag === "string")
+      ? [...value]
+      : undefined;
+  }
+  return typeof value === "string" ? value : undefined;
+}
+
+function cloneMetadataValue(value: string | string[]): string | string[] {
+  return Array.isArray(value) ? [...value] : value;
+}
+
+function synthesizedMetadataUpdateId(
+  sessionUid: string,
+  field: HeaderMetadataField,
+  value: string | string[],
+  seenEventIds: Set<string>,
+): string {
+  for (let attempt = 0; ; attempt += 1) {
+    const id = createHash("sha256")
+      .update(
+        JSON.stringify({
+          kind: "agent-trail/reconcile-header-metadata",
+          sessionUid,
+          field,
+          value,
+          attempt,
+        }),
+        "utf8",
+      )
+      .digest("hex")
+      .slice(0, 32);
+    if (!seenEventIds.has(id)) return id;
+  }
+}
+
+function latestTimestamp(header: Record<string, unknown>, events: JsonlRecord[]): string {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ts = events[i]?.value.ts;
+    if (typeof ts === "string") return ts;
+  }
+  return typeof header.ts === "string" ? header.ts : "1970-01-01T00:00:00.000Z";
 }

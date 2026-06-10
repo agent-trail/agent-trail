@@ -199,8 +199,16 @@
       "required": ["type", "revision"],
       "properties": {
         "type": {
-          "type": "string",
-          "enum": ["git", "jj", "hg", "svn"]
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["git", "jj", "hg", "svn"]
+            },
+            {
+              "type": "string",
+              "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$"
+            }
+          ]
         },
         "revision": { "type": "string" },
         "remote_url": {
@@ -387,7 +395,7 @@
           "type": "object",
           "required": ["trail_id"],
           "properties": {
-            "trail_id": { "type": "string" },
+            "trail_id": { "$ref": "#/$defs/id" },
             "content_hash": { "$ref": "#/$defs/sha256Hex" }
           },
           "additionalProperties": false
@@ -431,6 +439,12 @@
           "const": "0.1.0"
         },
         "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "session_uid": {
           "$ref": "#/$defs/sessionUid",
           "description": "Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted."

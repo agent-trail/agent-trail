@@ -2,6 +2,7 @@ import { parseJsonlString, stampTrail } from "@agent-trail/core";
 import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
+import { applyHeaderMetadataUpdates } from "../header-metadata.ts";
 import type {
   AdapterSourceHealth,
   DetectOptions,
@@ -68,6 +69,7 @@ export const opencodeAdapter: TrailAdapter = {
       };
     }
     const entries = entriesFromLoaded(loaded, header);
+    applyHeaderMetadataUpdates(header, entries);
     applyParseFidelity(header, entries);
     const group = { header, entries };
     return stampTrailFile({

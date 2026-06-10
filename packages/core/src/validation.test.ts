@@ -104,6 +104,72 @@ test("accepts a writer-strict session header with parse_fidelity", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("accepts header session metadata base fields", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"name":"Initial title","description":"Initial description","tags":["release","docs"]}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      name: "Initial title",
+      description: "Initial description",
+      tags: ["release", "docs"],
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("accepts x-prefixed vcs.type extensions and rejects bare unknown vcs types", () => {
+  const extension = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"vcs":{"type":"x-acme/fossil","revision":"abc123"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      vcs: { type: "x-acme/fossil", revision: "abc123" },
+    },
+  });
+  const bare = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"vcs":{"type":"fossil","revision":"abc123"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+      vcs: { type: "fossil", revision: "abc123" },
+    },
+  });
+
+  expect(extension).toEqual([]);
+  expect(bare.some((d) => d.path === "/vcs/type" && d.severity === "error")).toBe(true);
+});
+
+test("rejects envelope fork_from.trail_id values outside the canonical id shape", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"trail","schema_version":"0.1.0","id":"00000000-0000-0000-0000-000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","fork_from":{"trail_id":"not-an-id"}}',
+    value: {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "00000000-0000-0000-0000-000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+      fork_from: { trail_id: "not-an-id" },
+    },
+  });
+
+  expect(diagnostics.some((d) => d.path === "/fork_from/trail_id")).toBe(true);
+});
+
 test("rejects invalid parse_fidelity header shapes", () => {
   const invalidCount = validateWriterStrictRecord({
     line: 1,

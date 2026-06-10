@@ -279,6 +279,7 @@ test("parseSession emits trimmed session_metadata_update name from CRLF session_
     (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
   );
 
+  expect(trail.groups[0]!.header.name).toBe("Address TDD #125");
   expect(update?.ts).toBe("2026-06-02T04:51:00.000Z");
   expect(update?.payload).toEqual({
     field: "name",
@@ -2522,6 +2523,7 @@ test("event_msg.thread_goal_updated emits session_metadata_update description", 
     (e) => e.type === "session_metadata_update" && e.payload?.field === "description",
   );
   expect(evt).toBeDefined();
+  expect(trail.groups[0]!.header.description).toBe("finish the task");
   expect(evt?.payload).toEqual({
     field: "description",
     value: "finish the task",
