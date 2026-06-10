@@ -123,6 +123,64 @@ test("redactTrail redacts session_metadata_update values but preserves field and
   expect(summary.counts.user_secret).toBe(2);
 });
 
+test("redactTrail redacts session header and trail envelope metadata fields", async () => {
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "trail",
+      schema_version: "0.1.0",
+      id: "00000000-0000-0000-0000-000000000001",
+      name: "secret-delta",
+      description: "secret-epsilon",
+      tags: ["public", "secret-zeta"],
+      ts: "2026-05-22T00:00:00.000Z",
+      producer: "trail-cli/0.3.0",
+    }),
+    record(2, {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "00000000-0000-0000-0000-000000000002",
+      name: "secret-alpha",
+      description: "secret-beta",
+      tags: ["keep", "secret-gamma"],
+      ts: "2026-05-22T00:00:00.000Z",
+      agent: { name: "codex-cli" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    userSecrets: [
+      "secret-alpha",
+      "secret-beta",
+      "secret-gamma",
+      "secret-delta",
+      "secret-epsilon",
+      "secret-zeta",
+    ],
+  });
+
+  const envelopeValue = out[0]?.value as {
+    name: string;
+    description: string;
+    tags: string[];
+  };
+  const headerValue = out[1]?.value as {
+    name: string;
+    description: string;
+    tags: string[];
+  };
+  expect(envelopeValue.name).toBe("[USER_SECRET]");
+  expect(envelopeValue.description).toBe("[USER_SECRET]");
+  expect(envelopeValue.tags).toEqual(["public", "[USER_SECRET]"]);
+  expect(headerValue.name).toBe("[USER_SECRET]");
+  expect(headerValue.description).toBe("[USER_SECRET]");
+  expect(headerValue.tags).toEqual(["keep", "[USER_SECRET]"]);
+  expect(summary.counts.user_secret).toBe(6);
+
+  const jsonl = `${out.map((r) => JSON.stringify(r.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(jsonl);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("redactTrail walks nested session_metadata_update value objects", () => {
   const records: JsonlRecord[] = [
     header(),

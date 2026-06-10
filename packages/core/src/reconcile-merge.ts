@@ -20,7 +20,16 @@ import type { ReconcileGroup, ReconcileWarning, SegmentInput } from "./reconcile
 //                           `buildMergedHeader` already inherits these.
 //   All other fields      — late-bind by default via the spread (agent, source, etc).
 const STABLE_FIELDS = ["id", "type", "schema_version", "session_uid"] as const;
-const LATE_BINDING_FIELDS = ["stream", "content_hash", "vcs", "cwd", "meta"] as const;
+const LATE_BINDING_FIELDS = [
+  "stream",
+  "content_hash",
+  "vcs",
+  "cwd",
+  "name",
+  "description",
+  "tags",
+  "meta",
+] as const;
 
 export function mergeGroup(sessionUid: string, members: SegmentInput[]): ReconcileGroup {
   const warnings: ReconcileWarning[] = [];

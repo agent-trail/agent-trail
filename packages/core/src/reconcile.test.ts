@@ -16,6 +16,9 @@ function trailHeader(opts: {
   ts: string;
   session_uid?: string;
   segment?: { seq: number; prev_content_hash?: string | null };
+  name?: string;
+  description?: string;
+  tags?: string[];
   cwd?: string;
   content_hash?: string;
   stream?: { state: "open" | "closed"; started_at?: string };
@@ -30,6 +33,9 @@ function trailHeader(opts: {
   };
   if (opts.session_uid !== undefined) header.session_uid = opts.session_uid;
   if (opts.segment !== undefined) header.segment = opts.segment;
+  if (opts.name !== undefined) header.name = opts.name;
+  if (opts.description !== undefined) header.description = opts.description;
+  if (opts.tags !== undefined) header.tags = opts.tags;
   if (opts.cwd !== undefined) header.cwd = opts.cwd;
   if (opts.content_hash !== undefined) header.content_hash = opts.content_hash;
   if (opts.stream !== undefined) header.stream = opts.stream;
@@ -133,6 +139,48 @@ test("two segments same session_uid, valid chain → merged, header ts from seg-
   expect(group.records).toHaveLength(3);
   expect((group.records[1]?.value as { id: string }).id).toBe("01HEVTA0000000000000000001");
   expect((group.records[2]?.value as { id: string }).id).toBe("01HEVTA0000000000000000002");
+});
+
+test("header session metadata late-binds from the highest-seq segment", async () => {
+  const seg1Text = `${[
+    trailHeader({
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-26T10:00:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 1 },
+      name: "Initial title",
+      description: "Initial description",
+      tags: ["initial"],
+    }),
+    userMessage("01HEVTA0000000000000000101", "2026-05-26T10:00:05.000Z"),
+  ].join("\n")}\n`;
+  const seg1Hash = await hashOf(seg1Text);
+
+  const seg2Text = `${[
+    trailHeader({
+      id: "01HSESS0000000000000000002",
+      ts: "2026-05-26T10:05:00.000Z",
+      session_uid: SESSION_UID,
+      segment: { seq: 2, prev_content_hash: seg1Hash },
+      name: "Updated title",
+      description: "Updated description",
+      tags: ["updated", "metadata"],
+    }),
+    agentMessage("01HEVTA0000000000000000102", "2026-05-26T10:05:05.000Z"),
+  ].join("\n")}\n`;
+
+  const result = reconcileSegments([
+    { source: "seg1", records: await records(seg1Text) },
+    { source: "seg2", records: await records(seg2Text) },
+  ]);
+  expect(result.warnings).toEqual([]);
+  const group = result.groups[0];
+  if (group === undefined) throw new Error("expected one group");
+
+  const header = group.records[0]?.value as Record<string, unknown>;
+  expect(header.name).toBe("Updated title");
+  expect(header.description).toBe("Updated description");
+  expect(header.tags).toEqual(["updated", "metadata"]);
 });
 
 test("dedup: event id present in both segments is emitted once", async () => {

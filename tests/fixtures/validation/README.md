@@ -37,6 +37,14 @@ Header + one `user_message` + one `agent_message`. No `parent_id`, no `content_h
 
 Expected: no diagnostics under either profile.
 
+#### `valid/session-header-metadata-base.trail.jsonl`
+
+Header carries base `name`, `description`, and `tags`, followed by a later
+`session_metadata_update` for `name`. Exercises the header-as-base replay
+semantics.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/minimal-with-content-hash.trail.jsonl`
 
 Same shape as `minimal-linear` with a precomputed `content_hash`:

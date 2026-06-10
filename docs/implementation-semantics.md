@@ -156,8 +156,9 @@ and verify segments. This repository's reconciler applies this policy:
    `process_terminated`.
 6. Build one merged header:
    - session start fields from the lowest sequence segment;
-   - late-binding fields such as `stream`, `content_hash`, `vcs`, `cwd`, and
-     `meta` from the highest sequence segment;
+   - late-binding fields such as `stream`, `content_hash`, `vcs`, `cwd`,
+     `name`, `description`, `tags`, and `meta` from the highest sequence
+     segment;
    - stable fields such as `id`, `schema_version`, `agent.name`, and
      `session_uid` checked for divergence.
 7. Drop `segment.*` fields from the merged header and restamp hashes.
@@ -193,8 +194,8 @@ This repository's redaction policy is:
 
 - Adapter emission should clean known secret patterns in `source.raw`.
 - Share-time redaction should scan messages, tool outputs, structured
-  `tool_result.payload.meta`, attachments metadata, paths, private remotes, and
-  source raw.
+  `tool_result.payload.meta`, attachments metadata, header/envelope `name`,
+  `description`, and `tags`, paths, private remotes, and source raw.
 - Redaction mutates records, then hashes must be restamped.
 - Changed event entries should increment `entry.meta.redaction_count`.
 - `vcs.remote_url` should be stripped or normalized in shared artifacts unless

@@ -239,7 +239,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
   "tags": ["..."],                                  // optional
   "vcs": { "type": "git", "revision": "..." },      // optional; same shape as §8 vcs
   "fork_from": {                                    // optional; file-level fork link
-    "trail_id": "<parent-file-id>",
+    "trail_id": "<parent-file-id>",                 // UUID or ULID id
     "content_hash": "<parent-file-hash>"            // optional
   },
   "redacted_from": {                                // optional; redacted artifacts only
@@ -268,7 +268,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
 | `content_hash` | no | string | SHA-256 hex of the whole-file canonical bytes; see §7.4 |
 | `tags` | no | string[] | free-form labels |
 | `vcs` | no | object | working-tree context at file-assembly time |
-| `fork_from` | no | object | reference to a parent file when forked |
+| `fork_from` | no | object | reference to a parent file when forked; `trail_id` is a UUID or ULID id and `content_hash` is optional |
 | `redacted_from` | no | object | provenance link from a redacted file to its raw counterpart |
 | `sessions` | no | array | manifest of sessions in this file; validator warns on drift vs file content |
 | `meta` | no | object | free-form vendor extensions (§8.0.3) |
@@ -307,6 +307,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "type": "session",
   "schema_version": "0.1.0",
   "id": "<session-uuid-or-ulid>",
+  "name": "<session-title>",                       // optional
+  "description": "<free-text-description>",        // optional
+  "tags": ["feature", "debug"],                    // optional
   "content_hash": "<sha256-hex>",               // optional; populated at finalize
   "ts": "<ISO-8601 timestamp>",
   "stream": {                                   // optional; live-capture marker (§8.4)
@@ -320,7 +323,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
   },
   "cwd": "<absolute-path-or-normalized>",       // optional
   "vcs": {                                      // optional
-    "type": "git" | "jj" | "hg" | "svn",
+    "type": "git" | "jj" | "hg" | "svn" | "x-<vendor>/<name>",
     "revision": "<sha-or-change-id>",
     "remote_url": "<canonical-remote-url>"      // optional; see §8.2
   },
@@ -354,6 +357,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
 | `id` | yes | string | UUID or ULID per §7.1/§17 |
+| `name` | no | string | human session label |
+| `description` | no | string | free-text session description |
+| `tags` | no | string[] | free-form session labels |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
 | `stream` | no | object | live-capture marker; see §8.4 |
@@ -362,7 +368,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `agent.model_default` | no | string | default model for the session |
 | `cwd` | no | string | working directory; may be normalized for privacy |
 | `vcs` | no | object | version control context at session time |
-| `vcs.type` | yes (if `vcs` present) | enum | `git`, `jj`, `hg`, or `svn` |
+| `vcs.type` | yes (if `vcs` present) | enum or extension | `git`, `jj`, `hg`, `svn`, or `x-<vendor>/<name>` for non-reserved systems |
 | `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
 | `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
 | `vcs.branch` | no | string | active branch / bookmark / topic name the session is running on (e.g., `feature/x`). Detached-HEAD sessions MAY omit. |
@@ -962,7 +968,7 @@ Part of the canonical vocabulary. Adapters need not emit them. Readers must tole
 
 #### `session_metadata_update`
 
-Post-creation update to logical session metadata that was not known when the immutable header was written. The header remains as-written; consumers that need the effective session metadata replay these events in file order, with the last update to a field winning. The event is part of normal session content and contributes to the session-level `content_hash`.
+Post-creation update to logical session metadata. The session header carries the base value when it is known at write time; consumers that need effective session metadata start with the header value and then replay these events in file order, with the last update to a field winning. The header remains as-written, and the event is part of normal session content that contributes to the session-level `content_hash`.
 
 ```jsonc
 {
@@ -1745,6 +1751,7 @@ Initial public draft. v0.1.0 defines:
 - JSONL file layout, session header, core event envelope, mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
+- Session headers may carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.

@@ -120,6 +120,12 @@ function* visitObjectMember(
   }
 }
 
+function* visitLabelMetadata(value: Record<string, unknown>, index: number): Generator<Visit> {
+  for (const key of ["name", "description", "tags"] as const) {
+    yield* visitObjectMember(value, key, index, `records[${index}].${key}`);
+  }
+}
+
 export function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean): Generator<Visit> {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -127,6 +133,7 @@ export function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean)
     const type = value.type;
 
     if (type === "session") {
+      yield* visitLabelMetadata(value, index);
       if (typeof value.cwd === "string") {
         yield keyVisit(value, "cwd", index, `records[${index}].cwd`);
       }
@@ -141,6 +148,7 @@ export function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean)
     }
 
     if (type === "trail") {
+      yield* visitLabelMetadata(value, index);
       // Trail envelope carries vcs in the same shape as the session header.
       const vcs = value.vcs as Record<string, unknown> | undefined;
       if (vcs !== undefined) {

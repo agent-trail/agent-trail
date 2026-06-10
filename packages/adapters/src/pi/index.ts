@@ -2,6 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
+import { applyHeaderMetadataUpdates } from "../header-metadata.ts";
 import type {
   AdapterSourceHealth,
   DetectOptions,
@@ -180,6 +181,7 @@ export const piAdapter: TrailAdapter = {
       throw new Error("Pi header missing session_uid (buildHeader invariant)");
     }
     const entries = await parsePiSnapshotEntries(envelopes, header.session_uid);
+    applyHeaderMetadataUpdates(header, entries);
     applyParseFidelity(header, entries);
     const groups = [{ header, entries }];
     const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });

@@ -2,6 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import type { Entry, Header } from "@agent-trail/types";
 import { buildTrailEnvelope } from "../envelope.ts";
+import { applyHeaderMetadataUpdates } from "../header-metadata.ts";
 import type { TrailFile, TrailSessionGroup } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
@@ -80,6 +81,7 @@ async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<Trai
     sessionUid,
   );
   if (sessionIndexUpdate !== undefined) entries.push(sessionIndexUpdate);
+  applyHeaderMetadataUpdates(header, entries);
   applyParseFidelity(header, entries);
   return { header, entries };
 }
