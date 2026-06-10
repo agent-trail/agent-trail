@@ -47,8 +47,9 @@ others:
   `capability_change`, `command_invoke`, `session_metadata_update`, or
   `system_event` for matching source signals.
 
-The authoritative event-type list is `schema.json` `$defs.entry.oneOf`; this
-prose is mapping guidance, not a duplicate registry.
+The authoritative event-type list is `schema.json` JSON Pointer
+`#/$defs/entry/allOf/1/oneOf`; this prose is mapping guidance, not a duplicate
+registry.
 
 Use vendor `system_event.payload.kind` values for weak-fit source events, for
 example `x-<adapter>/<event>`. Preserve source details in `source.raw` or
