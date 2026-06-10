@@ -146,6 +146,18 @@ Expected: no diagnostics under either profile.
 
 Expected: no diagnostics under either profile.
 
+#### `valid/tool-call-usage.trail.jsonl`
+
+`tool_call` payload carries `usage` because the call is the first entry derived from a source envelope. The usage object keeps the same required input/output coverage rules as `agent_message.payload.usage`.
+
+Expected: no diagnostics under either profile.
+
+#### `valid/agent-thinking-usage.trail.jsonl`
+
+`agent_thinking` payload carries `usage` because the thinking block is the first entry derived from a source envelope.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/capability-change.trail.jsonl`
 
 Exercises `capability_change` `added`, `removed`, `changed`, and `snapshot` payload shapes across tool, skill, MCP server, and MCP tool scopes.
@@ -315,6 +327,18 @@ Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the mi
 `agent_message.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`. Spec §9.2 requires at least one of each pair when `usage` is present.
 
 Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the missing output pair.
+
+#### `invalid-schema/tool-call-usage-missing-output.trail.jsonl`
+
+`tool_call.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`.
+
+Expected (subset, both profiles): `error anyOf /payload/usage line 2` for the missing output pair.
+
+#### `invalid-schema/agent-thinking-usage-missing-output.trail.jsonl`
+
+`agent_thinking.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`.
+
+Expected (subset, both profiles): `error anyOf /payload/usage line 2` for the missing output pair.
 
 #### `invalid-schema/agent-message-usage-zero-context-window.trail.jsonl`
 

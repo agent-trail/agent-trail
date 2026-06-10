@@ -46,6 +46,20 @@ test("valid/agent-message-usage.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-call-usage.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-usage.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/agent-thinking-usage.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/agent-thinking-usage.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/agent-message-attachments.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/agent-message-attachments.trail.jsonl"),
@@ -161,6 +175,32 @@ test("invalid-schema/agent-message-usage-missing-output.trail.jsonl rejects usag
   );
   expect(diagnostics).toContainEqual({
     line: 3,
+    path: "/payload/usage",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
+test("invalid-schema/tool-call-usage-missing-output.trail.jsonl rejects usage missing output pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-usage-missing-output.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/usage",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
+test("invalid-schema/agent-thinking-usage-missing-output.trail.jsonl rejects usage missing output pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-thinking-usage-missing-output.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
     path: "/payload/usage",
     severity: "error",
     code: "anyOf",

@@ -38,4 +38,4 @@ immutable public snapshot. No version bump is made.
 - Writers must omit the field rather than emitting raw source ids or empty arrays when provenance
   cannot be mapped to Agent Trail entry ids.
 
-Tracks #176.
+Tracks #176. Renumbered from ADR-0007 to ADR-0008 during #248 housekeeping.
