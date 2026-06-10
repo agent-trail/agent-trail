@@ -33,16 +33,16 @@ export function illFormedStringDiagnostics(
     }
 
     if (Array.isArray(value)) {
-      for (let i = value.length - 1; i >= 0; i -= 1) {
-        stack.push({ value: value[i], path: appendJsonPointerSegment(path, String(i)) });
+      const arrayEntries = Array.from(value.entries()).reverse();
+      for (const [i, item] of arrayEntries) {
+        stack.push({ value: item, path: appendJsonPointerSegment(path, String(i)) });
       }
       continue;
     }
 
     if (value !== null && typeof value === "object") {
-      const entries = Object.entries(value as Record<string, unknown>);
-      for (let i = entries.length - 1; i >= 0; i -= 1) {
-        const [key, child] = entries[i] as [string, unknown];
+      const objEntries = Object.entries(value).reverse();
+      for (const [key, child] of objEntries) {
         const pathKey = replaceUnpairedSurrogates(key);
         if (hasUnpairedSurrogate(key)) {
           diagnostics.push(
