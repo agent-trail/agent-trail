@@ -102,6 +102,13 @@ test("valid/session-metadata-update-name.trail.jsonl validates clean", async () 
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/session-header-metadata-base.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-header-metadata-base.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/session-metadata-update-tags.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/session-metadata-update-tags.trail.jsonl"),

@@ -3739,6 +3739,7 @@ test("parseSession() maps ai-title and agent-name to session_metadata_update eve
     });
     expect(trail.envelope?.name).toBeUndefined();
     expect(trail.envelope?.meta).toBeUndefined();
+    expect(trail.groups[0]!.header.name).toBe("Wire ai-title plumbing");
     const updates = trail.groups[0]!.entries.filter(
       (entry) => entry.type === "session_metadata_update",
     );

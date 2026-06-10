@@ -1454,6 +1454,7 @@ test("session_info emits session_metadata_update name instead of x-pi/session_in
   const update = trail.groups[0]!.entries.find(
     (e) => e.type === "session_metadata_update" && e.payload?.field === "name",
   );
+  expect(trail.groups[0]!.header.name).toBe("Refactor adapter kit");
   expect(update?.payload).toEqual({
     field: "name",
     value: "Refactor adapter kit",

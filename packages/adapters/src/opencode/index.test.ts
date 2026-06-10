@@ -1016,6 +1016,7 @@ test("parseSession() emits useful SQLite session metadata and permission surface
   });
   const entries = trail.groups[0]!.entries;
   const metadata = entries.filter((entry) => entry.type === "session_metadata_update");
+  expect(trail.groups[0]!.header.name).toBe("Metadata Session");
   expect(metadata.map((entry) => entry.payload.field)).toEqual([
     "name",
     "agent.model_default",

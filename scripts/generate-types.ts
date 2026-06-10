@@ -66,6 +66,35 @@ const flatUnion = [
 ].join("\n");
 let generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
 
+const vcsTypeEnum = (
+  schema as {
+    $defs?: {
+      vcs?: {
+        properties?: {
+          type?: { anyOf?: Array<{ enum?: string[] }> };
+        };
+      };
+    };
+  }
+).$defs?.vcs?.properties?.type?.anyOf?.find((branch) => Array.isArray(branch.enum))?.enum;
+if (vcsTypeEnum === undefined || vcsTypeEnum.length === 0) {
+  throw new Error("generate-types: could not read reserved vcs.type enum from schema.");
+}
+const VCS_TYPE_RE = /export interface Vcs \{\n {2}type: \((?:"[^"]+"(?: \| )?)+\) \| string;/;
+if (!VCS_TYPE_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the Vcs.type anyOf line to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const vcsTypeReplacement = [
+  ...vcsTypeEnum.map((value) => JSON.stringify(value)),
+  "`x-$" + "{string}/$" + "{string}`",
+].join(" | ");
+generated = generated.replace(
+  VCS_TYPE_RE,
+  `export interface Vcs {\n  type: ${vcsTypeReplacement};`,
+);
+
 // json-schema-to-typescript collapses the `command_invoke.payload.result_action`
 // oneOf pattern branch (`^x-...$`) into a bare `string`, widening the type so it
 // accepts any string. Read the reserved enum from the schema and rewrite the
