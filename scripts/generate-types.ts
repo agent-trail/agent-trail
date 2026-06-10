@@ -192,6 +192,34 @@ generated = generated.replace(
   "$1field: `x-$" + "{string}/$" + "{string}`;$2",
 );
 
+// json-schema-to-typescript widens `tool_call.payload` to an index signature
+// because the schema combines shared properties with many tool-specific `allOf`
+// conditionals. Keep the public declaration aligned with the common
+// writer-strict surface; tool-specific arg details remain validated by schema.
+const TOOL_CALL_RE =
+  /export interface ToolCall \{\n {2}type\?: "tool_call";\n {2}payload\?: \{\n {4}\[k: string\]: unknown;\n {2}\};\n {2}\[k: string\]: unknown;\n\}/;
+if (!TOOL_CALL_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the ToolCall payload to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+generated = generated.replace(
+  TOOL_CALL_RE,
+  [
+    "export interface ToolCall {",
+    '  type?: "tool_call";',
+    "  payload?: {",
+    "    tool: ToolKind;",
+    "    args: {",
+    "      [k: string]: unknown;",
+    "    };",
+    "    usage?: AgentMessageUsage;",
+    "  };",
+    "  [k: string]: unknown;",
+    "}",
+  ].join("\n"),
+);
+
 const toolCallAbortedScopeEnum = (
   schema as {
     $defs?: {

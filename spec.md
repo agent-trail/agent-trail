@@ -658,7 +658,7 @@ Context token semantics are for context-pressure analytics, not billing. Writers
 
 Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 
-When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first entry derived from that envelope — whatever its type — and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads.
+When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first derived entry whose payload supports `usage`, skip non-usage-capable derived entries, and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads; if an envelope emits none of those entries, canonical `usage` is omitted.
 
 Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 

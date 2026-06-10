@@ -1,8 +1,9 @@
 // Claude Code is linear (parentChain handles parent_id). These custom rules cover
 // the cross-record behaviors the kit's per-record mappings can't express:
 // synthesized model_change (assistant model transitions), permission-mode deltas,
-// compact-boundary provenance, tool_kind propagation to results, and multi-block source.raw.envelope_ref
-// backfill + hint stripping. ccEnvelopeRefBackfill runs LAST (it strips hints).
+// compact-boundary provenance, request-level usage dedupe, tool_kind propagation
+// to results, and multi-block source.raw.envelope_ref backfill + hint stripping.
+// ccEnvelopeRefBackfill runs LAST (it strips hints).
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
@@ -19,6 +20,19 @@ function linkerCallId(entry: Entry): string | undefined {
   if (linker === null || typeof linker !== "object") return undefined;
   const callId = (linker as Record<string, unknown>).call_id;
   return typeof callId === "string" ? callId : undefined;
+}
+
+function payloadHasUsage(entry: Entry): boolean {
+  return (
+    entry.payload !== null &&
+    typeof entry.payload === "object" &&
+    Object.hasOwn(entry.payload, "usage")
+  );
+}
+
+function omitPayloadUsage(entry: Entry): Entry {
+  const { usage: _usage, ...payload } = entry.payload as Record<string, unknown>;
+  return { ...entry, payload } as Entry;
 }
 
 /**
@@ -130,6 +144,23 @@ export const ccGitBranchMetadataSynth: ReconcilerRule = (entries) => {
     out.push(entry);
   }
   return out;
+};
+
+/**
+ * Claude Code can split one assistant API response across multiple JSONL
+ * records that share `requestId`; each record repeats the same
+ * `message.usage`. Keep usage only on the first usage-capable entry in that
+ * request group.
+ */
+export const ccRequestUsageDedupe: ReconcilerRule = (entries) => {
+  const seenGroups = new Set<string>();
+  return entries.map((entry) => {
+    const groupId = entry.semantic?.group_id;
+    if (typeof groupId !== "string" || !payloadHasUsage(entry)) return entry;
+    if (seenGroups.has(groupId)) return omitPayloadUsage(entry);
+    seenGroups.add(groupId);
+    return entry;
+  });
 };
 
 function isCompactBoundary(entry: Entry): boolean {
@@ -333,7 +364,7 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
   return entries.map((entry) => {
     if (entry.type !== "mode_change") return entry;
     const payload = entry.payload;
-    if (!payload || payload.scope !== "permission") return entry;
+    if (payload?.scope !== "permission") return entry;
     const mode = typeof payload.to_mode === "string" ? payload.to_mode : undefined;
     if (mode === undefined) return entry;
     let next = entry;

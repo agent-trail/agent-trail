@@ -398,7 +398,11 @@ export interface TaskPlanItem {
 export interface ToolCall {
   type?: "tool_call";
   payload?: {
-    [k: string]: unknown;
+    tool: ToolKind;
+    args: {
+      [k: string]: unknown;
+    };
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
 }

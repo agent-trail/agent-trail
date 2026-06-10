@@ -30,8 +30,8 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 | Source agent | Source status | Storage format(s) | Reuse boundary | Reference URL | Verified on | Source-agent version | Observed entry types | Fixture names | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, thinking_level_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
-| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl | verified |
+| Pi | open | JSONL at `~/.pi/agent/sessions/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://github.com/earendil-works/pi (formerly badlogic/pi-mono) | 2026-06-02 | 3-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, branch_summary, agent_thinking, user_interrupt, context_compact, model_change, thinking_level_change, session_terminated, system_event, session_metadata_update | pi/linear-flow.jsonl; pi/branch-flow.jsonl; pi/reasoning-and-interrupt.jsonl; pi/compaction-and-model-change.jsonl; pi/usage-and-cost.jsonl; pi/usage-first-entry.jsonl; pi/system-events.jsonl; pi/tool-result-error.jsonl; pi/quarantine.jsonl; pi/leaf-and-label.jsonl; pi/bash-execution.jsonl; pi/custom-message-variants.jsonl | verified |
+| Claude Code | closed | JSONL at `~/.claude/projects/<mangled-cwd>/<sessionId>.jsonl` | re-implement | https://docs.anthropic.com/claude-code | 2026-06-02 | 1.0.0-synthetic | user_message, agent_message, tool_call, tool_result, tool_call_aborted, user_query, user_query_response, session_summary, agent_thinking, system_event, context_compact, user_interrupt, model_change, mode_change, capability_change, session_metadata_update | claude-code/basic-flow.jsonl; claude-code/fidelity-edge-cases.jsonl; claude-code/compact-provenance.jsonl; claude-code/interrupt-and-model-change.jsonl; claude-code/permission-mode.jsonl; claude-code/capability-changes.jsonl; claude-code/usage-first-entry.jsonl | verified |
 | Codex CLI | open | JSONL at `~/.codex/sessions/YYYY/MM/DD/rollout-<datetime>-<uuid>.jsonl` (or `CODEX_HOME/sessions/`), plus `session_index.jsonl` sidecar names; single wrapped format (`session_meta` + `response_item` / `event_msg` / `turn_context` / `compacted`) | re-implement | https://github.com/openai/codex | 2026-06-02 | codex-tui 0.128.0 + 0.135.x (also Codex Desktop 0.133.0-alpha.1, codex_sdk_ts 0.98.0) | user_message, agent_message, tool_call, tool_result, user_query, user_query_response, agent_thinking, context_compact, model_change, mode_change, thinking_level_change, user_interrupt, system_event, capability_change, session_metadata_update | codex/desktop-tracer.jsonl; codex/reasoning-dedupe.jsonl; codex/compact-and-model-change.jsonl; codex/apply-patch.jsonl; codex/web-search.jsonl; codex/lifecycle.jsonl; codex/token-usage.jsonl; codex/reasoning-cross-turn.jsonl; codex/v0_135-events.jsonl; codex/image-message.jsonl; codex/capability-changes.jsonl; codex/capability-changes-v0_128.jsonl | verified |
 | Cursor | closed | — | re-implement | — | — | — | — | — | pending verification |
 | OpenCode | open | SQLite `opencode.db` plus file storage under `~/.local/share/opencode/storage/{session,message,part,todo}`; `OPENCODE_DATA_DIR` / `OPENCODE_DB` overrides | re-implement | https://github.com/sst/opencode | 2026-06-04 | 1.0.153 local + synthetic v1; redacted real 1.0.127 | user_message, agent_message, tool_call, tool_result, tool_call_aborted, agent_thinking, context_compact, model_change, task_plan_update, session_terminated, system_event, session_metadata_update | opencode fixture builders in `packages/adapters/src/opencode/index.test.ts`; redacted real fixture `real-sessions/opencode-v1.source.jsonl` + `real-sessions/opencode-v1.trail.jsonl`; optional real JSON + SQLite smoke in `packages/adapters/src/opencode/real-session.test.ts` | verified |
@@ -175,7 +175,9 @@ assistant `message.model` (or earlier `model_change.modelId`) observed in source
 
 Pi usage telemetry: assistant `message.usage` maps `input` → `input_tokens`, `output` →
 `output_tokens`, `cacheRead` → `cache_read_tokens`, `cacheWrite` → `cache_creation_tokens`, and
-`context_input_tokens = input + cacheRead + cacheWrite`. `totalTokens` is intentionally not mapped to
+`context_input_tokens = input + cacheRead + cacheWrite`. The mapped usage is attached once to the
+first usage-capable entry derived from that assistant envelope (`agent_message`, `agent_thinking`,
+or `tool_call`) and is not repeated on later entries. `totalTokens` is intentionally not mapped to
 `context_input_tokens` because it includes output tokens; `cost` remains source-only under
 `source.raw`. Tool-result `message.details.toolMetadata.contextAtCompletion` is preserved exactly at
 `meta["dev.pi.context_at_completion"]` and is not promoted to assistant `context_window_tokens`.
@@ -591,12 +593,14 @@ assistant `message.model` shifts).
 `AskUserQuestion` requests emit `user_query`; user-side `tool_result` blocks linked by
 `tool_use_id` are converted to `user_query_response`.
 
-Claude Code assistant `message.usage` maps Anthropic-style token counters to
-`agent_message.payload.usage`: `input_tokens` / `output_tokens` pass through,
-`cache_read_input_tokens` → `cache_read_tokens`, `cache_creation_input_tokens` →
-`cache_creation_tokens`, and `context_input_tokens = input_tokens + cache_read_input_tokens +
-cache_creation_input_tokens`. No reliable model context-window size has been observed in Claude Code
-JSONL, so the adapter omits `context_window_tokens`.
+Claude Code assistant `message.usage` maps Anthropic-style token counters to first-entry
+`payload.usage`: `input_tokens` / `output_tokens` pass through, `cache_read_input_tokens` →
+`cache_read_tokens`, `cache_creation_input_tokens` → `cache_creation_tokens`, and
+`context_input_tokens = input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.
+Claude Code can split one API response across multiple JSONL records with the same `requestId`; the
+adapter keeps usage only on the first usage-capable entry (`agent_message`, `agent_thinking`, or
+`tool_call`) for that request group. No reliable model context-window size has been observed in
+Claude Code JSONL, so the adapter omits `context_window_tokens`.
 
 Deferred shapes include server-tool result blocks, ambiguous prompt-only subagent matching
 hardening, recursive child-session inclusion beyond direct children, and overflow blob storage.
