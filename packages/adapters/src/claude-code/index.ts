@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import type { Entry, Header } from "@agent-trail/types";
 import pkg from "../../package.json" with { type: "json" };
 import { buildTrailEnvelope } from "../envelope.ts";
+import { applyHeaderMetadataUpdates } from "../header-metadata.ts";
 import type {
   AdapterSourceHealth,
   DetectOptions,
@@ -235,6 +236,7 @@ async function parseGroup(
   const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
     includeSidechain: options.includeSidechain === true,
   });
+  applyHeaderMetadataUpdates(header, entries);
   applyParseFidelity(header, entries);
   return { header, entries };
 }

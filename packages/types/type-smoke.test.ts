@@ -10,6 +10,7 @@ import type {
   SystemEvent,
   ThinkingLevelChange,
   ToolCallAborted,
+  Vcs,
 } from "@agent-trail/types";
 
 test("@agent-trail/types exposes generated schema types", () => {
@@ -17,6 +18,9 @@ test("@agent-trail/types exposes generated schema types", () => {
     type: "session",
     schema_version: "0.1.0",
     id: "sess_0001",
+    name: "Initial title",
+    description: "Initial description",
+    tags: ["release", "docs"],
     ts: "2026-05-19T00:00:00.000Z",
     agent: {
       name: "codex-cli",
@@ -26,6 +30,29 @@ test("@agent-trail/types exposes generated schema types", () => {
   const record: AgentTrailV010 = header;
 
   expect(record.type).toBe("session");
+  expect(header.name).toBe("Initial title");
+  expect(header.description).toBe("Initial description");
+  expect(header.tags).toEqual(["release", "docs"]);
+});
+
+test("Vcs.type accepts reserved and extension values", () => {
+  const reserved = {
+    type: "git",
+    revision: "abcdef0",
+  } satisfies Vcs;
+  const extension = {
+    type: "x-acme/fossil",
+    revision: "abc123",
+  } satisfies Vcs;
+  const bare = {
+    // @ts-expect-error writer schema rejects bare unknown VCS types.
+    type: "fossil",
+    revision: "abc123",
+  } satisfies Vcs;
+
+  expect(reserved.type).toBe("git");
+  expect(extension.type).toBe("x-acme/fossil");
+  expect(bare.type).toBe("fossil");
 });
 
 test("AgentMessageUsage requires input/output coverage and rejects extra fields", () => {
