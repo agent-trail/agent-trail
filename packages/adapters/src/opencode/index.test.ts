@@ -900,6 +900,7 @@ test("parseSession() folds file parts into message attachments and maps upstream
     id: "msg_assistant_parts",
     sessionID: "ses_parts",
     role: "assistant",
+    tokens: { input: 5, output: 2, reasoning: 1 },
     created: 1766258475000,
   });
   for (const part of [
@@ -974,6 +975,7 @@ test("parseSession() folds file parts into message attachments and maps upstream
     payload: {
       tool: "subagent_invoke",
       args: { task: "Inspect package scripts", agent_type: "explore" },
+      usage: { input_tokens: 5, output_tokens: 2, reasoning_tokens: 1 },
     },
   });
   expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 0 });

@@ -378,6 +378,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
       if (type === "subtask") {
         const prompt = stringValue(part.prompt) ?? stringValue(part.description);
         if (prompt !== undefined) {
+          const usage = consumeUsage(part);
           push(
             {
               ...base,
@@ -390,6 +391,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
                     ? { agent_type: stringValue(part.agent) }
                     : {}),
                 },
+                ...(usage !== undefined ? { usage } : {}),
               },
               semantic: { call_id: part.id, tool_kind: "subagent_invoke" },
             },
