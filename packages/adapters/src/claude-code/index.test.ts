@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
+import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
 import { INLINE_ATTACHMENT_MAX_DECODED_BYTES } from "./mappings.ts";
@@ -480,7 +481,10 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
 
 test("parseSession() bundles a direct Agent child session from subagents directory", async () => {
   const dir = createProjectDir();
-  const parentId = "00000000-0000-0000-0000-aaaa00000001";
+  const parentId = "00000000-0000-0000-0000-AAAA00000001";
+  const canonicalParentId = parentId.toLowerCase();
+  const childAgentId = "00000000-0000-0000-0000-BBBB00000001";
+  const canonicalChildAgentId = childAgentId.toLowerCase();
   const parentPath = join(dir, `${parentId}.jsonl`);
   const childDir = join(dir, parentId, "subagents");
   mkdirSync(childDir, { recursive: true });
@@ -549,7 +553,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         parentUuid: null,
         isSidechain: true,
         type: "user",
-        agentId: "child-one",
+        agentId: childAgentId,
         message: { role: "user", content: "inspect parser" },
         uuid: "00000000-0000-0000-0000-bbbb00000011",
         timestamp: "2026-05-17T14:00:08.000Z",
@@ -562,7 +566,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         parentUuid: "00000000-0000-0000-0000-bbbb00000011",
         isSidechain: true,
         type: "assistant",
-        agentId: "child-one",
+        agentId: childAgentId,
         message: {
           role: "assistant",
           model: "claude-opus-4-7",
@@ -600,6 +604,14 @@ test("parseSession() bundles a direct Agent child session from subagents directo
   });
   expect(child.header.id).toMatch(ID_PATTERN);
   expect(child.header.id).not.toBe(parent.header.id);
+  expect(parent.header.id).toBe(canonicalParentId);
+  expect(child.header.id).toBe(
+    deriveSessionUid(
+      CLAUDE_CODE_SESSION_UID_NAMESPACE,
+      `${canonicalParentId}\x1f${canonicalChildAgentId}`,
+    ),
+  );
+  expect(child.header.meta?.["dev.claudecode.agent_id"]).toBe(childAgentId);
   expect(child.header.fork_from).toEqual({ session_id: parent.header.id, entry_id: invoke?.id });
   expect(child.entries.some((entry) => entry.type === "agent_message")).toBe(true);
   const childBranchUpdates = child.entries.filter(

@@ -5,8 +5,13 @@ import { buildTrailEnvelope } from "../envelope.ts";
 import { applyHeaderMetadataUpdates } from "../header-metadata.ts";
 import type { TrailFile, TrailSessionGroup } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
-import { CODEX_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
+import {
+  CODEX_ENTRY_ID_NAMESPACE,
+  canonicalizeIdentityString,
+  deriveSynthesizedEntryId,
+} from "../session-uid.ts";
 import { isRecord } from "../shared/type-guards.ts";
+import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { readGitVcs } from "../vcs.ts";
 import { type HeadMetadata, readMetadataFromHead, walkRolloutFiles } from "./discovery.ts";
 import { parseCodexSnapshotEntries } from "./kit.ts";
@@ -100,7 +105,9 @@ function childIdFromToolResult(entry: Entry): string | undefined {
     const parsed = JSON.parse(output) as unknown;
     if (parsed !== null && typeof parsed === "object") {
       const agentId = (parsed as Record<string, unknown>).agent_id;
-      if (typeof agentId === "string" && agentId.length > 0) return agentId;
+      if (typeof agentId === "string" && agentId.length > 0) {
+        return canonicalizeIdentityString(agentId);
+      }
     }
   } catch {
     return undefined;
@@ -142,9 +149,16 @@ async function buildChildSessionPathIndex(
   for (const file of files) {
     if (file === parentPath) continue;
     const meta = await readMetadataFromHead(file).catch(() => ({}) as HeadMetadata);
-    if (meta.threadSource !== "subagent" || meta.parentThreadId !== parentSessionId) continue;
+    if (
+      meta.threadSource !== "subagent" ||
+      meta.parentThreadId === undefined ||
+      canonicalizeIdentityString(meta.parentThreadId) !== parentSessionId
+    ) {
+      continue;
+    }
     if (meta.id === undefined) continue;
-    index.set(meta.id, index.has(meta.id) ? undefined : file);
+    const childId = canonicalizeIdentityString(meta.id);
+    index.set(childId, index.has(childId) ? undefined : file);
   }
   return index;
 }
@@ -245,7 +259,8 @@ async function readSessionIndexRow(
       continue;
     }
     if (!isObject(row)) continue;
-    if (stringValue(row.id) === sessionId) return row;
+    const rowId = stringValue(row.id);
+    if (rowId !== undefined && canonicalizeIdentityString(rowId) === sessionId) return row;
   }
   return undefined;
 }
@@ -291,5 +306,5 @@ export async function parseCodexTrailFile(path: string, producer: string): Promi
   const parentGroup = await parseSingleGroup(path);
   const groups = [parentGroup, ...(await directChildGroups(parentGroup, path))];
   const envelope = buildTrailEnvelope({ producer, groups });
-  return { envelope, groups };
+  return sanitizeTrailFile({ envelope, groups });
 }

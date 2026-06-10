@@ -1,5 +1,9 @@
 import type { Header } from "@agent-trail/types";
-import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import {
+  CLAUDE_CODE_SESSION_UID_NAMESPACE,
+  canonicalizeIdentityString,
+  deriveSessionUid,
+} from "../session-uid.ts";
 import { type CcEnvelope, isObject, isTracerEnvelope, stringValue } from "./source.ts";
 
 const GIT_COMMIT_PATTERN = /^[a-f0-9]{7,64}$/;
@@ -107,11 +111,12 @@ export function buildHeader(
     throw new Error("Claude Code session has no parseable records");
   }
   const firstVersion = first.version ?? firstSession.version;
+  const sessionId = canonicalizeIdentityString(firstSession.sessionId);
   const header: Header = {
     type: "session",
     schema_version: "0.1.0",
-    id: firstSession.sessionId,
-    session_uid: deriveSessionUid(CLAUDE_CODE_SESSION_UID_NAMESPACE, firstSession.sessionId),
+    id: sessionId,
+    session_uid: deriveSessionUid(CLAUDE_CODE_SESSION_UID_NAMESPACE, sessionId),
     ts: firstTs,
     agent: {
       name: "claude-code",

@@ -3,6 +3,7 @@ import {
   type RedactionPattern,
   SOURCE_RAW_HARD_CAP_BYTES,
 } from "@agent-trail/core";
+import { sanitizeJsonString, sanitizeJsonStrings } from "./trail-sanitizer.ts";
 
 export type EnforceSourceRawSizeOptions = {
   // Maximum bytes for the serialized source.raw. When exceeded, the writer
@@ -25,20 +26,21 @@ export function enforceSourceRawSize(
   value: unknown,
   options?: EnforceSourceRawSizeOptions,
 ): EnforceSourceRawSizeResult {
+  const sanitized = sanitizeJsonStrings(value);
   const hardCap = resolveHardCap(options?.hardCapBytes);
   if (hardCap === null) {
-    return { value, elided: false, leavesTrimmed: 0 };
+    return { value: sanitized, elided: false, leavesTrimmed: 0 };
   }
 
-  const originalBytes = byteLengthOf(value);
+  const originalBytes = byteLengthOf(sanitized);
   if (originalBytes <= hardCap) {
-    return { value, elided: false, leavesTrimmed: 0 };
+    return { value: sanitized, elided: false, leavesTrimmed: 0 };
   }
 
   // Top-level string source.raw: nothing to recurse into, just elide the
   // whole value. Schema allows source.raw to be any JSON type; the if/then
   // constraint only fires when raw is an object.
-  if (typeof value === "string") {
+  if (typeof sanitized === "string") {
     return {
       value: { elided: true, size_bytes: originalBytes },
       elided: true,
@@ -49,7 +51,7 @@ export function enforceSourceRawSize(
   // Deep clone so we can mutate string leaves in place. Cheaper than
   // re-walking from the root after each trim, and the resulting structure
   // shares no references with the caller's input.
-  const cloned = structuredClone(value);
+  const cloned = structuredClone(sanitized);
   const leaves = collectStringLeaves(cloned);
   // Greedy minimum-necessary elision: biggest leaves first so we minimize
   // the count of trimmed leaves and preserve as much source-shape fidelity
@@ -159,19 +161,46 @@ export function redactValue(
   patterns: readonly RedactionPattern[] = CREDENTIAL_PATTERNS,
 ): unknown {
   if (typeof value === "string") {
-    return applyPatterns(value, patterns);
+    return applyPatterns(sanitizeJsonString(value), patterns);
   }
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactValue(entry, patterns));
+  if (value === null || typeof value !== "object") {
+    return value;
   }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      out[key] = redactValue((value as Record<string, unknown>)[key], patterns);
-    }
+
+  const seen = new WeakMap<object, unknown>();
+  const stack: Array<{ input: object; output: unknown }> = [];
+  const clonePrimitive = (item: unknown): unknown => {
+    if (typeof item === "string") return applyPatterns(sanitizeJsonString(item), patterns);
+    if (item === null || typeof item !== "object") return item;
+    const existing = seen.get(item);
+    if (existing !== undefined) return existing;
+    const out: unknown = Array.isArray(item) ? [] : {};
+    seen.set(item, out);
+    stack.push({ input: item, output: out });
     return out;
+  };
+
+  const root = clonePrimitive(value);
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    const { input, output } = current;
+
+    if (Array.isArray(input)) {
+      const out = output as unknown[];
+      for (let i = 0; i < input.length; i += 1) {
+        out[i] = clonePrimitive(input[i]);
+      }
+      continue;
+    }
+
+    const out = output as Record<string, unknown>;
+    for (const key of Object.keys(input as Record<string, unknown>)) {
+      out[sanitizeJsonString(key)] = clonePrimitive((input as Record<string, unknown>)[key]);
+    }
   }
-  return value;
+
+  return root;
 }
 
 // Patterns are compiled once per distinct source `RegExp` and cached on a

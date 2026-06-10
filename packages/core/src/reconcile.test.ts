@@ -4,8 +4,8 @@ import { validateTrailString } from "./index.ts";
 import { parseJsonlString } from "./jsonl.ts";
 import { reconcileSegments, type SegmentInput } from "./reconcile.ts";
 
-const SESSION_UID = "01HSESSUID1111111111111111";
-const SESSION_UID_B = "01HSESSUID2222222222222222";
+const SESSION_UID = "00000000-0000-4000-8000-00000000a001";
+const SESSION_UID_B = "00000000-0000-4000-8000-00000000a002";
 
 async function records(jsonl: string): Promise<SegmentInput["records"]> {
   return parseJsonlString(jsonl);
@@ -530,7 +530,7 @@ test("intermediate session_terminated{process_terminated} is dropped, terminal o
 
 test("multi-segment merge recomputes parse_fidelity from merged records", async () => {
   const headerId = "01HSESS0000000000000000001";
-  const validSessionUid = "0123456789abcdef0123456789";
+  const validSessionUid = "0123456789abcdef0123456789abcdef";
   const seg1Draft = `${[
     trailHeader({
       id: headerId,

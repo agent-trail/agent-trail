@@ -14,25 +14,26 @@
 
     "iso8601": {
       "type": "string",
+      "format": "date-time",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
-      "description": "Writer timestamp: UTC ISO-8601 with millisecond precision"
+      "description": "Writer timestamp: UTC ISO-8601 with millisecond precision. Format-aware validators may use the date-time annotation; whole-file validation rule 6 remains authoritative for calendar validity."
     },
 
     "id": {
       "$ref": "#/$defs/sessionUid",
-      "description": "Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5)."
+      "description": "Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5)."
     },
 
     "ulid": {
       "type": "string",
-      "pattern": "^[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}$",
-      "description": "ULID (Crockford base32, 26 chars, no I/L/O/U). Case-insensitive per the ULID spec. Time-prefixed and lexicographically sortable when emitted in the canonical uppercase form."
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Canonical uppercase ULID (Crockford base32, 26 chars, no I/L/O/U). Time-prefixed and lexicographically sortable."
     },
 
     "sessionUid": {
       "type": "string",
-      "pattern": "^(?:[0-9a-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})$",
-      "description": "Globally-unique source-session identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Reconcilers group segments by session_uid (spec §8.5)."
+      "pattern": "^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$",
+      "description": "Globally-unique source-session identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Reconcilers group segments by exact string equality on session_uid (spec §8.5)."
     },
 
     "segment": {

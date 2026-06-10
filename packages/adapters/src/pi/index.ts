@@ -13,6 +13,7 @@ import type {
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { DISCOVERY_CONCURRENCY_LIMIT, mapConcurrent } from "../shared/concurrency.ts";
 import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
+import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { parsePiSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
@@ -185,7 +186,7 @@ export const piAdapter: TrailAdapter = {
     applyParseFidelity(header, entries);
     const groups = [{ header, entries }];
     const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
-    return { envelope, groups };
+    return sanitizeTrailFile({ envelope, groups });
   },
   async isAvailable(): Promise<boolean> {
     const sessionsDir = piSessionsDir();

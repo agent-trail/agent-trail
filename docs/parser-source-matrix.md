@@ -22,6 +22,8 @@ Adapter writer policy:
 
 - Adapters SHOULD emit a trail envelope by default. `producer` is the adapter package name and version (for example, `@agent-trail/adapters/claude-code/0.3.0`). The envelope `id` is a fresh file-level identifier (UUID/ULID), distinct from the source-session id surfaced on the session header.
 - File-level `content_hash` is stamped after the session-level hash (spec §7.4 two-tier identity).
+- Before validation, stringification, hashing, or stamping, adapters replace lone surrogate code units in emitted trail strings with U+FFFD. This applies to canonical payload fields and to `source.raw` after redaction/size normalization.
+- At trail identity boundaries, adapters canonicalize source UUIDs to lowercase and source ULIDs to uppercase for emitted `id`, `session_uid`, `fork_from.session_id`, and deterministic-id seed values. The original source value remains preserved in `source.raw` when that source record is otherwise preserved.
 - Writers MAY skip envelope emission only when the caller explicitly opts out.
 
 Adapter rows below reflect each adapter's current envelope-emission state once implemented; envelope-less output remains spec-compliant.

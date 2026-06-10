@@ -370,7 +370,15 @@ Header `content_hash` is 64 zeros (schema-valid hex, wrong digest).
 
 Expected (strict, exact set): single `error content_hash_mismatch /content_hash line 1`. Message includes the computed digest.
 
-Expected (reader-tolerant, exact set): single `warning content_hash_mismatch /content_hash line 1` — severity downgraded from error to warning, message unchanged.
+### reader-tolerant/
+
+#### `reader-tolerant/ill-formed-string.trail.jsonl`
+
+`user_message.payload.text` contains a raw JSON `\udc00` escape, which parses to an unpaired surrogate. Writers must replace such values with U+FFFD before emission.
+
+Expected:
+- strict: `error ill_formed_string /payload/text line 2`
+- reader-tolerant: `warning ill_formed_string /payload/text line 2`
 
 #### `hash-mismatch/content-hash-invalid-hex.trail.jsonl`
 

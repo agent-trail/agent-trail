@@ -18,7 +18,11 @@ import {
   quoteShellArg,
 } from "@agent-trail/adapter-kit";
 import type { Header, ToolKind } from "@agent-trail/types";
-import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import {
+  CODEX_SESSION_UID_NAMESPACE,
+  canonicalizeIdentityString,
+  deriveSessionUid,
+} from "../session-uid.ts";
 import { type HeaderVcs, normalizeRemoteUrl } from "../vcs.ts";
 import { isObject, numericValue, stringValue, timestampToIso } from "./source.ts";
 
@@ -82,13 +86,14 @@ export function buildHeader(first: Record<string, unknown>): Header {
     );
   }
   const payload = isObject(first.payload) ? first.payload : {};
-  const id = stringValue(payload.id);
+  const rawId = stringValue(payload.id);
   // Canonical session time is the envelope `RolloutLine.timestamp`; the inner
   // `payload.timestamp` is only a same-record fallback for shapes that omit the
   // envelope stamp (drift-defense: no global inner-payload timestamp ladder).
   const ts = timestampToIso(first.timestamp) ?? timestampToIso(payload.timestamp);
-  if (id === undefined) throw new Error("Codex session_meta missing payload.id");
+  if (rawId === undefined) throw new Error("Codex session_meta missing payload.id");
   if (ts === undefined) throw new Error("Codex session_meta missing timestamp");
+  const id = canonicalizeIdentityString(rawId);
   const cliVersion = stringValue(payload.cli_version);
   const cwd = stringValue(payload.cwd);
   const header: Header = {
@@ -151,7 +156,7 @@ export function shellCommandFromArgs(args: Record<string, unknown>): string | un
   return undefined;
 }
 
-function idString(value: unknown): string | undefined {
+function opaqueIdString(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
@@ -245,8 +250,8 @@ export function mapTool(rawName: string | undefined, rawArgs: unknown): ToolMapp
   }
   if (rawName === "write_stdin") {
     const input = stringValue(args.chars);
-    const commandId = idString(args.command_id);
-    const sessionId = idString(args.session_id);
+    const commandId = opaqueIdString(args.command_id);
+    const sessionId = opaqueIdString(args.session_id);
     if (input !== undefined && input.length > 0) {
       return {
         tool: "shell_input",

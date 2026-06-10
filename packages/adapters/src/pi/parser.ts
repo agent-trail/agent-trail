@@ -1,5 +1,9 @@
 import type { Header } from "@agent-trail/types";
-import { deriveSessionUid, PI_SESSION_UID_NAMESPACE } from "../session-uid.ts";
+import {
+  canonicalizeIdentityString,
+  deriveSessionUid,
+  PI_SESSION_UID_NAMESPACE,
+} from "../session-uid.ts";
 import { type PiEnvelope, timestampToIso, versionString } from "./source.ts";
 
 export function buildHeader(envelopes: PiEnvelope[]): Header {
@@ -7,7 +11,8 @@ export function buildHeader(envelopes: PiEnvelope[]): Header {
   if (sessionRecord === undefined) {
     throw new Error("Pi session has no header record");
   }
-  const id = sessionRecord.id;
+  const rawId = sessionRecord.id;
+  const id = rawId === undefined ? undefined : canonicalizeIdentityString(rawId);
   const ts = timestampToIso(sessionRecord.timestamp);
   if (id === undefined || ts === undefined) {
     throw new Error("Pi session header missing id or timestamp");

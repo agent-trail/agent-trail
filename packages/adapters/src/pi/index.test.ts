@@ -233,6 +233,34 @@ test("parseSession() builds a header from session record id, ts, version (int->s
   });
 });
 
+test("parseSession() canonicalizes UUID ids and sanitizes emitted strings", async () => {
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  const sessionId = "00000000-0000-0000-0000-ABCDEF123456";
+  const messageId = "00000000-0000-0000-0000-ABCDEF123457";
+  const file = join(tmpCwd, "pi-canonicalization.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: sessionId, timestamp: "2026-05-21T14:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: messageId, parentId: null, timestamp: "2026-05-21T14:00:01.000Z", message: { role: "user", content: `hello ${loneSurrogate}` } })}\n`,
+  );
+
+  const trail = await piAdapter.parseSession({
+    id: "pi-canonicalization",
+    adapter: "pi",
+    path: file,
+  });
+  const group = trail.groups[0]!;
+  const userMessage = group.entries.find((entry) => entry.type === "user_message");
+
+  expect(group.header.id).toBe(sessionId.toLowerCase());
+  expect(group.header.session_uid).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  );
+  expect(userMessage?.payload).toEqual({ text: "hello �" });
+  expect((userMessage?.source?.raw as { id?: string } | undefined)?.id).toBe(messageId);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
 // TDD step 3: user_message mapping
 test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
   const trail = await parseFixture();

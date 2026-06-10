@@ -1,8 +1,10 @@
 import schema from "@agent-trail/schema" with { type: "json" };
 import type { ErrorObject, ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
+import { timestampDiagnostics } from "./business-rules.ts";
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
+import { illFormedStringDiagnostics } from "./string-well-formedness.ts";
 import { appendJsonPointerSegment, hasStringParam } from "./validation-utils.ts";
 
 /**
@@ -19,7 +21,7 @@ import { appendJsonPointerSegment, hasStringParam } from "./validation-utils.ts"
 
 const schemaId = schemaIdFrom(schema);
 
-const ajv = new Ajv2020({ allErrors: true, strict: true });
+const ajv = new Ajv2020({ allErrors: true, strict: true, validateFormats: false });
 ajv.addSchema(schema);
 
 const validateTrailEnvelope = compileSchemaRef(`${schemaId}#/$defs/trailEnvelope`);
@@ -71,12 +73,15 @@ export function getEventValidator(eventType: string): ValidateFunction<unknown> 
 
 export function validateWriterStrictRecord(record: JsonlRecord): Diagnostic[] {
   const validate = pickRecordValidator(record);
+  const stringDiagnostics = illFormedStringDiagnostics(record, "error");
+  const timestampDiagnosticList = timestampDiagnostics(record);
   if (validate(record.value)) {
-    return [];
+    return stringDiagnostics.concat(timestampDiagnosticList);
   }
-  return (validate.errors as ErrorObject[]).map((error) =>
-    diagnosticFromSchemaError(error, record.line),
-  );
+  return (validate.errors as ErrorObject[])
+    .map((error) => diagnosticFromSchemaError(error, record.line))
+    .concat(stringDiagnostics)
+    .concat(timestampDiagnosticList);
 }
 
 function pickRecordValidator(record: JsonlRecord): ValidateFunction<unknown> {
