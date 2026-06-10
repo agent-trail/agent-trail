@@ -1,4 +1,5 @@
 import schema from "@agent-trail/schema";
+import type { ErrorObject } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
 import canonicalize from "canonicalize";
 
@@ -8,6 +9,28 @@ export type ViewerDiagnostic = {
   severity: "error" | "warning";
   code: string;
   message: string;
+};
+
+export type ViewerEventKind =
+  | "agent"
+  | "fallback"
+  | "notice"
+  | "summary"
+  | "tool_call"
+  | "tool_result"
+  | "user";
+
+export type ViewerEvent = {
+  id: string | null;
+  line: number;
+  ts: string | null;
+  type: string;
+  kind: ViewerEventKind;
+  title: string;
+  body: string | null;
+  meta: { label: string; value: string }[];
+  rawJson?: string;
+  status?: "error" | "ok" | "unknown";
 };
 
 export type GistViewerModel =
@@ -24,6 +47,7 @@ export type GistViewerModel =
         sessions: number;
         warnings: number;
       };
+      events: ViewerEvent[];
       preview: string;
       previewTruncated: boolean;
       previewBytes: number;
@@ -65,6 +89,7 @@ type TrailRecord = {
 
 type SessionGroup = {
   header: TrailRecord;
+  entries: TrailRecord[];
   records: TrailRecord[];
 };
 
@@ -143,6 +168,7 @@ export async function buildGistViewerModel({
       sessions: parsed.groups.length,
       warnings: parsed.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").length,
     },
+    events: buildViewerEvents(parsed.groups),
     preview: preview.text,
     previewTruncated: preview.truncated,
     previewBytes: preview.bytes,
@@ -238,14 +264,18 @@ async function validateTrailJsonl(text: string): Promise<{
   const validate = recordValidator();
   for (const record of records) {
     if (validate(record.value)) continue;
-    for (const error of validate.errors ?? []) {
+    if (isReaderTolerantUnknownRecord(record)) {
       diagnostics.push({
         line: record.line,
-        path: error.instancePath || "/",
-        severity: "error",
-        code: error.keyword,
-        message: error.message ?? "record failed schema validation",
+        path: "/type",
+        severity: "warning",
+        code: "reader_tolerant_unknown_record",
+        message: `Unknown event type "${String(record.value.type)}" preserved for reader-tolerant parsing`,
       });
+      continue;
+    }
+    for (const error of validate.errors ?? []) {
+      diagnostics.push(diagnosticFromSchemaError(error, record.line));
     }
   }
 
@@ -284,7 +314,7 @@ function splitSessionGroups(
   for (const record of records) {
     if (record.value.type === "trail") continue;
     if (record.value.type === "session") {
-      current = { header: record, records: [record] };
+      current = { header: record, entries: [], records: [record] };
       groups.push(current);
       continue;
     }
@@ -298,6 +328,7 @@ function splitSessionGroups(
       });
       continue;
     }
+    current.entries.push(record);
     current.records.push(record);
   }
   if (groups.length === 0) {
@@ -439,6 +470,227 @@ function canonicalizeForHash(
   return `${lines.join("\n")}\n`;
 }
 
+function isReaderTolerantUnknownRecord(record: TrailRecord): boolean {
+  const type = record.value.type;
+  if (record.line <= 1 || typeof type !== "string") return false;
+  if (type === "session" || type === "trail" || KNOWN_RECORD_TYPES.has(type)) return false;
+  return (
+    typeof record.value.id === "string" &&
+    typeof record.value.ts === "string" &&
+    objectValue(record.value.payload) !== undefined
+  );
+}
+
+const KNOWN_RECORD_TYPES = new Set([
+  "agent_message",
+  "agent_thinking",
+  "branch_point",
+  "branch_summary",
+  "capability_change",
+  "command_invoke",
+  "context_compact",
+  "mode_change",
+  "model_change",
+  "session_end",
+  "session_metadata_update",
+  "session_summary",
+  "session_terminated",
+  "system_event",
+  "task_plan_update",
+  "thinking_level_change",
+  "tool_call",
+  "tool_call_aborted",
+  "tool_result",
+  "user_interrupt",
+  "user_message",
+  "user_query",
+  "user_query_response",
+]);
+
+function buildViewerEvents(groups: SessionGroup[]): ViewerEvent[] {
+  return groups.flatMap((group) => group.entries.map(viewerEventFromRecord));
+}
+
+function viewerEventFromRecord(record: TrailRecord): ViewerEvent {
+  const type = stringValue(record.value.type) ?? "unknown";
+  const payload = objectValue(record.value.payload);
+
+  if (type === "user_message") {
+    return baseEvent(record, {
+      body: stringValue(payload?.text) ?? null,
+      kind: "user",
+      meta: attachmentMeta(payload),
+      title: "User message",
+    });
+  }
+
+  if (type === "agent_message") {
+    return baseEvent(record, {
+      body: stringValue(payload?.text) ?? null,
+      kind: "agent",
+      meta: [
+        ...optionalMeta("model", stringValue(payload?.model)),
+        ...optionalMeta("stop", stringValue(payload?.stop_reason)),
+        ...attachmentMeta(payload),
+      ],
+      title: "Agent message",
+    });
+  }
+
+  if (type === "agent_thinking") {
+    return baseEvent(record, {
+      body: stringValue(payload?.text) ?? null,
+      kind: "agent",
+      meta: [
+        ...optionalMeta("model", stringValue(payload?.model)),
+        ...optionalMeta("level", stringValue(payload?.level)),
+      ],
+      title: "Agent thinking",
+    });
+  }
+
+  if (type === "tool_call") {
+    const tool = stringValue(payload?.tool) ?? "unknown";
+    return baseEvent(record, {
+      body: summarizeArgs(objectValue(payload?.args)) ?? null,
+      kind: "tool_call",
+      meta: argsMeta(objectValue(payload?.args)),
+      title: `Tool call: ${tool}`,
+    });
+  }
+
+  if (type === "tool_result") {
+    const ok = booleanValue(payload?.ok);
+    return baseEvent(record, {
+      body: stringValue(payload?.output) ?? stringValue(payload?.error) ?? null,
+      kind: "tool_result",
+      meta: [
+        ...optionalMeta("for", stringValue(payload?.for_id)),
+        ...optionalMeta("truncated", booleanValue(payload?.truncated)?.toString()),
+        ...optionalMeta("bytes", numberValue(payload?.output_size)?.toString()),
+        ...attachmentMeta(payload),
+      ],
+      status: ok === undefined ? "unknown" : ok ? "ok" : "error",
+      title: `Tool result: ${ok === undefined ? "unknown" : ok ? "ok" : "error"}`,
+    });
+  }
+
+  if (type === "session_summary") {
+    return baseEvent(record, {
+      body: stringValue(payload?.text) ?? null,
+      kind: "summary",
+      meta: optionalMeta("scope", stringValue(payload?.scope)),
+      title: "Session summary",
+    });
+  }
+
+  if (type === "branch_point") {
+    return baseEvent(record, {
+      body: stringValue(payload?.reason) ?? null,
+      kind: "notice",
+      meta: optionalMeta("from", stringValue(payload?.from_id)),
+      title: "Branch point",
+    });
+  }
+
+  if (type === "branch_summary") {
+    return baseEvent(record, {
+      body: stringValue(payload?.summary) ?? null,
+      kind: "notice",
+      meta: optionalMeta("abandoned", stringValue(payload?.abandoned_branch_id)),
+      title: "Branch summary",
+    });
+  }
+
+  return baseEvent(record, {
+    body: fallbackBody(payload),
+    kind: "fallback",
+    meta: [],
+    rawJson: cappedJson(record.value),
+    title: `Unknown record: ${type}`,
+  });
+}
+
+function baseEvent(
+  record: TrailRecord,
+  opts: Omit<ViewerEvent, "id" | "line" | "ts" | "type">,
+): ViewerEvent {
+  return {
+    id: stringValue(record.value.id) ?? null,
+    line: record.line,
+    ts: stringValue(record.value.ts) ?? null,
+    type: stringValue(record.value.type) ?? "unknown",
+    ...opts,
+  };
+}
+
+function fallbackBody(payload: Record<string, unknown> | undefined): string | null {
+  return stringValue(payload?.text) ?? stringValue(payload?.summary) ?? null;
+}
+
+function attachmentMeta(
+  payload: Record<string, unknown> | undefined,
+): { label: string; value: string }[] {
+  const attachments = payload?.attachments;
+  return Array.isArray(attachments) && attachments.length > 0
+    ? [{ label: "attachments", value: String(attachments.length) }]
+    : [];
+}
+
+function argsMeta(args: Record<string, unknown> | undefined): { label: string; value: string }[] {
+  if (args === undefined) return [];
+  return Object.entries(args).map(([label, value]) => ({ label, value: compactValue(value) }));
+}
+
+function optionalMeta(
+  label: string,
+  value: string | undefined,
+): { label: string; value: string }[] {
+  return value === undefined || value.length === 0 ? [] : [{ label, value }];
+}
+
+function summarizeArgs(args: Record<string, unknown> | undefined): string | null {
+  if (args === undefined) return null;
+  const path = stringValue(args.path);
+  if (path !== undefined) return path;
+  const command = stringValue(args.command);
+  if (command !== undefined) return command;
+  const query = stringValue(args.query);
+  if (query !== undefined) return query;
+  return cappedJson(args, 600);
+}
+
+function compactValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null) return "null";
+  return cappedJson(value, 240);
+}
+
+function cappedJson(value: unknown, maxLength = 2_000): string {
+  const text = JSON.stringify(value, null, 2) ?? "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}\n... truncated`;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 async function decodeSharedTrailPayload(payloadText: string): Promise<string> {
   const base64 = payloadText.replace(/\s+/g, "");
   if (base64.length > GIST_VIEWER_LIMITS.maxBase64Chars) {
@@ -531,6 +783,16 @@ let validateRecord: ReturnType<Ajv2020["compile"]> | undefined;
 function recordValidator(): ReturnType<Ajv2020["compile"]> {
   validateRecord ??= new Ajv2020({ strict: false }).compile(schema);
   return validateRecord;
+}
+
+function diagnosticFromSchemaError(error: ErrorObject, line: number): ViewerDiagnostic {
+  return {
+    line,
+    path: error.instancePath || "/",
+    severity: "error",
+    code: error.keyword,
+    message: error.message ?? "record failed schema validation",
+  };
 }
 
 function viewerError(

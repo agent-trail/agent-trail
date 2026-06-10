@@ -92,6 +92,7 @@
   }
 
   ::-webkit-scrollbar {
+    height: 4px;
     width: 4px;
   }
 
@@ -220,6 +221,27 @@
 
   .sample-line-highlight .json-punctuation {
     color: var(--at-muted);
+  }
+
+  .viewer-diff-line-file {
+    background: color-mix(in srgb, var(--at-fg) 8%, transparent);
+    color: var(--at-fg);
+    font-weight: 700;
+  }
+
+  .viewer-diff-line-hunk {
+    background: color-mix(in srgb, var(--at-fg) 5%, transparent);
+    color: var(--at-muted);
+  }
+
+  .viewer-diff-line-add {
+    background: color-mix(in srgb, #16a34a 20%, transparent);
+    color: var(--at-fg);
+  }
+
+  .viewer-diff-line-remove {
+    background: color-mix(in srgb, #dc2626 18%, transparent);
+    color: var(--at-fg);
   }
 
   .sidebar-toggle-tooltip {
@@ -457,6 +479,81 @@
     white-space: pre-wrap;
   }
 
+  .viewer-message-markdown {
+    overflow-wrap: anywhere;
+  }
+
+  .viewer-message-markdown > * {
+    margin: 0;
+  }
+
+  .viewer-message-markdown > * + * {
+    margin-top: 0.75rem;
+  }
+
+  .viewer-message-markdown ul,
+  .viewer-message-markdown ol {
+    display: grid;
+    gap: 0.3rem;
+    padding-left: 1.4rem;
+  }
+
+  .viewer-message-markdown ul {
+    list-style: disc;
+  }
+
+  .viewer-message-markdown ol {
+    list-style: decimal;
+  }
+
+  .viewer-message-markdown a {
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-muted);
+    text-underline-offset: 0.16em;
+  }
+
+  .viewer-message-markdown a[href="#"],
+  .viewer-message-markdown .viewer-dead-link {
+    color: var(--color-muted);
+    cursor: not-allowed;
+    text-decoration-style: dotted;
+    text-decoration-color: var(--color-line);
+  }
+
+  .viewer-message-markdown :not(pre) > code {
+    border: 1px solid var(--color-line-muted);
+    background: var(--color-panel);
+    padding: 0.04rem 0.22rem;
+    font-size: 0.9em;
+  }
+
+  .viewer-message-markdown pre {
+    overflow-x: auto;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel);
+    padding: 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+
+  .viewer-tool-group-stack {
+    border: 1px solid var(--color-line);
+  }
+
+  .viewer-tool-group-stack > .viewer-tool-details + .viewer-tool-details {
+    border-top: 1px solid var(--color-line);
+  }
+
+  .viewer-tool-details-compact .viewer-tool-summary {
+    background: var(--color-bg);
+  }
+
+  .viewer-diff-block::-webkit-scrollbar,
+  .viewer-terminal-block pre::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+
   .heading-anchor {
     margin-left: 0.5rem;
     color: var(--color-muted);
@@ -472,6 +569,17 @@
 @media (hover: hover) and (pointer: fine) {
   .btn-hover:active {
     transform: scale(0.96);
+  }
+
+  .viewer-pressable {
+    transition:
+      background-color 120ms var(--ease-out),
+      color 120ms var(--ease-out),
+      transform 120ms var(--ease-out);
+  }
+
+  .viewer-pressable:active {
+    transform: scale(0.99);
   }
 }
 
