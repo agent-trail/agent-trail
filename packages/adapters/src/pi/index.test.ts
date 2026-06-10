@@ -83,6 +83,10 @@ const COMPACT_FIXTURE_PATH = new URL(
 ).pathname;
 const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl", import.meta.url)
   .pathname;
+const USAGE_FIRST_ENTRY_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/usage-first-entry.jsonl",
+  import.meta.url,
+).pathname;
 const TOOL_RESULT_ERROR_FIXTURE_PATH = new URL(
   "../../tests/fixtures/pi/tool-result-error.jsonl",
   import.meta.url,
@@ -143,6 +147,14 @@ async function parseUsageFixture() {
     id: "usage-and-cost",
     adapter: "pi",
     path: USAGE_FIXTURE_PATH,
+  });
+}
+
+async function parseUsageFirstEntryFixture() {
+  return piAdapter.parseSession({
+    id: "usage-first-entry",
+    adapter: "pi",
+    path: USAGE_FIRST_ENTRY_FIXTURE_PATH,
   });
 }
 
@@ -272,6 +284,33 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
     totalTokens: 1801,
     cost: 0.0123,
   });
+});
+
+test("parseSession() attaches Pi assistant envelope usage to the first derived non-message entries", async () => {
+  const trail = await parseUsageFirstEntryFixture();
+  const thinking = trail.groups[0]!.entries.find((entry) => entry.type === "agent_thinking");
+  const text = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
+  const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+
+  expect((thinking?.payload as { usage?: Record<string, unknown> })?.usage).toEqual({
+    input_tokens: 321,
+    output_tokens: 45,
+    context_input_tokens: 321,
+  });
+  expect(text?.payload).not.toHaveProperty("usage");
+  expect(call?.payload).toEqual({
+    tool: "file_read",
+    args: { path: "spec.md" },
+    usage: {
+      input_tokens: 12,
+      output_tokens: 3,
+      cache_read_tokens: 2,
+      context_input_tokens: 14,
+    },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() preserves Pi tool-result contextAtCompletion under vendor meta", async () => {

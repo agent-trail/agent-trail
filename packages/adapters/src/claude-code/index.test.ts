@@ -129,6 +129,9 @@ const FIXTURE_PATH = fileURLToPath(
 const FIDELITY_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl", import.meta.url),
 );
+const USAGE_FIRST_ENTRY_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/usage-first-entry.jsonl", import.meta.url),
+);
 const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
 );
@@ -155,6 +158,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseUsageFirstEntryFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "usage-first-entry",
+    adapter: "claude-code",
+    path: USAGE_FIRST_ENTRY_FIXTURE_PATH,
   });
 }
 
@@ -324,6 +335,13 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   expect(toolCall?.payload).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
+    usage: {
+      input_tokens: 4,
+      output_tokens: 32,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      context_input_tokens: 4,
+    },
   });
   expect(toolCall?.semantic).toEqual({
     group_id: "req_synthetic_01",
@@ -1412,6 +1430,26 @@ test("parseSession() emits an agent_message for assistant text records with mode
   expect((agentMsg?.payload as { usage?: Record<string, unknown> }).usage).not.toHaveProperty(
     "context_window_tokens",
   );
+});
+
+test("parseSession() attaches assistant envelope usage to a tool_call-only first entry", async () => {
+  const trail = await parseUsageFirstEntryFixture();
+  const call = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "tooluse-usage-read",
+  );
+  expect(call?.payload).toEqual({
+    tool: "file_read",
+    args: { path: "package.json" },
+    usage: {
+      input_tokens: 21,
+      output_tokens: 7,
+      cache_read_tokens: 3,
+      context_input_tokens: 24,
+    },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits a session_summary for summary records", async () => {

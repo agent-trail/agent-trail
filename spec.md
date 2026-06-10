@@ -635,21 +635,21 @@ A text response from the agent.
 | `text` | yes | string | the agent's output |
 | `model` | no | string | model that produced this message |
 | `stop_reason` | no | string | source-specific stop reason |
-| `usage` | no | object | per-message token usage; see below |
+| `usage` | no | object | token usage for the source envelope; see below |
 | `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
 
 `attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, `uri`, `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
 
-Captures per-message token accounting emitted by the source agent. Optional. When the source provides no token data, writers MUST omit `usage` — fabricating zeros is not allowed.
+Captures token accounting emitted by the source agent for a model-response envelope. Optional. When the source provides no token data, writers MUST omit `usage` — fabricating zeros is not allowed.
 
 | Sub-field | Required | Type | Notes |
 |---|---|---|---|
-| `input_tokens` | conditional | integer ≥0 | delta for this message |
-| `output_tokens` | conditional | integer ≥0 | delta for this message |
-| `input_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
-| `output_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
+| `input_tokens` | conditional | integer ≥0 | delta for this envelope |
+| `output_tokens` | conditional | integer ≥0 | delta for this envelope |
+| `input_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
+| `output_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
 | `cache_read_tokens` | no | integer ≥0 | input tokens served from prompt cache; billed separately from `input_tokens` |
 | `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
 | `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
@@ -664,7 +664,7 @@ Context token semantics are for context-pressure analytics, not billing. Writers
 
 Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 
-When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first `agent_message` derived from that envelope and MUST NOT repeat it on later derived entries. Tool calls and thinking blocks within the same envelope do not carry `usage`.
+When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first derived entry whose payload supports `usage`, skip non-usage-capable derived entries, and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads; if an envelope emits none of those entries, canonical `usage` is omitted.
 
 Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
@@ -750,6 +750,7 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 |---|---|---|---|
 | `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
+| `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
 
@@ -1173,7 +1174,12 @@ Chain-of-thought or reasoning block.
 }
 ```
 
-`level`: `low` | `medium` | `high` | `xhigh`.
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `text` | yes | string | reasoning content exposed by the source |
+| `model` | no | string | model that produced this thinking block |
+| `level` | no | enum | `low` \| `medium` \| `high` \| `xhigh` |
+| `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `user_interrupt`
 
@@ -1755,6 +1761,7 @@ Initial public draft. v0.1.0 defines:
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
+- Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 
 ---

@@ -55,7 +55,7 @@ describe("custom reconciler passes", () => {
       type: "tool_call",
       id: "call-entry",
       ts: "2026-05-29T00:00:00.000Z",
-      payload: {},
+      payload: { tool: "other", args: {} },
       meta: { linker: { call_id: "c1" } },
     } as Entry;
 
