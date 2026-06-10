@@ -13,9 +13,11 @@ valid or invalid by itself.
 Use this split:
 
 - `schema.json` and `spec.md`: wire shape, field meanings, versioning,
-  extension rules, hashing, and whole-file validity.
-- This document: implementation choices, mapping policy, reader behavior,
-  warning codes, redaction workflow, and promotion guidance.
+  extension rules, hashing, whole-file validity, and spec-named portable
+  diagnostic codes.
+- This document: implementation choices, mapping policy, reader/viewer behavior,
+  additional `@agent-trail/core` diagnostics, redaction workflow, and promotion
+  guidance.
 - `docs/parser-source-matrix.md`: verified source-agent formats, versions,
   fixtures, and per-adapter evidence.
 - `docs/adapter-authoring.md`: checklist for building or updating adapters.
@@ -33,7 +35,8 @@ when no single source record directly produced an entry.
 
 ### Source Mapping
 
-Prefer first-class Agent Trail events when semantics match:
+Prefer first-class Agent Trail events when semantics match, including among
+others:
 
 - `user_message` and `agent_message` for transcript text.
 - `agent_thinking` for reasoning content that source exposes.
@@ -43,6 +46,9 @@ Prefer first-class Agent Trail events when semantics match:
 - `model_change`, `mode_change`, `thinking_level_change`,
   `capability_change`, `command_invoke`, `session_metadata_update`, or
   `system_event` for matching source signals.
+
+The authoritative event-type list is `schema.json` `$defs.entry.oneOf`; this
+prose is mapping guidance, not a duplicate registry.
 
 Use vendor `system_event.payload.kind` values for weak-fit source events, for
 example `x-<adapter>/<event>`. Preserve source details in `source.raw` or
@@ -58,8 +64,8 @@ Adapter policy:
 - Tree-native sources may emit `parent_id` for entries where source topology is
   known.
 - Linear sources should usually omit `parent_id`; file order is enough.
-- Inline subagent events can use the parent `subagent_invoke` entry as their
-  root parent.
+- Inline subagent child entries can use the parent `tool_call` entry whose
+  `payload.tool` is `"subagent_invoke"` as their root parent.
 - External subagents or forked transcripts should become separate session
   groups or external trails linked by `header.fork_from`.
 - Source runtime ids that are not Agent Trail entry or session ids should stay
@@ -110,6 +116,13 @@ implementation policy, not wire-format requirement.
 Readers should validate before rendering when possible, but generic rendering
 should remain useful for partial or future-compatible files.
 
+Tolerant readers should quarantine unparseable lines or unknown records rather
+than silently drop them. Surface parse-fidelity counts such as
+`quarantined_count` when available, keep quarantined content out of validity
+claims, and render it as suspect source-fidelity material. Issue #250 owns the
+normative adapter-emission convention for unknown source records; this section
+only describes reader and viewer treatment.
+
 Linear-only viewers can:
 
 - Render entries in file order.
@@ -156,10 +169,14 @@ Warning codes and exact merge diagnostics are implementation API details. ADRs
 The spec defines the portable diagnostic shape: `line`, `path`, `severity`,
 `code`, and `message`.
 
-The reference validator uses stable codes for tooling and tests, including
-graph, envelope, hash, segment, source-raw, and stream-state diagnostics. These
-codes are implementation surface for `@agent-trail/core`; adding a new code does
-not change the wire format unless the underlying validity rule changes.
+The spec also owns the diagnostic codes it names for conformance checks in
+§16.4, such as `duplicate_id`, `parent_cycle`, `content_hash_mismatch`, and
+envelope, stream, or source-raw codes. Changing these spec-named codes is a spec
+change because they are portable format surface.
+
+Additional reference-validator codes for tooling and tests are implementation
+API for `@agent-trail/core`. Adding one of these core-only codes does not change
+the wire format unless the underlying validity rule changes.
 
 Validators may also report implementation-defined warnings, such as source raw
 size budgets or leak scans. Such warnings should not be described as spec
