@@ -163,6 +163,12 @@ and verify segments. This repository's reconciler applies this policy:
      `session_uid` checked for divergence.
 7. Drop `segment.*` fields from the merged header and restamp hashes.
 
+When late-bound header `name`, `description`, or `tags` would otherwise be
+overridden by older preserved `session_metadata_update` events during replay,
+the reconciler appends synthesized terminal metadata updates. This keeps source
+metadata events intact while making header-as-base replay resolve to the same
+effective session metadata as the merged header.
+
 Warning codes and exact merge diagnostics are implementation API details. ADRs
 0005 and 0006 record the design history.
 

@@ -262,7 +262,7 @@ export interface TrailEnvelope {
   };
 }
 export interface Vcs {
-  type: ("git" | "jj" | "hg" | "svn") | string;
+  type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
   revision: string;
   /**
    * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).

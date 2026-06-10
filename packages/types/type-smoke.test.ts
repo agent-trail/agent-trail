@@ -44,9 +44,15 @@ test("Vcs.type accepts reserved and extension values", () => {
     type: "x-acme/fossil",
     revision: "abc123",
   } satisfies Vcs;
+  const bare = {
+    // @ts-expect-error writer schema rejects bare unknown VCS types.
+    type: "fossil",
+    revision: "abc123",
+  } satisfies Vcs;
 
   expect(reserved.type).toBe("git");
   expect(extension.type).toBe("x-acme/fossil");
+  expect(bare.type).toBe("fossil");
 });
 
 test("AgentMessageUsage requires input/output coverage and rejects extra fields", () => {
