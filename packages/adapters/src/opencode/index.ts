@@ -10,6 +10,7 @@ import type {
   TrailFile,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
+import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { readGitVcs } from "../vcs.ts";
 import { headerFromLoaded } from "./header.ts";
 import { inspectSourceHealth } from "./health.ts";
@@ -21,9 +22,10 @@ import { discoveredSummaries, loadDbSession, loadFileSession } from "./storage/i
 const PRODUCER = `@agent-trail/adapters-opencode/${pkg.version}`;
 
 async function stampTrailFile(trail: TrailFile): Promise<TrailFile> {
+  const sanitizedTrail = sanitizeTrailFile(trail);
   const records = [
-    ...(trail.envelope !== undefined ? [trail.envelope] : []),
-    ...trail.groups.flatMap((group) => [group.header, ...group.entries]),
+    ...(sanitizedTrail.envelope !== undefined ? [sanitizedTrail.envelope] : []),
+    ...sanitizedTrail.groups.flatMap((group) => [group.header, ...group.entries]),
   ];
   const parsed = await parseJsonlString(
     `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
@@ -33,7 +35,7 @@ async function stampTrailFile(trail: TrailFile): Promise<TrailFile> {
   const envelope = values[0] as TrailFile["envelope"];
   const header = values[1] as Header;
   const entries = values.slice(2) as Entry[];
-  return { envelope, groups: [{ header, entries }] };
+  return sanitizeTrailFile({ envelope, groups: [{ header, entries }] });
 }
 
 export const opencodeAdapter: TrailAdapter = {

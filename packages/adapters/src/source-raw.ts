@@ -3,6 +3,7 @@ import {
   type RedactionPattern,
   SOURCE_RAW_HARD_CAP_BYTES,
 } from "@agent-trail/core";
+import { sanitizeJsonString, sanitizeJsonStrings } from "./trail-sanitizer.ts";
 
 export type EnforceSourceRawSizeOptions = {
   // Maximum bytes for the serialized source.raw. When exceeded, the writer
@@ -25,20 +26,21 @@ export function enforceSourceRawSize(
   value: unknown,
   options?: EnforceSourceRawSizeOptions,
 ): EnforceSourceRawSizeResult {
+  const sanitized = sanitizeJsonStrings(value);
   const hardCap = resolveHardCap(options?.hardCapBytes);
   if (hardCap === null) {
-    return { value, elided: false, leavesTrimmed: 0 };
+    return { value: sanitized, elided: false, leavesTrimmed: 0 };
   }
 
-  const originalBytes = byteLengthOf(value);
+  const originalBytes = byteLengthOf(sanitized);
   if (originalBytes <= hardCap) {
-    return { value, elided: false, leavesTrimmed: 0 };
+    return { value: sanitized, elided: false, leavesTrimmed: 0 };
   }
 
   // Top-level string source.raw: nothing to recurse into, just elide the
   // whole value. Schema allows source.raw to be any JSON type; the if/then
   // constraint only fires when raw is an object.
-  if (typeof value === "string") {
+  if (typeof sanitized === "string") {
     return {
       value: { elided: true, size_bytes: originalBytes },
       elided: true,
@@ -49,7 +51,7 @@ export function enforceSourceRawSize(
   // Deep clone so we can mutate string leaves in place. Cheaper than
   // re-walking from the root after each trim, and the resulting structure
   // shares no references with the caller's input.
-  const cloned = structuredClone(value);
+  const cloned = structuredClone(sanitized);
   const leaves = collectStringLeaves(cloned);
   // Greedy minimum-necessary elision: biggest leaves first so we minimize
   // the count of trimmed leaves and preserve as much source-shape fidelity
@@ -159,7 +161,7 @@ export function redactValue(
   patterns: readonly RedactionPattern[] = CREDENTIAL_PATTERNS,
 ): unknown {
   if (typeof value === "string") {
-    return applyPatterns(value, patterns);
+    return applyPatterns(sanitizeJsonString(value), patterns);
   }
   if (Array.isArray(value)) {
     return value.map((entry) => redactValue(entry, patterns));

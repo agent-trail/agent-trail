@@ -333,7 +333,7 @@ export const ccPermissionModeDelta: ReconcilerRule = (entries) => {
   return entries.map((entry) => {
     if (entry.type !== "mode_change") return entry;
     const payload = entry.payload;
-    if (!payload || payload.scope !== "permission") return entry;
+    if (payload?.scope !== "permission") return entry;
     const mode = typeof payload.to_mode === "string" ? payload.to_mode : undefined;
     if (mode === undefined) return entry;
     let next = entry;

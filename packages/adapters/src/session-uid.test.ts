@@ -16,6 +16,7 @@ test("deriveSessionUid: same namespace + upstream id → same output across call
 test("deriveSessionUid: output is a v5 hyphenated UUID (RFC 4122 variant)", () => {
   const uid = deriveSessionUid(CLAUDE_CODE_SESSION_UID_NAMESPACE, "upstream-sess-abc");
   expect(uid).toMatch(UUID_HYPHENATED);
+  expect(uid).toBe(uid.toLowerCase());
 });
 
 test("deriveSessionUid: different upstream ids → different uids", () => {

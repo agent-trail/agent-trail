@@ -834,7 +834,7 @@ function buildPreview(text: string): { bytes: number; text: string; truncated: b
 let validateRecord: ReturnType<Ajv2020["compile"]> | undefined;
 
 function recordValidator(): ReturnType<Ajv2020["compile"]> {
-  validateRecord ??= new Ajv2020({ strict: false }).compile(schema);
+  validateRecord ??= new Ajv2020({ strict: false, validateFormats: false }).compile(schema);
   return validateRecord;
 }
 

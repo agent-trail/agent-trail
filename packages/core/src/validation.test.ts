@@ -29,6 +29,64 @@ test("accepts the minimal writer-strict session header", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("writer-strict ids require uppercase ULIDs and lowercase UUIDs", () => {
+  const canonicalUuid = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-5000-8000-abcdefabcdef","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "00000000-0000-5000-8000-abcdefabcdef",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    },
+  });
+  expect(canonicalUuid).toEqual([]);
+
+  const lowercaseUlid = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01hsess0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01hsess0000000000000000001",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    },
+  });
+  expect(lowercaseUlid).toContainEqual({
+    line: 1,
+    path: "/id",
+    severity: "error",
+    code: "pattern",
+    message:
+      'must match pattern "^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$"',
+  });
+
+  const uppercaseUuid = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-5000-8000-ABCDEFABCDEF","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "00000000-0000-5000-8000-ABCDEFABCDEF",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    },
+  });
+  expect(uppercaseUuid).toContainEqual({
+    line: 1,
+    path: "/id",
+    severity: "error",
+    code: "pattern",
+    message:
+      'must match pattern "^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$"',
+  });
+});
+
 test("accepts a writer-strict session header with parse_fidelity", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 1,
@@ -604,6 +662,32 @@ test("reader-tolerant profile warns for nested unknown payload fields", async ()
       message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
     },
   ]);
+});
+
+test("reader-tolerant profile warns for ill-formed strings that strict rejects", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    String.raw`{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"bad \udc00"}}`,
+  ].join("\n");
+
+  const strictDiagnostics = await validateTrailString(text);
+  expect(strictDiagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/text",
+    severity: "error",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/text",
+    severity: "warning",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+  expect(tolerantDiagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(false);
 });
 
 test("reader-tolerant profile keeps non-extension payload errors strict", async () => {

@@ -31,6 +31,19 @@ export function deriveSynthesizedEntryId(namespace: string, seedParts: readonly 
   return deriveUuidV5(namespace, seedParts.join("\x1f"));
 }
 
+const UUID_HYPHENATED_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID_UNHYPHENATED_PATTERN = /^[0-9a-fA-F]{32}$/;
+const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
+
+export function canonicalizeIdentityString(value: string): string {
+  if (UUID_HYPHENATED_PATTERN.test(value) || UUID_UNHYPHENATED_PATTERN.test(value)) {
+    return value.toLowerCase();
+  }
+  if (ULID_PATTERN.test(value)) return value.toUpperCase();
+  return value;
+}
+
 function deriveUuidV5(namespace: string, name: string): string {
   const namespaceBytes = parseUuidBytes(namespace);
   const hash = createHash("sha1").update(namespaceBytes).update(name, "utf8").digest();

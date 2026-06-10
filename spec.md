@@ -112,6 +112,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Each line is one self-contained JSON object.
 - Empty lines are not allowed.
 - A trailing newline at EOF is recommended but not required.
+- Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
 
 ### 5.3 File layout
 
@@ -160,7 +161,7 @@ Writer schemas are exact per release: the v0.1.0 writer schema requires `schema_
 
 ### 7.1 Session identity
 
-Every session has a local identifier `id` in the header. ULID (26 Crockford base32 chars, case-insensitive) or UUID (RFC 4122, hyphenated or unhyphenated). The schema enforces this shape so cross-segment reconciliation can dedup events by id; older v0.1 fixtures whose ids were free-form strings have been migrated.
+Every session has a local identifier `id` in the header. Writers emit uppercase ULIDs (26 Crockford base32 chars) or lowercase UUIDs (RFC 4122, hyphenated or unhyphenated). The schema enforces this canonical casing so cross-segment reconciliation can dedup events by exact string equality; older v0.1 fixtures whose ids were free-form strings or non-canonical casing have been migrated.
 
 ### 7.2 Artifact classes
 
@@ -183,6 +184,7 @@ Canonical bytes are defined as:
 - No trailing whitespace.
 - A trailing newline at EOF.
 - Each JSON object serialized using RFC 8785 JSON Canonicalization Scheme (JCS).
+- Writer-valid strings are well-formed per §5.2, so canonical bytes remain pure JCS; hash-time string repair is not part of this procedure.
 
 Because the hash depends on the file content that includes the hash field, we use a two-pass approach:
 
@@ -216,7 +218,7 @@ Writers MUST choose the matching tier; mixing tiers across a chain breaks verifi
 
 ### 7.5 Event identifiers
 
-Event `id` values are globally unique. The schema enforces a ULID-or-UUID shape (see §7 / §17). Globally-unique ids let a reconciler dedup events across segments by exact string equality.
+Event `id` values are globally unique. Writers emit uppercase ULIDs or lowercase UUIDs, matching §7.1 and the schema. Globally-unique canonical ids let a reconciler dedup events across segments by exact string equality.
 
 ---
 
@@ -430,7 +432,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: uppercase ULID (recommended, lexicographic time-prefix) or lowercase UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -1631,11 +1633,12 @@ A v0.1.0-compliant trail file must also pass whole-file checks:
 4. Every non-null `parent_id` references an `id` in the same file.
 5. The `parent_id` graph is acyclic.
 6. Writer timestamps are valid UTC `Z` ISO-8601 values with millisecond precision. Readers may tolerate broader ISO-8601 timestamps.
+7. All string values are well-formed: no unpaired high or low surrogate code units. Violations are `ill_formed_string` diagnostics at the offending JSON Pointer. Strict validation reports an error; reader-tolerant validation reports a warning and does not repair the value.
 
 If `content_hash` is present:
 
-7. The value is 64 hex characters (SHA-256).
-8. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers may warn but must not abort.
+8. The value is 64 hex characters (SHA-256).
+9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers may warn but must not abort.
 
 Warnings (non-fatal):
 
@@ -1658,10 +1661,10 @@ Warnings (non-fatal):
 
 Streaming rules (§8.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
 
-9. If the current `header.stream.state == "open"`:
-   - **9a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
-   - **9b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
-10. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 9b does not apply once the stream is no longer marked live.
+10. If the current `header.stream.state == "open"`:
+   - **10a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
+   - **10b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
+11. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 10b does not apply once the stream is no longer marked live.
 
 ---
 
@@ -1749,6 +1752,7 @@ Initial public draft. v0.1.0 defines:
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
+- During the v0.1.0 draft cycle, writer-strict identity and encoding were hardened: ULIDs are uppercase, UUIDs are lowercase, timestamps carry schema `format:"date-time"` annotation, and strings with unpaired surrogates are invalid (`ill_formed_string`).
 
 ---
 

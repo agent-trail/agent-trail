@@ -12,9 +12,14 @@ import type {
   TrailSessionGroup,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
-import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
+import {
+  CLAUDE_CODE_SESSION_UID_NAMESPACE,
+  canonicalizeIdentityString,
+  deriveSessionUid,
+} from "../session-uid.ts";
 import { DISCOVERY_CONCURRENCY_LIMIT, mapConcurrent } from "../shared/concurrency.ts";
 import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
+import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { parseClaudeCodeSnapshotEntries } from "./kit.ts";
 import { buildHeader } from "./parser.ts";
 import { claudeCodeConfigDir, claudeCodeProjectDir, claudeCodeProjectsRoot } from "./paths.ts";
@@ -222,15 +227,24 @@ async function parseGroup(
   const envelopes = parseLines(text);
   const header = buildHeader(envelopes, { includeSidechain: options.includeSidechain === true });
   if (options.childKey !== undefined && options.parentSessionId !== undefined) {
+    const parentSessionId = canonicalizeIdentityString(options.parentSessionId);
     const childId = deriveSessionUid(
       CLAUDE_CODE_SESSION_UID_NAMESPACE,
-      `${options.parentSessionId}\x1f${options.childKey}`,
+      `${parentSessionId}\x1f${options.childKey}`,
     );
     header.id = childId;
     header.session_uid = childId;
     header.meta = { ...header.meta, "dev.claudecode.agent_id": options.childKey };
   }
-  if (options.forkFrom !== undefined) header.fork_from = options.forkFrom;
+  if (options.forkFrom !== undefined) {
+    header.fork_from = {
+      ...options.forkFrom,
+      session_id: canonicalizeIdentityString(options.forkFrom.session_id),
+      ...(options.forkFrom.entry_id !== undefined
+        ? { entry_id: canonicalizeIdentityString(options.forkFrom.entry_id) }
+        : {}),
+    };
+  }
   const sessionUid = header.session_uid ?? header.id;
   const entries = await parseClaudeCodeSnapshotEntries(envelopes, sessionUid, {
     includeSidechain: options.includeSidechain === true,
@@ -385,7 +399,7 @@ export const claudeCodeAdapter: TrailAdapter = {
       producer: PRODUCER,
       groups,
     });
-    return { envelope, groups };
+    return sanitizeTrailFile({ envelope, groups });
   },
   async isAvailable(): Promise<boolean> {
     const configDir = claudeCodeConfigDir();

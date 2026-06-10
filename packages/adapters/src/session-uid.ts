@@ -7,7 +7,11 @@
  * Namespace UUIDs below are arbitrary, random v4 UUIDs — they only need to be
  * stable forever. Changing one is a corpus-wide migration.
  */
-export { deriveSessionUid, deriveSynthesizedEntryId } from "@agent-trail/adapter-kit";
+export {
+  canonicalizeIdentityString,
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+} from "@agent-trail/adapter-kit";
 
 /** Namespace for Claude Code adapter session_uids. Stable forever — do not change. */
 export const CLAUDE_CODE_SESSION_UID_NAMESPACE = "b4a0f5e1-7c23-4d8a-9e12-3f4b5c6d7e8f";

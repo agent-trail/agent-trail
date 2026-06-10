@@ -1,5 +1,6 @@
 import type { Header } from "@agent-trail/types";
 import {
+  canonicalizeIdentityString,
   deriveSessionUid,
   deriveSynthesizedEntryId,
   OPENCODE_ENTRY_ID_NAMESPACE,
@@ -21,7 +22,7 @@ type HeaderRef = {
 
 export function headerFromLoaded(loaded: LoadedSession, ref: HeaderRef): Header {
   const session = loaded.session;
-  const id = stringValue(session.id) ?? ref.id;
+  const id = canonicalizeIdentityString(stringValue(session.id) ?? ref.id);
   const time = objectValue(session.time);
   const version = stringValue(session.version);
   const cwd = stringValue(session.directory);
@@ -51,6 +52,8 @@ export function headerFromLoaded(loaded: LoadedSession, ref: HeaderRef): Header 
   };
   if (cwd !== undefined) header.cwd = cwd;
   const parentId = stringValue(session.parentID) ?? stringValue(session.parent_id);
-  if (parentId !== undefined) header.fork_from = { session_id: parentId };
+  if (parentId !== undefined) {
+    header.fork_from = { session_id: canonicalizeIdentityString(parentId) };
+  }
   return header;
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { canonicalizeIdentityString } from "@agent-trail/adapter-kit";
 import type { Entry } from "@agent-trail/types";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
@@ -82,8 +83,9 @@ export function createEntryId<Env>(
     if (id === undefined) {
       throw new Error(config.missingMessage);
     }
-    if (config.deriveId !== undefined) return config.deriveId(id, suffix);
-    return suffix === undefined ? id : `${id}-${suffix}`;
+    const canonicalId = canonicalizeIdentityString(id);
+    if (config.deriveId !== undefined) return config.deriveId(canonicalId, suffix);
+    return suffix === undefined ? canonicalId : `${canonicalId}-${suffix}`;
   };
 }
 

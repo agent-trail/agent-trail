@@ -1100,6 +1100,30 @@ test("reader-tolerant/unknown-payload-field: strict errors, tolerant warns", asy
   expect(tolerant.some((d) => d.severity === "error")).toBe(false);
 });
 
+test("reader-tolerant/ill-formed-string: strict errors, tolerant warns", async () => {
+  const text = await loadFixture("reader-tolerant/ill-formed-string.trail.jsonl");
+
+  const strict = await validateTrailString(text);
+  expect(strict).toContainEqual({
+    line: 2,
+    path: "/payload/text",
+    severity: "error",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+
+  const tolerant = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerant).toEqual([
+    {
+      line: 2,
+      path: "/payload/text",
+      severity: "warning",
+      code: "ill_formed_string",
+      message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+    },
+  ]);
+});
+
 test("reader-tolerant/nested-unknown-payload-field warns at nested path", async () => {
   const tolerant = await validateTrailString(
     await loadFixture("reader-tolerant/nested-unknown-payload-field.trail.jsonl"),

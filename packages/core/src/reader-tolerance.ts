@@ -33,7 +33,13 @@ export function baseDiagnosticsForProfile(
   record: JsonlRecord,
   profile: ValidationProfile,
 ): Diagnostic[] {
-  const diagnostics = validateWriterStrictRecord(record);
+  const diagnostics =
+    profile === "reader-tolerant"
+      ? validateWriterStrictRecord(record).map(downgradeIllFormedString)
+      : validateWriterStrictRecord(record);
+  const illFormedWarnings = diagnostics.filter(
+    (diagnostic) => diagnostic.code === "ill_formed_string" && diagnostic.severity === "warning",
+  );
   const unknownRecordWarning =
     profile === "reader-tolerant" ? readerTolerantUnknownRecordWarning(record) : undefined;
 
@@ -49,13 +55,13 @@ export function baseDiagnosticsForProfile(
   if (
     profile === "reader-tolerant" &&
     isReaderCompatiblePatchHeader(record) &&
-    hasOnlyReaderTolerantHeaderErrors(diagnostics)
+    hasOnlyReaderTolerantHeaderErrors(withoutIllFormedStrings(diagnostics))
   ) {
-    return [];
+    return illFormedWarnings;
   }
 
   if (unknownRecordWarning !== undefined) {
-    return [unknownRecordWarning];
+    return [unknownRecordWarning, ...illFormedWarnings];
   }
 
   if (tolerantWarnings.length === 0) {
@@ -63,12 +69,21 @@ export function baseDiagnosticsForProfile(
   }
 
   if (hasOnlyReaderTolerantPayloadFieldAdditions(record, tolerantWarnings)) {
-    return tolerantWarnings;
+    return tolerantWarnings.concat(illFormedWarnings);
   }
 
   return diagnostics
     .filter((diagnostic) => !isDowngradedByReaderTolerance(diagnostic, tolerantWarnings))
     .concat(tolerantWarnings);
+}
+
+function downgradeIllFormedString(diagnostic: Diagnostic): Diagnostic {
+  if (diagnostic.code !== "ill_formed_string") return diagnostic;
+  return { ...diagnostic, severity: "warning" };
+}
+
+function withoutIllFormedStrings(diagnostics: Diagnostic[]): Diagnostic[] {
+  return diagnostics.filter((diagnostic) => diagnostic.code !== "ill_formed_string");
 }
 
 function readerTolerantWarningsForRecord(record: JsonlRecord): Diagnostic[] {

@@ -40,6 +40,19 @@ test("redactValue redacts a top-level string containing a credential", () => {
   );
 });
 
+test("redactValue and source raw sizing replace lone surrogates", () => {
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  const input = { bad: `bad ${loneSurrogate}`, validPair: "ok 😀" };
+
+  const redacted = redactValue(input) as typeof input;
+  expect(redacted.bad).toBe("bad �");
+  expect(redacted.validPair).toBe("ok 😀");
+
+  const { value } = enforceSourceRawSize(input);
+  expect((value as typeof input).bad).toBe("bad �");
+  expect((value as typeof input).validPair).toBe("ok 😀");
+});
+
 test("enforceSourceRawSize returns the value as-is when under the hard cap", () => {
   const value = { envelope: { id: "e", body: "x".repeat(3000) } };
   const { value: out, elided, leavesTrimmed } = enforceSourceRawSize(value);

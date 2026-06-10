@@ -129,14 +129,17 @@ These display choices do not affect trail validity.
 Multi-segment fields in the spec provide enough information to group, order,
 and verify segments. This repository's reconciler applies this policy:
 
-1. Group inputs by `header.session_uid` using exact string equality. Do not
-   compare these fields case-insensitively or normalize them to lowercase;
-   casing disagreement is a writer-side bug that should be surfaced.
+1. Group inputs by `header.session_uid` using exact string equality. Writer-strict
+   validation already rejects non-canonical ULID/UUID casing. If tolerant or
+   otherwise non-writer-strict input reaches the reconciler with casing
+   disagreement, surface it instead of normalizing or comparing
+   case-insensitively.
 2. Sort each group by `segment.seq`; absent segment means sequence 1.
 3. Verify `segment.prev_content_hash` against the previous segment's
-   session-level `content_hash` using exact string comparison. Do not compare
-   content hashes case-insensitively; `content_hash` is lowercase hex, and
-   casing disagreement is a writer-side bug that should be surfaced.
+   session-level `content_hash` using exact string comparison. Writer-strict
+   validation already rejects non-lowercase `content_hash`; if tolerant or
+   otherwise non-writer-strict input reaches this layer with casing
+   disagreement, surface it instead of normalizing.
 4. Concatenate events and deduplicate by event `id`.
 5. Drop intermediate `session_terminated` entries whose reason is
    `process_terminated`.
