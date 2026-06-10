@@ -47,3 +47,49 @@ test("reader-tolerant parsing downgrades compatible payload additions only", asy
     },
   ]);
 });
+
+test("reader-tolerant parsing preserves invalid timestamps on tolerated payload additions", async () => {
+  const trail = [
+    '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000401","ts":"2026-06-01T10:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"user_message","id":"00000000-0000-4000-8000-000000000402","ts":"2026-02-30T00:00:00.000Z","payload":{"text":"hello","future_field":{"kept":true}}}',
+  ].join("\n");
+
+  const tolerant = await validateTrailString(trail, { profile: "reader-tolerant" });
+  expect(tolerant).toContainEqual({
+    line: 2,
+    path: "/ts",
+    severity: "error",
+    code: "invalid_timestamp",
+    message: "Timestamp must be a valid UTC ISO-8601 value with millisecond precision",
+  });
+  expect(tolerant).toContainEqual({
+    line: 2,
+    path: "/payload/future_field",
+    severity: "warning",
+    code: "reader_tolerant_unknown_payload_field",
+    message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
+  });
+});
+
+test("reader-tolerant parsing preserves invalid timestamps on unknown records", async () => {
+  const trail = [
+    '{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000501","ts":"2026-06-01T10:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"future_event","id":"00000000-0000-4000-8000-000000000502","ts":"2026-02-30T00:00:00.000Z","payload":{"future":true}}',
+  ].join("\n");
+
+  const tolerant = await validateTrailString(trail, { profile: "reader-tolerant" });
+  expect(tolerant).toContainEqual({
+    line: 2,
+    path: "/type",
+    severity: "warning",
+    code: "reader_tolerant_unknown_record",
+    message: 'Unknown event type "future_event" preserved for reader-tolerant parsing',
+  });
+  expect(tolerant).toContainEqual({
+    line: 2,
+    path: "/ts",
+    severity: "error",
+    code: "invalid_timestamp",
+    message: "Timestamp must be a valid UTC ISO-8601 value with millisecond precision",
+  });
+});

@@ -44,7 +44,7 @@ Earlier drafts minted `crypto.randomUUID()` per parse; the determinism upgrade l
 
 ## Event `id` regex tightening
 
-`$defs/id` in `schema.json` now `$ref`s `$defs/sessionUid`: 26-char Crockford ULID (case-insensitive), 36-char hyphenated UUID, or 32-char unhyphenated UUID. Consequences:
+`$defs/id` in `schema.json` now `$ref`s `$defs/sessionUid`: canonical 26-char Crockford ULID, 36-char hyphenated UUID, or 32-char unhyphenated UUID. Issue #251 tightened the accepted casing after this ADR first landed: ULIDs are uppercase only, and UUIDs are lowercase only. Reconcilers and validators compare these ids by exact string equality; tolerant/non-writer-strict inputs may be normalized only at adapter boundaries before emission. Consequences:
 
 - `blockId` in both adapters (`claude-code/entry-metadata.ts`, `pi/entry-metadata.ts`) mints a fresh `crypto.randomUUID()` per block when an envelope produces multiple events; the source uuid and per-block index remain on `source.raw` for traceability.
 - `cryptoRandomShort` in `pi/parser.ts` and the synthesized `model_change` id in `claude-code/parser.ts` switch from compound strings to full `crypto.randomUUID()` calls.
