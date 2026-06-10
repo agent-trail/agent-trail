@@ -403,8 +403,8 @@ function parseToolResultBody(body: string | null): {
   for (const line of lines) {
     if (!inOutput) {
       const processExitMatch = /^Process exited with code (-?\d+)$/.exec(line);
-      if (processExitMatch?.[1] !== undefined) {
-        meta.push({ label: "exit code", value: processExitMatch[1] });
+      if (processExitMatch !== null) {
+        meta.push({ label: "exit code", value: processExitMatch[1] as string });
         continue;
       }
       const item = parseToolMetaLine(line);
@@ -449,9 +449,9 @@ function promoteOutputPreambleMeta(lines: string[]): {
 
 function parseToolMetaLine(line: string): ViewerEvent["meta"][number] | null {
   const match = /^([A-Za-z][A-Za-z0-9 _-]{0,32}):\s*(.*)$/.exec(line);
-  if (match?.[1] === undefined) return null;
+  if (match === null) return null;
   return {
-    label: match[1].trim().toLowerCase().replace(/\s+/g, " "),
-    value: match[2] ?? "",
+    label: (match[1] as string).trim().toLowerCase().replace(/\s+/g, " "),
+    value: match[2] as string,
   };
 }

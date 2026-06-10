@@ -37,7 +37,7 @@ function EventTime({ timestamp }: { timestamp: string | null | undefined }) {
 function formatEventTimestamp(timestamp: string | null | undefined): string | null {
   if (timestamp === null || timestamp === undefined || timestamp.length === 0) return null;
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/.exec(timestamp);
-  if (match?.[1] !== undefined && match[2] !== undefined) return `${match[1]}  ${match[2]}`;
+  if (match !== null) return `${match[1] as string}  ${match[2] as string}`;
   return timestamp;
 }
 

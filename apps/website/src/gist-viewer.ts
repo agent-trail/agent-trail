@@ -282,7 +282,7 @@ async function validateTrailJsonl(text: string): Promise<{
       });
       continue;
     }
-    for (const error of validate.errors ?? []) {
+    for (const error of validate.errors as ErrorObject[]) {
       diagnostics.push(diagnosticFromSchemaError(error, record.line));
     }
   }
