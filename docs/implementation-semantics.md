@@ -104,6 +104,10 @@ use inline-first / ref-subsequent preservation:
 This keeps entries self-describing while avoiding repeated large source
 envelopes.
 
+Envelope-level `payload.usage` follows the same first-derived-entry convention:
+attach it once to the first derived entry whose payload supports usage, and do
+not repeat it on later entries from the same source envelope.
+
 ### Session UID
 
 Adapters should emit stable `session_uid` values when they can identify the

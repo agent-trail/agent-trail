@@ -155,7 +155,7 @@ export type ToolKind =
   | "subagent_invoke"
   | "other";
 /**
- * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
+ * Token usage for this source agent envelope. May appear on agent_message, agent_thinking, or tool_call when that entry is the first entry derived from the envelope. input_tokens/output_tokens are deltas for this envelope; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
  */
 export type AgentMessageUsage = {
   cache_read_tokens?: number;
@@ -404,7 +404,11 @@ export interface TaskPlanItem {
 export interface ToolCall {
   type?: "tool_call";
   payload?: {
-    [k: string]: unknown;
+    tool: ToolKind;
+    args: {
+      [k: string]: unknown;
+    };
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
 }
@@ -620,6 +624,7 @@ export interface AgentThinking {
     text: string;
     model?: string;
     level?: "low" | "medium" | "high" | "xhigh";
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
 }

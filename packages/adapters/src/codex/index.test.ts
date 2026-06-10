@@ -414,7 +414,7 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect(call).toBeDefined();
   expect(result).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("shell_command");
-  expect((call?.payload as { args: { command: string } }).args.command).toBe("echo hi");
+  expect((call?.payload as unknown as { args: { command: string } }).args.command).toBe("echo hi");
   expect(call?.semantic?.call_id).toBe("call-abc");
   expect((result?.payload as { ok: boolean }).ok).toBe(true);
   expect((result?.payload as { output: string }).output).toBe("hi\n");
@@ -2588,7 +2588,7 @@ test("web_search_end emits x-codex/web_search_end system_event with query-based 
   expect(data?.query).toBe("site:example.com api docs");
   expect(data?.call_id).toBe("ws_abc123");
   const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
-  expect((call?.payload as { args: { query: string } }).args.query).toBe(
+  expect((call?.payload as unknown as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
   expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.web_search_end");
@@ -2632,7 +2632,7 @@ test("web_search_call with action.type='search' maps to tool_call{tool:'web_sear
   const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   expect(call).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("web_search");
-  expect((call?.payload as { args: { query: string } }).args.query).toBe(
+  expect((call?.payload as unknown as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
   expect(call?.meta?.["dev.codex.raw_type"]).toBe("response_item.web_search_call");

@@ -267,6 +267,11 @@ const assistantMessage = defineMapping<Raw>({
     const model = stringValue(record.message?.model);
     const usage = mapAgentMessageUsage(record.message?.usage);
     let usageEmitted = false;
+    const consumeUsage = () => {
+      const blockUsage = !usageEmitted ? usage : undefined;
+      if (blockUsage !== undefined) usageEmitted = true;
+      return blockUsage;
+    };
     // requestId groups all entries split out of one LLM request envelope. See
     // issue #126; matches the spec's semantic.group_id ("one LLM request's
     // events"). The reconciler preserves it when adding tool_kind to tool_calls.
@@ -279,8 +284,7 @@ const assistantMessage = defineMapping<Raw>({
       const envelopeRef = i > 0 ? "" : undefined;
       const source = src(record, String(block.type), block, i, { envelopeRef });
       if (block.type === "text" && typeof block.text === "string") {
-        const blockUsage = !usageEmitted ? usage : undefined;
-        if (blockUsage !== undefined) usageEmitted = true;
+        const blockUsage = consumeUsage();
         const semantic = sem();
         return [
           {
@@ -304,11 +308,16 @@ const assistantMessage = defineMapping<Raw>({
           stringValue(block.thinking) ??
           stringValue(block.data) ??
           (block.type === "redacted_thinking" ? "[redacted thinking]" : "");
+        const blockUsage = consumeUsage();
         const semantic = sem();
         return [
           {
             type: "agent_thinking",
-            payload: { text, ...(model !== undefined ? { model } : {}) },
+            payload: {
+              text,
+              ...(model !== undefined ? { model } : {}),
+              ...(blockUsage !== undefined ? { usage: blockUsage } : {}),
+            },
             ...(semantic !== undefined ? { semantic } : {}),
             source,
             meta: meta(record, { model }),
@@ -352,10 +361,11 @@ const assistantMessage = defineMapping<Raw>({
           }
         }
         const mapped = toolKindAndArgs(toolName, block.input);
+        const blockUsage = consumeUsage();
         return [
           {
             type: "tool_call",
-            payload: mapped,
+            payload: { ...mapped, ...(blockUsage !== undefined ? { usage: blockUsage } : {}) },
             semantic: sem({
               ...(callId !== undefined ? { call_id: callId } : {}),
               tool_kind: mapped.tool as ToolKind,

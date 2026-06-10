@@ -45,17 +45,24 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
       const usage = mapAgentMessageUsage(msg.usage);
       const model = stringValue(msg.model);
       const stopReason = stringValue(msg.stopReason);
+      let usageEmitted = false;
+      const consumeUsage = () => {
+        const blockUsage = !usageEmitted ? usage : undefined;
+        if (blockUsage !== undefined) usageEmitted = true;
+        return blockUsage;
+      };
 
       const out: TrailEntryDraft[] = [];
 
       if (typeof content === "string") {
+        const contentUsage = consumeUsage();
         out.push({
           type: "agent_message",
           payload: {
             text: content,
             ...(model !== undefined ? { model } : {}),
             ...(stopReason !== undefined ? { stop_reason: stopReason } : {}),
-            ...(usage !== undefined ? { usage } : {}),
+            ...(contentUsage !== undefined ? { usage: contentUsage } : {}),
           },
           source: src(record, "message"),
           meta: metaFor(record, "assistant_string_content", undefined, { model }),
@@ -68,12 +75,10 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
             emittable.push({ block, originalIndex });
           }
         }
-        let usageEmitted = false;
         emittable.forEach(({ block, originalIndex }, emittedIndex) => {
           const envelopeRef = emittedIndex > 0 ? "" : undefined;
           if (block.type === "text" && typeof block.text === "string") {
-            const blockUsage = !usageEmitted ? usage : undefined;
-            if (blockUsage !== undefined) usageEmitted = true;
+            const blockUsage = consumeUsage();
             out.push({
               type: "agent_message",
               payload: {
@@ -88,11 +93,13 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
           } else if (block.type === "thinking") {
             const rawThinking = typeof block.thinking === "string" ? block.thinking : "";
             const redacted = block.redacted === true && rawThinking.length === 0;
+            const blockUsage = consumeUsage();
             out.push({
               type: "agent_thinking",
               payload: {
                 text: redacted ? "[redacted thinking]" : rawThinking,
                 ...(model !== undefined ? { model } : {}),
+                ...(blockUsage !== undefined ? { usage: blockUsage } : {}),
               },
               source: src(record, "thinking", block, originalIndex, { envelopeRef }),
               meta: metaFor(
@@ -106,9 +113,10 @@ export function messageMappings(ctx: PiMappingContext): MappingDef<PiEnvelope>[]
             const name = stringValue(block.name);
             const callId = idValue(block.id);
             const mapped = toolKindAndArgs(name, block.arguments);
+            const blockUsage = consumeUsage();
             out.push({
               type: "tool_call",
-              payload: mapped,
+              payload: { ...mapped, ...(blockUsage !== undefined ? { usage: blockUsage } : {}) },
               semantic: {
                 ...(callId !== undefined ? { call_id: callId } : {}),
                 tool_kind: mapped.tool as ToolKind,
