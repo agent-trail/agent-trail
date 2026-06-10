@@ -163,17 +163,44 @@ export function redactValue(
   if (typeof value === "string") {
     return applyPatterns(sanitizeJsonString(value), patterns);
   }
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactValue(entry, patterns));
+  if (value === null || typeof value !== "object") {
+    return value;
   }
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      out[key] = redactValue((value as Record<string, unknown>)[key], patterns);
-    }
+
+  const seen = new WeakMap<object, unknown>();
+  const stack: Array<{ input: object; output: unknown }> = [];
+  const clonePrimitive = (item: unknown): unknown => {
+    if (typeof item === "string") return applyPatterns(sanitizeJsonString(item), patterns);
+    if (item === null || typeof item !== "object") return item;
+    const existing = seen.get(item);
+    if (existing !== undefined) return existing;
+    const out: unknown = Array.isArray(item) ? [] : {};
+    seen.set(item, out);
+    stack.push({ input: item, output: out });
     return out;
+  };
+
+  const root = clonePrimitive(value);
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    const { input, output } = current;
+
+    if (Array.isArray(input)) {
+      const out = output as unknown[];
+      for (let i = 0; i < input.length; i += 1) {
+        out[i] = clonePrimitive(input[i]);
+      }
+      continue;
+    }
+
+    const out = output as Record<string, unknown>;
+    for (const key of Object.keys(input as Record<string, unknown>)) {
+      out[sanitizeJsonString(key)] = clonePrimitive((input as Record<string, unknown>)[key]);
+    }
   }
-  return value;
+
+  return root;
 }
 
 // Patterns are compiled once per distinct source `RegExp` and cached on a

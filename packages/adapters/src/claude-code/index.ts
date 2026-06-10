@@ -206,10 +206,12 @@ function childPrompt(envelopes: Record<string, unknown>[]): string | undefined {
 
 function childBelongsToParent(envelopes: unknown[], parentSessionId: string): boolean {
   if (envelopes.length === 0) return false;
+  const canonicalParentSessionId = canonicalizeIdentityString(parentSessionId);
   for (const envelope of envelopes) {
     if (!isObject(envelope)) return false;
     if (envelope.isSidechain !== true) return false;
-    if (envelope.sessionId !== parentSessionId) return false;
+    if (typeof envelope.sessionId !== "string") return false;
+    if (canonicalizeIdentityString(envelope.sessionId) !== canonicalParentSessionId) return false;
   }
   return true;
 }
@@ -228,9 +230,10 @@ async function parseGroup(
   const header = buildHeader(envelopes, { includeSidechain: options.includeSidechain === true });
   if (options.childKey !== undefined && options.parentSessionId !== undefined) {
     const parentSessionId = canonicalizeIdentityString(options.parentSessionId);
+    const childKey = canonicalizeIdentityString(options.childKey);
     const childId = deriveSessionUid(
       CLAUDE_CODE_SESSION_UID_NAMESPACE,
-      `${parentSessionId}\x1f${options.childKey}`,
+      `${parentSessionId}\x1f${childKey}`,
     );
     header.id = childId;
     header.session_uid = childId;

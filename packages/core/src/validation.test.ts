@@ -690,6 +690,31 @@ test("reader-tolerant profile warns for ill-formed strings that strict rejects",
   expect(tolerantDiagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(false);
 });
 
+test("reader-tolerant profile warns for ill-formed object keys", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    String.raw`{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"ok"},"source":{"agent":"codex-cli","raw":{"bad\udc00":"key"}}}`,
+  ].join("\n");
+
+  const strictDiagnostics = await validateTrailString(text);
+  expect(strictDiagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw/bad�",
+    severity: "error",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+
+  const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerantDiagnostics).toContainEqual({
+    line: 2,
+    path: "/source/raw/bad�",
+    severity: "warning",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+});
+
 test("reader-tolerant profile keeps non-extension payload errors strict", async () => {
   const diagnostics = await validateTrailString(
     [

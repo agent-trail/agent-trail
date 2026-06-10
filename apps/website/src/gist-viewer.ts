@@ -271,6 +271,7 @@ async function validateTrailJsonl(text: string): Promise<{
   const diagnostics: ViewerDiagnostic[] = [];
   const validate = recordValidator();
   for (const record of records) {
+    diagnostics.push(...illFormedStringDiagnostics(record, "warning"));
     if (validate(record.value)) continue;
     if (isReaderTolerantUnknownRecord(record)) {
       diagnostics.push({
@@ -311,6 +312,114 @@ function parseTrailJsonl(text: string): TrailRecord[] {
     records.push({ line: i + 1, value: value as Record<string, unknown> });
   }
   return records;
+}
+
+function illFormedStringDiagnostics(
+  record: TrailRecord,
+  severity: ViewerDiagnostic["severity"],
+): ViewerDiagnostic[] {
+  const diagnostics: ViewerDiagnostic[] = [];
+  const stack: Array<{ value: unknown; path: string }> = [{ value: record.value, path: "" }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    const { value, path } = current;
+
+    if (typeof value === "string") {
+      if (hasUnpairedSurrogate(value)) {
+        diagnostics.push(illFormedStringDiagnostic(record.line, path, severity));
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[i], path: jsonPointer(path, String(i)) });
+      }
+      continue;
+    }
+
+    if (value !== null && typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const [key, child] = entries[i] as [string, unknown];
+        if (hasUnpairedSurrogate(key)) {
+          diagnostics.push(
+            illFormedStringDiagnostic(record.line, jsonPointer(path, key), severity),
+          );
+        }
+        stack.push({ value: child, path: jsonPointer(path, key) });
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
+function illFormedStringDiagnostic(
+  line: number,
+  path: string,
+  severity: ViewerDiagnostic["severity"],
+): ViewerDiagnostic {
+  return {
+    line,
+    path,
+    severity,
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  };
+}
+
+function hasUnpairedSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        i += 1;
+        continue;
+      }
+      return true;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function jsonPointer(path: string, segment: string): string {
+  return `${path}/${replaceUnpairedSurrogates(segment).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+}
+
+function replaceUnpairedSurrogates(value: string): string {
+  let out = "";
+  let changed = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += value[i] ?? "";
+        i += 1;
+        out += value[i] ?? "";
+      } else {
+        out += "\ufffd";
+        changed = true;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      out += "\ufffd";
+      changed = true;
+      continue;
+    }
+    out += value[i] ?? "";
+  }
+
+  return changed ? out : value;
 }
 
 function splitSessionGroups(

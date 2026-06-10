@@ -33,16 +33,47 @@ export function sanitizeJsonStrings<T>(value: T): T {
   if (typeof value === "string") {
     return sanitizeJsonString(value) as T;
   }
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      value[i] = sanitizeJsonStrings(value[i]);
-    }
+  if (value === null || typeof value !== "object") {
     return value;
   }
-  if (value !== null && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
+
+  const seen = new WeakSet<object>();
+  const stack: object[] = [];
+  const push = (item: unknown) => {
+    if (item === null || typeof item !== "object" || seen.has(item)) return;
+    seen.add(item);
+    stack.push(item);
+  };
+
+  push(value);
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+
+    if (Array.isArray(current)) {
+      for (let i = 0; i < current.length; i += 1) {
+        const child = current[i];
+        if (typeof child === "string") {
+          current[i] = sanitizeJsonString(child);
+        } else {
+          push(child);
+        }
+      }
+      continue;
+    }
+
+    const obj = current as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
-      obj[key] = sanitizeJsonStrings(obj[key]);
+      const child = obj[key];
+      const sanitizedKey = sanitizeJsonString(key);
+      const sanitizedChild = typeof child === "string" ? sanitizeJsonString(child) : child;
+      if (sanitizedKey !== key) {
+        delete obj[key];
+        obj[sanitizedKey] = sanitizedChild;
+      } else {
+        obj[key] = sanitizedChild;
+      }
+      push(sanitizedChild);
     }
   }
   return value;

@@ -42,15 +42,28 @@ test("redactValue redacts a top-level string containing a credential", () => {
 
 test("redactValue and source raw sizing replace lone surrogates", () => {
   const loneSurrogate = String.fromCharCode(0xdc00);
-  const input = { bad: `bad ${loneSurrogate}`, validPair: "ok 😀" };
+  const input = { [`bad${loneSurrogate}`]: "key", bad: `bad ${loneSurrogate}`, validPair: "ok 😀" };
 
-  const redacted = redactValue(input) as typeof input;
+  const redacted = redactValue(input) as Record<string, unknown>;
+  expect(redacted["bad�"]).toBe("key");
   expect(redacted.bad).toBe("bad �");
   expect(redacted.validPair).toBe("ok 😀");
 
   const { value } = enforceSourceRawSize(input);
-  expect((value as typeof input).bad).toBe("bad �");
-  expect((value as typeof input).validPair).toBe("ok 😀");
+  expect((value as Record<string, unknown>)["bad�"]).toBe("key");
+  expect((value as Record<string, unknown>).bad).toBe("bad �");
+  expect((value as Record<string, unknown>).validPair).toBe("ok 😀");
+});
+
+test("enforceSourceRawSize sanitizes deeply nested raw values without recursion overflow", () => {
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  let value: Record<string, unknown> = { token: `bad ${loneSurrogate}` };
+  for (let i = 0; i < 20_000; i += 1) value = { next: value };
+
+  const result = enforceSourceRawSize(value, { hardCapBytes: null });
+
+  expect(result.elided).toBe(false);
+  expect(result.leavesTrimmed).toBe(0);
 });
 
 test("enforceSourceRawSize returns the value as-is when under the hard cap", () => {

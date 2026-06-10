@@ -43,7 +43,19 @@ export function illFormedStringDiagnostics(
       const entries = Object.entries(value as Record<string, unknown>);
       for (let i = entries.length - 1; i >= 0; i -= 1) {
         const [key, child] = entries[i] as [string, unknown];
-        stack.push({ value: child, path: appendJsonPointerSegment(path, key) });
+        const pathKey = replaceUnpairedSurrogates(key);
+        if (hasUnpairedSurrogate(key)) {
+          diagnostics.push(
+            createDiagnostic({
+              line: record.line,
+              path: appendJsonPointerSegment(path, pathKey),
+              severity,
+              code: "ill_formed_string",
+              message: ILL_FORMED_STRING_MESSAGE,
+            }),
+          );
+        }
+        stack.push({ value: child, path: appendJsonPointerSegment(path, pathKey) });
       }
     }
   }
@@ -67,4 +79,33 @@ function hasUnpairedSurrogate(value: string): boolean {
     }
   }
   return false;
+}
+
+function replaceUnpairedSurrogates(value: string): string {
+  let out = "";
+  let changed = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += value[i] ?? "";
+        i += 1;
+        out += value[i] ?? "";
+      } else {
+        out += "\ufffd";
+        changed = true;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      out += "\ufffd";
+      changed = true;
+      continue;
+    }
+    out += value[i] ?? "";
+  }
+
+  return changed ? out : value;
 }

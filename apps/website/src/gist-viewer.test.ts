@@ -198,6 +198,35 @@ test("gist viewer model keeps hash mismatches as warnings", async () => {
   );
 });
 
+test("gist viewer model warns for ill-formed strings in reader-tolerant validation", async () => {
+  const jsonl = [
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    String.raw`{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"bad \udc00"}}`,
+  ].join("\n");
+  const payloadText = gzipSync(Buffer.from(`${jsonl}\n`, "utf8")).toString("base64");
+
+  const model = await buildGistViewerModel({
+    gistId: "abc123def4567890abcd",
+    fetchGistPayload: async () => ({
+      filename: "ill-formed.trail.jsonl.gz.b64",
+      payloadText,
+      sourceUrl: "https://gist.githubusercontent.com/raw/ill-formed",
+    }),
+  });
+
+  expect(model.status).toBe("loaded");
+  if (model.status !== "loaded") throw new Error("expected loaded model");
+  expect(model.summary.warnings).toBe(1);
+  expect(model.diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/text",
+      severity: "warning",
+      code: "ill_formed_string",
+    }),
+  );
+});
+
 test("gist viewer model turns fetch and decode failures into error state", async () => {
   const fetchFailure = await buildGistViewerModel({
     gistId: "abc123def4567890abcd",
