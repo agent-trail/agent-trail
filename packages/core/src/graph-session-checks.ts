@@ -4,7 +4,7 @@ import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./pars
 
 export function nonMonotonicEventTsWarnings(
   entries: JsonlRecord[],
-  groupIds: Map<string, number>,
+  parentIds: Map<string, string>,
   cyclicIds: Set<string>,
 ): Diagnostic[] {
   const entryById = new Map<string, JsonlRecord>();
@@ -16,13 +16,10 @@ export function nonMonotonicEventTsWarnings(
   }
 
   const diagnostics: Diagnostic[] = [];
-  for (const entry of entries) {
-    const id = entry.value.id;
-    if (typeof id !== "string" || cyclicIds.has(id)) continue;
-    const parentId = entry.value.parent_id;
-    if (typeof parentId !== "string" || !groupIds.has(parentId) || cyclicIds.has(parentId)) {
-      continue;
-    }
+  for (const [id, parentId] of parentIds) {
+    if (cyclicIds.has(id) || cyclicIds.has(parentId)) continue;
+    const entry = entryById.get(id);
+    if (entry === undefined) continue;
     const parent = entryById.get(parentId);
     if (parent === undefined) continue;
 

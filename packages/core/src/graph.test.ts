@@ -469,6 +469,38 @@ test("does not warn when sibling branches interleave in wall-clock time", () => 
   expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
 });
 
+test("does not emit non_monotonic_event_ts for duplicate ids excluded from parent topology", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      }),
+      record(3, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:06.000Z",
+        payload: { text: "canonical" },
+      }),
+      record(4, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:04.000Z",
+        payload: { text: "duplicate" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics.map((d) => d.code)).toContain("duplicate_id");
+  expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
+});
+
 test("accepts a minimal valid linear trail with no parent_ids", () => {
   const diagnostics = validateTrailGraph([
     record(1, {

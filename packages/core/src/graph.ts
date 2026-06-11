@@ -47,8 +47,9 @@ export function validateTrailGraph(
     if (!headerValidByGroup[i]) continue;
     const group = split.groups[i] as SessionGroup;
     const groupIdLines = topology.groupIdLines[i] as Map<string, number>;
+    const groupParentIds = topology.groupParentIds[i] as Map<string, string>;
     const groupCyclicIds = topology.groupCyclicIds[i] as Set<string>;
-    diagnostics.push(...nonMonotonicEventTsWarnings(group.entries, groupIdLines, groupCyclicIds));
+    diagnostics.push(...nonMonotonicEventTsWarnings(group.entries, groupParentIds, groupCyclicIds));
     diagnostics.push(...streamConsistencyWarnings(group.header, group.entries));
     diagnostics.push(...unmatchedToolCallWarnings(group.entries));
     const groupHeaderId =
