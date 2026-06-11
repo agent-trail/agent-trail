@@ -87,7 +87,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Adapter** | Software that reads a source agent's storage and emits a trail file. |
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
-| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#9-3-optional-event-types). |
+| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#93-optional-event-types). |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism. |
@@ -1021,7 +1021,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#9-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#93-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 

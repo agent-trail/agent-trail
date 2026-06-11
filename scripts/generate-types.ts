@@ -443,18 +443,46 @@ if (!CAPABILITY_CHANGE_RE.test(generated)) {
     "generate-types: failed to locate the CapabilityChange.payload allOf block to post-process; check json-schema-to-typescript output shape.",
   );
 }
-const capabilityScope = '"tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin"';
-const capabilityReason = [
+const capabilityPayloadSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        capability_change?: {
+          properties?: {
+            payload?: {
+              allOf?: Array<{
+                properties?: {
+                  scope?: { enum?: string[] };
+                  reason?: { enum?: string[] };
+                };
+              }>;
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.capability_change?.properties?.payload?.allOf?.find(
+  (branch) =>
+    Array.isArray(branch.properties?.scope?.enum) && Array.isArray(branch.properties?.reason?.enum),
+)?.properties;
+const capabilityScopeEnum = capabilityPayloadSchema?.scope?.enum;
+const capabilityReasonEnum = capabilityPayloadSchema?.reason?.enum;
+if (
+  capabilityScopeEnum === undefined ||
+  capabilityScopeEnum.length === 0 ||
+  capabilityReasonEnum === undefined ||
+  capabilityReasonEnum.length === 0
+) {
+  throw new Error(
+    "generate-types: could not read capability_change.payload scope/reason enums from schema.",
+  );
+}
+const capabilityScope = capabilityScopeEnum.map((value) => JSON.stringify(value)).join(" | ");
+const capabilityReason = `${[
   "        reason:",
-  '          | "registered"',
-  '          | "deregistered"',
-  '          | "connected"',
-  '          | "disconnected"',
-  '          | "loaded"',
-  '          | "unloaded"',
-  '          | "error"',
-  '          | "instructions_updated";',
-].join("\n");
+  ...capabilityReasonEnum.map((value) => `          | ${JSON.stringify(value)}`),
+].join("\n")};`;
 const capabilityCommon = [`        scope: ${capabilityScope};`, capabilityReason].join("\n");
 generated = generated.replace(
   CAPABILITY_CHANGE_RE,
