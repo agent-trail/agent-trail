@@ -397,12 +397,16 @@ test("redactTrail strips vcs_commit repo by default", () => {
 
   const { records: out, summary } = redactTrail(records);
 
-  const value = out[1]?.value as { payload: { data: Record<string, unknown> } };
+  const value = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { data: Record<string, unknown> };
+  };
   expect(value.payload.data).toEqual({
     sha: "a1b2c3d",
     tool_call_id: "call1",
     branch: "main",
   });
+  expect(value.meta?.redaction_count).toBe(1);
   expect(summary.counts.vcs_remote_url).toBe(1);
   expect(summary.samples.find((s) => s.patternId === "vcs_remote_url")).toMatchObject({
     patternId: "vcs_remote_url",

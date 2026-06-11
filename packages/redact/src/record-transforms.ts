@@ -1,4 +1,5 @@
 import type { JsonlRecord } from "@agent-trail/core";
+import { addMutationCount } from "./mutation-accounting.ts";
 import { maskSample } from "./rules.ts";
 import type { RedactionSummary } from "./types.ts";
 
@@ -42,6 +43,7 @@ export function stripVcsCommitRepo(
   records: JsonlRecord[],
   summary: RedactionSummary,
   maxSamples: number,
+  redactionCounts: Map<number, number>,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -52,6 +54,7 @@ export function stripVcsCommitRepo(
     if (typeof data?.repo !== "string") continue;
     const before = data.repo;
     delete data.repo;
+    addMutationCount(redactionCounts, index, 1);
     recordStrippedRemoteUrl(summary, maxSamples, before, `records[${index}].payload.data.repo`);
   }
 }

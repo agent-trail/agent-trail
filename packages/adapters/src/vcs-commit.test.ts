@@ -79,7 +79,7 @@ test("extractGitCommitEvents preserves successful empty commit messages", () => 
   ]);
 });
 
-test("extractGitCommitEvents ignores mentions and caps summaries to commit invocations", () => {
+test("extractGitCommitEvents ignores mentions and ambiguous neighboring commands", () => {
   expect(
     extractGitCommitEvents({
       command: 'echo "git commit"',
@@ -94,14 +94,25 @@ test("extractGitCommitEvents ignores mentions and caps summaries to commit invoc
       output: "[main a1b2c3d] real\n[main deadbee] forged\n",
       toolCallId: "tool-call-cap",
     }),
-  ).toEqual([
-    {
-      sha: "a1b2c3d",
-      branch: "main",
-      message: "real",
-      tool_call_id: "tool-call-cap",
-    },
-  ]);
+  ).toEqual([]);
+});
+
+test("extractGitCommitEvents ignores ambiguous shell output around commit invocations", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'git commit -m "real" || printf "[main deadbee] forged\\n"',
+      output: "fatal: nothing to commit\n[main deadbee] forged\n",
+      toolCallId: "tool-call-fallback",
+    }),
+  ).toEqual([]);
+
+  expect(
+    extractGitCommitEvents({
+      command: 'printf "[main deadbee] forged\\n" && git commit -m "real"',
+      output: "[main deadbee] forged\n[main a1b2c3d] real\n",
+      toolCallId: "tool-call-prefix-output",
+    }),
+  ).toEqual([]);
 });
 
 test("extractGitCommitEvents ignores non-commit commands and missing output", () => {
@@ -144,6 +155,13 @@ test("synthesizeVcsCommitEvents inserts a vcs_commit after a successful shell re
         semantic: { call_id: "native-call", tool_kind: "shell_command" },
         source: { agent: "claude-code", original_type: "user" },
       },
+      {
+        type: "agent_message",
+        id: "next-entry",
+        ts: "2026-06-11T10:00:02.000Z",
+        payload: { text: "done" },
+        parent_id: "result-entry",
+      },
     ],
     {
       idNamespace: "0a16dbc7-c189-4def-f378-95ab1c2d3e45",
@@ -151,7 +169,12 @@ test("synthesizeVcsCommitEvents inserts a vcs_commit after a successful shell re
     },
   );
 
-  expect(entries.map((entry) => entry.type)).toEqual(["tool_call", "tool_result", "system_event"]);
+  expect(entries.map((entry) => entry.type)).toEqual([
+    "tool_call",
+    "tool_result",
+    "system_event",
+    "agent_message",
+  ]);
   expect(entries[2]?.payload).toEqual({
     kind: "vcs_commit",
     data: {
@@ -164,6 +187,7 @@ test("synthesizeVcsCommitEvents inserts a vcs_commit after a successful shell re
   });
   expect(entries[2]?.semantic).toEqual({ call_id: "native-call" });
   expect(entries[2]?.parent_id).toBe("result-entry");
+  expect(entries[3]?.parent_id).toBe(entries[2]?.id);
   expect(entries[2]?.source).toEqual({
     agent: "claude-code",
     original_type: "user.vcs_commit",

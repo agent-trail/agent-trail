@@ -56,7 +56,7 @@ export function redactTrail(
 
   if (!keepRemoteUrl) {
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
-    stripVcsCommitRepo(out, rawSummary, maxSamples);
+    stripVcsCommitRepo(out, rawSummary, maxSamples, redactionCounts);
   }
 
   applyAttachmentUriRules(

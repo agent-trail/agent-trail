@@ -26,6 +26,7 @@ function decodePayload(payload: Uint8Array): string {
 type SeedOpts = {
   agentName?: string;
   cwd?: string;
+  extraRecords?: Record<string, unknown>[];
   id?: string;
   text?: string;
   vcs?: Record<string, unknown>;
@@ -54,14 +55,15 @@ async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; conte
     ts: "2026-05-17T14:00:05.000Z",
     payload: { text },
   };
-  const draftBytes = `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`;
+  const records = [header, userMsg, ...(opts.extraRecords ?? [])];
+  const draftBytes = `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
   const draftRecords = await parseJsonlString(draftBytes);
   const contentHash = computeContentHash(draftRecords);
   if (stampHash) {
     header.content_hash = contentHash;
   }
   const finalRecords = await parseJsonlString(
-    `${JSON.stringify(header)}\n${JSON.stringify(userMsg)}\n`,
+    `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
   );
   const canonical = canonicalizeRecords(finalRecords);
 
@@ -931,10 +933,25 @@ test("normal mode, confirm declined: exits 0 with Share cancelled and no upload"
   expect(result.stdout).not.toContain("view/gist/");
 });
 
-test("default share strips vcs.remote_url from uploaded gist and counts it in the summary", async () => {
+test("default share strips repository identity from uploaded gist and counts it in the summary", async () => {
   const remoteUrl = "https://github.com/agent-trail/agent-trail";
   const { contentHash } = await seedRegistered({
     vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
+    extraRecords: [
+      {
+        type: "system_event",
+        id: "01HEVTA0000000000000000002",
+        ts: "2026-05-17T14:00:06.000Z",
+        payload: {
+          kind: "vcs_commit",
+          data: {
+            sha: "a1b2c3d",
+            tool_call_id: "01HEVTA0000000000000000003",
+            repo: remoteUrl,
+          },
+        },
+      },
+    ],
   });
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
@@ -946,16 +963,31 @@ test("default share strips vcs.remote_url from uploaded gist and counts it in th
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).not.toContain("--keep-remote-url");
-  expect(result.stdout).toContain("vcs_remote_url: 1");
+  expect(result.stdout).toContain("vcs_remote_url: 2");
   expect(captured).not.toBeNull();
   const decoded = decodePayload(captured as unknown as Uint8Array);
   expect(decoded).not.toContain(remoteUrl);
 });
 
-test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a warning, and suppresses the summary count", async () => {
+test("--keep-remote-url preserves repository identity in the uploaded gist, emits a warning, and suppresses the summary count", async () => {
   const remoteUrl = "https://github.com/agent-trail/agent-trail";
   const { contentHash } = await seedRegistered({
     vcs: { type: "git", revision: "a1b2c3d4", remote_url: remoteUrl },
+    extraRecords: [
+      {
+        type: "system_event",
+        id: "01HEVTA0000000000000000002",
+        ts: "2026-05-17T14:00:06.000Z",
+        payload: {
+          kind: "vcs_commit",
+          data: {
+            sha: "a1b2c3d",
+            tool_call_id: "01HEVTA0000000000000000003",
+            repo: remoteUrl,
+          },
+        },
+      },
+    ],
   });
   let captured: Uint8Array | null = null;
   const gistUpload = async (payload: Uint8Array) => {
@@ -970,6 +1002,7 @@ test("--keep-remote-url preserves vcs.remote_url in the uploaded gist, emits a w
 
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain("WARNING: --keep-remote-url");
+  expect(result.stderr).toContain("vcs_commit repo data");
   expect(result.stdout).not.toContain("vcs_remote_url");
   expect(captured).not.toBeNull();
   const decoded = decodePayload(captured as unknown as Uint8Array);

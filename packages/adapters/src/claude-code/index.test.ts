@@ -523,11 +523,26 @@ test("parseSession() synthesizes vcs_commit from a successful Bash git commit", 
         ],
       },
     },
+    {
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-000000026103",
+      timestamp: "2026-06-11T10:00:03.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000261",
+      parentUuid: "00000000-0000-0000-0000-000000026102",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [{ type: "text", text: "done" }],
+      },
+    },
   ]);
   const toolCall = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
   const toolResult = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   const commit = trail.groups[0]!.entries.find(
     (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
+  );
+  const nextMessage = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "agent_message" && entry.payload.text === "done",
   );
   expect(commit?.payload).toEqual({
     kind: "vcs_commit",
@@ -540,6 +555,7 @@ test("parseSession() synthesizes vcs_commit from a successful Bash git commit", 
   });
   expect(commit?.semantic).toEqual({ call_id: "tooluse-commit" });
   expect(commit?.parent_id).toBe(toolResult?.id);
+  expect(nextMessage?.parent_id).toBe(commit?.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

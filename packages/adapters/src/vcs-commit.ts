@@ -25,8 +25,14 @@ const GIT_COMMIT_SUMMARY_PATTERN =
   /^\[(?<ref>.+?)(?:\s+\(root-commit\))?\s+(?<sha>[a-fA-F0-9]{7,64})\]\s?(?<message>.*)$/;
 const ENV_ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
 
-function shellCommandSegments(command: string): string[][] {
+type ShellCommandShape = {
+  hasUnsafeSeparator: boolean;
+  segments: string[][];
+};
+
+function shellCommandShape(command: string): ShellCommandShape {
   const segments: string[][] = [];
+  let hasUnsafeSeparator = false;
   let current: string[] = [];
   let token = "";
   let quote: "'" | '"' | undefined;
@@ -73,15 +79,14 @@ function shellCommandSegments(command: string): string[][] {
       pushToken();
       continue;
     }
-    if (
-      char === ";" ||
-      char === "(" ||
-      char === ")" ||
-      char === "|" ||
-      (char === "&" && next === "&")
-    ) {
+    if (char === ";" || char === "(" || char === ")" || char === "|" || char === "&") {
+      const isAndAnd = char === "&" && next === "&";
+      const isOrOr = char === "|" && next === "|";
+      if (char === "|" || char === "(" || char === ")" || (char === "&" && !isAndAnd)) {
+        hasUnsafeSeparator = true;
+      }
       endSegment();
-      if ((char === "&" && next === "&") || (char === "|" && next === "|")) {
+      if (isAndAnd || isOrOr) {
         index += 1;
       }
       continue;
@@ -89,7 +94,7 @@ function shellCommandSegments(command: string): string[][] {
     token += char;
   }
   endSegment();
-  return segments;
+  return { hasUnsafeSeparator, segments };
 }
 
 function gitSubcommandIndex(tokens: string[], gitIndex: number): number | undefined {
@@ -122,22 +127,30 @@ function gitSubcommandIndex(tokens: string[], gitIndex: number): number | undefi
   return undefined;
 }
 
-function gitCommitInvocationCount(command: string): number {
+function gitSubcommand(segment: string[]): string | undefined {
+  let commandIndex = 0;
+  while (ENV_ASSIGNMENT_PATTERN.test(segment[commandIndex] ?? "")) commandIndex += 1;
+  if (segment[commandIndex] === "command") commandIndex += 1;
+  const executable = segment[commandIndex];
+  if (executable !== "git" && executable?.endsWith("/git") !== true) return undefined;
+  const subcommandIndex = gitSubcommandIndex(segment, commandIndex);
+  return subcommandIndex !== undefined ? segment[subcommandIndex] : undefined;
+}
+
+function eligibleGitCommitInvocationCount(command: string): number {
+  const shape = shellCommandShape(command);
+  if (shape.hasUnsafeSeparator) return 0;
   let count = 0;
-  for (const segment of shellCommandSegments(command)) {
-    let commandIndex = 0;
-    while (ENV_ASSIGNMENT_PATTERN.test(segment[commandIndex] ?? "")) commandIndex += 1;
-    if (segment[commandIndex] === "command") commandIndex += 1;
-    const executable = segment[commandIndex];
-    if (executable !== "git" && executable?.endsWith("/git") !== true) continue;
-    const subcommandIndex = gitSubcommandIndex(segment, commandIndex);
-    if (subcommandIndex !== undefined && segment[subcommandIndex] === "commit") count += 1;
+  for (const segment of shape.segments) {
+    const subcommand = gitSubcommand(segment);
+    if (subcommand !== "add" && subcommand !== "commit") return 0;
+    if (subcommand === "commit") count += 1;
   }
   return count;
 }
 
 export function extractGitCommitEvents(input: ExtractGitCommitEventsInput): GitCommitEventData[] {
-  const invocationCount = gitCommitInvocationCount(input.command);
+  const invocationCount = eligibleGitCommitInvocationCount(input.command);
   if (invocationCount === 0) return [];
   const commits: GitCommitEventData[] = [];
   for (const line of input.output.split(/\r?\n/)) {
@@ -199,13 +212,27 @@ export function synthesizeVcsCommitEvents(
   }
 
   const out: Entry[] = [];
+  let reparentNextChild:
+    | {
+        parentId: string;
+        replacementParentId: string;
+      }
+    | undefined;
   for (const entry of entries) {
-    out.push(entry);
-    if (entry.type !== "tool_result") continue;
-    const payload = objectPayload(entry);
+    let current = entry;
+    if (reparentNextChild !== undefined) {
+      if (current.parent_id === reparentNextChild.parentId) {
+        current = { ...current, parent_id: reparentNextChild.replacementParentId } as Entry;
+      }
+      reparentNextChild = undefined;
+    }
+
+    out.push(current);
+    if (current.type !== "tool_result") continue;
+    const payload = objectPayload(current);
     if (payload.ok !== true || typeof payload.output !== "string") continue;
     const forId = typeof payload.for_id === "string" ? payload.for_id : undefined;
-    const nativeCallId = entry.semantic?.call_id;
+    const nativeCallId = current.semantic?.call_id;
     const call =
       (forId !== undefined ? callsById.get(forId) : undefined) ??
       (nativeCallId !== undefined ? callsByNativeId.get(nativeCallId) : undefined);
@@ -218,21 +245,27 @@ export function synthesizeVcsCommitEvents(
       toolCallId: call.id,
       repo: options.repo,
     });
+    let parentId = current.id;
     for (const [index, commit] of commits.entries()) {
-      out.push({
+      const commitEntry = {
         type: "system_event",
         id: deriveSynthesizedEntryId(options.idNamespace, [
           "vcs_commit",
-          entry.id,
+          current.id,
           commit.sha,
           String(index),
         ]),
-        ts: entry.ts,
+        ts: current.ts,
         payload: { kind: "vcs_commit", data: commit },
-        parent_id: entry.id,
+        parent_id: parentId,
         ...(nativeCallId !== undefined ? { semantic: { call_id: nativeCallId } } : {}),
-        source: sourceForCommit(entry),
-      } as Entry);
+        source: sourceForCommit(current),
+      } as Entry;
+      out.push(commitEntry);
+      parentId = commitEntry.id;
+    }
+    if (commits.length > 0) {
+      reparentNextChild = { parentId: current.id, replacementParentId: parentId };
     }
   }
   return out;

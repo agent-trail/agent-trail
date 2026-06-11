@@ -120,7 +120,7 @@ export async function runShare(
   } else {
     if (options.keepRemoteUrl === true) {
       stderr +=
-        "WARNING: --keep-remote-url will share the repository's remote URL in the gist. Project identity (and private repo identity) will be exposed.\n";
+        "WARNING: --keep-remote-url will share repository remote URLs in the gist, including vcs.remote_url and vcs_commit repo data. Project identity (and private repo identity) will be exposed.\n";
     }
     let redactionConfig: Awaited<ReturnType<typeof resolveRedactionConfig>>;
     try {
@@ -466,7 +466,11 @@ export function addShareCommand(
       )
       .option("--json", "Print share result as JSON.", false)
       .option("--skip-redaction", "Share raw unredacted trail content.", false)
-      .option("--keep-remote-url", "Preserve vcs.remote_url in shared content.", false)
+      .option(
+        "--keep-remote-url",
+        "Preserve vcs.remote_url and vcs_commit repo data in shared content.",
+        false,
+      )
       .option(
         "--allowed-secret <literal>",
         "Preserve an exact known-safe secret literal.",
