@@ -40,6 +40,19 @@ func TestReplacePrevContentHashOnlyUpdatesSegmentField(t *testing.T) {
 	}
 }
 
+func TestCheckPrevContentHashRejectsMismatchedSegmentChain(t *testing.T) {
+	line := `{"type":"session","segment":{"seq":2,"prev_content_hash":"old"}}`
+
+	err := checkPrevContentHash("hash-vectors/segment-chain-seq2.trail.jsonl", line, "new")
+
+	if err == nil {
+		t.Fatal("checkPrevContentHash returned nil, want mismatch error")
+	}
+	if !strings.Contains(err.Error(), "segment.prev_content_hash mismatch") {
+		t.Fatalf("checkPrevContentHash error = %q, want mismatch", err.Error())
+	}
+}
+
 func decodeTestObject(t *testing.T, line string) map[string]any {
 	t.Helper()
 	decoder := json.NewDecoder(strings.NewReader(line))

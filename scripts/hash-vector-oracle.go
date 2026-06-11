@@ -130,14 +130,18 @@ func computeVectors(root string, write bool) ([]vectorResult, error) {
 			return nil, err
 		}
 		lines := splitJSONLLines(string(text))
-		if write && strings.HasSuffix(path, "segment-chain-seq2.trail.jsonl") {
+		if strings.HasSuffix(path, "segment-chain-seq2.trail.jsonl") {
 			if segmentSeq1Hash == "" {
 				return nil, errors.New("segment-chain-seq2 requires segment-chain-seq1 first")
 			}
 			if len(lines) == 0 {
 				return nil, fmt.Errorf("%s: empty fixture", path)
 			}
-			lines[0] = replacePrevContentHash(lines[0], segmentSeq1Hash)
+			if write {
+				lines[0] = replacePrevContentHash(lines[0], segmentSeq1Hash)
+			} else if err := checkPrevContentHash(path, lines[0], segmentSeq1Hash); err != nil {
+				return nil, err
+			}
 		}
 
 		result, err := computeVector(path, lines, write)
@@ -267,6 +271,20 @@ func replacePrevContentHash(line string, value string) string {
 	}
 	segment["prev_content_hash"] = value
 	return encodeObject(object, "prev_content_hash replacement")
+}
+
+func checkPrevContentHash(path string, line string, expected string) error {
+	var info recordInfo
+	if err := json.Unmarshal([]byte(line), &info); err != nil {
+		return fmt.Errorf("%s: segment-chain seq-2 header: %w", path, err)
+	}
+	if info.Segment == nil {
+		return fmt.Errorf("%s: segment-chain seq-2 header missing segment", path)
+	}
+	if info.Segment.PrevContentHash != expected {
+		return fmt.Errorf("%s: segment.prev_content_hash mismatch\nfixture: %s\noracle:   %s", path, info.Segment.PrevContentHash, expected)
+	}
+	return nil
 }
 
 func replaceTopLevelString(line string, field string, value string) string {

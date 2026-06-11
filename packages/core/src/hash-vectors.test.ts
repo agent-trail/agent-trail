@@ -108,7 +108,7 @@ test("segment chain vector links seq-2 to seq-1 session content hash", async () 
 test("one-byte hash vector corruption is detected", async () => {
   for (const fixture of hashVectorFixtures) {
     const text = await loadFixture(fixture.path);
-    const corrupted = text.replace("codex-cli", "opencode");
+    const corrupted = text.replace(/"id":"[^"]+"/, '"id":"01HXHASHVECTORCORRUPTION0000"');
     expect(corrupted).not.toBe(text);
     const records = await parseJsonlString(corrupted);
     const sessionResults = verifyAllSessionContentHashes(records);
