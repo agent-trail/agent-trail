@@ -90,6 +90,16 @@ export { splitSessionGroups } from "./session-groups.ts";
 export { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
 export type { ToolNameClass } from "./tool-name-class.ts";
 export { classifyToolName } from "./tool-name-class.ts";
+export {
+  assertGzippedTrailCompressedSize,
+  decodeGzippedTrailBytes,
+  decodeGzippedTrailStream,
+  GZIPPED_TRAIL_EXTENSION,
+  GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
+  GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
+  isGzippedTrailPath,
+  TrailFileDecodeError,
+} from "./trail-file.ts";
 export type { ValidateTrailOptions } from "./validation.ts";
 export {
   validateTrailStream,
