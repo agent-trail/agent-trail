@@ -47,6 +47,7 @@ const readmeUrl = new URL("README.md", fixtureRootUrl);
 
 const GENERATED_START = "<!-- conformance-manifest:start -->";
 const GENERATED_END = "<!-- conformance-manifest:end -->";
+const CLASS_ORDER: Record<ConformanceClass, number> = { W: 0, R1: 1, R2: 2 };
 
 // Spec-named portable diagnostic codes. AJV/schema keyword codes stay out of
 // this allowlist; manifest rows for those failures assert verdict and line only.
@@ -191,7 +192,7 @@ function renderGeneratedReadmeSection(manifest: Manifest): string {
     lines.push(`### ${category}/`, "");
     for (const fixture of fixtures) {
       lines.push(
-        `- \`${fixture.path}\` — classes: ${fixture.classes.join(", ")}, strict: ${strictSummary(fixture)}, tolerant: ${tolerantSummary(fixture)}`,
+        `- \`${fixture.path}\` — classes: ${formatConformanceClasses(fixture.classes)}, strict: ${strictSummary(fixture)}, tolerant: ${tolerantSummary(fixture)}`,
       );
     }
     lines.push("");
@@ -199,6 +200,10 @@ function renderGeneratedReadmeSection(manifest: Manifest): string {
 
   lines.push(GENERATED_END, "");
   return `${lines.join("\n")}`;
+}
+
+function formatConformanceClasses(classes: ConformanceClass[]): string {
+  return [...classes].sort((a, b) => CLASS_ORDER[a] - CLASS_ORDER[b]).join(", ");
 }
 
 function strictSummary(fixture: ManifestFixture): string {
