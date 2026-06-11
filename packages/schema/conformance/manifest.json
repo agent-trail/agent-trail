@@ -18,7 +18,11 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-mismatch/content-hash-mismatch.trail.jsonl",
@@ -43,7 +47,11 @@
             "code": "content_hash_mismatch"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-mismatch/trail-envelope-content-hash-mismatch.trail.jsonl",
@@ -68,7 +76,11 @@
             "code": "content_hash_mismatch"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/envelope-two-tier.trail.jsonl",
@@ -86,7 +98,11 @@
           "44b16ddea9fd914442eaf8f21c90b6f0eeb913ab499eb668a9c0c6e06b988522"
         ],
         "file_hash": "a55a96d3a19b624aa8f2e38337521046facf5a6f2a04c3f3c3f7a14880774443"
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/jcs-stress.trail.jsonl",
@@ -103,7 +119,11 @@
         "session_hashes": [
           "24b3a1d99f3e725092cd0126c7d9fb84246e467ec5d2d1fd416f462ae8a58e14"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/minimal-pending-roundtrip.trail.jsonl",
@@ -120,7 +140,11 @@
         "session_hashes": [
           "f215ed334d3928e1abde804f2c4a870431b18d4fa7d755ec94d94be2a6ddd06e"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/multi-session-slice.trail.jsonl",
@@ -138,7 +162,11 @@
           "0805ade157038a1cbb2895c55383b39b5a42aaa7d6ccc164174c0b3346d8fc14",
           "f7fe8ccdeaeddf70b868838614730c0a613d937bafeac48a42bb585e6df3ead7"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/replacement-char.trail.jsonl",
@@ -155,7 +183,11 @@
         "session_hashes": [
           "594a06fa452fc097bce145be95dd614ddb81b6adf8fe2baf80cbe6e13fcaf4f2"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/segment-chain-seq1.trail.jsonl",
@@ -172,7 +204,11 @@
         "session_hashes": [
           "b12c68969624665898a4e3ec4dc5c0d06f7a7f305f8f7b16e347e18ccd2f6e67"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "hash-vectors/segment-chain-seq2.trail.jsonl",
@@ -189,7 +225,11 @@
         "session_hashes": [
           "3a676114740d09c2620c1c5e106ea8066bfc3926e478faf5cabd0cedfff398ec"
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/ambiguous-sequential-pairing-with-session-end.trail.jsonl",
@@ -214,7 +254,12 @@
             "code": "ambiguous_sequential_pairing"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/ambiguous-sequential-pairing.trail.jsonl",
@@ -251,7 +296,12 @@
             "code": "ambiguous_sequential_pairing"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/duplicate-id.trail.jsonl",
@@ -276,7 +326,12 @@
             "code": "duplicate_id"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/duplicate-option-labels-mixed-ids.trail.jsonl",
@@ -301,7 +356,12 @@
             "code": "duplicate_option_labels"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/duplicate-option-labels.trail.jsonl",
@@ -326,7 +386,12 @@
             "code": "duplicate_option_labels"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/duplicate-tool-result-for-id.trail.jsonl",
@@ -351,7 +416,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/envelope-not-at-line-1.trail.jsonl",
@@ -376,7 +446,12 @@
             "code": "envelope_not_at_line_1"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/envelope-sessions-manifest-empty.trail.jsonl",
@@ -401,7 +476,12 @@
             "code": "envelope_sessions_manifest_drift"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/envelope-sessions-manifest-multiple.trail.jsonl",
@@ -426,7 +506,12 @@
             "code": "envelope_sessions_manifest_drift"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/envelope-without-session-header.trail.jsonl",
@@ -451,7 +536,12 @@
             "code": "missing_header_after_envelope"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/header-has-parent-id.trail.jsonl",
@@ -470,7 +560,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/multi-session-cross-group-parent.trail.jsonl",
@@ -495,7 +590,12 @@
             "code": "unknown_parent_id"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/multi-session-orphan-prelude.trail.jsonl",
@@ -514,7 +614,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/multiple-envelopes.trail.jsonl",
@@ -545,7 +650,12 @@
             "code": "multiple_envelopes"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/parent-cycle.trail.jsonl",
@@ -582,7 +692,12 @@
             "code": "parent_cycle"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl",
@@ -607,7 +722,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/sequential-pairing-stays-in-sibling-branch.trail.jsonl",
@@ -632,7 +752,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/sequential-pairing-stays-in-subagent-sibling-branch.trail.jsonl",
@@ -681,7 +806,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/session-end-forward-final-message-id.trail.jsonl",
@@ -706,7 +836,12 @@
             "code": "unknown_final_message_id"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/session-end-unknown-final-message-id.trail.jsonl",
@@ -731,7 +866,12 @@
             "code": "unknown_final_message_id"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/stream-open-with-content-hash.trail.jsonl",
@@ -768,7 +908,12 @@
             "code": "stream_open_with_content_hash"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/tool-args-unredacted-secret.trail.jsonl",
@@ -793,7 +938,12 @@
             "code": "tool_args_unredacted_secret"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl",
@@ -818,7 +968,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/tool-result-for-id-wins-over-semantic-conflict.trail.jsonl",
@@ -843,7 +998,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/unknown-parent-id.trail.jsonl",
@@ -868,7 +1028,12 @@
             "code": "unknown_parent_id"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/unmatched-tool-call-at-eof.trail.jsonl",
@@ -893,7 +1058,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/unmatched-tool-call-partial-suppression.trail.jsonl",
@@ -918,7 +1088,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-graph/unmatched-tool-call-session-terminated-without-open-call-ids.trail.jsonl",
@@ -943,7 +1118,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-message-attachment-bad-uri.trail.jsonl",
@@ -962,7 +1142,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-message-usage-extra-field.trail.jsonl",
@@ -984,7 +1169,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-message-usage-missing-output.trail.jsonl",
@@ -1003,7 +1193,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-message-usage-missing-required.trail.jsonl",
@@ -1022,7 +1217,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-message-usage-zero-context-window.trail.jsonl",
@@ -1041,7 +1241,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/agent-thinking-usage-missing-output.trail.jsonl",
@@ -1060,7 +1265,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/capability-change-bad-reason.trail.jsonl",
@@ -1079,7 +1289,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/capability-change-bad-scope.trail.jsonl",
@@ -1098,7 +1313,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/capability-change-empty.trail.jsonl",
@@ -1117,7 +1337,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/command-invoke-bad-kind.trail.jsonl",
@@ -1136,7 +1361,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/command-invoke-bad-result-action.trail.jsonl",
@@ -1155,7 +1385,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/command-invoke-missing-kind.trail.jsonl",
@@ -1174,7 +1409,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/command-invoke-missing-name.trail.jsonl",
@@ -1193,7 +1433,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/envelope-missing-producer.trail.jsonl",
@@ -1212,7 +1457,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/header-wrong-schema-version.trail.jsonl",
@@ -1243,7 +1493,12 @@
             "code": "missing_header"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/redaction-count-non-integer.trail.jsonl",
@@ -1262,7 +1517,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/segment-seq-1-with-prev-hash.trail.jsonl",
@@ -1281,7 +1541,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/segment-seq-2-without-prev-hash.trail.jsonl",
@@ -1300,7 +1565,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/segment-seq-2-without-session-uid.trail.jsonl",
@@ -1319,7 +1589,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/segment-seq-zero.trail.jsonl",
@@ -1338,7 +1613,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-end-final-message-id-null.trail.jsonl",
@@ -1357,7 +1637,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-metadata-update-bad-field-cwd.trail.jsonl",
@@ -1376,7 +1661,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-metadata-update-bad-reason.trail.jsonl",
@@ -1395,7 +1685,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-metadata-update-bad-tags-value.trail.jsonl",
@@ -1414,7 +1709,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-metadata-update-bad-worktree.trail.jsonl",
@@ -1433,7 +1733,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/session-uid-not-ulid-or-uuid.trail.jsonl",
@@ -1452,7 +1757,12 @@
             "line": 1
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-aborted-bad-reason.trail.jsonl",
@@ -1471,7 +1781,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-aborted-tool-scope-missing-for-id.trail.jsonl",
@@ -1490,7 +1805,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-aborted-turn-scope-with-for-id.trail.jsonl",
@@ -1509,7 +1829,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-file-list-missing-path.trail.jsonl",
@@ -1540,7 +1865,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-file-patch-empty-files.trail.jsonl",
@@ -1571,7 +1901,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-file-patch-file-missing-diff.trail.jsonl",
@@ -1602,7 +1937,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-missing-args-path.trail.jsonl",
@@ -1633,7 +1973,12 @@
             "code": "unmatched_tool_call_at_eof"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-call-usage-missing-output.trail.jsonl",
@@ -1652,7 +1997,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-result-attachment-extra-field.trail.jsonl",
@@ -1677,7 +2027,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-result-meta-file-read-range-wrong-length.trail.jsonl",
@@ -1696,7 +2051,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-result-meta-mcp-call-block-missing-type.trail.jsonl",
@@ -1715,7 +2075,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-result-meta-shell-command-extra-field.trail.jsonl",
@@ -1737,7 +2102,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl",
@@ -1756,7 +2126,12 @@
             "line": 3
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/user-message-missing-text.trail.jsonl",
@@ -1775,7 +2150,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "invalid-schema/user-message-non-string-text.trail.jsonl",
@@ -1794,7 +2174,12 @@
             "line": 2
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/capability-change-unknown-payload-field.trail.jsonl",
@@ -1816,7 +2201,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/ill-formed-string.trail.jsonl",
@@ -1841,7 +2231,12 @@
             "code": "ill_formed_string"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/nested-unknown-payload-field.trail.jsonl",
@@ -1863,7 +2258,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/patch-compatible-schema-version.trail.jsonl",
@@ -1891,7 +2291,12 @@
             "code": "reader_tolerant_schema_version"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/reserved-future-event-type.trail.jsonl",
@@ -1913,7 +2318,12 @@
             "code": "reader_tolerant_unknown_record"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/tool-result-meta-registered-extra-field.trail.jsonl",
@@ -1935,7 +2345,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/unknown-event-type.trail.jsonl",
@@ -1957,7 +2372,12 @@
             "code": "reader_tolerant_unknown_record"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "reader-tolerant/unknown-payload-field.trail.jsonl",
@@ -1979,7 +2399,12 @@
             "code": "reader_tolerant_unknown_payload_field"
           }
         ]
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/agent-message-attachments-multiple.trail.jsonl",
@@ -1990,7 +2415,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/agent-message-attachments.trail.jsonl",
@@ -2001,7 +2431,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/agent-message-usage.trail.jsonl",
@@ -2012,7 +2447,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/agent-thinking-usage.trail.jsonl",
@@ -2023,7 +2463,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/capability-change.trail.jsonl",
@@ -2034,7 +2479,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/command-invoke-full.trail.jsonl",
@@ -2045,7 +2495,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/command-invoke-minimal.trail.jsonl",
@@ -2056,7 +2511,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/command-invoke-plugin.trail.jsonl",
@@ -2067,7 +2527,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/command-invoke-result-action-ext.trail.jsonl",
@@ -2078,7 +2543,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/command-invoke-slash.trail.jsonl",
@@ -2089,7 +2559,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/context-compact-provenance-only-ids.trail.jsonl",
@@ -2100,7 +2575,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/context-compact-replaced-message-ids.trail.jsonl",
@@ -2111,7 +2591,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/linear-with-parent-ids.trail.jsonl",
@@ -2122,7 +2607,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/minimal-linear.trail.jsonl",
@@ -2133,7 +2623,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/minimal-with-content-hash.trail.jsonl",
@@ -2144,7 +2639,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multi-segment-seg1.trail.jsonl",
@@ -2155,7 +2655,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multi-segment-seg2.trail.jsonl",
@@ -2166,7 +2671,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multi-session-fork-from-chain.trail.jsonl",
@@ -2177,7 +2687,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multi-session-two-no-envelope.trail.jsonl",
@@ -2188,7 +2703,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multi-session-with-envelope.trail.jsonl",
@@ -2199,7 +2719,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/multiple-session-end-events.trail.jsonl",
@@ -2210,7 +2735,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/redaction-count-meta.trail.jsonl",
@@ -2221,7 +2751,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-end-final-message-id-references-header.trail.jsonl",
@@ -2232,7 +2767,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-end-with-final-message-id.trail.jsonl",
@@ -2243,7 +2783,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-header-metadata-base.trail.jsonl",
@@ -2254,7 +2799,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-metadata-update-agent-model-default.trail.jsonl",
@@ -2265,7 +2815,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-metadata-update-name.trail.jsonl",
@@ -2276,7 +2831,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-metadata-update-tags.trail.jsonl",
@@ -2287,7 +2847,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-metadata-update-vcs-branch.trail.jsonl",
@@ -2298,7 +2863,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/session-metadata-update-vendor.trail.jsonl",
@@ -2309,7 +2879,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-incomplete-session.trail.jsonl",
@@ -2320,7 +2895,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-mcp-call.trail.jsonl",
@@ -2331,7 +2911,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-synthesized-event.trail.jsonl",
@@ -2342,7 +2927,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-tool-call-semantic-pairing.trail.jsonl",
@@ -2353,7 +2943,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-tool-result-fallback-pairing.trail.jsonl",
@@ -2364,7 +2959,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/spec-example-tree-abandoned-branch.trail.jsonl",
@@ -2375,7 +2975,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/streaming-finalized-clean.trail.jsonl",
@@ -2386,7 +2991,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/streaming-open.trail.jsonl",
@@ -2397,7 +3007,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-aborted-closes-call.trail.jsonl",
@@ -2408,7 +3023,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-aborted-extension-scope-reason.trail.jsonl",
@@ -2419,7 +3039,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-aborted-turn-scope.trail.jsonl",
@@ -2430,7 +3055,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-file-list.trail.jsonl",
@@ -2441,7 +3071,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-file-patch.trail.jsonl",
@@ -2452,7 +3087,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-matched-by-for-id.trail.jsonl",
@@ -2463,7 +3103,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-matched-by-semantic-call-id.trail.jsonl",
@@ -2474,7 +3119,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-matched-same-parent-siblings.trail.jsonl",
@@ -2485,7 +3135,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-matched-sequentially.trail.jsonl",
@@ -2496,7 +3151,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-call-usage.trail.jsonl",
@@ -2507,7 +3167,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-attachments-with-mcp-meta.trail.jsonl",
@@ -2518,7 +3183,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-attachments.trail.jsonl",
@@ -2529,7 +3199,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-for-id-targets-header-falls-through.trail.jsonl",
@@ -2540,7 +3215,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-file-read.trail.jsonl",
@@ -2551,7 +3231,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-mcp-call.trail.jsonl",
@@ -2562,7 +3247,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-shell-command.trail.jsonl",
@@ -2573,7 +3263,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-toplevel-vendor-kind.trail.jsonl",
@@ -2584,7 +3279,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-unregistered-kind.trail.jsonl",
@@ -2595,7 +3295,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-meta-vendor-extension.trail.jsonl",
@@ -2606,7 +3311,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/tool-result-output-size-truncated.trail.jsonl",
@@ -2617,7 +3327,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/unmatched-tool-call-suppressed-by-session-end.trail.jsonl",
@@ -2628,7 +3343,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/unmatched-tool-call-suppressed-by-session-terminated.trail.jsonl",
@@ -2639,7 +3359,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/user-message-origin-injected.trail.jsonl",
@@ -2650,7 +3375,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/user-query-duplicate-labels-with-ids.trail.jsonl",
@@ -2661,7 +3391,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/with-trail-envelope-all-fields.trail.jsonl",
@@ -2672,7 +3407,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/with-trail-envelope-and-hash.trail.jsonl",
@@ -2683,7 +3423,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     },
     {
       "path": "valid/with-trail-envelope.trail.jsonl",
@@ -2694,7 +3439,12 @@
       "tolerant": {
         "clean": true,
         "diagnostics": []
-      }
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
     }
   ]
 }

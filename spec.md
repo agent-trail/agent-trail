@@ -1723,7 +1723,34 @@ Validation is layered because JSON Schema validates one line at a time, while se
 
 Readers MAY accept compatible future v0.x files best-effort: skip unknown event types, ignore unknown payload fields, preserve unknown records when round-tripping, and warn instead of aborting where possible. Reader tolerance is runtime behavior, not the writer-strict schema contract.
 
-### 18.3 Validation diagnostics
+### 18.3 Conformance classes and diagnostics
+
+Agent Trail defines named conformance classes so tools can describe the depth of
+reader or writer support they implement.
+
+| Class | Name | Requirements |
+|---|---|---|
+| **R0** | Renderer | Reader-tolerant JSONL parsing per §6 and §18.2; renders the mandatory event types in §10.2, including user messages, agent messages, tool calls, tool results, and summaries; preserves or displays fallback output for unknown records it can parse; does not crash on valid or quarantinable input. |
+| **R1** | Structural reader | R0 plus the non-hash whole-file layout, graph, pairing, streaming-state, and diagnostic checks in §18.4. R1 catches duplicate ids, unknown parents, parent cycles, unresolved `source.raw.envelope_ref`, tool-call pairing diagnostics, and other file-level checks that do not require recomputing content hashes or comparing segment-chain hashes. |
+| **R2** | Verifying reader | R1 plus content-hash verification per §7.3 and §7.4, and segment-chain verification per §9.5. Readers in this class warn rather than abort on reader-tolerant hash mismatches, per §18.4.1. |
+| **W** | Writer | Emits writer-strict records that validate against `schema.json` and satisfy the strict whole-file validation rules in §18.4. Writer conformance is about emitted trail files, not reader tolerance. |
+
+`@agent-trail/core` implements Class R2 reader behavior through its parsing,
+validation, canonicalization, hashing, and multi-segment reconciliation APIs.
+
+The validation conformance suite manifest tags each fixture with the applicable
+classes. The current validation suite does not tag fixtures as R0 because it
+asserts validation outcomes, not rendering behavior.
+
+#### Claiming conformance (non-normative)
+
+Projects MAY claim support using the class name they implement, for example
+"Agent Trail R0 reader", "Agent Trail R2 reader", or "Agent Trail W writer".
+Such claims mean the implementation passes the conformance checks tagged for
+that class and follows the referenced normative sections. Agent Trail does not
+define a certification registry or badge authority.
+
+#### Validation diagnostics
 
 Validators SHOULD report normalized diagnostics with `line`, `path` (JSON Pointer), `severity`, `code`, and `message`. Implementations MAY include extra fields, but these five fields are the portable diagnostic surface.
 
@@ -1736,6 +1763,7 @@ The suite manifest uses three assertion tiers:
 - Writer-strict validity verdicts and reader-tolerant cleanliness outcomes for every fixture.
 - Portable diagnostic assertions (`severity`, `code`, `line`, `path`) only for spec-named diagnostic codes.
 - Line-only assertions for schema-layer failures, because JSON Schema validator keyword vocabularies are implementation-specific.
+- Class tags (`classes`) marking which conformance classes each fixture applies to. Validation fixtures use `W`, `R1`, and `R2`; R0 renderer conformance needs a separate rendering suite.
 
 ### 18.4 File graph checks
 
