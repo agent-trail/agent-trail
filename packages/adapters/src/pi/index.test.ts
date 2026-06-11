@@ -1034,7 +1034,7 @@ test("Pi extension-like tool calls do not synthesize capability_change events", 
   }
 });
 
-// Issue #19: tree branch semantics (spec §13.1-12.3, §10.3 branch_summary)
+// Issue #19: tree branch semantics (spec §13.1-13.2, §10.3 branch_summary)
 
 // TDD step 1: fixture loads and validates end-to-end
 test("branch-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {

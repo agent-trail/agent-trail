@@ -157,7 +157,7 @@ mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
 Pi has no observed mid-session registry delta primitive; extension-like tool calls remain
 `tool_call.tool="other"` and do not synthesize `capability_change` events.
 
-Tree and branch coverage (spec §13.1-12.3, §10.3): Pi is tree-native — every entry emits `parent_id`
+Tree and branch coverage (spec §13.1-13.2, §10.3): Pi is tree-native — every entry emits `parent_id`
 mirroring the source `parentId` chain, including forks where multiple envelopes share one
 `parentId`. Pi's native `branch_summary` envelopes (appended by Pi's `/tree` navigation; see
 `packages/coding-agent/src/core/compaction/branch-summarization.ts` in

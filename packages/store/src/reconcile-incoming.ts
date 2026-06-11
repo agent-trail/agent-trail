@@ -39,7 +39,7 @@ const SHORT_HASH_LEN = 12;
 /**
  * Given an incoming trail's JSONL bytes and a local store root, find any
  * prior segments that share the incoming trail's `header.session_uid` and
- * reconcile them per spec §8.5. When matches are found the merged trail's
+ * reconcile them per spec §9.5. When matches are found the merged trail's
  * canonical bytes are returned for the caller to register; otherwise the
  * caller should register the incoming bytes unchanged.
  *

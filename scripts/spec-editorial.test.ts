@@ -35,23 +35,26 @@ test("spec section numbers and cross-references are editorially consistent", asy
   const files = await collectCheckedFiles();
   const staleRefs: string[] = [];
   const danglingRefs: string[] = [];
+  const decreasingRanges: string[] = [];
 
   for (const file of files) {
     const text = await readText(file);
-    for (const stale of text.matchAll(/§(?:8\.0|16\.4|17\.4)\b/g)) {
-      staleRefs.push(`${file}:${lineForOffset(text, stale.index ?? 0)} ${stale[0]}`);
+    for (const stale of findStaleRefs(text)) {
+      staleRefs.push(`${file}:${lineForOffset(text, stale.index)} ${stale.ref}`);
     }
-    const refPattern = file === "spec.md" ? /§(\d+(?:\.\d+)*)/g : /\bspec §(\d+(?:\.\d+)*)/gi;
-    for (const ref of text.matchAll(refPattern)) {
-      const section = ref[1];
-      if (section !== undefined && !sectionNumbers.has(section)) {
-        danglingRefs.push(`${file}:${lineForOffset(text, ref.index ?? 0)} §${section}`);
+    for (const ref of findSectionRefs(text, file)) {
+      if (!sectionNumbers.has(ref.section)) {
+        danglingRefs.push(`${file}:${lineForOffset(text, ref.index)} §${ref.section}`);
+      }
+      if (ref.rangeEnd !== undefined && compareSectionNumbers(ref.rangeEnd, ref.section) < 0) {
+        decreasingRanges.push(`${file}:${lineForOffset(text, ref.index)} ${ref.raw}`);
       }
     }
   }
 
   expect(staleRefs).toEqual([]);
   expect(danglingRefs).toEqual([]);
+  expect(decreasingRanges).toEqual([]);
 });
 
 function collectSectionNumbers(markdown: string): Set<string> {
@@ -64,6 +67,49 @@ function collectSectionNumbers(markdown: string): Set<string> {
 
 function collectTopLevelNumbers(markdown: string): number[] {
   return Array.from(markdown.matchAll(/^## (\d+)\.?\s/gm), (match) => Number(match[1]));
+}
+
+function findStaleRefs(text: string): Array<{ ref: string; index: number }> {
+  const stalePatterns = [
+    /§(?:8\.0|16\.4|17\.4)\b/g,
+    /§10\.2-9\.3\b/g,
+    /§13\.1-12\.3\b/g,
+    /spec §8\.5(?=[^.\n]*(?:session_uid|reconcil))/gi,
+    /§8\.6(?=[^.\n]*multi-session)/gi,
+  ];
+  return stalePatterns.flatMap((pattern) =>
+    Array.from(text.matchAll(pattern), (match) => ({
+      ref: match[0],
+      index: match.index ?? 0,
+    })),
+  );
+}
+
+function findSectionRefs(
+  text: string,
+  file: string,
+): Array<{ section: string; rangeEnd?: string; raw: string; index: number }> {
+  const pattern =
+    file === "spec.md"
+      ? /§(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/g
+      : /\bspec §(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/gi;
+  return Array.from(text.matchAll(pattern), (match) => ({
+    section: match[1]!,
+    rangeEnd: match[2],
+    raw: match[0],
+    index: match.index ?? 0,
+  }));
+}
+
+function compareSectionNumbers(left: string, right: string): number {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
 }
 
 async function collectCheckedFiles(): Promise<string[]> {

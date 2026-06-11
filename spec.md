@@ -574,7 +574,7 @@ Every event entry has this base shape:
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
-| `type` | yes | string | event type; see §10.2-9.3 |
+| `type` | yes | string | event type; see §10.2-10.3 |
 | `id` | yes | string | globally unique; ULID or UUID per §19 |
 | `parent_id` | no | string | references another `id` for tree topology; absent = linear file order |
 | `ts` | yes | string | ISO-8601 timestamp |
