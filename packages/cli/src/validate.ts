@@ -2,7 +2,7 @@ import {
   assertGzippedTrailCompressedSize,
   createDiagnostic,
   type Diagnostic,
-  decodeGzippedTrailBytes,
+  decodeGzippedTrailStream,
   formatDiagnosticsJsonValue,
   formatDiagnosticsText,
   isGzippedTrailPath,
@@ -10,7 +10,6 @@ import {
   TrailFileDecodeError,
   type ValidationProfile,
   validateTrailStream,
-  validateTrailString,
 } from "@agent-trail/core";
 import type { Command } from "commander";
 import { addExamples, type ResultWriter } from "./command.ts";
@@ -44,10 +43,14 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
 
   const diagnostics: Diagnostic[] = [];
   if (isGzippedTrailPath(path)) {
-    let text: string;
     try {
       assertGzippedTrailCompressedSize(path, file.size);
-      text = await decodeGzippedTrailBytes(new Uint8Array(await file.arrayBuffer()), path);
+      for await (const diagnostic of validateTrailStream(
+        decodeGzippedTrailStream(file.stream(), path),
+        { profile },
+      )) {
+        diagnostics.push(diagnostic);
+      }
     } catch (error) {
       if (error instanceof TrailFileDecodeError) {
         if (options.json) {
@@ -68,7 +71,6 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
       }
       throw error;
     }
-    diagnostics.push(...(await validateTrailString(text, { profile })));
   } else {
     for await (const diagnostic of validateTrailStream(file.stream(), { profile })) {
       diagnostics.push(diagnostic);

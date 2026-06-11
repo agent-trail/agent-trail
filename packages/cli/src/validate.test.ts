@@ -46,9 +46,12 @@ async function writeFixture(content: string): Promise<string> {
   return path;
 }
 
-async function writeGzipFixture(content: string): Promise<string> {
+async function writeGzipFixture(
+  content: string,
+  filename = "trail.trail.jsonl.gz",
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
-  const path = join(dir, "trail.trail.jsonl.gz");
+  const path = join(dir, filename);
   await Bun.write(path, gzipSync(Buffer.from(content, "utf8")));
   return path;
 }
@@ -102,6 +105,18 @@ test("valid trail exits 0 with empty stdout", async () => {
 
 test("valid gzipped trail exits 0 with empty stdout", async () => {
   const path = await writeGzipFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+test("valid gzipped trail with mixed-case extension exits 0", async () => {
+  const path = await writeGzipFixture(
+    `${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`,
+    "trail.Trail.Jsonl.Gz",
+  );
 
   const result = await runValidate({ file: path });
 

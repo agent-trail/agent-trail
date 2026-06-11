@@ -60,6 +60,8 @@ test("gzip helpers reject payloads over the compressed byte limit", async () => 
 
 test("isGzippedTrailPath detects only the native compressed trail suffix", () => {
   expect(isGzippedTrailPath("session.trail.jsonl.gz")).toBe(true);
+  expect(isGzippedTrailPath("SESSION.TRAIL.JSONL.GZ")).toBe(true);
+  expect(isGzippedTrailPath("session.Trail.Jsonl.Gz")).toBe(true);
   expect(isGzippedTrailPath("session.trail.jsonl")).toBe(false);
   expect(isGzippedTrailPath("session.trail.jsonl.gz.b64")).toBe(false);
 });

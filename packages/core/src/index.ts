@@ -93,6 +93,7 @@ export { classifyToolName } from "./tool-name-class.ts";
 export {
   assertGzippedTrailCompressedSize,
   decodeGzippedTrailBytes,
+  decodeGzippedTrailStream,
   GZIPPED_TRAIL_EXTENSION,
   GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
   GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,

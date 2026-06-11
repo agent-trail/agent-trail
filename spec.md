@@ -121,8 +121,8 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Empty lines are not allowed.
 - A trailing newline at EOF is recommended but not REQUIRED.
 - Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
-- `.trail.jsonl.gz` files are a whole-file gzip wrapper around the UTF-8 trail JSONL bytes above. Writers MUST NOT gzip individual JSONL lines independently.
-- For `.trail.jsonl.gz`, `content_hash` is computed and verified over the decompressed canonical JSONL bytes defined in §7, not the physical compressed bytes.
+- `.trail.jsonl.gz` files are a whole-file gzip wrapper around the UTF-8 trail JSONL bytes above. Writers MUST NOT gzip individual JSONL lines independently. Readers MUST decompress `.trail.jsonl.gz` files before validation and processing.
+- For `.trail.jsonl.gz`, `content_hash` is computed and verified by first decompressing the file to produce plain UTF-8 JSONL, then applying the canonical bytes procedure defined in §7.3 to the decompressed JSONL. The compressed bytes themselves are never hashed.
 
 ### 5.3 File layout
 

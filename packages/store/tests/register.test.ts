@@ -70,47 +70,51 @@ test("stored object bytes are canonicalizeRecords(records) and verify back to st
 
 test("registerTrail accepts a .trail.jsonl.gz file and stores canonical uncompressed bytes", async () => {
   const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
-  const gzPath = join(inputDir, "session.trail.jsonl.gz");
-  const sourceBytes = await readFile(FINALIZED_FIXTURE, "utf8");
-  await writeFile(gzPath, gzipSync(Buffer.from(sourceBytes, "utf8")));
+  try {
+    const gzPath = join(inputDir, "session.trail.jsonl.gz");
+    const sourceBytes = await readFile(FINALIZED_FIXTURE, "utf8");
+    await writeFile(gzPath, gzipSync(Buffer.from(sourceBytes, "utf8")));
 
-  const result = await registerTrail(gzPath, { storeRoot });
+    const result = await registerTrail(gzPath, { storeRoot });
 
-  expect(result.status).toBe("finalized");
-  expect(result.contentHash).toBe(FINALIZED_HASH);
-  expect(result.objectPath).toBe(
-    join(storeRoot, "objects", "sha256", `${FINALIZED_HASH}.trail.jsonl`),
-  );
-  const storedBytes = await readFile(result.objectPath as string, "utf8");
-  const expectedCanonical = canonicalizeRecords(await parseJsonlString(sourceBytes));
-  expect(storedBytes).toBe(expectedCanonical);
-
-  rmSync(inputDir, { recursive: true, force: true });
+    expect(result.status).toBe("finalized");
+    expect(result.contentHash).toBe(FINALIZED_HASH);
+    expect(result.objectPath).toBe(
+      join(storeRoot, "objects", "sha256", `${FINALIZED_HASH}.trail.jsonl`),
+    );
+    const storedBytes = await readFile(result.objectPath as string, "utf8");
+    const expectedCanonical = canonicalizeRecords(await parseJsonlString(sourceBytes));
+    expect(storedBytes).toBe(expectedCanonical);
+  } finally {
+    rmSync(inputDir, { recursive: true, force: true });
+  }
 });
 
 test("registerTrail reports corrupt .trail.jsonl.gz input as a gzip decode failure", async () => {
   const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
-  const gzPath = join(inputDir, "broken.trail.jsonl.gz");
-  await writeFile(gzPath, "not gzip");
+  try {
+    const gzPath = join(inputDir, "broken.trail.jsonl.gz");
+    await writeFile(gzPath, "not gzip");
 
-  const result = await registerTrail(gzPath, { storeRoot });
+    const result = await registerTrail(gzPath, { storeRoot });
 
-  expect(result.status).toBe("invalid");
-  expect(result.contentHash).toBeNull();
-  expect(result.objectPath).toBeNull();
-  expect(result.diagnostics).toHaveLength(1);
-  expect(result.diagnostics[0]).toMatchObject({
-    severity: "error",
-    code: "gzip_decode_failed",
-    line: 0,
-    path: "",
-  });
-  expect(result.diagnostics[0]?.message).toContain("failed to decode gzip trail");
+    expect(result.status).toBe("invalid");
+    expect(result.contentHash).toBeNull();
+    expect(result.objectPath).toBeNull();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]).toMatchObject({
+      severity: "error",
+      code: "gzip_decode_failed",
+      line: 0,
+      path: "",
+    });
+    expect(result.diagnostics[0]?.message).toContain("failed to decode gzip trail");
 
-  const objectsDir = join(storeRoot, "objects", "sha256");
-  await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
-
-  rmSync(inputDir, { recursive: true, force: true });
+    const objectsDir = join(storeRoot, "objects", "sha256");
+    await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    rmSync(inputDir, { recursive: true, force: true });
+  }
 });
 
 test("registerTrail rejects .trail.jsonl.gz input over the decompressed byte limit", async () => {
