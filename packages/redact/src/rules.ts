@@ -68,19 +68,31 @@ export function applyPattern(
 }
 
 function expandReplacement(placeholder: string, match: string, args: unknown[]): string {
-  const offset = args.find((arg): arg is number => typeof arg === "number") ?? 0;
-  const input = args.find((arg): arg is string => typeof arg === "string") ?? "";
   const offsetIndex = args.findIndex((arg) => typeof arg === "number");
+  const offset = offsetIndex === -1 ? 0 : (args[offsetIndex] as number);
+  const input = typeof args[offsetIndex + 1] === "string" ? (args[offsetIndex + 1] as string) : "";
   const captures = offsetIndex === -1 ? [] : args.slice(0, offsetIndex);
-  return placeholder.replace(/\$(\$|&|`|'|\d{1,2})/g, (_token, name: string) => {
+  return placeholder.replace(/\$(\$|&|`|'|[1-9]\d?)/g, (token, name: string) => {
     if (name === "$") return "$";
     if (name === "&") return match;
     if (name === "`") return input.slice(0, offset);
     if (name === "'") return input.slice(offset + match.length);
-    const index = Number.parseInt(name, 10);
-    const capture = captures[index - 1];
-    return typeof capture === "string" ? capture : "";
+    return expandCaptureReference(token, name, captures);
   });
+}
+
+function expandCaptureReference(token: string, digits: string, captures: unknown[]): string {
+  const index = Number.parseInt(digits, 10);
+  const capture = captures[index - 1];
+  if (index >= 1 && index <= captures.length) return typeof capture === "string" ? capture : "";
+  if (digits.length === 2) {
+    const firstIndex = Number.parseInt(digits[0]!, 10);
+    const firstCapture = captures[firstIndex - 1];
+    if (firstIndex >= 1 && firstIndex <= captures.length) {
+      return `${typeof firstCapture === "string" ? firstCapture : ""}${digits[1]}`;
+    }
+  }
+  return token;
 }
 
 export function allowedSecretSet(allowedSecrets: readonly string[]): Set<string> {

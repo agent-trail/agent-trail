@@ -116,7 +116,7 @@ export function redactTrail(
   // the mismatch and so share tooling recomputes the hashes on the redacted
   // artifact before publishing. Skip the reset on a true no-op pass so a
   // finalized clean trail remains verifiable after this call.
-  const changed = Object.keys(rawSummary.counts).length > 0;
+  const changed = Object.keys(rawSummary.counts).some((key) => key !== "allowlisted_skip");
   if (changed) {
     resetContentHashes(out);
   }

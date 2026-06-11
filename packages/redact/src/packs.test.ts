@@ -94,7 +94,7 @@ test("resolveRedactionConfig rejects unsafe custom label regexes in settings", a
   );
 
   await expect(resolveRedactionConfig({ env: { HOME: home }, projectRoot })).rejects.toThrow(
-    "regex is unsafe",
+    "nested unbounded quantifiers",
   );
 });
 
@@ -132,7 +132,55 @@ test("resolveRedactionConfig warns and skips packs with unsafe regexes", async (
   const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
 
   expect(config.packs).toEqual([]);
-  expect(config.warnings.join("\n")).toContain("regex is unsafe");
+  expect(config.warnings.join("\n")).toContain("nested unbounded quantifiers");
+});
+
+test("resolveRedactionConfig warns and skips packs for each regex safety rejection", async () => {
+  mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+  const cases = [
+    {
+      name: "lookaround",
+      regex: "(?<=ACME-)TOKEN",
+      warning: "lookaround is not supported",
+    },
+    {
+      name: "backref",
+      regex: "(\\w+) \\1",
+      warning: "backreferences are not supported",
+    },
+    {
+      name: "long",
+      regex: "A".repeat(513),
+      warning: "exceeds 512 characters",
+    },
+    {
+      name: "nested",
+      regex: "^([A-Z]+)+$",
+      warning: "nested unbounded quantifiers",
+    },
+  ];
+  for (const testCase of cases) {
+    writeFileSync(
+      join(projectRoot, ".trail", "redactors", `${testCase.name}.yaml`),
+      [
+        `name: ${testCase.name}`,
+        "version: 1",
+        "rules:",
+        `  - id: ${testCase.name}_token`,
+        "    description: unsafe regex",
+        `    regex: ${JSON.stringify(testCase.regex)}`,
+        `    placeholder: '[${testCase.name.toUpperCase()}_TOKEN]'`,
+      ].join("\n"),
+    );
+  }
+
+  const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
+  const warnings = config.warnings.join("\n");
+
+  expect(config.packs).toEqual([]);
+  for (const testCase of cases) {
+    expect(warnings).toContain(testCase.warning);
+  }
 });
 
 test("resolveRedactionConfig warns and skips packs with quantified alternation regexes", async () => {
@@ -232,6 +280,57 @@ test("resolveRedactionConfig warns and skips packs using reserved allowed-secret
 
   expect(config.packs).toEqual([]);
   expect(config.warnings.join("\n")).toContain("reserved allowed-secret token namespace");
+});
+
+test("resolveRedactionConfig warns and skips packs with unsafe replacement placeholders", async () => {
+  mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+  const placeholders = [
+    { name: "wholematch", placeholder: "$&" },
+    { name: "capture", placeholder: "$1" },
+  ];
+  for (const { name, placeholder } of placeholders) {
+    writeFileSync(
+      join(projectRoot, ".trail", "redactors", `${name}.yaml`),
+      [
+        `name: ${name}`,
+        "version: 1",
+        "rules:",
+        `  - id: ${name}_token`,
+        "    description: replaying placeholder",
+        "    regex: 'ACME-([A-Z0-9]{8})'",
+        `    placeholder: '${placeholder}'`,
+      ].join("\n"),
+    );
+  }
+
+  const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
+
+  expect(config.packs).toEqual([]);
+  expect(config.warnings.join("\n").match(/unsafe replacement token/g)).toHaveLength(2);
+});
+
+test("resolveRedactionConfig rejects redacted samples that leave the matched secret", async () => {
+  mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+  writeFileSync(
+    join(projectRoot, ".trail", "redactors", "acme.yaml"),
+    [
+      "name: acme",
+      "version: 1",
+      "rules:",
+      "  - id: acme_token",
+      "    description: sample leaks match",
+      "    regex: 'ACME-[A-Z0-9]{8}'",
+      "    placeholder: 'leaked ACME-ABCDEFGH'",
+      "    samples:",
+      "      - input: 'ACME-ABCDEFGH'",
+      "        redacted: true",
+    ].join("\n"),
+  );
+
+  const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
+
+  expect(config.packs).toEqual([]);
+  expect(config.warnings.join("\n")).toContain("sample failed");
 });
 
 test("resolveRedactionConfig keeps the first valid pack when names duplicate across roots", async () => {

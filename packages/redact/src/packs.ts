@@ -344,6 +344,9 @@ function parseRule(value: unknown): PackRule {
   if (containsAllowedSecretToken(placeholder)) {
     throw new Error(`placeholder uses reserved allowed-secret token namespace: ${id}`);
   }
+  if (containsActiveReplacementToken(placeholder)) {
+    throw new Error(`placeholder uses unsafe replacement token: ${id}`);
+  }
   return {
     id,
     description: stringField(value, "description"),
@@ -355,7 +358,13 @@ function parseRule(value: unknown): PackRule {
 
 function assertSamplesPass(pattern: RedactionPattern, samples: PackSample[]): void {
   for (const sample of samples) {
-    const redacted = sample.input.replace(pattern.regex, pattern.placeholder) !== sample.input;
+    const matches = Array.from(sample.input.matchAll(pattern.regex), (match) => match[0] ?? "");
+    pattern.regex.lastIndex = 0;
+    const output = sample.input.replace(pattern.regex, pattern.placeholder);
+    const redacted =
+      output !== sample.input &&
+      matches.length > 0 &&
+      matches.every((matched) => matched.length === 0 || !output.includes(matched));
     pattern.regex.lastIndex = 0;
     if (redacted !== sample.redacted) {
       throw new Error(`sample failed for rule ${pattern.id}: ${sample.input}`);
@@ -373,6 +382,19 @@ function optionalSamples(value: unknown): PackSample[] | undefined {
     if (typeof redacted !== "boolean") throw new Error("sample.redacted must be a boolean");
     return { input, redacted };
   });
+}
+
+function containsActiveReplacementToken(placeholder: string): boolean {
+  for (let index = 0; index < placeholder.length - 1; index += 1) {
+    if (placeholder[index] !== "$") continue;
+    const next = placeholder[index + 1];
+    if (next === "$") {
+      index += 1;
+      continue;
+    }
+    if (next === "&" || next === "`" || next === "'" || /[1-9]/.test(next ?? "")) return true;
+  }
+  return false;
 }
 
 function stringArrayField(value: Record<string, unknown>, key: string): string[] {

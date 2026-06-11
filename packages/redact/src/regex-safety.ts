@@ -8,13 +8,13 @@ export function assertSafeRegexSource(source: string, label: string): void {
   }
   if (hasBackreference(source)) throw new Error(`${label} regex backreferences are not supported`);
   if (hasLookaround(source)) throw new Error(`${label} regex lookaround is not supported`);
-  if (!safeRegex(source, { limit: 25 })) throw new Error(`${label} regex is unsafe`);
   if (hasNestedUnboundedQuantifier(source)) {
     throw new Error(`${label} regex has nested unbounded quantifiers`);
   }
   if (hasQuantifiedAlternation(source)) {
     throw new Error(`${label} regex has quantified alternation`);
   }
+  if (!safeRegex(source, { limit: 25 })) throw new Error(`${label} regex is unsafe`);
 }
 
 function hasBackreference(source: string): boolean {

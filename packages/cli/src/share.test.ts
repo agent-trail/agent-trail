@@ -239,6 +239,33 @@ test("--json invalid id emits parseable error object", async () => {
   });
 });
 
+test("dry-run json fails deterministically for malformed project redaction settings", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-bad-settings-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+    await writeFile(join(projectRoot, ".trail", "settings.json"), "{", "utf8");
+    const { contentHash } = await seedRegistered();
+
+    const result = await runShare([contentHash, "--dry-run", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("redaction settings invalid JSON");
+    expect(JSON.parse(result.stdout)).toEqual({
+      status: "error",
+      content_hash: null,
+      redaction: null,
+      copied: false,
+      error: { message: expect.stringContaining("redaction settings invalid JSON") },
+    });
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("dry-run json loads project redactor packs and reports pack metadata", async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-pack-project-"));
   try {

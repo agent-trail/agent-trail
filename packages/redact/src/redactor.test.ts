@@ -637,7 +637,7 @@ test("redactTrail rejects unsafe custom label regexes", () => {
     redactTrail(records, {
       pii: { customLabels: { employee_id: "^(EMP-\\d+)+$" } },
     }),
-  ).toThrow("regex is unsafe");
+  ).toThrow("nested unbounded quantifiers");
 });
 
 test("redactTrail preserves allowed secrets in credential-looking fields", () => {
@@ -730,6 +730,36 @@ test("redactTrail allowed-secret protection is not affected by later pattern pla
   expect(text).toBe(`keep ${allowed} redact [ALLOWED_SECRET_0_0]`);
   expect(summary.counts.allowlisted_skip).toBe(1);
   expect(summary.counts.marker).toBe(1);
+});
+
+test("redactTrail expands custom replacements like native String.replace", () => {
+  const source = "abc123def";
+  const placeholder = "$`|$&|$'|$1|$2|$10|$$";
+  const regex = /(\d+)/g;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: source },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    extendPatterns: [
+      {
+        id: "number_marker",
+        description: "number marker",
+        regex,
+        placeholder,
+      },
+    ],
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe(source.replace(regex, placeholder));
+  expect(summary.counts.number_marker).toBe(1);
 });
 
 test("redactTrail redacts only the password segment in credentialed URIs", () => {
@@ -2614,6 +2644,29 @@ test("redactTrail preserves header content_hash when no redactions occur", () =>
   const headerValue = out[0]?.value as { content_hash: string };
   expect(headerValue.content_hash).toBe(finalized);
   expect(summary.counts).toEqual({});
+});
+
+test("redactTrail preserves header content_hash when only allowed secrets are skipped", () => {
+  const finalized = "a".repeat(64);
+  const allowed = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header({ content_hash: finalized }),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: allowed },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: [allowed] });
+
+  const headerValue = out[0]?.value as { content_hash: string };
+  const messageValue = out[1]?.value as { payload: { text: string }; meta?: unknown };
+  expect(headerValue.content_hash).toBe(finalized);
+  expect(messageValue.payload.text).toBe(allowed);
+  expect(messageValue.meta).toBeUndefined();
+  expect(summary.counts).toEqual({ allowlisted_skip: 1 });
 });
 
 test("redactTrail returns input records and empty summary when no secrets present", () => {
