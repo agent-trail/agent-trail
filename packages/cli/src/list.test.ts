@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1026,7 +1026,7 @@ test("runListBrowser resume action rejects registered-only rows", async () => {
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
-test("runListBrowser resume action recovers registered source rows by source path", async () => {
+test("runListBrowser resume action rejects registered rows with only source path", async () => {
   const sourceCwd = mkdtempSync(join(tmpdir(), "trail-resume-source-cwd-"));
   const browserCwd = mkdtempSync(join(tmpdir(), "trail-resume-browser-cwd-"));
   const { filePath } = await seedTrail({
@@ -1043,7 +1043,7 @@ test("runListBrowser resume action recovers registered source rows by source pat
       path: filePath,
     },
   ];
-  const spawned: unknown[] = [];
+  let spawnCount = 0;
 
   try {
     const result = await runListBrowser(
@@ -1054,33 +1054,50 @@ test("runListBrowser resume action recovers registered source rows by source pat
         storeRoot,
         defaultCwd: browserCwd,
         terminal: { isTTY: true },
-        resumeRunner: async (command) => {
-          spawned.push(command);
+        resumeRunner: async () => {
+          spawnCount += 1;
           return { exitCode: 0, stdout: "", stderr: "" };
         },
         runSessionBrowser: async (input) => {
           const row = input.rows[0];
           expect(row?.state).toBe("registered");
           expect(row?.registered_source_path).toBe(filePath);
-          const resumed = await input.onResume?.(row!);
-          expect(resumed).toEqual({ exitCode: 0, stdout: "", stderr: "" });
-          return resumed!;
+          await expect(input.onResume?.(row!)).rejects.toThrow("Resume requires a source session");
+          return { exitCode: 0, stdout: "", stderr: "" };
         },
       },
     );
 
-    expect(spawned).toEqual([
-      {
-        label: "Resume codex sess-resume-outside-cwd",
-        argv: ["codex", "--session", "sess-resume-outside-cwd"],
-        cwd: sourceCwd,
-        env: { AGENT_TRAIL_TEST: "1" },
-      },
-    ]);
+    expect(spawnCount).toBe(0);
     expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
   } finally {
     rmSync(sourceCwd, { recursive: true, force: true });
     rmSync(browserCwd, { recursive: true, force: true });
+  }
+});
+
+test("spawnResumeCommand applies cwd and merged env to the child process", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "trail-resume-child-cwd-"));
+  const outputDir = mkdtempSync(join(tmpdir(), "trail-resume-child-output-"));
+  const outputPath = join(outputDir, "observed.json");
+  const script = `const { writeFileSync } = require("node:fs"); writeFileSync(${JSON.stringify(
+    outputPath,
+  )}, JSON.stringify({ cwd: process.cwd(), env: process.env.AGENT_TRAIL_TEST_CHILD ?? null }));`;
+  try {
+    const result = await spawnResumeCommand({
+      label: "Resume child probe",
+      argv: [process.execPath, "-e", script],
+      cwd,
+      env: { AGENT_TRAIL_TEST_CHILD: "seen" },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    await expect(readFile(outputPath, "utf8")).resolves.toBe(
+      JSON.stringify({ cwd: realpathSync(cwd), env: "seen" }),
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(outputDir, { recursive: true, force: true });
   }
 });
 

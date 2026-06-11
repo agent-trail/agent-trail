@@ -232,7 +232,7 @@ function rowMatchesTrailFilter(row: SessionBrowserRow, filter: TrailFilter): boo
 }
 
 function rowMatchesAgentFilter(row: SessionBrowserRow, filter: string | null): boolean {
-  return filter === null || row.agent === filter;
+  return filter === null || (row.agent !== null && sanitizeTerminalText(row.agent) === filter);
 }
 
 function rowSearchText(row: SessionBrowserRow): string {

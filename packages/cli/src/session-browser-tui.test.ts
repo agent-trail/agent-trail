@@ -121,11 +121,16 @@ test("browser frame renders session table columns and preview details", () => {
   expect(frame).toContain("TRAIL NO");
   expect(frame).toContain("enter open");
   expect(frame).toContain("r resume");
-  expect(frame).toContain("a all");
-  expect(frame).toContain("t trail");
-  expect(frame).toContain("g agent");
+  expect(frame).toContain("a/t/g filters");
   expect(frame).not.toContain("name:");
   expect(frame).not.toContain("trail:");
+});
+
+test("browser frame keeps default footer quit shortcut visible", () => {
+  const frame = renderBrowserFrame({ rows, warnings: [] });
+
+  expect(frame).toContain("/ search");
+  expect(frame).toContain("q quit");
 });
 
 test("browser agent shortcut cycles agent filters", async () => {
@@ -158,6 +163,33 @@ test("browser agent shortcut cycles agent filters", async () => {
     expect(app.state().agentFilter).toBeNull();
     expect(setup.captureCharFrame()).toContain("AGENT all");
     expect(setup.captureCharFrame()).toContain("FILTERED 2");
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("browser agent filter matches sanitized agent labels", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const dirtyAgentRow = {
+    ...rows[0],
+    source_id: "sess-dirty-agent",
+    agent: "dirty\nagent",
+    display_name: "Dirty agent row",
+  } as SessionBrowserRow;
+  try {
+    const app = mountSessionBrowser(setup.renderer, {
+      rows: [dirtyAgentRow],
+      warnings: [],
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+
+    expect(app.state().agentFilter).toBe("dirty agent");
+    expect(setup.captureCharFrame()).toContain("AGENT dirty agent");
+    expect(setup.captureCharFrame()).toContain("FILTERED 1");
+    expect(setup.captureCharFrame()).toContain("Dirty agent row");
   } finally {
     if (!setup.renderer.isDestroyed) setup.renderer.destroy();
   }

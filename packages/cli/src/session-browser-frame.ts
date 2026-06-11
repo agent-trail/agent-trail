@@ -290,7 +290,7 @@ function renderFooter(state: BrowserState, filteredCount: number, width: number)
       : `${rowCounts}  WARN ${warnings.join(" | ")}${status}`;
   const shortcuts =
     warnings.length === 0
-      ? "j/k move  enter open  r resume  s/e/y  a all  t trail  g agent  / search  q quit"
+      ? "j/k move  enter open  r resume  s/e/y  a/t/g filters  / search  q quit"
       : "j/k move  enter open  r resume  s/e/y  a/t/g  /  q";
   return alignBetween(left, shortcuts, width);
 }

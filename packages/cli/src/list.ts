@@ -404,7 +404,7 @@ async function resolveBrowserResumeCommand(
   if (adapter.resumeSession === undefined) {
     throw new Error(`${adapter.name} does not support resume`);
   }
-  const ref = await resolveBrowserResumeRef(row, adapter);
+  const ref = resolveBrowserResumeRef(row);
   const result = await adapter.resumeSession(ref);
   if (!result.supported) {
     throw new Error(result.reason);
@@ -412,7 +412,7 @@ async function resolveBrowserResumeCommand(
   return result.command;
 }
 
-async function resolveBrowserResumeRef(row: Row, adapter: TrailAdapter): Promise<SessionRef> {
+function resolveBrowserResumeRef(row: Row): SessionRef {
   if (row.source_id !== null && row.source_agent !== null) {
     return {
       id: row.source_id,
@@ -422,15 +422,7 @@ async function resolveBrowserResumeRef(row: Row, adapter: TrailAdapter): Promise
       path: row.source_path ?? undefined,
     };
   }
-  if (row.registered_source_path === null) {
-    throw new Error("Resume requires a source session");
-  }
-  const refs = await adapter.detectSessions({ allCwds: true });
-  const ref = refs.find((candidate) => candidate.path === row.registered_source_path);
-  if (ref === undefined) {
-    throw new Error("Resume requires a discoverable source session");
-  }
-  return ref;
+  throw new Error("Resume requires a source session");
 }
 
 async function runResumeCommand(
