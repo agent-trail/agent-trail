@@ -18,19 +18,46 @@ export function assertSafeRegexSource(source: string, label: string): void {
 }
 
 function hasBackreference(source: string): boolean {
+  let inClass = false;
   for (let i = 0; i < source.length - 1; i += 1) {
-    if (source[i] !== "\\" || isEscaped(source, i)) continue;
+    const char = source[i];
+    if (char === undefined || isEscaped(source, i)) continue;
+    if (char === "[" && !inClass) {
+      inClass = true;
+      continue;
+    }
+    if (char === "]" && inClass) {
+      inClass = false;
+      continue;
+    }
+    if (inClass || char !== "\\") continue;
     const next = source[i + 1] ?? "";
-    if (/[1-9]/.test(next) || next === "k") return true;
+    const afterNext = source[i + 2] ?? "";
+    if (/[1-9]/.test(next) || (next === "k" && afterNext === "<")) return true;
   }
   return false;
 }
 
 function hasLookaround(source: string): boolean {
+  let inClass = false;
   for (let i = 0; i < source.length - 2; i += 1) {
-    if (source[i] !== "(" || isEscaped(source, i) || source[i + 1] !== "?") continue;
+    const char = source[i];
+    if (char === undefined || isEscaped(source, i)) continue;
+    if (char === "[" && !inClass) {
+      inClass = true;
+      continue;
+    }
+    if (char === "]" && inClass) {
+      inClass = false;
+      continue;
+    }
+    if (inClass || char !== "(" || source[i + 1] !== "?") continue;
     const marker = source[i + 2];
-    if (marker === "=" || marker === "!" || marker === "<") return true;
+    if (marker === "=" || marker === "!") return true;
+    if (marker === "<") {
+      const lookbehindMarker = source[i + 3];
+      if (lookbehindMarker === "=" || lookbehindMarker === "!") return true;
+    }
   }
   return false;
 }

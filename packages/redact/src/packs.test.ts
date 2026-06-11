@@ -183,6 +183,49 @@ test("resolveRedactionConfig warns and skips packs for each regex safety rejecti
   }
 });
 
+test("resolveRedactionConfig accepts named captures and literal regex tokens inside character classes", async () => {
+  mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+  mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+  writeFileSync(
+    join(projectRoot, ".trail", "settings.json"),
+    JSON.stringify({
+      redaction: {
+        pii: {
+          customLabels: {
+            employee_id: "(?<prefix>EMP)-\\d{6}",
+            literal_tokens: "[(?<]|[\\\\1]|[\\\\k]",
+          },
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(projectRoot, ".trail", "redactors", "acme.yaml"),
+    [
+      "name: acme",
+      "version: 1",
+      "rules:",
+      "  - id: acme_token",
+      "    description: named capture",
+      "    regex: 'ACME-(?<token>[A-Z0-9]{8})'",
+      "    placeholder: '[ACME_TOKEN]'",
+      "  - id: literal_token",
+      "    description: literal character-class tokens",
+      "    regex: '[(?<]|[\\\\1]|[\\\\k]'",
+      "    placeholder: '[LITERAL_TOKEN]'",
+    ].join("\n"),
+  );
+
+  const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
+
+  expect(config.warnings).toEqual([]);
+  expect(config.pii?.customLabels).toEqual({
+    employee_id: "(?<prefix>EMP)-\\d{6}",
+    literal_tokens: "[(?<]|[\\\\1]|[\\\\k]",
+  });
+  expect(config.packs.map((pack) => pack.name)).toEqual(["acme"]);
+});
+
 test("resolveRedactionConfig warns and skips packs with quantified alternation regexes", async () => {
   mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
   writeFileSync(

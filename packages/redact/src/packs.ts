@@ -70,13 +70,9 @@ export async function resolveRedactionConfig(
   const packNames = new Set<string>();
   let fileCount = 0;
   for (const root of roots) {
-    const files = await collectPackFiles(root.path, warnings);
+    const files = await collectPackFiles(root.path, warnings, MAX_PACK_FILES - fileCount);
+    fileCount += files.length;
     for (const file of files) {
-      fileCount += 1;
-      if (fileCount > MAX_PACK_FILES) {
-        warnings.push(`redaction pack limit exceeded; skipped ${file}`);
-        continue;
-      }
       const pack = await loadPackFile(file, root.source, warnings, patternIds, packNames);
       if (pack !== null) packs.push(pack);
     }
@@ -198,7 +194,15 @@ function parsePiiConfig(path: string, value: unknown): PiiConfig | undefined {
   return out;
 }
 
-async function collectPackFiles(root: string, warnings: string[]): Promise<string[]> {
+async function collectPackFiles(
+  root: string,
+  warnings: string[],
+  maxFiles: number,
+): Promise<string[]> {
+  if (maxFiles <= 0) {
+    warnings.push(`redaction pack limit exceeded; skipped ${root}`);
+    return [];
+  }
   const stats = await lstatOrNull(root);
   if (stats === null) return [];
   if (stats.isSymbolicLink()) {
@@ -210,11 +214,21 @@ async function collectPackFiles(root: string, warnings: string[]): Promise<strin
     return [];
   }
   const files: string[] = [];
-  await walkPackDir(root, files, warnings);
+  await walkPackDir(root, files, warnings, maxFiles, { warned: false });
   return files.sort();
 }
 
-async function walkPackDir(dir: string, files: string[], warnings: string[]): Promise<void> {
+async function walkPackDir(
+  dir: string,
+  files: string[],
+  warnings: string[],
+  maxFiles: number,
+  limitState: { warned: boolean },
+): Promise<void> {
+  if (files.length >= maxFiles) {
+    warnPackLimit(dir, warnings, limitState);
+    return;
+  }
   let entries: Array<{
     name: string;
     isSymbolicLink(): boolean;
@@ -227,20 +241,30 @@ async function walkPackDir(dir: string, files: string[], warnings: string[]): Pr
     warnings.push(`redaction pack directory unreadable: ${dir}: ${messageFor(error)}`);
     return;
   }
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (files.length >= maxFiles) {
+      warnPackLimit(dir, warnings, limitState);
+      return;
+    }
     const path = join(dir, entry.name);
     if (entry.isSymbolicLink()) {
       warnings.push(`redaction pack skipped symlink: ${path}`);
       continue;
     }
     if (entry.isDirectory()) {
-      await walkPackDir(path, files, warnings);
+      await walkPackDir(path, files, warnings, maxFiles, limitState);
       continue;
     }
     if (entry.isFile() && PACK_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
       files.push(path);
     }
   }
+}
+
+function warnPackLimit(dir: string, warnings: string[], limitState: { warned: boolean }): void {
+  if (limitState.warned) return;
+  limitState.warned = true;
+  warnings.push(`redaction pack limit exceeded; skipped remaining files under ${dir}`);
 }
 
 async function loadPackFile(
