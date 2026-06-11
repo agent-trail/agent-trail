@@ -267,7 +267,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 
 - TypeScript package, MIT.
 - Exports per-agent adapter functions: `parseClaudeCode(file): TrailFile`, `parsePi(...)`, etc.
-- Each adapter implements a common interface (see §9.2).
+- Each adapter implements a common interface (see §8.2).
 - Discovers sessions in standard locations (`~/.claude/projects/...`, `~/.pi/agent/sessions/...`, etc.).
 - Six adapters at v1 launch: Pi, Claude Code, Codex CLI, Cursor, OpenCode, Aider.
 
@@ -288,7 +288,7 @@ LLM-driven workflows (summarising a trail, packaging a handoff for another agent
 
 ### 7.5 Website (`agent-trail.dev`)
 
-Single domain with four routes. The site follows the **TOML-style hybrid model**: a light landing page that orients new visitors, plus versioned spec hosting, schema hosting, and the viewer. No blog, no docs hierarchy, no marketing surfaces. See §9.4 for detailed requirements and §17 for explicit non-goals.
+Single domain with four routes. The site follows the **TOML-style hybrid model**: a light landing page that orients new visitors, plus versioned spec hosting, schema hosting, and the viewer. No blog, no docs hierarchy, no marketing surfaces. See §8.4 for detailed requirements and §16 for explicit non-goals.
 
 | Route | Purpose |
 |---|---|
@@ -355,7 +355,7 @@ Surfaces that are not in v1 scope but stay on the roadmap. Each is an applicatio
 
 ### 8.1 Spec
 
-See `../spec.md`. Open items tracked in §20 of that doc.
+See `../spec.md`. Open items tracked in spec §20.
 
 ### 8.2 Adapter library
 
@@ -480,7 +480,7 @@ All validator APIs and `trail validate --json` return normalized diagnostics wit
 - `trail register` canonicalizes, validates, hashes, stores the artifact, and updates the local index.
 - Files with omitted or `"<pending>"` `content_hash` may be indexed as source refs but are not stored as finalized objects until hashed.
 
-**Redaction pipeline (mandatory, see §9.6):**
+**Redaction pipeline (mandatory, see §8.6):**
 
 - Runs by default on `trail share`.
 - `--skip-redaction` flag exists but prints a loud warning and requires confirmation.
@@ -850,7 +850,7 @@ Leading and lagging indicators per phase.
 | Spec becomes too complex through later iterations | Medium | High | Strict editorial gate on what enters the spec. Most ideas go in `source.raw` or stay outside spec. |
 | Source-agent schema drift breaks adapters silently | High | Medium | Real-data CI tests with version locks. Parser Source Matrix documents tested versions. |
 | Name collision with Agent Trace causes confusion | Low | Low | Names diverge enough in practice; rename is cheap pre-launch if needed. |
-| Site scope creeps from spec-page to product-site | Medium | Low | §17 names the surfaces we are deliberately NOT building. Reference before adding any new page. |
+| Site scope creeps from spec-page to product-site | Medium | Low | §16 names the surfaces we are deliberately NOT building. Reference before adding any new page. |
 
 ---
 
@@ -896,7 +896,7 @@ Restating §4 with more detail:
 - **Reactions, comments, or annotation layers on shared sessions.** Trail files are immutable; conversation about a trail belongs to downstream products.
 - **On-chain anything.** Don't go there.
 
-End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §20); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §9.6).
+End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §20); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §8.6).
 
 ---
 

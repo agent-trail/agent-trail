@@ -23,6 +23,8 @@ test("spec section numbers and cross-references are editorially consistent", asy
   const spec = await readText("spec.md");
   const sectionNumbers = collectSectionNumbers(spec);
   const topLevelNumbers = collectTopLevelNumbers(spec);
+  const prd = await readText("docs/PRD.md");
+  const prdSectionNumbers = collectSectionNumbers(prd);
 
   expect(topLevelNumbers).toEqual([...topLevelNumbers].sort((a, b) => a - b));
   expect(spec).not.toMatch(/^## 8\.0\b/m);
@@ -45,6 +47,14 @@ test("spec section numbers and cross-references are editorially consistent", asy
     for (const ref of findSectionRefs(text, file)) {
       if (!sectionNumbers.has(ref.section)) {
         danglingRefs.push(`${file}:${lineForOffset(text, ref.index)} §${ref.section}`);
+      }
+      if (ref.rangeEnd !== undefined && compareSectionNumbers(ref.rangeEnd, ref.section) < 0) {
+        decreasingRanges.push(`${file}:${lineForOffset(text, ref.index)} ${ref.raw}`);
+      }
+    }
+    for (const ref of findPrdRefs(text, file)) {
+      if (!prdSectionNumbers.has(ref.section)) {
+        danglingRefs.push(`${file}:${lineForOffset(text, ref.index)} PRD §${ref.section}`);
       }
       if (ref.rangeEnd !== undefined && compareSectionNumbers(ref.rangeEnd, ref.section) < 0) {
         decreasingRanges.push(`${file}:${lineForOffset(text, ref.index)} ${ref.raw}`);
@@ -99,6 +109,34 @@ function findSectionRefs(
     raw: match[0],
     index: match.index ?? 0,
   }));
+}
+
+function findPrdRefs(
+  text: string,
+  file: string,
+): Array<{ section: string; rangeEnd?: string; raw: string; index: number }> {
+  const refs = Array.from(
+    text.matchAll(/\bPRD §(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/gi),
+    (match) => ({
+      section: match[1]!,
+      rangeEnd: match[2],
+      raw: match[0],
+      index: match.index ?? 0,
+    }),
+  );
+
+  if (file !== "docs/PRD.md") return refs;
+
+  const barePrdRefs = Array.from(
+    text.matchAll(/(?:^|[^\w])(?<!spec )§(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/gi),
+    (match) => ({
+      section: match[1]!,
+      rangeEnd: match[2],
+      raw: match[0].trimStart(),
+      index: (match.index ?? 0) + match[0].indexOf("§"),
+    }),
+  );
+  return [...refs, ...barePrdRefs];
 }
 
 function compareSectionNumbers(left: string, right: string): number {
