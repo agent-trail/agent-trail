@@ -30,7 +30,7 @@ const REDACTED_GIT_COMMIT_COMMAND =
 const REDACTED_GIT_COMMIT_ARGUMENTS =
   /^\{"command":"git add \[REDACTED_PATH\] && git commit -m \\"\[REDACTED_COMMIT_MESSAGE\]\\""\}$/;
 const REDACTED_GIT_COMMIT_OUTPUT =
-  /^\[main [0-9a-f]{7}\] \[REDACTED_COMMIT_MESSAGE\]\n 1 file changed, 1 insertion\(\+\)\n?$/;
+  /^\[[^\]\n]+ [0-9a-f]{7,40}\] \[REDACTED_COMMIT_MESSAGE\](?:\n \d+ files? changed(?:, \d+ insertions?\(\+\))?(?:, \d+ deletions?\(-\))?)?\n?$/;
 const SENSITIVE_VALUE_KEYS = new Set([
   "activeForm",
   "agentName",
