@@ -26,7 +26,7 @@ export type IndexEntry = {
    */
   session_uid?: string | null;
   /**
-   * Discriminator for multi-session files (spec §8.6). `"session"` rows
+   * Discriminator for multi-session files (spec §9.6). `"session"` rows
    * (default for back-compat) are keyed by a session-level `content_hash` and
    * may be extracted as standalone single-session trails. `"trail"` rows are
    * keyed by the file-level (envelope) `content_hash` and represent the whole

@@ -50,7 +50,7 @@ export const implementedEventTypes = [
   "mode_change",
   "thinking_level_change",
   "session_terminated",
-  // Optional clean-conclusion marker (spec §9.3). Distinct from session_terminated:
+  // Optional clean-conclusion marker (spec §10.3). Distinct from session_terminated:
   // session_end signals a normal finish, session_terminated an abnormal one.
   "session_end",
   "command_invoke",

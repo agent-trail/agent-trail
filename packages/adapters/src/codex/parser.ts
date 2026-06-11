@@ -8,7 +8,7 @@
 // `docs/parser-source-matrix.md` for the full mapping table and deferred shapes.
 //
 // Idempotence: entry ids derive deterministically from
-// (session_uid, record_index, entry_type) per spec §8.5, so re-parsing the
+// (session_uid, record_index, entry_type) per spec §9.5, so re-parsing the
 // same JSONL produces stable ids and the reconciler can group segments.
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
@@ -595,7 +595,7 @@ export function stableAxisKey(axis: Record<string, unknown>): string {
   return JSON.stringify(canonicalize(axis));
 }
 
-// Lifecycle-vocabulary system_event builder. `kind` is the reserved §9.3 token
+// Lifecycle-vocabulary system_event builder. `kind` is the reserved §10.3 token
 // (e.g. `task_started`) or a vendor `x-codex/<name>` form when the source has
 // no canonical analogue. `data` carries the source payload's structured fields
 // (sanitised to JSON-safe values upstream). `linkedCallId`, when present, is

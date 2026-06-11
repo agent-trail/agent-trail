@@ -1,7 +1,7 @@
 import type { JsonlRecord } from "./jsonl.ts";
 
 /**
- * One `(session header, events*)` group inside a trail file (spec §8.6).
+ * One `(session header, events*)` group inside a trail file (spec §9.6).
  * Boundaries are positional: the group extends from its header up to (but
  * excluding) the next `type:"session"` record or EOF.
  */
@@ -13,7 +13,7 @@ export type SessionGroup = {
 };
 
 export type SplitSessionGroupsResult = {
-  /** Trail envelope at line 1, if present (spec §8.0). Excluded from every group. */
+  /** Trail envelope at line 1, if present (spec §8). Excluded from every group. */
   envelope: JsonlRecord | null;
   /** Session groups in file order. May be empty for a malformed file with no session header. */
   groups: SessionGroup[];
@@ -25,7 +25,7 @@ export type SplitSessionGroupsResult = {
 
 /**
  * Split a parsed trail file into its envelope (optional) plus one-or-more
- * session groups (spec §8.6). A pure structural pass: no validation, no
+ * session groups (spec §9.6). A pure structural pass: no validation, no
  * diagnostics. Callers (graph validator, hash, reconciler, redactor, store)
  * iterate the result and emit their own errors.
  *

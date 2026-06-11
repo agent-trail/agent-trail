@@ -52,7 +52,7 @@ export function validateGraphPrologue(
     }
   }
 
-  // Per-group header validity (spec §8.6.3). Each session header is validated
+  // Per-group header validity (spec §9.6.3). Each session header is validated
   // independently — a malformed header in any group does not silence checks on
   // siblings. The file-level "missing first header" diagnostic still fires
   // when the file has no recognizable session header at all.
@@ -107,7 +107,7 @@ export function validateGraphPrologue(
     }
   }
 
-  // Orphan prelude (spec §8.6): records between the envelope (if any) and the
+  // Orphan prelude (spec §9.6): records between the envelope (if any) and the
   // first session header are not part of any group and are always invalid.
   // Suppressed when no session header exists at all — `missing_header` covers
   // that file shape.

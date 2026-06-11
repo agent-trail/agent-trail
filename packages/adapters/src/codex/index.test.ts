@@ -1765,7 +1765,7 @@ test("CODEX_HOME whitespace-only override falls back to default", () => {
   expect(codexHomeDir()).toBe(join(tmpHome, ".codex"));
 });
 
-test("parseSession produces deterministic entry ids across re-parses (spec §8.5)", async () => {
+test("parseSession produces deterministic entry ids across re-parses (spec §9.5)", async () => {
   const a = await parseDesktopFixture();
   const b = await parseDesktopFixture();
   expect(a.groups[0]!.header.session_uid).toBe(b.groups[0]!.header.session_uid);

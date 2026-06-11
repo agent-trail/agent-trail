@@ -1,5 +1,5 @@
 /**
- * Public reconciler facade for multi-segment trail files (spec §8.5).
+ * Public reconciler facade for multi-segment trail files (spec §9.5).
  *
  * Input: one or more parsed segment trails belonging to the same source
  * session(s). The implementation groups by `header.session_uid`, sorts by

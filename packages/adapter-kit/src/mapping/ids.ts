@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /**
- * Deterministic id derivation shared by all adapters (spec §8.5).
+ * Deterministic id derivation shared by all adapters (spec §9.5).
  *
  * Adapters must mint stable ids: the same upstream session re-parsed twice has
  * to produce the same `session_uid` and entry ids, or the reconciler cannot

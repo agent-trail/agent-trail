@@ -72,6 +72,24 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
   expect(versioned.html).toContain('href="#1-motivation"');
   expect(versioned.html).toContain('aria-label="Link to 1. Motivation"');
   expect(versioned.html).toContain("<pre><code");
+  expect(versioned.sections.map((section) => section.id)).toEqual(
+    expect.arrayContaining([
+      "8-the-trail-envelope",
+      "9-the-session-header",
+      "10-events",
+      "11-canonical-tool-taxonomy",
+      "18-validation",
+      "19-formal-schema",
+      "20-examples",
+    ]),
+  );
+  expect(versioned.html).toContain("end_turn");
+  expect(versioned.html).toContain("max_tokens");
+  expect(versioned.html).toContain("tool_use");
+  expect(versioned.html).toContain("refusal");
+  expect(versioned.html).toContain("aborted");
+  expect(versioned.html).toContain("Cross-segment <code>parent_id</code> references");
+  expect(versioned.html).toContain("Structured part-level decomposition is deferred");
   expect(versioned.sections[0]).toEqual({
     id: "agent-trail-specification",
     title: "Agent Trail Specification",
@@ -87,10 +105,10 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
     true,
   );
   expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
-    "17-formal-schema",
+    "19-formal-schema",
   );
   expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
-    "18-examples",
+    "20-examples",
   );
   expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain("changelog");
   expect(versioned.sampleBlocks.flatMap((sample) => sample.sectionIds)).not.toContain(
@@ -110,22 +128,22 @@ test("spec page model renders anchored HTML for version and latest aliases", asy
   expect(allSampleLines.join("\n")).not.toContain('"type":"summary"');
   expect(
     versioned.sampleBlocks
-      .find((sample) => sample.sectionIds.includes("10-canonical-tool-taxonomy"))
+      .find((sample) => sample.sectionIds.includes("11-canonical-tool-taxonomy"))
       ?.lines.join("\n"),
   ).toContain('"tool":"mcp_call"');
   expect(
     versioned.sampleBlocks
-      .find((sample) => sample.sectionIds.includes("12-tree-and-branching"))
+      .find((sample) => sample.sectionIds.includes("13-tree-and-branching"))
       ?.lines.join("\n"),
   ).toContain('"type":"branch_summary"');
   expect(
     versioned.sampleBlocks
-      .find((sample) => sample.sectionIds.includes("13-canonical-agent-registry"))
+      .find((sample) => sample.sectionIds.includes("14-canonical-agent-registry"))
       ?.lines.join("\n"),
   ).toContain('"name":"codex-cli"');
   expect(
     versioned.sampleBlocks
-      .find((sample) => sample.sectionIds.includes("14-truncation-overflow-and-raw-source-size"))
+      .find((sample) => sample.sectionIds.includes("15-truncation-overflow-and-raw-source-size"))
       ?.lines.join("\n"),
   ).toContain('"elided":true');
   expect(latest.sections).toEqual(versioned.sections);

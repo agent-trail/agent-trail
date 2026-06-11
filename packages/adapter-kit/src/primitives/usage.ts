@@ -29,7 +29,7 @@ export function pick(record: Record<string, unknown>, keys: readonly string[]): 
   return undefined;
 }
 
-// Maps a source-agent usage envelope to spec §9.2 payload.usage. Accepts both
+// Maps a source-agent usage envelope to spec §10.2 payload.usage. Accepts both
 // snake_case (Anthropic API, claude-code) and camelCase (Pi internal) field
 // names. Renames cache_*_input_tokens to cache_*_tokens (spec name) and drops
 // vendor extras (service_tier, etc.). Returns undefined when the source emits

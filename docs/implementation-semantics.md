@@ -190,7 +190,7 @@ The spec defines the portable diagnostic shape: `line`, `path`, `severity`,
 `code`, and `message`.
 
 The spec also owns the diagnostic codes it names for conformance checks in
-§16.4, such as `duplicate_id`, `parent_cycle`, `content_hash_mismatch`, and
+§18.4, such as `duplicate_id`, `parent_cycle`, `content_hash_mismatch`, and
 envelope, stream, or source-raw codes. Changing these spec-named codes is a spec
 change because they are portable format surface.
 
@@ -208,7 +208,7 @@ Raw trails preserve source fidelity. Redacted trails are separate artifacts,
 usually produced before sharing. Shared trails are redacted trails transported
 through a product or tool-specific mechanism.
 
-Normative share-time redaction requirements live in `spec.md` §15. This
+Normative share-time redaction requirements live in `spec.md` §16. This
 document only records implementation-level choices below that contract:
 
 - Exact credential and PII patterns belong to `@agent-trail/redact`.

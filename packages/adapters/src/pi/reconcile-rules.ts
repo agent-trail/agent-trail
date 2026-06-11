@@ -339,7 +339,7 @@ export const piModelChangeFromModel: ReconcilerRule = (entries) => {
 
 /**
  * Append a synthesized `session_terminated` when the file ends with `tool_call`s
- * that never got a paired `tool_result` or call-scoped `tool_call_aborted` (spec §9.3 / §16.4). Ports v1
+ * that never got a paired `tool_result` or call-scoped `tool_call_aborted` (spec §10.3 / §18.4). Ports v1
  * `buildSynthesizedSessionTerminated`; pairing uses rules A (`for_id`) and B
  * (`semantic.call_id`), matching the validator's blocking subset.
  */

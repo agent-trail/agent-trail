@@ -16,7 +16,7 @@ An adapter is only considered supported once its row is `verified` with at least
 
 ## Trail envelope emission (writer policy)
 
-Spec §8.0 introduces an optional `type:"trail"` record at line 1 — the **trail envelope** — that carries file-level metadata (`producer`, `id`, `name`, file-scope `content_hash`, optional `sessions` manifest, vendor `meta`). It is distinct from the source-side "envelopes" that some source agents wrap around blocks of content (referenced by `source.raw.envelope` / `source.raw.envelope_ref`, spec §9.7).
+Spec §8 introduces an optional `type:"trail"` record at line 1 — the **trail envelope** — that carries file-level metadata (`producer`, `id`, `name`, file-scope `content_hash`, optional `sessions` manifest, vendor `meta`). It is distinct from the source-side "envelopes" that some source agents wrap around blocks of content (referenced by `source.raw.envelope` / `source.raw.envelope_ref`, spec §10.7).
 
 Adapter writer policy:
 
@@ -53,7 +53,7 @@ Adapter-owned resume support for the TUI session browser was verified on 2026-06
 Pi fixture coverage currently includes the linear-flow scenario only: session header (integer
 `version` stringified for `header.agent.version` and `header.source.format_version`), user message,
 assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired via `toolCallId`,
-and an assistant text message. Pi is tree-native (spec §12.1) so every entry emits `parent_id`
+and an assistant text message. Pi is tree-native (spec §13.1) so every entry emits `parent_id`
 mirroring the source `parentId` chain. Tool-name mapping covers Pi's seven built-in tools (pi-mono
 `coding-agent/src/core/tools/`): `read` / `write` / `bash` / `grep` / `find` map to canonical
 `file_read` / `file_write` / `shell_command` / `file_search`; `ls` maps to canonical `file_list`
@@ -150,27 +150,27 @@ replacement args for one hunk, otherwise `other` for the same no-line-context re
 (d) `{multi: [...]}` spanning multiple files → `other` unless the source provides real patch text;
 (e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
 `file_patch` for multi-file patches.
-This keeps the adapter aligned with spec §10.1: writers do not fabricate unified-diff hunk headers.
+This keeps the adapter aligned with spec §11.1: writers do not fabricate unified-diff hunk headers.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
-`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.7,
+`fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §11.7,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
 Pi has no observed mid-session registry delta primitive; extension-like tool calls remain
 `tool_call.tool="other"` and do not synthesize `capability_change` events.
 
-Tree and branch coverage (spec §12.1-12.3, §9.3): Pi is tree-native — every entry emits `parent_id`
+Tree and branch coverage (spec §13.1-12.3, §10.3): Pi is tree-native — every entry emits `parent_id`
 mirroring the source `parentId` chain, including forks where multiple envelopes share one
 `parentId`. Pi's native `branch_summary` envelopes (appended by Pi's `/tree` navigation; see
 `packages/coding-agent/src/core/compaction/branch-summarization.ts` in
 [`earendil-works/pi`](https://github.com/earendil-works/pi), formerly `badlogic/pi-mono`) map to
 canonical `branch_summary` events. `payload.abandoned_branch_id` is resolved by walking the source
 `fromId` chain up to the divergence point with the active branch (active leaf = last envelope in
-source order per spec §12.2), then returning the entry id of the topmost source id on the abandoned
+source order per spec §13.2), then returning the entry id of the topmost source id on the abandoned
 side (the "root of abandoned branch"). When the divergence walk lands on a source id the adapter
 didn't emit an entry for (for example, a non-timeline envelope without a mapped entry), the resolver
 walks deeper into the abandoned subtree, then climbs the parent chain from `fromId` to the nearest
 mapped ancestor; the verbatim source string is a last-resort fallback so the emitted payload remains
 schema-valid. Pi-specific `details` (`readFiles`, `modifiedFiles`) are mirrored into
-`metadata["dev.pi.branch_details"]` (reverse of `pi.dev`, the Pi product domain) per spec §11 in
+`metadata["dev.pi.branch_details"]` (reverse of `pi.dev`, the Pi product domain) per spec §12 in
 addition to being preserved verbatim under `source.raw`.
 
 Issue #20 expanded coverage to Pi's optional events. `agent_thinking` is emitted from assistant
@@ -214,7 +214,7 @@ Cross-cutting hardenings on the Pi adapter:
   `user_message_envelope`, `tool_result_envelope`, `branch_summary_envelope`,
   `compaction_envelope`, `model_change_envelope`, `aborted_assistant_synthetic`). Schema's
   `sourceMetadata` is `additionalProperties: false`, so the tag lives under a vendor `meta` entry
-  metadata per spec §11.
+  metadata per spec §12.
 - Numeric tool-id coercion: pi-ai types `ToolCall.id` and `ToolResultMessage.toolCallId` as
   `string`, but a non-conforming source emitting a numeric id is coerced to a string at the adapter
   boundary so it never leaks into `semantic.call_id` / `tool_result.payload.for_id` as a number.
@@ -381,7 +381,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `message` fallback). Within a turn (`turn_context.payload.turn_id`), normalised-text duplicates
   collapse to a single entry; origin is recorded under `metadata["dev.codex.raw_type"]` (schema's
   `sourceMetadata` is `additionalProperties: false`, so the audit tag lives under vendor
-  entry metadata per spec §11 — same precedent as Pi). The per-section dedupe pool spans both the
+  entry metadata per spec §12 — same precedent as Pi). The per-section dedupe pool spans both the
   streaming `event_msg` reasoning and the persisted `response_item.reasoning.summary[]` sections,
   folding exact duplicates while letting divergent sections through.
 - `event_msg.payload.type == "agent_reasoning_section_break"` — recognized by the source schema
@@ -396,7 +396,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `payload.trigger` is hard-coded to `"auto"` (Codex auto-compaction has no manual signal).
   `tokens_before` / `tokens_after` are emitted only when the source happens to carry them.
 - `event_msg.token_count` → rolls up onto the preceding `agent_message.payload.usage`
-  (spec §9.2 `agentMessageUsage`). Codex carries `payload.info.last_token_usage` (delta) and
+  (spec §10.2 `agentMessageUsage`). Codex carries `payload.info.last_token_usage` (delta) and
   `payload.info.total_token_usage` (cumulative); the adapter translates Codex field names to
   spec slots: `cached_input_tokens` → `cache_read_tokens` (delta only — spec has no cumulative
   slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
@@ -450,7 +450,7 @@ Diagnostic `system_event` emissions:
 
 Lifecycle-vocabulary `system_event` emissions:
 
-- `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §9.3). `data`
+- `event_msg.task_started` → `system_event{kind:"task_started"}` (reserved §10.3). `data`
   carries `turn_id`, `started_at`, `model_context_window`, `collaboration_mode_kind` when
   present.
 - `event_msg.item_started` → `system_event{kind:"x-codex/item_started"}`. `data` carries
@@ -624,7 +624,7 @@ attachment metadata without decoding into a URI.
 
 Claude Code `SessionEnd` hook progress and hook-success records map to the first-class `session_end` event, not `system_event.kind`.
 
-Emitted `system_event.kind` values (spec §9.3):
+Emitted `system_event.kind` values (spec §10.3):
 
 Reserved lifecycle vocabulary (cross-agent portable):
 

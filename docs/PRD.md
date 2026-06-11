@@ -267,7 +267,7 @@ This is documentation hygiene that pays compounding dividends. Modeled after hwi
 
 - TypeScript package, MIT.
 - Exports per-agent adapter functions: `parseClaudeCode(file): TrailFile`, `parsePi(...)`, etc.
-- Each adapter implements a common interface (see §8.2).
+- Each adapter implements a common interface (see §9.2).
 - Discovers sessions in standard locations (`~/.claude/projects/...`, `~/.pi/agent/sessions/...`, etc.).
 - Six adapters at v1 launch: Pi, Claude Code, Codex CLI, Cursor, OpenCode, Aider.
 
@@ -288,7 +288,7 @@ LLM-driven workflows (summarising a trail, packaging a handoff for another agent
 
 ### 7.5 Website (`agent-trail.dev`)
 
-Single domain with four routes. The site follows the **TOML-style hybrid model**: a light landing page that orients new visitors, plus versioned spec hosting, schema hosting, and the viewer. No blog, no docs hierarchy, no marketing surfaces. See §8.4 for detailed requirements and §16 for explicit non-goals.
+Single domain with four routes. The site follows the **TOML-style hybrid model**: a light landing page that orients new visitors, plus versioned spec hosting, schema hosting, and the viewer. No blog, no docs hierarchy, no marketing surfaces. See §9.4 for detailed requirements and §17 for explicit non-goals.
 
 | Route | Purpose |
 |---|---|
@@ -355,7 +355,7 @@ Surfaces that are not in v1 scope but stay on the roadmap. Each is an applicatio
 
 ### 8.1 Spec
 
-See `../spec.md`. Open items tracked in §19 of that doc.
+See `../spec.md`. Open items tracked in §20 of that doc.
 
 ### 8.2 Adapter library
 
@@ -390,15 +390,15 @@ export interface TrailAdapter {
 - File operations must round-trip when source has structured representations.
 - Aider adapter must emit `source.synthesized: true` for git-derived events.
 - Adapters MUST populate `semantic.call_id` on tool_call/tool_result pairs when source has its own IDs (especially Claude Code's `tool_use_id`, which can be null).
-- Adapters MUST redact known credential patterns in `source.raw` before emission (spec §14.1).
-- Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §9.7).
-- Adapters MUST populate `payload.usage` once on the first usage-capable entry derived from a source assistant envelope (`agent_message`, `agent_thinking`, or `tool_call`) when the source provides token data. MUST NOT repeat or fabricate usage (spec §9.2).
-- Adapters MUST populate `vcs.remote_url` when the source provides repo location info or `cwd` is a git working tree. MUST normalize URLs (strip embedded credentials, strip trailing `.git`, collapse SSH and HTTPS variants to a single canonical form). MUST omit the field when no remote is configured (spec §8.2).
-- Adapters SHOULD emit a trail envelope at line 1 by default (spec §8.0) so file-level identity (`producer`, `id`, `name`, file-scope `content_hash`) is recorded. `producer` is the adapter name and version (e.g., `trail-cli/0.3.0`). Adapters MAY skip the envelope only when the caller explicitly opts out (writer flag), since the spec allows omission. When the envelope is emitted, writers stamp the session-level `content_hash` first, then the file-level `content_hash` (spec §7.4).
+- Adapters MUST redact known credential patterns in `source.raw` before emission (spec §15.1).
+- Adapters MUST use `source.raw.envelope_ref` for block-derived entries sharing a source envelope (inline-first / ref-subsequent, spec §10.7).
+- Adapters MUST populate `payload.usage` once on the first usage-capable entry derived from a source assistant envelope (`agent_message`, `agent_thinking`, or `tool_call`) when the source provides token data. MUST NOT repeat or fabricate usage (spec §10.2).
+- Adapters MUST populate `vcs.remote_url` when the source provides repo location info or `cwd` is a git working tree. MUST normalize URLs (strip embedded credentials, strip trailing `.git`, collapse SSH and HTTPS variants to a single canonical form). MUST omit the field when no remote is configured (spec §9.2).
+- Adapters SHOULD emit a trail envelope at line 1 by default (spec §8) so file-level identity (`producer`, `id`, `name`, file-scope `content_hash`) is recorded. `producer` is the adapter name and version (e.g., `trail-cli/0.3.0`). Adapters MAY skip the envelope only when the caller explicitly opts out (writer flag), since the spec allows omission. When the envelope is emitted, writers stamp the session-level `content_hash` first, then the file-level `content_hash` (spec §7.4).
 
 **`source.raw` size policy (reference implementation):**
 
-The wire format leaves `source.raw` size limits to writer policy (spec §14.1). The reference adapters and validator in this repository use the following defaults; downstream adapters MAY pick their own thresholds.
+The wire format leaves `source.raw` size limits to writer policy (spec §15.1). The reference adapters and validator in this repository use the following defaults; downstream adapters MAY pick their own thresholds.
 
 - Hard cap: 32_768 bytes (`Buffer.byteLength(JSON.stringify(source.raw), "utf8")`). Validator emits `source_raw_oversized_hard` (error). When a writer's serialized `source.raw` exceeds this, the writer applies greedy minimum-necessary elision: collect every string leaf with its byte length, sort descending, replace leaves with the elide marker one at a time until the serialized total drops at or under the cap. If every leaf is elided and the value still exceeds the cap (because non-string content dominates), fall back to a whole-value elide.
 - Soft cap: hard cap / 4 (8192 bytes at the default hard cap). Validator emits `source_raw_oversized` (warning). The ratio keeps the "you're at 25% of the budget" signal useful when downstream adapters tune the hard cap.
@@ -406,7 +406,7 @@ The wire format leaves `source.raw` size limits to writer policy (spec §14.1). 
 
 **`tool_result.payload.output` truncation (reference implementation):**
 
-The wire format leaves tool-output truncation thresholds to writer policy (spec §14). The reference share-time redactor in `@agent-trail/redact` uses:
+The wire format leaves tool-output truncation thresholds to writer policy (spec §15). The reference share-time redactor in `@agent-trail/redact` uses:
 
 - Default inline cap: 10240 bytes (`outputMaxBytes` option on `redactTrail`). Above this, shorten `output` to fit within the cap (the truncation notice `\n…[truncated]` is included in the budget), set `tool_result.payload.truncated: true`, and set `tool_result.payload.output_size` to the original UTF-8 byte length before truncation. `output_size` is required whenever `truncated` is true.
 - `overflow_ref` (optional): when the writer colocates an overflow blob, set it to a content-addressed reference such as `sha256:<hex>`. Storage is the writer's choice; convention is to colocate the blob with the JSONL artifact.
@@ -480,7 +480,7 @@ All validator APIs and `trail validate --json` return normalized diagnostics wit
 - `trail register` canonicalizes, validates, hashes, stores the artifact, and updates the local index.
 - Files with omitted or `"<pending>"` `content_hash` may be indexed as source refs but are not stored as finalized objects until hashed.
 
-**Redaction pipeline (mandatory, see §8.6):**
+**Redaction pipeline (mandatory, see §9.6):**
 
 - Runs by default on `trail share`.
 - `--skip-redaction` flag exists but prints a loud warning and requires confirmation.
@@ -591,7 +591,7 @@ Standalone TS package usable by CLI and any adapter.
 
 **Pipeline:**
 
-- Apply the normative share-time privacy rules in `spec.md` §15, including path normalization, VCS scrubbing, local attachment URI handling, unsafe `overflow_ref` stripping, unresolved user query response fail-closed behavior, and secret/PII string scrubbing.
+- Apply the normative share-time privacy rules in `spec.md` §16, including path normalization, VCS scrubbing, local attachment URI handling, unsafe `overflow_ref` stripping, unresolved user query response fail-closed behavior, and secret/PII string scrubbing.
 - Apply adapter-specific pre-clean hotspots where source agents are known to expose credentials or local-only data in implementation-specific shapes.
 - Apply user-supplied exact secrets from `~/.config/trail/secrets.txt` with exact-match replacement.
 - Apply curated API key, credential, and PII patterns for AWS, OpenAI, Anthropic, GitHub, Stripe, Slack, Google, JWT, SSH keys, Bearer headers, `.env`-style assignments, and common personal identifiers.
@@ -704,7 +704,7 @@ Honest weeks-of-effort estimates for a single developer working evenings/weekend
 
 - `@agent-trail/schema` publishes the v0.1.0 schema and exposes explicit versioned exports.
 - Generated TypeScript types are committed and checked against `schema.json`.
-- `@agent-trail/core` can stream-parse JSONL, validate writer-strict records, run whole-file checks, and verify both session-level and file-level (trail envelope, §8.0) `content_hash`.
+- `@agent-trail/core` can stream-parse JSONL, validate writer-strict records, run whole-file checks, and verify both session-level and file-level (trail envelope, §8) `content_hash`.
 - `trail validate <file>` runs strict validation by default and supports structured `--json` diagnostics.
 - Tests passing in CI with committed synthetic/redacted fixtures.
 
@@ -850,7 +850,7 @@ Leading and lagging indicators per phase.
 | Spec becomes too complex through later iterations | Medium | High | Strict editorial gate on what enters the spec. Most ideas go in `source.raw` or stay outside spec. |
 | Source-agent schema drift breaks adapters silently | High | Medium | Real-data CI tests with version locks. Parser Source Matrix documents tested versions. |
 | Name collision with Agent Trace causes confusion | Low | Low | Names diverge enough in practice; rename is cheap pre-launch if needed. |
-| Site scope creeps from spec-page to product-site | Medium | Low | §16 names the surfaces we are deliberately NOT building. Reference before adding any new page. |
+| Site scope creeps from spec-page to product-site | Medium | Low | §17 names the surfaces we are deliberately NOT building. Reference before adding any new page. |
 
 ---
 
@@ -896,7 +896,7 @@ Restating §4 with more detail:
 - **Reactions, comments, or annotation layers on shared sessions.** Trail files are immutable; conversation about a trail belongs to downstream products.
 - **On-chain anything.** Don't go there.
 
-End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §19); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §8.6).
+End-to-end encrypted sharing is **deferred**, not non-goal. The spec lists cryptographic signing as a deferred non-goal (spec §2) and as a v0.2+ open question (spec §20); E2EE belongs to the same family and is open for v0.3+ once a concrete adopter need surfaces. Until then, `trail share` produces unlisted gists with documented threat model (PRD §9.6).
 
 ---
 

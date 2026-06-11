@@ -93,7 +93,7 @@ export async function runExport(
     throw error;
   }
 
-  // Multi-session extraction (spec §8.6): when `contentHash` keys a session
+  // Multi-session extraction (spec §9.6): when `contentHash` keys a session
   // row whose stored file actually contains ≥2 session groups, slice out the
   // requested group's canonical bytes (envelope dropped, sibling groups
   // dropped) so the export is independently verifiable. Single-session files

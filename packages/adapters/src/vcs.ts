@@ -1,4 +1,4 @@
-// Canonical normalization for vcs.remote_url (§8.2). All adapters route
+// Canonical normalization for vcs.remote_url (§9.2). All adapters route
 // their raw remote URL through normalizeRemoteUrl before emission so that
 // SSH and HTTPS variants of the same repository collapse to one canonical
 // form and credentials are stripped.

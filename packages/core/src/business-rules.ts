@@ -25,7 +25,7 @@ import { isHeaderLikeRecord } from "./validation-utils.ts";
  *   - `vcsRemoteUrlDiagnostics` — flags `vcs.remote_url` values containing
  *     `user:pass@` credentials; promotes to error when the password appears
  *     to be URL-encoded (writer leaked deliberately-encoded credentials).
- *   - `timestampDiagnostics` — enforces the spec §16.4 calendar-valid UTC
+ *   - `timestampDiagnostics` — enforces the spec §18.4 calendar-valid UTC
  *     millisecond timestamp rule that JSON Schema regex alone cannot express.
  */
 

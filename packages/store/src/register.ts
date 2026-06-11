@@ -55,7 +55,7 @@ export async function registerTrail(
     };
   }
 
-  // Multi-session files (spec §8.6) write one blob keyed by the envelope hash
+  // Multi-session files (spec §9.6) write one blob keyed by the envelope hash
   // when present, and one blob per finalized session keyed by its session-
   // level hash. Object storage dedups identical bytes. The index gains N+1
   // rows pointing at the same source_path with distinct `kind` discriminators
@@ -68,7 +68,7 @@ export async function registerTrail(
   // The "primary" content hash returned in RegisterResult is the file-level
   // identity. Envelope hash when present (spec §7.4 file-level hash); else
   // the first finalized session hash as the surrogate file identity (spec
-  // §8.0.5 envelope-absent default). `finalize-redacted.ts` makes the same
+  // §8.5 envelope-absent default). `finalize-redacted.ts` makes the same
   // choice so register + share/transport agree on identity.
   if (indexPolicy.primaryHash === undefined) {
     return {

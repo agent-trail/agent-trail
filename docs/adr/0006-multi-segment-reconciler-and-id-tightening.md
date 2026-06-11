@@ -2,7 +2,7 @@
 
 Issue #73 left three follow-ups open after ADR-0005 landed the spec primitives:
 
-1. A library API that performs the 6-step reconciliation algorithm from spec §8.5.
+1. A library API that performs the 6-step reconciliation algorithm from spec §9.5.
 2. Adapter emission of `session_uid` so the v0.1 corpus carries real coverage rather than relying on synthetic fixtures.
 3. Tightening the event `id` regex so the reconciler can dedup by string equality without trusting a writer-side MUST.
 
@@ -17,12 +17,12 @@ This ADR records the implementation choices for those follow-ups.
 3. Verifies the `prev_content_hash` chain on each non-first segment. Mismatch → `segment_chain_mismatch` warning. `null` prev hash or absent prior `content_hash` → `segment_chain_unverifiable`. Both keep the merge running.
 4. Concatenates events. Deduplicates by event `id` (set membership). Counts duplicates in `events_deduped`.
 5. Drops intermediate `session_terminated{reason: "process_terminated"}` markers — those are crash records from killed writers; only the final terminator is kept.
-6. Builds one merged header per spec §8.5 step 6: `ts` from the lowest-seq segment (real session start), late-binding fields (`stream`, `content_hash`, `vcs`, `cwd`, `meta`) from the highest-seq segment (latest state), stable fields (`id`, `type`, `schema_version`, `session_uid`) preferring the first header and warning on divergence. Header fields not enumerated by the spec late-bind by default via the `lastHeader` spread, which keeps schema growth additive. `segment.*` is dropped.
+6. Builds one merged header per spec §9.5 step 6: `ts` from the lowest-seq segment (real session start), late-binding fields (`stream`, `content_hash`, `vcs`, `cwd`, `meta`) from the highest-seq segment (latest state), stable fields (`id`, `type`, `schema_version`, `session_uid`) preferring the first header and warning on divergence. Header fields not enumerated by the spec late-bind by default via the `lastHeader` spread, which keeps schema growth additive. `segment.*` is dropped.
 7. Re-stamps `content_hash` on the merged trail via `stampTrail` so the produced bytes validate as a finalized artifact.
 
 Warnings carry a `source` label and a `code` from a closed enum (`segment_chain_mismatch`, `segment_chain_unverifiable`, `segment_seq_gap`, `segment_seq_duplicate`, `stable_field_divergence`, `missing_session_uid`, `missing_session_header`). Eight tracer-bullet tests in `packages/core/src/reconcile.test.ts` cover the algorithm.
 
-**`agent.name` sub-field caveat.** Spec §8.5 step 6 lists `agent.name` as stable, but the reconciler protects `agent.*` as a whole object and inherits it from the highest-seq segment (late-binding of the parent object). In practice `agent.name` does not change mid-session for any v0.1 writer, so the divergence is theoretical. If a future writer needs sub-field stable-vs-late-binding distinctions, the reconciler will need a per-path policy rather than the current top-level field policy; this is deferred to a follow-up.
+**`agent.name` sub-field caveat.** Spec §9.5 step 6 lists `agent.name` as stable, but the reconciler protects `agent.*` as a whole object and inherits it from the highest-seq segment (late-binding of the parent object). In practice `agent.name` does not change mid-session for any v0.1 writer, so the divergence is theoretical. If a future writer needs sub-field stable-vs-late-binding distinctions, the reconciler will need a per-path policy rather than the current top-level field policy; this is deferred to a follow-up.
 
 ## `trail load` integration
 
@@ -38,7 +38,7 @@ The store index entry now carries `session_uid: string | null` so the lookup is 
 
 ## Adapter emission
 
-Both bundled adapters derive `session_uid` deterministically from the upstream session id via RFC 4122 UUIDv5 (`packages/adapters/src/session-uid.ts`). Each adapter pins its own stable namespace UUID (`CLAUDE_CODE_SESSION_UID_NAMESPACE`, `PI_SESSION_UID_NAMESPACE`) so the same upstream session id parsed twice yields the same `session_uid` and identical upstream ids across different agents do not collide. This makes re-parses idempotent — the reconciler can group segments captured across separate adapter runs without writer-side coordination — and is the behaviour spec §8.5 recommends ("writers SHOULD generate `session_uid` once per source session and reuse it for every segment").
+Both bundled adapters derive `session_uid` deterministically from the upstream session id via RFC 4122 UUIDv5 (`packages/adapters/src/session-uid.ts`). Each adapter pins its own stable namespace UUID (`CLAUDE_CODE_SESSION_UID_NAMESPACE`, `PI_SESSION_UID_NAMESPACE`) so the same upstream session id parsed twice yields the same `session_uid` and identical upstream ids across different agents do not collide. This makes re-parses idempotent — the reconciler can group segments captured across separate adapter runs without writer-side coordination — and is the behaviour spec §9.5 recommends ("writers SHOULD generate `session_uid` once per source session and reuse it for every segment").
 
 Earlier drafts minted `crypto.randomUUID()` per parse; the determinism upgrade landed alongside the round-trip verification work for #73 since the reconciler verification surface is what most needs the property.
 

@@ -5,7 +5,7 @@ import { splitSessionGroups } from "./session-groups.ts";
 
 export type ComputeContentHashOptions = {
   /**
-   * Which session group to hash in a multi-session file (spec §8.6).
+   * Which session group to hash in a multi-session file (spec §9.6).
    * Defaults to 0 (the first group), preserving the single-session contract.
    */
   groupIndex?: number;
@@ -98,7 +98,7 @@ export function computeContentHash(
 
 /**
  * Records covering exactly one session group (header + its events) for hashing.
- * Multi-session files (spec §8.6): each group's session-level hash is computed
+ * Multi-session files (spec §9.6): each group's session-level hash is computed
  * over only its own slice, so an extracted single-session file recomputes the
  * same digest as the in-file value.
  *
@@ -140,7 +140,7 @@ export function computeTrailEnvelopeContentHash(records: JsonlRecord[]): string 
 }
 
 export type StampTrailResult = {
-  /** Session-level digests in file order, one per `(session header, events*)` group (spec §8.6). */
+  /** Session-level digests in file order, one per `(session header, events*)` group (spec §9.6). */
   sessionHashes: string[];
   envelopeHash: string | null;
 };
@@ -149,7 +149,7 @@ export type StampTrailResult = {
  * Spec §7.4 two-pass stamping: mutate the records in place so every session
  * header's `content_hash` is its session-level digest and (when an envelope
  * is present) the envelope's `content_hash` is the file-level digest. Multi-
- * session files (spec §8.6) stamp each group's hash before the envelope hash.
+ * session files (spec §9.6) stamp each group's hash before the envelope hash.
  *
  * Callers that already manage stamping order may continue to use
  * {@link computeContentHash} and {@link computeTrailEnvelopeContentHash}
@@ -193,7 +193,7 @@ export function verifyContentHash(
 
 /**
  * Verify the session-level `content_hash` of every group in a multi-session
- * file (spec §8.6). Returns one result per group in file order.
+ * file (spec §9.6). Returns one result per group in file order.
  */
 export function verifyAllSessionContentHashes(records: JsonlRecord[]): VerifyContentHashResult[] {
   const split = splitSessionGroups(records);

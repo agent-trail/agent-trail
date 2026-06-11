@@ -48,7 +48,7 @@ With optional trail envelope (file-level metadata on line 1, session header on l
 {"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
 ```
 
-The envelope is optional and decouples file-scope identity (producer, file label, file-level `content_hash`, optional sessions manifest, vendor `meta`) from per-session metadata. See [`spec.md`](./spec.md) §8.0 and §7.4 for full semantics including two-tier `content_hash` identity.
+The envelope is optional and decouples file-scope identity (producer, file label, file-level `content_hash`, optional sessions manifest, vendor `meta`) from per-session metadata. See [`spec.md`](./spec.md) §8 and §7.4 for full semantics including two-tier `content_hash` identity.
 
 ## Packages
 

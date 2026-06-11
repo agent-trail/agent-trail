@@ -16,7 +16,7 @@ export function reconcileSegments(inputs: SegmentInput[]): ReconcileResult {
   // Inputs without a usable session_uid become their own pass-through "group" of one.
   const singletons: SegmentInput[] = [];
 
-  // Pre-split each input into per-session sub-inputs (spec §8.6). A multi-
+  // Pre-split each input into per-session sub-inputs (spec §9.6). A multi-
   // session file feeds N virtual SegmentInputs sharing the parent source
   // label but partitioned by `(header, events)` group. This lets the existing
   // group-by-session_uid algorithm operate uniformly across single-session
@@ -88,7 +88,7 @@ function explodeMultiSessionInputs(inputs: SegmentInput[]): {
       out.push(input);
       continue;
     }
-    // Multi-session file (spec §8.6): each group becomes its own virtual
+    // Multi-session file (spec §9.6): each group becomes its own virtual
     // segment input. Envelope is split off and surfaced on the result so
     // callers reconstructing a multi-session output can re-envelope; the
     // reconciler itself operates strictly at session grain.

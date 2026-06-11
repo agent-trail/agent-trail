@@ -415,8 +415,8 @@ function popHeadingSlug(env: unknown): string | undefined {
 
 function buildSpecSampleBlocks(sections: SpecSection[]): SpecSampleBlock[] {
   const excludedSampleSectionIds = new Set([
-    "17-formal-schema",
-    "18-examples",
+    "19-formal-schema",
+    "20-examples",
     "changelog",
     "appendix-a-minimal-valid-record",
     "license",
@@ -631,25 +631,25 @@ function sampleLinesForMainSection(mainSectionId: string): string[] {
       return versioningSampleLines();
     case "7-identity-artifacts-and-content-addressing":
       return identitySampleLines();
-    case "8-0-the-trail-envelope":
+    case "8-the-trail-envelope":
       return trailEnvelopeSampleLines();
-    case "8-the-session-header":
+    case "9-the-session-header":
       return sessionHeaderSampleLines();
-    case "9-events":
+    case "10-events":
       return eventsSampleLines();
-    case "10-canonical-tool-taxonomy":
+    case "11-canonical-tool-taxonomy":
       return toolTaxonomySampleLines();
-    case "11-vendor-extensions":
+    case "12-vendor-extensions":
       return vendorExtensionsSampleLines();
-    case "12-tree-and-branching":
+    case "13-tree-and-branching":
       return treeBranchingSampleLines();
-    case "13-canonical-agent-registry":
+    case "14-canonical-agent-registry":
       return agentRegistrySampleLines();
-    case "14-truncation-overflow-and-raw-source-size":
+    case "15-truncation-overflow-and-raw-source-size":
       return truncationSampleLines();
-    case "15-redaction":
+    case "16-redaction":
       return redactionSampleLines();
-    case "16-validation":
+    case "18-validation":
       return validationSampleLines();
     default:
       return minimalSampleLines();

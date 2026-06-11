@@ -14,6 +14,6 @@ This supersedes ADR-0002's "Published JavaScript packages support Node 20+ and B
 
 - End users install zero JavaScript runtime; `trail` is a self-contained binary.
 - Cursor adapter uses built-in `bun:sqlite` instead of a native module that breaks `npm install -g` on user machines.
-- `npm install -g @agent-trail/cli` is no longer a supported install path; the PRD §8.3 distribution model becomes binary-only.
+- `npm install -g @agent-trail/cli` is no longer a supported install path; the PRD §9.3 distribution model becomes binary-only.
 - CLI authors and adapter contributors need Bun ≥ 1.3.11 installed; library contributors can still use Node.
 - Packaging pipeline (cross-compile via `bun build --compile`, GitHub Releases, Homebrew tap, install script) ships in a separate issue.

@@ -34,7 +34,7 @@ export interface SqliteReaderOptions {
 // Reads SQLite-backed sources (e.g. Cursor / Copilot `state.vscdb`). Storage
 // knowledge stays at this boundary; everything above the reader is identical to
 // JSONL adapters. Re-importing a mutated DB yields a different trail by design —
-// trails are point-in-time snapshots (epic §14.4).
+// trails are point-in-time snapshots (epic §15.4).
 //
 // records(), schemaVersion(), and identityHash() each open the DB independently
 // (stateless, mirroring JsonlReader); revisit with caching only if profiled hot.

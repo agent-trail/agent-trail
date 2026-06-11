@@ -40,7 +40,7 @@ export function isSessionEndHookEvent(hookEvent: string | undefined): boolean {
   return hookEvent === "SessionEnd";
 }
 
-// Maps Claude Code hook lifecycle events to reserved system_event kinds (spec §9.3).
+// Maps Claude Code hook lifecycle events to reserved system_event kinds (spec §10.3).
 // Unrecognized hookEvent values fall back to `hook_fired` so timelines surface them.
 // SessionEnd maps to the first-class session_end event, not system_event.kind.
 export function hookEventToKind(hookEvent: string | undefined): string {
