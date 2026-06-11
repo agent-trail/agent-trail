@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -18,11 +17,6 @@ import (
 )
 
 const oracleComment = "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256"
-
-var (
-	contentHashRE = regexp.MustCompile(`"content_hash"\s*:\s*"(?:\\.|[^"\\])*"`)
-	prevHashRE    = regexp.MustCompile(`"prev_content_hash"\s*:\s*"(?:\\.|[^"\\])*"`)
-)
 
 type manifest struct {
 	Fixtures []manifestFixture `json:"fixtures"`
@@ -255,20 +249,55 @@ func digestCanonicalLines(lines []string, pinIndex int) (string, error) {
 }
 
 func replaceContentHash(line string, value string) string {
-	replacement := fmt.Sprintf(`"content_hash":"%s"`, value)
-	return replaceRequired(contentHashRE, line, replacement)
+	return replaceTopLevelString(line, "content_hash", value)
 }
 
 func replacePrevContentHash(line string, value string) string {
-	replacement := fmt.Sprintf(`"prev_content_hash":"%s"`, value)
-	return replaceRequired(prevHashRE, line, replacement)
+	object := decodeObject(line, "prev_content_hash replacement")
+	segment, ok := object["segment"].(map[string]any)
+	if !ok {
+		exitf("missing replacement target %q in line: %s", "segment.prev_content_hash", line)
+	}
+	existing, ok := segment["prev_content_hash"]
+	if !ok {
+		exitf("missing replacement target %q in line: %s", "segment.prev_content_hash", line)
+	}
+	if _, ok := existing.(string); !ok {
+		exitf("replacement target %q is not a string in line: %s", "segment.prev_content_hash", line)
+	}
+	segment["prev_content_hash"] = value
+	return encodeObject(object, "prev_content_hash replacement")
 }
 
-func replaceRequired(re *regexp.Regexp, line string, replacement string) string {
-	if !re.MatchString(line) {
-		exitf("missing replacement target in line: %s", line)
+func replaceTopLevelString(line string, field string, value string) string {
+	object := decodeObject(line, field+" replacement")
+	existing, ok := object[field]
+	if !ok {
+		exitf("missing replacement target %q in line: %s", field, line)
 	}
-	return re.ReplaceAllString(line, replacement)
+	if _, ok := existing.(string); !ok {
+		exitf("replacement target %q is not a string in line: %s", field, line)
+	}
+	object[field] = value
+	return encodeObject(object, field+" replacement")
+}
+
+func decodeObject(line string, context string) map[string]any {
+	decoder := json.NewDecoder(strings.NewReader(line))
+	decoder.UseNumber()
+	var object map[string]any
+	if err := decoder.Decode(&object); err != nil {
+		exitf("could not decode line for %s: %v", context, err)
+	}
+	return object
+}
+
+func encodeObject(object map[string]any, context string) string {
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		exitf("could not encode line for %s: %v", context, err)
+	}
+	return string(encoded)
 }
 
 func checkManifest(root string, results []vectorResult) error {

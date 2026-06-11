@@ -30,6 +30,9 @@ Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validat
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for development workflow, RFC/spec
 decision guidance, and pull request expectations.
 
+Development checks require Bun 1.3.11+ and Go matching [`go.mod`](./go.mod);
+the Go toolchain is used only for the hash-vector oracle test tooling.
+
 ## Format Preview
 
 Minimal trail (session header on line 1):
