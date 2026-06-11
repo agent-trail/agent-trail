@@ -2,7 +2,7 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import type { SessionGroup } from "./session-groups.ts";
 
-// Spec §8.6: sessions in a multi-session file SHOULD appear in chronological
+// Spec §9.6: sessions in a multi-session file SHOULD appear in chronological
 // order by header `ts`. Out-of-order placement is a warning, not an error —
 // readers tolerate it but writers SHOULD sort.
 export function outOfOrderSessionHeadersWarnings(groups: SessionGroup[]): Diagnostic[] {
@@ -29,7 +29,7 @@ export function outOfOrderSessionHeadersWarnings(groups: SessionGroup[]): Diagno
   return diagnostics;
 }
 
-// Spec §8.6: sessions in the same trail file MAY carry different working-tree
+// Spec §9.6: sessions in the same trail file MAY carry different working-tree
 // state, but divergent `vcs.revision` is unusual enough to flag once per
 // later-occurring group.
 export function vcsRevisionDivergenceWarnings(groups: SessionGroup[]): Diagnostic[] {
@@ -59,7 +59,7 @@ export function vcsRevisionDivergenceWarnings(groups: SessionGroup[]): Diagnosti
   return diagnostics;
 }
 
-// Spec §8.6: `fork_from.session_id` MAY reference a sibling session in the
+// Spec §9.6: `fork_from.session_id` MAY reference a sibling session in the
 // same trail file. When it does and `fork_from.content_hash` is also present,
 // the hash MUST match the sibling's session-level `content_hash`. Mismatch is
 // a warning so renderers can still display the file. External references

@@ -10,7 +10,7 @@ The primitives sit at **session-header grain** so they compose cleanly with the 
 
 `session_uid` accepts ULID or UUID (hyphenated or unhyphenated). ULID is recommended because the time-prefix gives a useful secondary sort when `segment.seq` is missing or ambiguous, but real-world adapters (claude-code, codex) emit UUIDs from upstream session metadata so both are accepted.
 
-The schema-level event `id` regex is **not** tightened in this change. Globally-unique event ids would let a reconciler dedup by string equality, but tightening the regex cascaded into adapter compound-id breakage (`uuid-tool_use-1` shapes, `pi-eof-<short>` synth ids, multi-block block ids). The cost was disproportionate to the v0.1 reconciliation value: reconciliation is not implemented in core in this slice (it is the follow-up PR), and a future tightening can land alongside the reconciler when adapter migration costs can be paid in the same change. For now, event `id` keeps the prior `minLength: 4` schema constraint and spec §9 documents the recommendation that writers MUST emit globally-unique event ids when their output is intended for reconciliation.
+The schema-level event `id` regex is **not** tightened in this change. Globally-unique event ids would let a reconciler dedup by string equality, but tightening the regex cascaded into adapter compound-id breakage (`uuid-tool_use-1` shapes, `pi-eof-<short>` synth ids, multi-block block ids). The cost was disproportionate to the v0.1 reconciliation value: reconciliation is not implemented in core in this slice (it is the follow-up PR), and a future tightening can land alongside the reconciler when adapter migration costs can be paid in the same change. For now, event `id` keeps the prior `minLength: 4` schema constraint and spec §10 documents the recommendation that writers MUST emit globally-unique event ids when their output is intended for reconciliation.
 
 **Considered Options**
 
@@ -24,7 +24,7 @@ The schema-level event `id` regex is **not** tightened in this change. Globally-
 - The header schema admits optional `session_uid` and `segment` properties; existing single-segment trails remain valid without either.
 - The graph validator is unchanged in this slice. Reconciliation is a separate library API and CLI behaviour to land alongside #84-style follow-ups.
 - Existing adapter parsers and graph rules are unaffected; the new fields are inert until consumers opt in.
-- Spec §8.5 documents the primitives and the 6-step reconciliation algorithm.
+- Spec §9.5 documents the primitives and the 6-step reconciliation algorithm.
 - Landed in the reconciler follow-up (see ADR-0006): `reconcileSegments` API in `@agent-trail/core`, `trail load` reconciliation integration, tightening of event `id` to a strict ULID-or-UUID union.
 - Still deferred to later issues: daemon `.cursor.json` sidecar, multi-shard/parallel-producer extensions.
 

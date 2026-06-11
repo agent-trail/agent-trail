@@ -60,8 +60,8 @@ function patchFiles(input: string): Array<{ path: string; diff: string }> {
 }
 
 // Pi's built-in tools (pi-mono `coding-agent/src/core/tools/`): bash, read, write, edit,
-// grep, find, ls. Mapped to canonical kinds (spec §10). MCP-extension tools real Pi
-// sessions also carry fall through to the `other` escape hatch (spec §10.7).
+// grep, find, ls. Mapped to canonical kinds (spec §11). MCP-extension tools real Pi
+// sessions also carry fall through to the `other` escape hatch (spec §11.7).
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -102,7 +102,7 @@ export function toolKindAndArgs(
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
       //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // One-hunk replacement shapes map to spec §10.1 `file_edit` replacement
+      // One-hunk replacement shapes map to spec §11.1 `file_edit` replacement
       // args. Multi-hunk/no-line-context shapes fall through to `other` so we
       // do not fabricate diff hunk headers. Real patch text still maps to
       // `file_edit`/`file_patch`.

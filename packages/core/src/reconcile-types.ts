@@ -43,7 +43,7 @@ export type ReconcileResult = {
   /** Warnings that do not belong to a particular group (e.g., input shape). */
   warnings: ReconcileWarning[];
   /**
-   * Trail envelopes carried by multi-session inputs (spec §8.6). Reconciler
+   * Trail envelopes carried by multi-session inputs (spec §9.6). Reconciler
    * operates at session grain, so envelopes are split off rather than merged.
    * Callers reconstructing a multi-session output file may re-envelope using
    * one of these records (the first non-null when present), but must

@@ -80,7 +80,7 @@ function pushUnique(
 }
 
 function collectGroupIds(group: SessionGroup): Map<string, number> {
-  // Header id intentionally excluded: spec §9.1 treats `parent_id` as event
+  // Header id intentionally excluded: spec §10.1 treats `parent_id` as event
   // graph topology only; a `parent_id` pointing at the session header is an
   // unresolved reference.
   const ids = new Map<string, number>();

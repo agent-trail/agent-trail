@@ -20,7 +20,7 @@ function header(line = 1, overrides: Record<string, unknown> = {}): JsonlRecord 
   });
 }
 
-test("emits header_has_parent_id for a non-first session group's header (spec §8.6.3 per-group validation)", () => {
+test("emits header_has_parent_id for a non-first session group's header (spec §9.6.3 per-group validation)", () => {
   const diagnostics = validateTrailGraph(
     [
       record(1, {
@@ -51,7 +51,7 @@ test("emits header_has_parent_id for a non-first session group's header (spec §
   });
 });
 
-test("accepts a multi-session trail with two well-formed session groups (spec §8.6)", () => {
+test("accepts a multi-session trail with two well-formed session groups (spec §9.6)", () => {
   const diagnostics = validateTrailGraph(
     [
       record(1, {
@@ -87,7 +87,7 @@ test("accepts a multi-session trail with two well-formed session groups (spec §
   expect(diagnostics).toEqual([]);
 });
 
-test("emits events_before_first_session_header for orphan prelude entries (spec §8.6)", () => {
+test("emits events_before_first_session_header for orphan prelude entries (spec §9.6)", () => {
   const diagnostics = validateTrailGraph(
     [
       record(1, {

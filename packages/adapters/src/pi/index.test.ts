@@ -1034,7 +1034,7 @@ test("Pi extension-like tool calls do not synthesize capability_change events", 
   }
 });
 
-// Issue #19: tree branch semantics (spec §12.1-12.3, §9.3 branch_summary)
+// Issue #19: tree branch semantics (spec §13.1-13.2, §10.3 branch_summary)
 
 // TDD step 1: fixture loads and validates end-to-end
 test("branch-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {
@@ -1117,7 +1117,7 @@ test("branch-flow branch_summary entry preserves the original envelope under sou
   expect(raw?.details).toEqual({ readFiles: ["spec.md"], modifiedFiles: ["x.md"] });
 });
 
-// TDD step 7: Pi branch_summary.details surface in entry.meta under reverse-domain key (spec §8.0.3 / §11)
+// TDD step 7: Pi branch_summary.details surface in entry.meta under reverse-domain key (spec §8.3 / §12)
 test("branch-flow branch_summary entry mirrors Pi details into meta['dev.pi.branch_details']", async () => {
   const trail = await parseBranchFixture();
   const branchSummary = trail.groups[0]!.entries.find((e) => e.type === "branch_summary");
@@ -1162,7 +1162,7 @@ test("branch-flow branch_summary entry mirrors Pi details into meta['dev.pi.bran
 // out into multiple Agent Trail entries (text + toolCall blocks in one assistant envelope),
 // `abandoned_branch_id` must point at the **first** emitted entry of that envelope (the entry
 // directly under the divergence parent), not the **last** entry. Returning the last entry
-// misanchors the abandoned-branch root deeper than spec §9.3 intends and confuses tree renderers.
+// misanchors the abandoned-branch root deeper than spec §10.3 intends and confuses tree renderers.
 // Codex P1 regression: when the last envelope in source order is an unmapped type (session_info,
 // label, model_change…), it must NOT be treated as the active leaf — those envelopes don't
 // participate in the emitted entry graph, and using one collapses the shared-ancestor walk.

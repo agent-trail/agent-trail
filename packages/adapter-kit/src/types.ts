@@ -84,7 +84,7 @@ export interface AdapterDef<S = unknown> {
    * `"codex-cli"`, schema key `"codex"`).
    */
   schemaAgent?: string;
-  /** UUID namespace for synthesized entry ids (spec §8.5). */
+  /** UUID namespace for synthesized entry ids (spec §9.5). */
   idNamespace: string;
   /** Vendor namespace for quarantine `system_event` kinds (kebab-case). */
   quarantineNamespace: string;

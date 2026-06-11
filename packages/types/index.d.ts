@@ -36,7 +36,7 @@ export type AgentName =
   | "clawdbot"
   | `x-${Lowercase<string>}/${Lowercase<string>}`;
 /**
- * Session header. The first session header is required at line 1, or at line 2 when a trail envelope occupies line 1. Multi-session files (spec §8.6) carry additional session headers later in the file; each opens a new (header, events*) group. Not part of the event graph.
+ * Session header. The first session header is required at line 1, or at line 2 when a trail envelope occupies line 1. Multi-session files (spec §9.6) carry additional session headers later in the file; each opens a new (header, events*) group. Not part of the event graph.
  */
 export type Header = {
   [k: string]: unknown;
@@ -44,14 +44,14 @@ export type Header = {
   type: "session";
   schema_version: "0.1.0";
   /**
-   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
    */
   id: string;
   name?: string;
   description?: string;
   tags?: string[];
   /**
-   * Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted.
+   * Globally-unique source-session identifier. Stable across all segments of one source session (spec §9.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted.
    */
   session_uid?: string;
   segment?: Segment;
@@ -73,12 +73,12 @@ export type Header = {
   vcs?: Vcs;
   fork_from?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     session_id: string;
     content_hash?: Sha256Hex;
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     entry_id?: string;
   };
@@ -92,14 +92,14 @@ export type Header = {
     format_version?: string;
   };
   /**
-   * Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar (spec §8.0.3).
+   * Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar (spec §8.3).
    */
   meta?: {
     [k: string]: unknown;
   };
 };
 /**
- * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (spec §8.5).
+ * Multi-segment marker. Absent or {seq:1} for a single-segment trail. Reconciler primitive for daemon resume and multi-file sessions (spec §9.5).
  */
 export type Segment =
   | {
@@ -232,13 +232,13 @@ export type SessionTerminationReason =
   | "user_abort";
 
 /**
- * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §8.6) carry one envelope followed by N session groups in file order.
+ * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §9.6) carry one envelope followed by N session groups in file order.
  */
 export interface TrailEnvelope {
   type: "trail";
   schema_version: "0.1.0";
   /**
-   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
    */
   id: string;
   name?: string;
@@ -250,7 +250,7 @@ export interface TrailEnvelope {
   vcs?: Vcs;
   fork_from?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     trail_id: string;
     content_hash?: Sha256Hex;
@@ -259,11 +259,11 @@ export interface TrailEnvelope {
     content_hash: Sha256Hex;
   };
   /**
-   * Optional manifest of sessions contained in the file, one entry per session group in file order (spec §8.0.4, §8.6). Validator warns on length mismatch or per-entry drift vs actual file content.
+   * Optional manifest of sessions contained in the file, one entry per session group in file order (spec §8.4, §9.6). Validator warns on length mismatch or per-entry drift vs actual file content.
    */
   sessions?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     id: string;
     agent: AgentName;
@@ -331,7 +331,7 @@ export interface ParseFidelity {
 export interface EntryBase {
   type: string;
   /**
-   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
    */
   id: string;
   parent_id?: string | null;
@@ -428,7 +428,7 @@ export interface ToolResult {
   type?: "tool_result";
   payload?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     for_id?: string;
     ok: boolean;
@@ -566,7 +566,7 @@ export interface UserQueryResponse {
   type?: "user_query_response";
   payload?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     for_id: string;
     answers: {
@@ -666,7 +666,7 @@ export interface BranchPoint {
   type?: "branch_point";
   payload?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     from_id: string;
     reason?: string;
@@ -677,7 +677,7 @@ export interface BranchSummary {
   type?: "branch_summary";
   payload?: {
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     abandoned_branch_id: string;
     summary: string;
@@ -761,7 +761,7 @@ export interface SessionEnd {
   payload?: {
     reason: "complete" | "user_quit" | "agent_idle";
     /**
-     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
     final_message_id?: string;
   };

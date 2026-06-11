@@ -3,7 +3,7 @@ import type { JsonlRecord } from "./jsonl.ts";
 import type { SessionGroup } from "./session-groups.ts";
 
 // Validates the optional envelope `sessions` manifest against the actual
-// session groups in the file (spec §8.0.4, §8.6). The manifest, when present,
+// session groups in the file (spec §8.4, §9.6). The manifest, when present,
 // must list one entry per group in file order. Manifest drift (wrong length,
 // mismatched id or agent) is a warning so renderers can still display the
 // file while flagging the inconsistency.

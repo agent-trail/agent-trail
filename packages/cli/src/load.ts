@@ -131,7 +131,7 @@ export async function runLoad(
   try {
     const tmpFile = join(tmpDir, "fetched.trail.jsonl");
     // Reconcile against any existing trails with the same session_uid in the
-    // store (spec §8.5). When a match is found, register the merged trail
+    // store (spec §9.5). When a match is found, register the merged trail
     // instead of the raw incoming bytes; the merged trail's content_hash is
     // what the user actually shared as a logical session.
     const outcome: ReconcileIncomingResult = await reconcileIncomingSegment(

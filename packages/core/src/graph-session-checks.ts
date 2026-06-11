@@ -2,7 +2,7 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./parse-fidelity.ts";
 
-// Checks header stream state against file content (spec §16.4 rule 9): a live
+// Checks header stream state against file content (spec §18.4 rule 9): a live
 // header (stream.state == "open") must not carry a populated content_hash and
 // must not coexist with terminal events. Both checks are conditional on the
 // open state; closed/absent streams are validated elsewhere.
@@ -52,9 +52,9 @@ export function streamConsistencyWarnings(
   return diagnostics;
 }
 
-// Spec §16.4: writers should emit `session_terminated` if any `tool_call`
+// Spec §18.4: writers should emit `session_terminated` if any `tool_call`
 // remains unmatched at EOF. `session_end` signals a clean conclusion and
-// suppresses the warning (spec §9.3). Pairing applies the full spec §9.5
+// suppresses the warning (spec §10.3). Pairing applies the full spec §10.5
 // algorithm: primary explicit `for_id` reference, then the three-rule
 // fallback cascade (semantic.call_id match, sequential, heuristic). The
 // heuristic rule is reader-only and not implemented here.
@@ -152,11 +152,11 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     }
   }
 
-  // Pass A: explicit `for_id` reference — primary pairing method (spec §9.5).
+  // Pass A: explicit `for_id` reference — primary pairing method (spec §10.5).
   // A `for_id` that resolves to an existing `tool_call` consumes the result
   // even if the call was already paired (duplicate result), so the result
   // does not fall through to the fallback cascade. Only a missing or
-  // unresolvable `for_id` triggers fallback per §9.5.
+  // unresolvable `for_id` triggers fallback per §10.5.
   for (const result of results) {
     if (!result.canExplicitMatch || result.forId === undefined) {
       continue;
@@ -171,7 +171,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     }
   }
 
-  // Pass B: semantic.call_id match — spec §9.5 fallback rule 1.
+  // Pass B: semantic.call_id match — spec §10.5 fallback rule 1.
   const callsBySemanticCallId = new Map<string, Call[]>();
   for (const call of calls) {
     if (call.matched || call.semanticCallId === undefined) {
@@ -198,7 +198,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     result.matched = true;
   }
 
-  // Pass C: sequential — spec §9.5 fallback rule 2. Each remaining unmatched
+  // Pass C: sequential — spec §10.5 fallback rule 2. Each remaining unmatched
   // result pairs with the most recent prior unmatched tool_call in the same
   // branch scope.
   const diagnostics: Diagnostic[] = [];
@@ -296,7 +296,7 @@ function isSubagentInvoke(entry: JsonlRecord): boolean {
   return (payload as { tool?: unknown }).tool === "subagent_invoke";
 }
 
-// Spec §9.3 / §16.4: `session_end.payload.final_message_id` should reference
+// Spec §10.3 / §18.4: `session_end.payload.final_message_id` should reference
 // the session header or a *prior* event in the same file. Warn when it does
 // not resolve, or when it resolves to an event that appears at or after the
 // `session_end` line (forward references hide ordering bugs).
@@ -338,7 +338,7 @@ export function finalMessageIdWarnings(
   return diagnostics;
 }
 
-// Inline-first / ref-subsequent envelope dedup (spec §9): an entry whose
+// Inline-first / ref-subsequent envelope dedup (spec §10): an entry whose
 // source.raw.envelope_ref is set MUST reference an earlier entry's id. The
 // referenced entry inlined the source envelope; the current entry rides on
 // that envelope. Forward refs and dangling refs are errors so streaming
@@ -378,7 +378,7 @@ export function envelopeRefWarnings(
   return diagnostics;
 }
 
-// Spec §9.4: `user_query_response.payload.for_id` links to a prior
+// Spec §10.4: `user_query_response.payload.for_id` links to a prior
 // `user_query` entry, and each `answers` key names one of that query's
 // `questions[].id` values. The JSON Schema validates the per-record shape;
 // this graph check validates the cross-record contract.

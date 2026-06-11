@@ -33,8 +33,13 @@ Agent Trail defines a portable file format for coding agent sessions, so any com
 - Bit-perfect reproduction of source sessions. Use `source.raw` if needed.
 - Encoding model internals (logits, sampling parameters, tokens).
 - Cryptographic signing (deferred).
-- Multi-file sessions (deferred).
+- Cross-segment `parent_id` references (deferred).
 - Real-time bidirectional sync between agents.
+
+Deferred format surfaces:
+
+- A structured message-parts model for mixed human-authored and injected `user_message` content.
+- Inline `data:` attachment payloads; v0.1.0 attachment `uri` values are references only.
 
 ---
 
@@ -77,17 +82,17 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Trail envelope** | Optional `type:"trail"` record at line 1 carrying file-level metadata (producer, file label, file-scope hash, manifest, vendor extensions). Not part of the event graph. |
 | **Header** | The session header (`type:"session"`). On line 1 when there is no envelope, on line 2 when the envelope is present. Not part of the event graph. |
 | **Session group** | One `type:"session"` header plus the events after it until the next session header or EOF. |
-| **Session bundle** | A trail file with one or more session groups. At session-group level the bundle is a forest; each group may itself be linear or tree-native. |
+| **Session bundle** | A trail file with one or more session groups. At session-group level the bundle is a forest; each group MAY itself be linear or tree-native. |
 | **Child session** | A separate session group or external session spawned or forked from another session, linked by the child header's `fork_from`. |
 | **Event** | Any object after the header line; one unit of session content. |
 | **Turn** | One user-prompt-to-agent-completion cycle as delimited by the source. `turn_id` values are opaque source-correlation tokens; readers MUST NOT require them to resolve to any entry. |
 | **File-level content hash** | SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. |
 | **Session-level content hash** | SHA-256 of the canonical bytes covering ONLY the session header and its events (envelope excluded), with the session header's `content_hash` pinned to `<pending>`. |
-| **Entry** | Equivalent to "event"; either term may appear. |
+| **Entry** | Equivalent to "event"; either term MAY appear. |
 | **Adapter** | Software that reads a source agent's storage and emits a trail file. |
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
-| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#93-optional-event-types). |
+| **Canonical event** | One of the mandatory or optional event types in [§10.2](#10-2-mandatory-event-types) and [§10.3](#10-3-optional-event-types). |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism. |
@@ -104,31 +109,31 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 
 - Recommended extension: `.trail.jsonl`
 - MIME type: `application/vnd.trail+jsonl`. The `vnd.` form is the intended canonical type and follows IANA conventions for vendor MIME types. IANA registration is deferred to v1.0; until then the type is documented here but not officially registered.
-- Editors render as JSON via the `.jsonl` suffix. A dedicated language extension may provide richer highlighting later.
+- Editors render as JSON via the `.jsonl` suffix. A dedicated language extension MAY provide richer highlighting later.
 
 ### 5.2 Encoding
 
 - UTF-8, no BOM.
-- LF line endings (`\n`). CRLF is tolerated by readers; writers must not produce it.
+- LF line endings (`\n`). CRLF is tolerated by readers; writers MUST NOT produce it.
 - Each line is one self-contained JSON object.
 - Empty lines are not allowed.
-- A trailing newline at EOF is recommended but not required.
+- A trailing newline at EOF is recommended but not REQUIRED.
 - Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
 
 ### 5.3 File layout
 
 Every valid trail file has:
 
-1. **Optionally**, a trail envelope (`type:"trail"`) on line 1 (§8.0).
-2. One **or more** session header groups in file order. Each group starts with a `type:"session"` record and continues with zero or more event lines until the next `type:"session"` record or EOF (§8.6). The first session header MUST appear on line 1 when there is no envelope, or on line 2 when an envelope is present.
+1. **Optionally**, a trail envelope (`type:"trail"`) on line 1 (§8).
+2. One **or more** session header groups in file order. Each group starts with a `type:"session"` record and continues with zero or more event lines until the next `type:"session"` record or EOF (§9.6). The first session header MUST appear on line 1 when there is no envelope, or on line 2 when an envelope is present.
 
-When the file contains exactly one group, behaviour is unchanged from earlier drafts. Multi-group ("multi-session") files are described in §8.6.
+When the file contains exactly one group, behaviour is unchanged from earlier drafts. Multi-group ("multi-session") files are described in §9.6.
 
 ---
 
 ## 6. Versioning
 
-The header's `schema_version` is a SemVer string. The current version is `"0.1.0"`. Writers must emit the exact version they conform to.
+The header's `schema_version` is a SemVer string. The current version is `"0.1.0"`. Writers MUST emit the exact version they conform to.
 
 Agent Trail uses SemVer for the interoperability contract:
 
@@ -136,14 +141,14 @@ Agent Trail uses SemVer for the interoperability contract:
 |---|---|---|
 | Editorial-only change | no bump or patch | Typos, formatting, non-normative wording, examples that do not change validity or semantics. |
 | Normative clarification with no behavior change | patch | Resolving ambiguity while preserving the same valid files and reader behavior. |
-| Backward-compatible feature addition | minor | New optional field, new optional event type, new registered agent or tool kind that readers may ignore. |
+| Backward-compatible feature addition | minor | New optional field, new optional event type, new registered agent or tool kind that readers MAY ignore. |
 | Breaking change | major | Required field changes, field removal, incompatible meaning changes, or changes that make existing valid trails invalid. |
 
 Before `1.0.0`, Agent Trail still uses this compatibility discipline conservatively:
 
-- `0.1.x` versions are the same feature family. Readers that support `0.1.0` should accept later `0.1.x` patch versions.
-- `0.2.0` and later `0.x` versions may add backward-compatible features. Readers may accept them best-effort by skipping unknown event types and ignoring unknown payload fields.
-- Breaking changes should be avoided before real adapter and reader experience proves they are necessary. If unavoidable, they must get a new minor while the spec is still pre-1.0, and the changelog must mark them explicitly as breaking.
+- `0.1.x` versions are the same feature family. Readers that support `0.1.0` SHOULD accept later `0.1.x` patch versions.
+- `0.2.0` and later `0.x` versions MAY add backward-compatible features. Readers MAY accept them best-effort by skipping unknown event types and ignoring unknown payload fields.
+- Breaking changes SHOULD be avoided before real adapter and reader experience proves they are necessary. If unavoidable, they MUST get a new minor while the spec is still pre-1.0, and the changelog MUST mark them explicitly as breaking.
 - `1.0.0` is reserved for the first stable interoperability contract.
 
 Published spec and schema URLs are immutable. Local source files (`spec.md` and `schema.json`) represent the current working draft or next release candidate; released snapshots live at versioned URLs such as `/spec/v0.1.0` and `/schema/v0.1.0.json`.
@@ -154,7 +159,7 @@ Writer schemas are exact per release: the v0.1.0 writer schema requires `schema_
 |---|---|
 | Same `major.minor`, any patch | Fully supported if the reader supports that feature family. |
 | Newer `0.x` minor | Best-effort: skip unknown event types, ignore unknown payload fields, preserve unknown records when round-tripping, and warn instead of aborting where possible. |
-| New major version | Readers may reject unless they explicitly support that major version. |
+| New major version | Readers MAY reject unless they explicitly support that major version. |
 
 ---
 
@@ -168,15 +173,15 @@ Every session has a local identifier `id` in the header. Writers emit uppercase 
 
 Agent Trail distinguishes local fidelity from shared safety:
 
-- **Raw trail:** the local artifact emitted by an adapter. It should preserve source fidelity, including `source.raw` where useful and safe.
+- **Raw trail:** the local artifact emitted by an adapter. It SHOULD preserve source fidelity, including `source.raw` where useful and safe.
 - **Redacted trail:** a separate artifact produced from a raw trail for sharing. It removes or normalizes sensitive content and has its own `content_hash`.
 - **Shared trail:** a redacted trail transported by a share tool.
 
-Redacted artifacts may include `redacted_from.content_hash` in the header to record provenance from the raw artifact. They must not expose the raw artifact's local path or local session identifier.
+Redacted artifacts MAY include `redacted_from.content_hash` in the header to record provenance from the raw artifact. They MUST NOT expose the raw artifact's local path or local session identifier.
 
 ### 7.3 Content hash
 
-Finalized artifacts should populate `content_hash` in the header. This is the SHA-256 of the artifact's canonical bytes, not a hash of the physical on-disk serialization and not a logical-session identifier shared across raw and redacted variants.
+Finalized artifacts SHOULD populate `content_hash` in the header. This is the SHA-256 of the artifact's canonical bytes, not a hash of the physical on-disk serialization and not a logical-session identifier shared across raw and redacted variants.
 
 Canonical bytes are defined as:
 
@@ -196,13 +201,13 @@ Because the hash depends on the file content that includes the hash field, we us
 
 Verifying a file's hash uses the same procedure: replace the present hash with `"<pending>"`, canonicalize, hash, compare.
 
-Writers that produce streaming or in-progress files may omit `content_hash` or leave it as `"<pending>"`. Readers may verify the hash but must not abort on mismatch — only warn. Strict validators must report a present but incorrect finalized `content_hash` as an error.
+Writers that produce streaming or in-progress files MAY omit `content_hash` or leave it as `"<pending>"`. Readers MAY verify the hash but MUST NOT abort on mismatch — only warn. Strict validators MUST report a present but incorrect finalized `content_hash` as an error.
 
 ### 7.4 Two-tier identity
 
 When a trail envelope is present, the file carries two independent content hashes:
 
-- **Session-level `content_hash`** lives on the session header. It is SHA-256 over the canonical bytes covering only the session header and its events (the envelope record is excluded from the hashed input). In a multi-session file (§8.6) the slice for a session covers that session's header and the events between it and the next `type:"session"` record (or EOF). This makes each session's identity independent of whether it is wrapped in an envelope or sits beside sibling sessions — extracting one session from a multi-session file recomputes the same digest.
+- **Session-level `content_hash`** lives on the session header. It is SHA-256 over the canonical bytes covering only the session header and its events (the envelope record is excluded from the hashed input). In a multi-session file (§9.6) the slice for a session covers that session's header and the events between it and the next `type:"session"` record (or EOF). This makes each session's identity independent of whether it is wrapped in an envelope or sits beside sibling sessions — extracting one session from a multi-session file recomputes the same digest.
 - **File-level `content_hash`** lives on the trail envelope. It is SHA-256 over the canonical bytes of the whole file, with the envelope's `content_hash` field replaced by `"<pending>"` per the same two-pass procedure as §7.3. The session-level `content_hash`, if already populated, is treated as opaque file content.
 
 Writers that emit both hashes MUST stamp every session-level hash first, then compute and stamp the file-level hash. Readers verify them independently. Different consumers care about different scopes: extraction tools recompute the session hash; share/transport tools verify the file hash.
@@ -213,7 +218,7 @@ Lineage references mirror the tier of the linking context:
 
 - **Header-level `fork_from.content_hash` and `redacted_from.content_hash`** refer to the **session-level** `content_hash` of the parent artifact (the forked-from session or the raw session that was redacted). This keeps session lineage independent of any envelope wrapper — extracting either side recomputes the same digest.
 - **Envelope-level `fork_from.content_hash` and `redacted_from.content_hash`** refer to the **file-level** `content_hash` of the parent file (envelope and all sessions included). Use these to link whole files rather than individual sessions.
-- `segment.prev_content_hash` (§8.5) is always session-level, since segments chain at session grain.
+- `segment.prev_content_hash` (§9.5) is always session-level, since segments chain at session grain.
 
 Writers MUST choose the matching tier; mixing tiers across a chain breaks verification.
 
@@ -223,11 +228,11 @@ Event `id` values are globally unique. Writers emit uppercase ULIDs or lowercase
 
 ---
 
-## 8.0 The trail envelope
+## 8. The trail envelope
 
 The trail envelope is an OPTIONAL record on line 1 that carries file-scope metadata distinct from per-session metadata. When absent, the session header occupies line 1 and behaviour matches earlier drafts. When present, the session header MUST follow on line 2 and at most one envelope is permitted per file.
 
-### 8.0.1 Schema
+### 8.1 Schema
 
 ```jsonc
 {
@@ -240,7 +245,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
   "producer": "trail-cli/0.3.0",
   "content_hash": "<sha256-hex>",                   // optional; populated at finalize
   "tags": ["..."],                                  // optional
-  "vcs": { "type": "git", "revision": "..." },      // optional; same shape as §8 vcs
+  "vcs": { "type": "git", "revision": "..." },      // optional; same shape as §9 vcs
   "fork_from": {                                    // optional; file-level fork link
     "trail_id": "<parent-file-id>",                 // UUID or ULID id
     "content_hash": "<parent-file-hash>"            // optional
@@ -251,13 +256,13 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
   "sessions": [                                     // optional manifest
     { "id": "<session-id>", "agent": "<canonical-name>" }
   ],
-  "meta": {                                         // optional; see §8.0.3
+  "meta": {                                         // optional; see §8.3
     "x-entire/checkpoint_id": "ckpt-7"
   }
 }
 ```
 
-### 8.0.2 Fields
+### 8.2 Fields
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
@@ -274,26 +279,26 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
 | `fork_from` | no | object | reference to a parent file when forked; `trail_id` is a UUID or ULID id and `content_hash` is optional |
 | `redacted_from` | no | object | provenance link from a redacted file to its raw counterpart |
 | `sessions` | no | array | manifest of sessions in this file; validator warns on drift vs file content |
-| `meta` | no | object | free-form vendor extensions (§8.0.3) |
+| `meta` | no | object | free-form vendor extensions (§8.3) |
 
 The envelope MUST NOT carry a `parent_id`. It is not part of the event graph.
 
-### 8.0.3 The `meta` extension convention
+### 8.3 The `meta` extension convention
 
-The trail envelope (§8.0), the session header (§8), and every event entry (§9.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use the `x-<vendor>/<name>` extension grammar (§11.1) to avoid collisions (`x-example/team`, `x-acme/build_id`, `x-entire/checkpoint_id`). The validator treats `meta` as opaque; it contributes to whichever `content_hash` tier covers its host record (§7.4): `meta` on the session header or any event entry feeds the session-level hash, and `meta` on the trail envelope feeds the file-level hash.
+The trail envelope (§8), the session header (§9), and every event entry (§10.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use the `x-<vendor>/<name>` extension grammar (§12.1) to avoid collisions (`x-example/team`, `x-acme/build_id`, `x-entire/checkpoint_id`). The validator treats `meta` as opaque; it contributes to whichever `content_hash` tier covers its host record (§7.4): `meta` on the session header or any event entry feeds the session-level hash, and `meta` on the trail envelope feeds the file-level hash.
 
-For verbatim source-event preservation, use `source.raw` ([§9.1](#9-1-base-shape), [§9.7](#9-7-source-envelope-referencing), [§14.1](#14-1-source-raw-elision-and-redaction)) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
+For verbatim source-event preservation, use `source.raw` ([§10.1](#10-1-base-shape), [§10.7](#10-7-source-envelope-referencing), [§15.1](#15-1-source-raw-elision-and-redaction)) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
-This draft defines one standard event-entry `meta` key: `redaction_count` (§15). Other standard keys may be promoted in later minor bumps based on observed usage.
+This draft defines one standard event-entry `meta` key: `redaction_count` (§16). Other standard keys MAY be promoted in later minor bumps based on observed usage.
 
-### 8.0.4 The `sessions` manifest
+### 8.4 The `sessions` manifest
 
 When `sessions` is present, the validator warns if the manifest disagrees with the file:
 
-- The manifest MUST list one entry per session group (§8.6) in file order. Each entry's `id` and `agent` MUST match the corresponding session header's `id` and `agent.name`. Length mismatch and per-entry drift both emit `envelope_sessions_manifest_drift` warnings — never errors, so renderers can still display the file.
+- The manifest MUST list one entry per session group (§9.6) in file order. Each entry's `id` and `agent` MUST match the corresponding session header's `id` and `agent.name`. Length mismatch and per-entry drift both emit `envelope_sessions_manifest_drift` warnings — never errors, so renderers can still display the file.
 - The manifest is an index/rendering hint only. It MUST NOT carry graph facts such as child-session role or follows edges; session headers are authoritative for lineage.
 
-### 8.0.5 File identity defaults when envelope is absent
+### 8.5 File identity defaults when envelope is absent
 
 When no envelope is written, file-level identity defaults derive from the session:
 
@@ -301,9 +306,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
 - File `name` is unset.
 - The file-level content hash is unavailable; only the session content hash is meaningful.
 
-## 8. The session header
+## 9. The session header
 
-### 8.1 Schema
+### 9.1 Schema
 
 ```jsonc
 {
@@ -315,7 +320,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "tags": ["feature", "debug"],                    // optional
   "content_hash": "<sha256-hex>",               // optional; populated at finalize
   "ts": "<ISO-8601 timestamp>",
-  "stream": {                                   // optional; live-capture marker (§8.4)
+  "stream": {                                   // optional; live-capture marker (§9.4)
     "state": "open" | "closed",
     "started_at": "<ISO-8601 timestamp>"        // optional
   },
@@ -328,7 +333,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "vcs": {                                      // optional
     "type": "git" | "jj" | "hg" | "svn" | "x-<vendor>/<name>",
     "revision": "<sha-or-change-id>",
-    "remote_url": "<canonical-remote-url>"      // optional; see §8.2
+    "remote_url": "<canonical-remote-url>"      // optional; see §9.2
   },
   "fork_from": {                                // optional
     "session_id": "<parent-session-id>",
@@ -347,29 +352,29 @@ When no envelope is written, file-level identity defaults derive from the sessio
     "path": "<original-file-path>",
     "format_version": "<source-format-version>"
   },
-  "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
+  "meta": {                                     // optional; vendor extensions (§8.3 / §12)
     "x-example/custom_field": "..."
   }
 }
 ```
 
-### 8.2 Fields
+### 9.2 Fields
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
-| `id` | yes | string | UUID or ULID per §7.1/§18 |
+| `id` | yes | string | UUID or ULID per §7.1/§19 |
 | `name` | no | string | human session label |
 | `description` | no | string | free-text session description |
 | `tags` | no | string[] | free-form session labels |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
-| `stream` | no | object | live-capture marker; see §8.4 |
-| `agent.name` | yes | string | from the canonical registry (§13) |
+| `stream` | no | object | live-capture marker; see §9.4 |
+| `agent.name` | yes | string | from the canonical registry (§14) |
 | `agent.version` | no | string | source agent's version |
 | `agent.model_default` | no | string | default model for the session |
-| `cwd` | no | string | working directory; may be normalized for privacy |
+| `cwd` | no | string | working directory; MAY be normalized for privacy |
 | `vcs` | no | object | version control context at session time |
 | `vcs.type` | yes (if `vcs` present) | enum or extension | `git`, `jj`, `hg`, `svn`, or `x-<vendor>/<name>` for non-reserved systems |
 | `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
@@ -388,9 +393,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `parse_fidelity.quarantined_count` | yes (if `parse_fidelity` present) | integer | number of `system_event` entries whose `payload.kind` is `x-*/unknown_record` in this session group |
 | `parse_fidelity.termination_reason` | no | enum | final `session_terminated.payload.reason`, when a `session_terminated` event is present |
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
-| `meta` | no | object | vendor extensions; recommended keys use the `x-<vendor>/<name>` extension grammar (§8.0.3 / §11) |
+| `meta` | no | object | vendor extensions; recommended keys use the `x-<vendor>/<name>` extension grammar (§8.3 / §12) |
 
-When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`; see the §9.3 quarantine convention. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
+When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`; see the §10.3 quarantine convention. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 
@@ -400,17 +405,17 @@ When `parse_fidelity` is present, validators MUST compare it against the session
 - MUST omit the field when no remote is configured — do not fabricate one.
 - For submodules and worktrees, emit the remote of the outermost working tree's toplevel; `cwd` and `vcs.revision` disambiguate within.
 
-Privacy: `remote_url` reveals repository identity and may identify a private repo. Redacted artifacts may strip or normalize it (§15).
+Privacy: `remote_url` reveals repository identity and MAY identify a private repo. Redacted artifacts MAY strip or normalize it (§16).
 
-When a trail file carries both header-level `vcs` (session-time context) and envelope-level `vcs` (file-assembly-time context, §8.0), they represent different observation points. File-assembly tools SHOULD preserve both when present. For multi-segment reconciliation rules, see §8.5.
+When a trail file carries both header-level `vcs` (session-time context) and envelope-level `vcs` (file-assembly-time context, §8), they represent different observation points. File-assembly tools SHOULD preserve both when present. For multi-segment reconciliation rules, see §9.5.
 
-### 8.3 Example
+### 9.3 Example
 
 ```json
 {"type":"session","schema_version":"0.1.0","id":"01HM7K5R9X2QZJ8VD6W4P3T1F0","content_hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","ts":"2026-05-17T14:02:00.000Z","agent":{"name":"claude-code","version":"2.1.42","model_default":"claude-sonnet-4-5"},"cwd":"<cwd>","vcs":{"type":"git","revision":"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"}}
 ```
 
-### 8.4 Streaming and live capture
+### 9.4 Streaming and live capture
 
 JSONL is append-friendly by design: trail files can be written event by event as a session unfolds, and readers can `tail -f` them. v0.1.x adds an explicit marker so writers and readers can agree on live-capture state without overloading other header fields.
 
@@ -419,27 +424,27 @@ The optional header `stream` object:
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | `stream.state` | yes (if `stream` present) | enum | `open` while the writer is actively appending; `closed` once finalized |
-| `stream.started_at` | no | string | ISO-8601 timestamp when the stream began; matches the §8 `ts` semantics |
+| `stream.started_at` | no | string | ISO-8601 timestamp when the stream began; matches the §9 `ts` semantics |
 
 Lifecycle:
 
 1. **Live phase.** Writer emits the header with `stream: { state: "open" }`. `content_hash` is omitted or set to `"<pending>"`. Events are appended as they happen.
 2. **Finalize.** Writer rewrites the header with `stream` either removed or set to `state: "closed"`, then computes `content_hash` per §7.3. Appending stops.
-3. **Clean end.** Writer may append a `session_end` event (§9.3) to mark a normal conclusion before finalize. Abnormal ends still use `session_terminated`.
+3. **Clean end.** Writer MAY append a `session_end` event (§10.3) to mark a normal conclusion before finalize. Abnormal ends still use `session_terminated`.
 
-Tail readers that observe `stream.state == "open"` should assume more events may arrive. Readers observing `stream` absent or `state == "closed"` should treat the file as a finalized artifact and verify `content_hash` when present.
+Tail readers that observe `stream.state == "open"` SHOULD assume more events MAY arrive. Readers observing `stream` absent or `state == "closed"` SHOULD treat the file as a finalized artifact and verify `content_hash` when present.
 
-`stream` is absent in trail files produced by stream-unaware writers; readers must treat that case as equivalent to a finalized non-streaming artifact (existing v0.1.0 behavior).
+`stream` is absent in trail files produced by stream-unaware writers; readers MUST treat that case as equivalent to a finalized non-streaming artifact (existing v0.1.0 behavior).
 
-A live `system_event` heartbeat convention is described in §9.3.
+A live `system_event` heartbeat convention is described in §10.3.
 
 ---
 
-### 8.5 Session segments (multi-segment sessions)
+### 9.5 Session segments (multi-segment sessions)
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: uppercase ULID (recommended, lexicographic time-prefix) or lowercase UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: uppercase ULID (recommended, lexicographic time-prefix) or lowercase UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as REQUIRED when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -455,7 +460,7 @@ and emit a new finalized trail with freshly computed hashes.
 
 Implementation merge policy is documented in `docs/implementation-semantics.md`.
 
-Whole-file graph rules (§17) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
+Whole-file graph rules (§18) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
 
 #### Writer guidance
 
@@ -466,79 +471,79 @@ Whole-file graph rules (§17) apply **within** a segment, not across. Cross-segm
 
 #### Composition with multi-session files
 
-`session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A multi-session trail file (§8.6) may contain N session headers, each independently multi-segmentable. The trail envelope (§8.0) is unaffected.
+`session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A multi-session trail file (§9.6) MAY contain N session headers, each independently multi-segmentable. The trail envelope (§8) is unaffected.
 
 ---
 
-### 8.6 Multi-session trail files
+### 9.6 Multi-session trail files
 
 A trail file MAY contain one OR more `(session header, events*)` groups concatenated. Boundaries are positional: a group extends from a `type:"session"` record up to (but excluding) the next `type:"session"` record, or to EOF. Single-session trails are the N=1 case and are unchanged.
 
-A multi-session trail is a session bundle: a forest of session groups. Each group may be linear or tree-native. Branches represented inside one source session use `parent_id` within that group; separate spawned or forked transcripts use separate groups linked by `header.fork_from`.
+A multi-session trail is a session bundle: a forest of session groups. Each group MAY be linear or tree-native. Branches represented inside one source session use `parent_id` within that group; separate spawned or forked transcripts use separate groups linked by `header.fork_from`.
 
-#### 8.6.1 File grammar
+#### 9.6.1 File grammar
 
 ```text
 trail-file := envelope? group+
 envelope   := <one JSONL record with type:"trail"> on line 1
 group      := <one JSONL record with type:"session"> events*
-events     := zero or more event records (§9)
+events     := zero or more event records (§10)
 ```
 
-The trail envelope (§8.0) remains optional even when N ≥ 2. When present with N ≥ 2 groups, the file-level `content_hash` on the envelope covers all N groups' already-stamped session hashes, applying the §7.4 two-pass procedure unchanged (every session hash stamped first; envelope hash stamped over the finalized record set). When absent, file-level identity defaults from §8.0.5 apply (no file-level `content_hash` is meaningful; only per-session hashes).
+The trail envelope (§8) remains optional even when N ≥ 2. When present with N ≥ 2 groups, the file-level `content_hash` on the envelope covers all N groups' already-stamped session hashes, applying the §7.4 two-pass procedure unchanged (every session hash stamped first; envelope hash stamped over the finalized record set). When absent, file-level identity defaults from §8.5 apply (no file-level `content_hash` is meaningful; only per-session hashes).
 
-#### 8.6.2 Group boundaries and reader-tolerant recovery
+#### 9.6.2 Group boundaries and reader-tolerant recovery
 
 Readers detect group boundaries by `type:"session"` alone. A record with `type:"session"` always opens a new group, regardless of `schema_version` value: this lets reader-tolerant parsers (§6) recover from a malformed mid-file header and continue parsing subsequent groups instead of treating the rest of the file as orphan events. The strict validator still errors on individual records that fail schema validation; recovery affects parsing structure, not per-record validity.
 
 Entries that appear before the first `type:"session"` record (and after any envelope) are not part of any group and are always invalid: `events_before_first_session_header`.
 
-#### 8.6.3 Per-group validation
+#### 9.6.3 Per-group validation
 
-Whole-file graph rules (§17) apply **within** a group, not across:
+Whole-file graph rules (§18) apply **within** a group, not across:
 
 - `parent_id` resolution is scoped to the enclosing group. A `parent_id` that references an `id` in another group is treated as `unknown_parent_id` (cross-group references go through `fork_from`, not `parent_id`).
-- `tool_call` / `tool_result` pairing (§9.5) runs per group. An unmatched `tool_call` in group A is not satisfied by a `tool_result` in group B.
+- `tool_call` / `tool_result` pairing (§10.5) runs per group. An unmatched `tool_call` in group A is not satisfied by a `tool_result` in group B.
 - `session_end.payload.final_message_id`, `source.raw.envelope_ref`, `payload.usage` checks, and the `stream` consistency rule each run per group.
 
 Event `id` uniqueness (§7.5) remains **file-scoped**: every `id` (across every group's header and events) MUST be unique within the file.
 
-#### 8.6.4 Per-group `content_hash`
+#### 9.6.4 Per-group `content_hash`
 
 Each group's session-level `content_hash` is computed over the canonical bytes of that group's slice only (header + its events, envelope and sibling groups excluded). This is the same procedure as §7.3 / §7.4 applied to the slice. As a consequence, extracting one session from a multi-session file (drop the envelope, drop sibling groups, write only that group's canonical bytes) reproduces the same digest as the in-file value.
 
-When a reader extracts a single session from a multi-session file outside writer-strict validation and the recomputed `content_hash` does not match the value stored in the in-file header, it SHOULD emit a warning rather than an error. Strict validation of a finalized trail file still treats an in-place finalized `content_hash` mismatch as an error (§17.4).
+When a reader extracts a single session from a multi-session file outside writer-strict validation and the recomputed `content_hash` does not match the value stored in the in-file header, it SHOULD emit a warning rather than an error. Strict validation of a finalized trail file still treats an in-place finalized `content_hash` mismatch as an error (§18.4).
 
-#### 8.6.5 Cross-group references
+#### 9.6.5 Cross-group references
 
 The only sanctioned cross-group reference primitive is the session header's `fork_from`:
 
 - `fork_from.session_id` MAY reference a sibling session within the same file or an external session.
 - When `fork_from.session_id` matches a sibling's `id` in the same file and `fork_from.content_hash` is also present, the hash MUST match that sibling's session-level `content_hash`. Mismatch is a `cross_group_fork_from_hash_mismatch` warning.
-- External references (`session_id` not matched in-file) are not validated here; if the referenced session's bytes are available, callers may verify the hash through their own resolver.
+- External references (`session_id` not matched in-file) are not validated here; if the referenced session's bytes are available, callers MAY verify the hash through their own resolver.
 
 `parent_id` is event-graph topology only and MUST NOT span groups.
 
-#### 8.6.6 Order, divergence, and per-session metadata
+#### 9.6.6 Order, divergence, and per-session metadata
 
 - Sessions in a file SHOULD appear in chronological order by header `ts`. Out-of-order placement emits `out_of_order_session_headers` (warning, not error).
 - Per-session `cwd` and `vcs` MAY diverge across sessions in the same file. Divergent `vcs.revision` across groups emits `vcs_revision_divergence` (warning, not error) — useful for spotting accidental cross-checkout bundling.
 - `schema_version` is carried on every session header. Sessions in the same file are independently versioned (reader-tolerant patch acceptance per §6 applies per-header).
 - Empty groups (a header with zero events) are legal — they represent "session started, nothing happened."
 
-#### 8.6.7 Redaction of multi-session files
+#### 9.6.7 Redaction of multi-session files
 
 Redacting a multi-session trail produces a multi-session redacted trail with the same group count in the same order, redacted in place. The redactor resets `content_hash` to `<pending>` on every session header (and on the envelope when present) before share/transport tooling re-stamps via the two-pass §7.4 procedure. Header-level `redacted_from.content_hash` links the redacted session to its raw counterpart; envelope-level `redacted_from.content_hash` links the redacted file to its raw counterpart.
 
-#### 8.6.8 No hard cap
+#### 9.6.8 No hard cap
 
-This spec does not impose a maximum on the number of session groups per file. Consumers may apply their own limits.
+This spec does not impose a maximum on the number of session groups per file. Consumers MAY apply their own limits.
 
 ---
 
-## 9. Events
+## 10. Events
 
-### 9.1 Base shape
+### 10.1 Base shape
 
 Every event entry has this base shape:
 
@@ -549,7 +554,7 @@ Every event entry has this base shape:
   "parent_id": "<entry-id>",                    // optional; tree topology only
   "ts": "<ISO-8601 timestamp>",
   "payload": { /* type-specific */ },
-  "semantic": {                                 // optional; see §9.4
+  "semantic": {                                 // optional; see §10.4
     "group_id": "<group-id>",
     "call_id": "<source-call-id>",
     "tool_kind": "<canonical-tool-kind>"
@@ -558,10 +563,10 @@ Every event entry has this base shape:
     "agent": "<canonical-agent-name>",
     "original_type": "<source-event-name>",
     "schema_version": "<source-schema-version>",
-    "raw": { /* opaque source object; see §9.6 and §14 */ },
+    "raw": { /* opaque source object; see §10.6 and §15 */ },
     "synthesized": false
   },
-  "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
+  "meta": {                                     // optional; vendor extensions (§8.3 / §12)
     "x-example/field": "..."
   }
 }
@@ -569,18 +574,18 @@ Every event entry has this base shape:
 
 | Field | Required | Type | Notes |
 |---|---|---|---|
-| `type` | yes | string | event type; see §9.2-9.3 |
-| `id` | yes | string | globally unique; ULID or UUID per §18 |
+| `type` | yes | string | event type; see §10.2-10.3 |
+| `id` | yes | string | globally unique; ULID or UUID per §19 |
 | `parent_id` | no | string | references another `id` for tree topology; absent = linear file order |
 | `ts` | yes | string | ISO-8601 timestamp |
 | `payload` | yes | object | type-specific data |
 | `semantic` | no | object | linking metadata for fallback pairing |
 | `source` | no | object | adapter-provided source metadata |
-| `meta` | no | object | vendor extensions (§8.0.3 / §11) |
+| `meta` | no | object | vendor extensions (§8.3 / §12) |
 
-### 9.2 Mandatory event types
+### 10.2 Mandatory event types
 
-Every adapter must be able to emit these when the source data contains the corresponding semantics. Readers must support them.
+Every adapter MUST be able to emit these when the source data contains the corresponding semantics. Readers MUST support them.
 
 #### `user_message`
 
@@ -608,7 +613,7 @@ A user-role message. By default this is text typed by the human user; `payload.o
 
 `origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
 
-Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
+Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers MAY use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
 
 #### `agent_message`
 
@@ -644,6 +649,8 @@ A text response from the agent.
 | `usage` | no | object | token usage for the source envelope; see below |
 | `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
 
+`stop_reason` is source-specific and remains an opaque string. Writers SHOULD use this RECOMMENDED vocabulary when it matches the source semantics: `end_turn`, `max_tokens`, `tool_use`, `refusal`, `error`, `aborted`. Source-specific values remain legal; readers MUST treat unknown values as opaque.
+
 `attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, and at least one of `uri` or `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
@@ -672,7 +679,7 @@ Model identification for downstream cost analysis uses `payload.model` first, fa
 
 When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first derived entry whose payload supports `usage`, skip non-usage-capable derived entries, and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads; if an envelope emits none of those entries, canonical `usage` is omitted.
 
-Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under `x-<vendor>/<name>` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
+Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers MAY preserve it as opaque source data under `x-<vendor>/<name>` keys on the entry's `meta` field (§8.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
 #### `task_plan_update`
 
@@ -731,11 +738,11 @@ When the upstream source does not provide item ids, or provides empty or whitesp
 | `status_changed` | `from_status`, `to_status` |
 | `content_changed` | `from_content`, `to_content` |
 
-`added` may include `to_active_form`; `removed` may include `from_active_form`. Sources that only report plan-completed notifications with no item status snapshot should preserve them as `system_event` records instead of inventing checklist state.
+`added` MAY include `to_active_form`; `removed` MAY include `from_active_form`. Sources that only report plan-completed notifications with no item status snapshot SHOULD preserve them as `system_event` records instead of inventing checklist state.
 
 #### `tool_call`
 
-The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-tool-taxonomy).
+The agent invoked a tool. Tool kinds use the taxonomy in [§11](#11-canonical-tool-taxonomy).
 
 ```jsonc
 {
@@ -757,16 +764,16 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
+| `tool` | yes | string | canonical tool kind ([§11](#11-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
 | `truncated` | no | boolean | true when `args` is a bounded excerpt rather than complete tool arguments |
-| `args_size` | conditional | integer | original serialized argument byte size; required when `truncated: true` |
+| `args_size` | conditional | integer | original serialized argument byte size; REQUIRED when `truncated: true` |
 | `overflow_ref` | no | string or null | optional content-addressed reference to full argument bytes when `args` is truncated; writer-strict values use `sha256:<64 lowercase hex>` |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
 
-The result of a `tool_call`. References the call via `for_id`. Writers omit `for_id` when the source does not provide a reliable match. Readers may tolerate legacy/null values; when `for_id` is null or missing, see [§9.5](#9-5-tool-call-terminal-pairing).
+The result of a `tool_call`. References the call via `for_id`. Writers omit `for_id` when the source does not provide a reliable match. Readers MAY tolerate legacy/null values; when `for_id` is null or missing, see [§10.5](#10-5-tool-call-terminal-pairing).
 
 ```jsonc
 {
@@ -795,7 +802,7 @@ The result of a `tool_call`. References the call via `for_id`. Writers omit `for
 | `ok` | yes | boolean | did the call succeed |
 | `output` | no | string | textual output |
 | `truncated` | no | boolean | true if `output` was truncated |
-| `output_size` | no | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
+| `output_size` | no | integer ≥0 | UTF-8 byte length of the original output before truncation; REQUIRED when `truncated` is true |
 | `overflow_ref` | no | string | reference to full output |
 | `error` | no | string | error message if `ok` is false |
 | `attachments` | no | array | non-MCP image / multi-part tool output by reference (e.g. a screenshot or plot tool returning an image that `output` flattens); same object shape as `user_message.payload.attachments` |
@@ -823,7 +830,7 @@ The agent attempted or began a tool invocation, but the invocation was cancelled
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `scope` | yes | enum or extension | `tool_call` when a specific call is known; `turn` when the source only proves a turn-level abort. Extensions must use `x-<vendor>/<name>`. |
+| `scope` | yes | enum or extension | `tool_call` when a specific call is known; `turn` when the source only proves a turn-level abort. Extensions MUST use `x-<vendor>/<name>`. |
 | `reason` | yes | enum or extension | One of `user_interrupt`, `hook_blocked`, `timeout`, `permission_denied`, `runtime_error`, or `x-<vendor>/<name>`. |
 | `for_id` | when `scope:"tool_call"` | string | id of the matching `tool_call`; omitted for `scope:"turn"` and other non-call-specific scopes. |
 | `blocked_by` | no | string | hook, policy, permission system, or runtime component that stopped the call. |
@@ -833,7 +840,7 @@ Bare unknown `scope` and `reason` values are writer-strict errors. Readers are t
 ##### `tool_result.payload.meta` — structured outputs
 
 `output` is a display string. When the source tool returned structured data, writers MAY also
-populate `meta`, an object keyed by the originating `tool_call.tool` (the canonical tool kind, [§10](#10-canonical-tool-taxonomy)).
+populate `meta`, an object keyed by the originating `tool_call.tool` (the canonical tool kind, [§11](#11-canonical-tool-taxonomy)).
 Consumers that understand a kind read `meta.<toolKind>`; everyone else falls back to `output`. `meta`
 is optional and additive — existing writers that emit only `output` stay valid.
 
@@ -875,7 +882,7 @@ top-level `exit_code` on `tool_result`, because the concept does not apply to ki
 or `web_fetch`.
 
 Privacy: `meta` carries the same raw content as `output` (shell stdout, MCP block text), so the
-redaction pipeline scrubs `meta` string leaves alongside `output` (§15).
+redaction pipeline scrubs `meta` string leaves alongside `output` (§16).
 
 #### `user_query`
 
@@ -914,10 +921,10 @@ The agent asks the user one or more structured questions and yields control unti
 | `id` | yes | string | Stable within this `user_query`; responses key answers by this value. |
 | `question` | yes | string | Full prompt shown to the user. |
 | `header` | no | string | Short label/chip. |
-| `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
-| `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
+| `multi_select` | no | boolean | True when the user MAY select multiple options. Omitted means false. |
+| `is_secret` | no | boolean | True when answers SHOULD be hidden and stripped by redaction. Omitted means false. |
 | `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
-| `options` | no | array | Option objects with required `label`, optional stable `id`, and optional `description`. |
+| `options` | no | array | Option objects with REQUIRED `label`, optional stable `id`, and optional `description`. |
 
 #### `user_query_response`
 
@@ -977,9 +984,9 @@ A summary entry. Used for whole-session summaries. Branch and compaction summari
 
 Multiple `session_summary` entries are allowed. The last one in file order is authoritative; position is unconstrained.
 
-### 9.3 Optional event types
+### 10.3 Optional event types
 
-Part of the canonical vocabulary. Adapters need not emit them. Readers must tolerate them either way.
+Part of the canonical vocabulary. Adapters need not emit them. Readers MUST tolerate them either way.
 
 #### `session_metadata_update`
 
@@ -1002,7 +1009,7 @@ Post-creation update to logical session metadata. The session header carries the
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
 | `field` | yes | enum or extension | One of `name`, `description`, `tags`, `agent.model_default`, `vcs.branch`, `vcs.worktree`, or `x-<vendor>/<name>`. |
-| `value` | yes | field-specific | Replacement value. Must match the field type: string for `name`/`description`/`agent.model_default`/`vcs.branch`, string array for `tags`, and the §8.2 worktree shape for `vcs.worktree`. Extension fields may carry any JSON value. |
+| `value` | yes | field-specific | Replacement value. Must match the field type: string for `name`/`description`/`agent.model_default`/`vcs.branch`, string array for `tags`, and the §9.2 worktree shape for `vcs.worktree`. Extension fields MAY carry any JSON value. |
 | `previous_value` | no | field-specific | Prior value when the adapter knows it. Same type as `value`. |
 | `reason` | yes | enum | `ai_generated`, `user_set`, `runtime_inferred`, or `external`. |
 
@@ -1010,7 +1017,7 @@ Writers MUST NOT use this event for immutable identity or cryptographic fields s
 
 #### `system_event`
 
-A meaningful source timeline record that is not a user message, agent message, tool call, tool result, summary, or known lifecycle event. Use this for source status/progress/bookkeeping records that should remain visible in a timeline. Do not use it as a dumping ground for high-volume internal state or records that map cleanly to a more specific canonical event.
+A meaningful source timeline record that is not a user message, agent message, tool call, tool result, summary, or known lifecycle event. Use this for source status/progress/bookkeeping records that SHOULD remain visible in a timeline. Do not use it as a dumping ground for high-volume internal state or records that map cleanly to a more specific canonical event.
 
 ```jsonc
 {
@@ -1025,9 +1032,9 @@ A meaningful source timeline record that is not a user message, agent message, t
 }
 ```
 
-`kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or a vendor-namespaced extension of the form `x-<vendor>/<name>`. Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
+`kind` is REQUIRED and writer-strict. It MUST be either one of the reserved cross-agent values below, or a vendor-namespaced extension of the form `x-<vendor>/<name>`. Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#93-optional-event-types)). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§10.3](#10-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 
@@ -1055,10 +1062,10 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `plan_completed` | Source emits a plan or todo completion marker without a full plan snapshot. | `{ plan_id, preview? }` |
 | `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error) with no tool in flight. Distinct from `user_interrupt`. | `{ reason }` |
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call. | `{ decision, tool_call_id }` |
-| `context_injected` | Runtime injected standalone context that should remain visible outside a `user_message`. | `{ source_kind, name?, size_bytes? }` |
+| `context_injected` | Runtime injected standalone context that SHOULD remain visible outside a `user_message`. | `{ source_kind, name?, size_bytes? }` |
 | `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
-| `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
+| `heartbeat` | Periodic liveness ping during streaming capture (§9.4). Optional. Non-normative; readers MAY treat as informational. | `{ interval_ms? }` |
 
 Use `tool_call_aborted{scope:"turn"}` for stops in a tool-invocation context where no specific call is identifiable. Use `system_event.kind:"turn_aborted"` for model/system-level turn stops with no tool in flight.
 
@@ -1093,10 +1100,10 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 ##### Extension policy and promotion
 
 - Reserved values above are the only bare strings allowed by writer-strict validation.
-- Anything else must use `x-<vendor>/<name>` form, e.g. `x-claudecode/notification`.
+- Anything else MUST use `x-<vendor>/<name>` form, e.g. `x-claudecode/notification`.
 - Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
-- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<vendor>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§8.2).
+- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<vendor>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§9.2).
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
 #### `capability_change`
@@ -1127,7 +1134,7 @@ A change in the set of capabilities available to the agent at a point in the ses
 
 Writer-strict validation requires at least one of `added`, `removed`, `changed`, or `snapshot`.
 
-Out of scope: full tool input/output schemas; they are static registry data and can be large or sensitive. Writers should keep only compact identifying metadata in `metadata`.
+Out of scope: full tool input/output schemas; they are static registry data and can be large or sensitive. Writers SHOULD keep only compact identifying metadata in `metadata`.
 
 #### `command_invoke`
 
@@ -1356,7 +1363,7 @@ Recommended thinking-level vocabulary is `none`, `low`, `medium`, `high`, and `x
 
 #### `session_terminated`
 
-Marks an incomplete session ending. Adapters may emit this synthetically at EOF when the source file ends with unmatched `tool_call` events (process killed mid-execution, file truncated, etc.).
+Marks an incomplete session ending. Adapters MAY emit this synthetically at EOF when the source file ends with unmatched `tool_call` events (process killed mid-execution, file truncated, etc.).
 
 ```jsonc
 {
@@ -1373,11 +1380,11 @@ Marks an incomplete session ending. Adapters may emit this synthetically at EOF 
 
 `reason`: `eof_with_open_tool_calls` | `process_terminated` | `truncated` | `user_abort`.
 
-Synthesized instances must set `source.synthesized: true`.
+Synthesized instances MUST set `source.synthesized: true`.
 
 #### `session_end`
 
-Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; many writers won't emit it. When present at EOF, signals a normal conclusion of the session and suppresses the "unmatched tool calls at EOF" warning of §17.4.
+Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; many writers won't emit it. When present at EOF, signals a normal conclusion of the session and suppresses the "unmatched tool calls at EOF" warning of §18.4.
 
 ```jsonc
 {
@@ -1396,7 +1403,7 @@ Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; 
 | `reason` | yes | enum | `complete` \| `user_quit` \| `agent_idle` |
 | `final_message_id` | no | string | optional reference to the last meaningful event |
 
-### 9.4 Semantic linking
+### 10.4 Semantic linking
 
 The `semantic` block on an event provides linking metadata when explicit `id` / `parent_id` / `for_id` references are unreliable (source has missing or null IDs).
 
@@ -1406,46 +1413,46 @@ The `semantic` block on an event provides linking metadata when explicit `id` / 
 | `semantic.call_id` | string | Source format's native ID for a tool call. Used as fallback pairing key. |
 | `semantic.tool_kind` | string | Canonical tool kind. Useful on `tool_result` events that don't carry it directly. |
 
-Writers should populate `semantic.call_id` on tool_call/tool_result pairs when the source has reliable native call IDs that are not Agent Trail entry IDs.
+Writers SHOULD populate `semantic.call_id` on tool_call/tool_result pairs when the source has reliable native call IDs that are not Agent Trail entry IDs.
 
-### 9.5 Tool call terminal pairing
+### 10.5 Tool call terminal pairing
 
-`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. Writers MUST populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
+`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` SHOULD reference the matching `tool_call`. Writers MUST populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
 
 When `tool_result.payload.for_id` is null, missing, or refers to a non-existent event, readers use these fallback rules in order:
 
 1. **Semantic match.** If both events have `semantic.call_id` and they're equal, pair them.
 2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call` in the same branch scope. Sequential fallback considers only calls in the same nearest `parent_id` ancestry as the result, so an inline subagent subtree cannot capture a parent timeline result and a parent timeline result cannot capture a child subtree call. Linear sessions without `parent_id` are unchanged.
-3. **Heuristic match.** Readers may use further heuristics (timestamp proximity, payload shape) but must flag the pairing as uncertain in rendered output.
+3. **Heuristic match.** Readers MAY use further heuristics (timestamp proximity, payload shape) but MUST flag the pairing as uncertain in rendered output.
 
-Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
+Writers SHOULD avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
 
-Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§17.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§18.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers MUST flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
 
-### 9.6 Unknown event types
+### 10.6 Unknown event types
 
-Readers must tolerate unknown types:
+Readers MUST tolerate unknown types:
 
 - Preserve them when round-tripping.
 - Render with a generic fallback.
 - Do not abort parsing.
 
-Writers MUST NOT invent new top-level event types in v0.1 writer-strict output. Use the `other` tool kind ([§10](#10-canonical-tool-taxonomy)) or `source.raw` ([§9.1](#9-1-base-shape), [§14.1](#14-1-source-raw-elision-and-redaction)) for adapter-specific data, or `meta` ([§8.0.3](#8-0-3-the-meta-extension-convention) / [§11](#11-vendor-extensions)) for vendor extensions. Reader-tolerant parsing may preserve unknown future event types at runtime; this tolerance is not part of the writer schema.
+Writers MUST NOT invent new top-level event types in v0.1 writer-strict output. Use the `other` tool kind ([§11](#11-canonical-tool-taxonomy)) or `source.raw` ([§10.1](#10-1-base-shape), [§15.1](#15-1-source-raw-elision-and-redaction)) for adapter-specific data, or `meta` ([§8.3](#8-3-the-meta-extension-convention) / [§12](#12-vendor-extensions)) for vendor extensions. Reader-tolerant parsing MAY preserve unknown future event types at runtime; this tolerance is not part of the writer schema.
 
-### 9.7 Source envelope referencing
+### 10.7 Source envelope referencing
 
-When a single source envelope produces multiple entries — for example, an assistant message envelope whose `content` array is split across one `agent_message`, one `agent_thinking`, and one `tool_call` entry — writers should not inline the full envelope on every derived entry. Use *inline-first / ref-subsequent* dedup:
+When a single source envelope produces multiple entries — for example, an assistant message envelope whose `content` array is split across one `agent_message`, one `agent_thinking`, and one `tool_call` entry — writers SHOULD NOT inline the full envelope on every derived entry. Use *inline-first / ref-subsequent* dedup:
 
 - The **first** entry derived from a given source envelope sets `source.raw.envelope` (and `source.raw.block`, `source.raw.block_index` if applicable).
 - **Subsequent** entries derived from the same envelope set `source.raw.envelope_ref` to the first entry's `id`. They omit `source.raw.envelope` and keep `block` / `block_index`.
 
-`source.raw.envelope_ref` is an optional string. Writers must ensure it references the `id` of an entry that appears **earlier** in the same file — the same envelope, inlined once. Forward references and dangling references are reader errors (`source_raw_envelope_ref_unresolved`, §17.4). The first-inline-then-ref shape is streaming-write friendly: readers resolve refs in a single pass without backtracking.
+`source.raw.envelope_ref` is an optional string. Writers MUST ensure it references the `id` of an entry that appears **earlier** in the same file — the same envelope, inlined once. Forward references and dangling references are reader errors (`source_raw_envelope_ref_unresolved`, §18.4). The first-inline-then-ref shape is streaming-write friendly: readers resolve refs in a single pass without backtracking.
 
 This mechanism is additive over v0.1.0. Readers that do not understand `envelope_ref` will see it as an unknown raw-source field and ignore it; the entry's other fields (`type`, `payload`, `semantic`) remain fully self-describing.
 
 ---
 
-## 10. Canonical tool taxonomy
+## 11. Canonical tool taxonomy
 
 The `tool_call.payload.tool` field uses these values. Each defines the expected shape of `args`.
 
@@ -1468,9 +1475,9 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` |
 | `other` | `{ name, args }` |
 
-Checklist and plan snapshots use `task_plan_update` ([§9.2](#9-2-mandatory-event-types)) rather than `tool_call`.
+Checklist and plan snapshots use `task_plan_update` ([§10.2](#10-2-mandatory-event-types)) rather than `tool_call`.
 
-### 10.1 `file_edit`
+### 11.1 `file_edit`
 
 `file_edit` has two exclusive argument forms:
 
@@ -1491,53 +1498,53 @@ The `diff` form uses a unified diff:
  unchanged
 ```
 
-Writers with native before/after content must convert to a diff before emitting. Writers that synthesize the edit from indirect source data set `source.synthesized: true`.
+Writers with native before/after content MUST convert to a diff before emitting. Writers that synthesize the edit from indirect source data set `source.synthesized: true`.
 
-### 10.2 `file_patch`
+### 11.2 `file_patch`
 
 Use `file_patch` when one source tool call represents a patch touching one or more files, and
 single-file `file_edit` would either lose the call's multi-file grouping or force consumers to
 reconstruct it from synthesized sibling calls. Each `files[]` entry carries the affected `path` and a
-per-file unified diff. Writers that split source-native patch text into per-file hunks should add
+per-file unified diff. Writers that split source-native patch text into per-file hunks SHOULD add
 `---` and `+++` file headers when the source omits them, so generic consumers can render each file
 without parsing the source-native patch envelope. For renames, `path` is the destination path and the
 diff headers carry both source and destination paths. Set `atomic: true` when the source represented
 the patch as one operation.
 
-### 10.3 `file_list`
+### 11.3 `file_list`
 
 Use `file_list` when the agent inspected a directory or file tree. The result's display listing
 lives in the matching `tool_result.payload.output`. Do not map directory listing to
 `shell_command` unless the source only records a literal shell command.
 
-### 10.4 `shell_command`
+### 11.4 `shell_command`
 
-Full command in `command`; output in the corresponding `tool_result.payload.output`. Redactors should scrub env vars, `Authorization` headers in piped curls, etc.
+Full command in `command`; output in the corresponding `tool_result.payload.output`. Redactors SHOULD scrub env vars, `Authorization` headers in piped curls, etc.
 
-### 10.5 `mcp_call`
+### 11.5 `mcp_call`
 
 - `server` — MCP server identifier (e.g., `github`, `linear`).
 - `tool` — tool name within that server.
-- `headers` — should be redacted before writing: `Authorization`, `X-API-Key`, `Cookie`, `Bearer ...`.
+- `headers` — SHOULD be redacted before writing: `Authorization`, `X-API-Key`, `Cookie`, `Bearer ...`.
 
-### 10.6 `subagent_invoke`
+### 11.6 `subagent_invoke`
 
 Indicates a child conversation was spawned. Two cases:
 
 - **Inline subtree:** when the source stores child events inline in the same session, child events use this event's `id` as their root `parent_id`.
-- **External child session:** when the source stores the child as a separate transcript, set `args.session_id` to the child session header `id`. The child may appear as a sibling group in the same session bundle or as an external trail. Do not use a content hash or source runtime id in `args.session_id`.
+- **External child session:** when the source stores the child as a separate transcript, set `args.session_id` to the child session header `id`. The child MAY appear as a sibling group in the same session bundle or as an external trail. Do not use a content hash or source runtime id in `args.session_id`.
 
 When the external child appears in the same file, the child header SHOULD set `fork_from.session_id` to the parent session header `id` and `fork_from.entry_id` to the parent `subagent_invoke` event `id`. `fork_from.content_hash` is optional best-effort and refers to the parent session-level content hash.
 
-### 10.7 The `other` escape hatch
+### 11.7 The `other` escape hatch
 
 For tools not covered above, use `tool: "other"` with `args: { name, args }`. Readers render generically. These don't participate in cross-agent comparison.
 
 ---
 
-## 11. Vendor extensions
+## 12. Vendor extensions
 
-Implementations and vendors can add custom data via the `meta` field on the trail envelope, session header, or any event entry. Use the `x-<vendor>/<name>` extension grammar (§11.1) for keys to avoid collisions:
+Implementations and vendors can add custom data via the `meta` field on the trail envelope, session header, or any event entry. Use the `x-<vendor>/<name>` extension grammar (§12.1) for keys to avoid collisions:
 
 ```jsonc
 "meta": {
@@ -1547,18 +1554,18 @@ Implementations and vendors can add custom data via the `meta` field on the trai
 }
 ```
 
-Readers may preserve, ignore, or render `meta` fields. They must not abort on unknown keys.
+Readers MAY preserve, ignore, or render `meta` fields. They MUST NOT abort on unknown keys.
 
-`entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
+`entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §16.
 
-The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` ([§14.1](#14-1-source-raw-elision-and-redaction)) instead. See [§8.0.3](#8-0-3-the-meta-extension-convention) for the full convention.
+The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` ([§15.1](#15-1-source-raw-elision-and-redaction)) instead. See [§8.3](#8-3-the-meta-extension-convention) for the full convention.
 
-### 11.1 Extension grammar
+### 12.1 Extension grammar
 
 One extension grammar is used across extension surfaces: `x-<vendor>/<name>`.
 
 - `vendor`: lowercase alphanumeric with optional hyphen-separated segments, e.g. `acme` or `acme-labs`.
-- `name`: starts with lowercase alphanumeric and may contain lowercase alphanumeric, `_`, or `-`.
+- `name`: starts with lowercase alphanumeric and MAY contain lowercase alphanumeric, `_`, or `-`.
 
 | Surface | Applies to | Example |
 | --- | --- | --- |
@@ -1572,9 +1579,9 @@ One extension grammar is used across extension surfaces: `x-<vendor>/<name>`.
 
 ---
 
-## 12. Tree and branching
+## 13. Tree and branching
 
-### 12.1 When to emit `parent_id`
+### 13.1 When to emit `parent_id`
 
 `parent_id` represents tree topology, not ordinary linear sequencing. Linear sessions use file order. Tool call/result pairing uses `tool_result.payload.for_id` and `semantic.call_id`, not `parent_id`.
 
@@ -1584,13 +1591,13 @@ Writers SHOULD emit `parent_id` only when source data contains branch, fork, or 
 
 Reader display policies for linear and tree-aware renderers are implementation semantics, not wire-format rules.
 
-### 12.2 Acyclicity
+### 13.2 Acyclicity
 
-The `parent_id` graph must be acyclic. The header isn't part of the graph; nothing references it via `parent_id`.
+The `parent_id` graph MUST be acyclic. The header isn't part of the graph; nothing references it via `parent_id`.
 
 ---
 
-## 13. Canonical agent registry
+## 14. Canonical agent registry
 
 Lowercase, hyphenated:
 
@@ -1598,18 +1605,18 @@ Lowercase, hyphenated:
 
 The registry reserves canonical names. It does not imply adapter support.
 
-New agents may be added by amending this spec. Until registered, adapters may use a custom `x-<vendor>/<name>` agent name (e.g., `x-example/myagent`) to reduce collisions while keeping the vendor and agent name parseable.
+New agents MAY be added by amending this spec. Until registered, adapters MAY use a custom `x-<vendor>/<name>` agent name (e.g., `x-example/myagent`) to reduce collisions while keeping the vendor and agent name parseable.
 
 ---
 
-## 14. Truncation, overflow, and raw source size
+## 15. Truncation, overflow, and raw source size
 
 Writers MAY truncate large `tool_result` outputs to keep trails tractable. The wire format records truncation with three fields on `tool_result.payload`:
 
 | Field | Type | Notes |
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
-| `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
+| `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; REQUIRED when `truncated` is true |
 | `overflow_ref` | string or null | optional content-addressed reference to the full output (`sha256:<64 lowercase hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
@@ -1619,14 +1626,14 @@ Tool call arguments use the same top-level marker on `tool_call.payload`:
 | Field | Type | Notes |
 |---|---|---|
 | `truncated` | boolean | `true` when `args` was shortened from its original object |
-| `args_size` | integer ≥0 | UTF-8 byte length of the JCS-serialized original `args` object before truncation; required when `truncated` is true |
+| `args_size` | integer ≥0 | UTF-8 byte length of the JCS-serialized original `args` object before truncation; REQUIRED when `truncated` is true |
 | `overflow_ref` | string or null | optional content-addressed reference to the full args object (`sha256:<64 lowercase hex>`) |
 
 The marker applies to the `args` object as a whole. Individual arg strings keep their declared per-toolkind shape, just shortened. Specific thresholds and algorithms remain writer policy.
 
-`source.raw` is optional. Writers should omit or summarize very large or sensitive raw source objects when they would make trail files unwieldy or unsafe. Share tools must inspect `source.raw` during redaction before producing a shared artifact.
+`source.raw` is optional. Writers SHOULD omit or summarize very large or sensitive raw source objects when they would make trail files unwieldy or unsafe. Share tools MUST inspect `source.raw` during redaction before producing a shared artifact.
 
-### 14.1 `source.raw` elision and redaction
+### 15.1 `source.raw` elision and redaction
 
 Writers MAY elide all or part of a `source.raw` value when it is unwieldy or unsafe to inline. Elision uses a single wire-format marker, in place of either the entire `source.raw` or any nested string leaf:
 
@@ -1637,7 +1644,7 @@ Writers MAY elide all or part of a `source.raw` value when it is unwieldy or uns
 | Field | Type | Notes |
 |---|---|---|
 | `elided` | boolean `true` | sentinel; readers detect elided regions by this field |
-| `size_bytes` | integer | UTF-8 byte length of the elided original (informational; readers may use it for display or budgeting) |
+| `size_bytes` | integer | UTF-8 byte length of the elided original (informational; readers MAY use it for display or budgeting) |
 
 Two placements are valid:
 
@@ -1646,24 +1653,24 @@ Two placements are valid:
 
 Specific size thresholds, the algorithm a writer uses to choose which leaves to elide, and whether elision is gated by a hard cap are implementation policy — they belong in writer documentation, not the format. Validators MAY warn on entries whose `source.raw` exceeds an implementation-chosen size budget, but the wire format itself imposes no fixed limit.
 
-When elision happens at the first emission of a source envelope (§9.7), subsequent `envelope_ref` entries still resolve — the ref points at the elided entry's `id`, not at its inlined envelope.
+When elision happens at the first emission of a source envelope (§10.7), subsequent `envelope_ref` entries still resolve — the ref points at the elided entry's `id`, not at its inlined envelope.
 
-Adapters MUST redact known secret patterns in `source.raw` before writing — emission-time redaction is a writer responsibility, not a share-time concern. Validators emit `source_raw_unredacted_secret` (warning) when a string leaf in `source.raw` matches a known credential pattern (Authorization headers, Bearer tokens, JWT, vendor API keys, PEM private key blocks, ENV-style assignments). Share-time redaction (§15) layers additional normalization on top — paths, PII — and produces a separate artifact.
+Adapters MUST redact known secret patterns in `source.raw` before writing — emission-time redaction is a writer responsibility, not a share-time concern. Validators emit `source_raw_unredacted_secret` (warning) when a string leaf in `source.raw` matches a known credential pattern (Authorization headers, Bearer tokens, JWT, vendor API keys, PEM private key blocks, ENV-style assignments). Share-time redaction (§16) layers additional normalization on top — paths, PII — and produces a separate artifact.
 
 ---
 
-## 15. Redaction
+## 16. Redaction
 
 The raw file format does not mandate redaction. Sharing tools produce a separate redacted artifact before upload. Raw and redacted artifacts have different `content_hash` values.
 
-A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
+A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts MAY record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
 
 Share-time redactors MUST apply the privacy rules below before producing shared artifacts. They MAY normalize a field instead of deleting it only when the normalized value no longer exposes raw local paths, raw local session identifiers, credentials, or private repository identity.
 
 | Field or value | Share-time action |
 |---|---|
 | `cwd` | Normalize or strip. |
-| `vcs.remote_url` | Strip or normalize per §8.2 unless the user explicitly opts in. |
+| `vcs.remote_url` | Strip or normalize per §9.2 unless the user explicitly opts in. |
 | `vcs.worktree.path`, `vcs.worktree.original_cwd` | Normalize or strip. |
 | `source.path` | Normalize or strip. |
 | `attachments[].uri` | Remove or rewrite local `file:` URIs. Rewrite to `sha256:<hex>` only when the referenced blob is content-addressed and transported with the share; otherwise remove `uri` and keep visible stub metadata such as `kind`, `name`, and `media_type`. |
@@ -1680,43 +1687,43 @@ Specific secret patterns, exact PII detectors, path-normalization strings, image
 
 ---
 
-## 16. Security Considerations
+## 17. Security Considerations
 
 Trail files are untrusted input. All string content, including messages, tool output, file paths, URIs, agent names, titles, and source metadata, can be attacker-controlled. Renderers SHOULD escape HTML, SHOULD NOT execute or auto-open rendered Markdown links, and CLI viewers SHOULD sanitize terminal control sequences before writing text to a terminal.
 
 Agent Trail intentionally has no format-level size caps. Consumers SHOULD enforce deployment-specific limits for maximum line length, file size, event count, graph depth, and decoded attachment or overflow bytes. Consumers SHOULD stream rather than buffer whole files where possible; JSONL is the interchange shape partly to make bounded streaming readers practical.
 
-Hostile files can contain invalid graph structure even though `parent_id` cycles and cross-group links are invalid (§12, §17.4). Validators MUST NOT loop indefinitely while checking graph topology, and tree renderers SHOULD bound recursion or use iterative traversal when displaying deep parent chains.
+Hostile files can contain invalid graph structure even though `parent_id` cycles and cross-group links are invalid (§13, §18.4). Validators MUST NOT loop indefinitely while checking graph topology, and tree renderers SHOULD bound recursion or use iterative traversal when displaying deep parent chains.
 
-`content_hash` provides byte integrity for the canonical artifact (§7.3, §7.4), not authorship, provenance, or trust. A trail claiming `agent.name: "claude-code"` proves only that the file contains that string. Agent Trail v0.1.0 has no signature or attestation mechanism; signing may be added by a future extension.
+`content_hash` provides byte integrity for the canonical artifact (§7.3, §7.4), not authorship, provenance, or trust. A trail claiming `agent.name: "claude-code"` proves only that the file contains that string. Agent Trail v0.1.0 has no signature or attestation mechanism; signing MAY be added by a future extension.
 
-In v0.1.0, `content_hash` values are bare 64-character SHA-256 hex strings (§7.3). Other content-addressed references, such as attachment URIs (§9.2) and `overflow_ref` values (§14), use `sha256:<hex>` references. Consumers that verify prefixed content-addressed references MUST reject unknown algorithm prefixes rather than treating the reference as verified.
+In v0.1.0, `content_hash` values are bare 64-character SHA-256 hex strings (§7.3). Other content-addressed references, such as attachment URIs (§10.2) and `overflow_ref` values (§15), use `sha256:<hex>` references. Consumers that verify prefixed content-addressed references MUST reject unknown algorithm prefixes rather than treating the reference as verified.
 
-Attachment URIs and overflow references can identify local resources on the producer's machine. Viewers SHOULD NOT dereference `file:` URIs, `overflow_ref` values, or other external references automatically. Viewers MUST NOT dereference local `file:` URIs or non-`sha256:` overflow references from redacted or shared trails; §15 requires share-time redactors to remove or rewrite those values before transport.
+Attachment URIs and overflow references can identify local resources on the producer's machine. Viewers SHOULD NOT dereference `file:` URIs, `overflow_ref` values, or other external references automatically. Viewers MUST NOT dereference local `file:` URIs or non-`sha256:` overflow references from redacted or shared trails; §16 requires share-time redactors to remove or rewrite those values before transport.
 
 Redaction reduces content exposure but does not make a shared trail private. Timestamps, event counts, tool names, model names, branch shape, unredacted file names, and remaining metadata can still reveal workflow information. Sharing a redacted trail SHOULD be treated as publishing it to anyone who can access the transport.
 
-Header fields need the same privacy review as event payloads. `cwd`, `vcs.remote_url`, `vcs.worktree`, `name`, `description`, and `tags` commonly contain usernames, internal hostnames, private repository names, or project identifiers. Sharing tools SHOULD scan headers and trail envelopes as well as event payloads (§15).
+Header fields need the same privacy review as event payloads. `cwd`, `vcs.remote_url`, `vcs.worktree`, `name`, `description`, and `tags` commonly contain usernames, internal hostnames, private repository names, or project identifiers. Sharing tools SHOULD scan headers and trail envelopes as well as event payloads (§16).
 
 ---
 
-## 17. Validation
+## 18. Validation
 
 Validation is layered because JSON Schema validates one line at a time, while several Agent Trail rules require whole-file context.
 
-### 17.1 Writer schema
+### 18.1 Writer schema
 
 `schema.json` is the writer-strict schema for v0.1.0. It validates a single JSON object line and requires header and envelope records to use `schema_version: "0.1.0"`. It rejects unknown top-level event types. Writers use this schema for emitted envelope, header, and event lines.
 
-`schema.json` is the canonical format contract through v1.0. Generated types, validators, and packages must derive from it rather than maintaining a separate manual contract.
+`schema.json` is the canonical format contract through v1.0. Generated types, validators, and packages MUST derive from it rather than maintaining a separate manual contract.
 
-### 17.2 Reader tolerance
+### 18.2 Reader tolerance
 
-Readers may accept compatible future v0.x files best-effort: skip unknown event types, ignore unknown payload fields, preserve unknown records when round-tripping, and warn instead of aborting where possible. Reader tolerance is runtime behavior, not the writer-strict schema contract.
+Readers MAY accept compatible future v0.x files best-effort: skip unknown event types, ignore unknown payload fields, preserve unknown records when round-tripping, and warn instead of aborting where possible. Reader tolerance is runtime behavior, not the writer-strict schema contract.
 
-### 17.3 Validation diagnostics
+### 18.3 Validation diagnostics
 
-Validators should report normalized diagnostics with `line`, `path` (JSON Pointer), `severity`, `code`, and `message`. Implementations may include extra fields, but these five fields are the portable diagnostic surface.
+Validators SHOULD report normalized diagnostics with `line`, `path` (JSON Pointer), `severity`, `code`, and `message`. Implementations MAY include extra fields, but these five fields are the portable diagnostic surface.
 
 #### Conformance suite (non-normative)
 
@@ -1728,63 +1735,67 @@ The suite manifest uses three assertion tiers:
 - Portable diagnostic assertions (`severity`, `code`, `line`, `path`) only for spec-named diagnostic codes.
 - Line-only assertions for schema-layer failures, because JSON Schema validator keyword vocabularies are implementation-specific.
 
-### 17.4 File graph checks
+### 18.4 File graph checks
 
-A v0.1.0-compliant trail file must also pass whole-file checks:
+A v0.1.0-compliant trail file MUST also pass whole-file checks.
 
-1. The first line is either a trail envelope (`type: "trail"`, §8.0) or a session header (`type: "session"`, `schema_version: "0.1.0"`). When the envelope is present, the session header MUST occupy line 2.
+#### 18.4.1 Errors
+
+1. The first line is either a trail envelope (`type: "trail"`, §8) or a session header (`type: "session"`, `schema_version: "0.1.0"`). When the envelope is present, the session header MUST occupy line 2.
 2. Subsequent lines match an event schema (`type`, `id`, `ts`, `payload`).
 3. All `id` values are unique within the file.
 4. Every non-null `parent_id` references an `id` in the same file.
 5. The `parent_id` graph is acyclic.
-6. Writer timestamps are valid UTC `Z` ISO-8601 values with millisecond precision. Readers may tolerate broader ISO-8601 timestamps.
+6. Writer timestamps are valid UTC `Z` ISO-8601 values with millisecond precision. Readers MAY tolerate broader ISO-8601 timestamps.
 7. All string values are well-formed: no unpaired high or low surrogate code units. Violations are `ill_formed_string` diagnostics at the offending JSON Pointer. Strict validation reports an error; reader-tolerant validation reports a warning and does not repair the value.
 
 If `content_hash` is present:
 
 8. The value is 64 hex characters (SHA-256).
-9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers may warn but must not abort.
+9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers MAY warn but MUST NOT abort.
 
-Warnings (non-fatal):
+#### 18.4.2 Warnings
 
-- Each `tool_call.id` should be referenced by exactly one `tool_result.payload.for_id` (or paired via §9.5).
-- Inline `subagent_invoke` events should have descendants in the same group, or external child invocations should set `args.session_id` to the child header `id` when known.
-- When an in-file child session is present, the parent `subagent_invoke.args.session_id` and child `header.fork_from.{session_id,entry_id}` should agree. Mismatches are warnings, not errors, so partial bundles and external-only references remain readable.
-- `branch_summary.payload.abandoned_branch_id` should reference a real branch root.
-- Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
-  - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).
+- Each `tool_call.id` SHOULD be referenced by exactly one `tool_result.payload.for_id` (or paired via §10.5).
+- Inline `subagent_invoke` events SHOULD have descendants in the same group, or external child invocations SHOULD set `args.session_id` to the child header `id` when known.
+- When an in-file child session is present, the parent `subagent_invoke.args.session_id` and child `header.fork_from.{session_id,entry_id}` SHOULD agree. Mismatches are warnings, not errors, so partial bundles and external-only references remain readable.
+- `branch_summary.payload.abandoned_branch_id` SHOULD reference a real branch root.
+- Writers SHOULD emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
+  - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §10.3).
   - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
 - A `tool_result` paired by sequential fallback when two or more unmatched prior same-branch `tool_call` candidates existed emits `ambiguous_sequential_pairing` at `/payload`.
 - A `user_query` question with duplicate option labels among options that do not carry stable option ids emits `duplicate_option_labels` at the repeated option's `/payload/questions/<index>/options/<index>/label`.
-- `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
-- Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§14.1).
-- `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
-- Privacy-sensitive tool arguments should not contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.
-- `source.raw.envelope_ref`, when set, must reference the `id` of an earlier entry in the same file (§9.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
-- Trail envelope position and uniqueness (§8.0):
+- `session_end.payload.final_message_id`, when present, SHOULD reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
+- Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§15.1).
+- `source.raw` SHOULD NOT contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
+- Privacy-sensitive tool arguments SHOULD NOT contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.
+- `source.raw.envelope_ref`, when set, MUST reference the `id` of an earlier entry in the same file (§10.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
+- Trail envelope position and uniqueness (§8):
   - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
   - `multiple_envelopes` (error): more than one envelope appears in the file.
   - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
   - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent.name`.
 
-Streaming rules (§8.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
+#### 18.4.3 Streaming-state rules
+
+Streaming rules (§9.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
 
 10. If the current `header.stream.state == "open"`:
-   - **10a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
-   - **10b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
-11. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 10b does not apply once the stream is no longer marked live.
+   - **10a.** `content_hash` SHOULD be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
+   - **10b.** Terminal events (`session_end`, `session_terminated`) SHOULD NOT appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
+11. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts SHOULD populate `content_hash`. Readers MAY warn but MUST NOT abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, MAY contain both `session_end` and `session_terminated` legitimately; rule 10b does not apply once the stream is no longer marked live.
 
 ---
 
-## 18. Formal schema
+## 19. Formal schema
 
 The normative writer-strict JSON Schema lives in `schema.json` and is published at `https://agent-trail.dev/schema/v0.1.0.json`.
 
-This spec intentionally does not duplicate the full schema inline. Implementations should validate each JSONL line against `schema.json`, then run the whole-file checks in §17.4. Reader-tolerant parsing, including unknown future event preservation, is separate from writer-strict schema validation.
+This spec intentionally does not duplicate the full schema inline. Implementations SHOULD validate each JSONL line against `schema.json`, then run the whole-file checks in §18.4. Reader-tolerant parsing, including unknown future event preservation, is separate from writer-strict schema validation.
 
 ---
 
-## 19. Examples
+## 20. Examples
 
 More complete examples are maintained as validated conformance fixtures under `tests/fixtures/validation/valid/spec-example-*.trail.jsonl` and published with concrete package exports such as `@agent-trail/schema/conformance/manifest.json` and `@agent-trail/schema/conformance/fixtures/valid/spec-example-*.trail.jsonl`. This keeps examples executable without splitting normative meaning away from the schema and validation rules.
 
@@ -1804,16 +1815,16 @@ Minimal at-a-glance trail:
 
 Initial public draft. v0.1.0 defines:
 
-- JSONL file layout, session header, core event envelope, mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
+- JSONL file layout, session header, core event envelope, mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
-- The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
-- Session headers may carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
-- Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
-- The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
+- The optional trail envelope record `type:"trail"` at line 1 (§8) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
+- Session headers MAY carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
+- Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§9.5).
+- The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§9.4, §10.3).
 - Tool-surface fidelity for truncated tool-call args, string-replacement `file_edit`, branch-scoped pairing warnings, stable user-query option ids, stricter attachment identity, and tool-result meta key hygiene.
-- The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
-- Normative share-time redaction rules for local attachment URIs, unsafe `overflow_ref` values, unresolved `user_query_response` answers, and privacy-sensitive field handling (§15), plus the `tool_args_unredacted_secret` validator warning (§17.4).
-- Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
+- The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§10.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§15.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
+- Normative share-time redaction rules for local attachment URIs, unsafe `overflow_ref` values, unresolved `user_query_response` answers, and privacy-sensitive field handling (§16), plus the `tool_args_unredacted_secret` validator warning (§18.4).
+- Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§10.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 - During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
 - During the v0.1.0 draft cycle, vendor extensions converged on one `x-<vendor>/<name>` grammar across `meta`, enum extensions, `system_event.kind`, `tool_result.payload.meta`, and custom `agent.name`.

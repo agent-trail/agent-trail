@@ -476,10 +476,10 @@ function groupSpecSections(sections: SpecSection[]): SpecNavGroup[] {
 function navGroupLabel(section: SpecSection, sectionNumber: number | undefined): string {
   if (isReferenceSection(section.title)) return "REFERENCE";
   if (section.index === 0 || sectionNumber === undefined || sectionNumber <= 4) return "CORE";
-  if (sectionNumber <= 8) return "STRUCTURE";
-  if (sectionNumber <= 10) return "EVENTS";
-  if (sectionNumber <= 13) return "EXTENSIONS";
-  if (sectionNumber <= 16) return "VALIDATION";
+  if (sectionNumber <= 9) return "STRUCTURE";
+  if (sectionNumber <= 11) return "EVENTS";
+  if (sectionNumber <= 14) return "EXTENSIONS";
+  if (sectionNumber <= 18) return "VALIDATION";
   return "REFERENCE";
 }
 

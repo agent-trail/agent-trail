@@ -115,7 +115,7 @@ describe("splitSessionGroups", () => {
     const split = splitSessionGroups(records);
 
     expect(split.malformedHeaderLines).toEqual([3]);
-    // Boundary recovery (spec §8.6.2): the malformed header still opens a new
+    // Boundary recovery (spec §9.6.2): the malformed header still opens a new
     // group so subsequent events are not orphaned.
     expect(split.groups).toHaveLength(2);
     expect(split.groups[1]?.header.line).toBe(3);

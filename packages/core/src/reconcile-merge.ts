@@ -16,7 +16,7 @@ import type { ReconcileGroup, ReconcileWarning, SegmentInput } from "./reconcile
 
 // Header field merge policy for `buildMergedHeader`:
 //   STABLE_FIELDS         — explicit override list: prefer the first segment's value.
-//   LATE_BINDING_FIELDS   — enumerated for spec parity (matches spec §8.5 step 6); has no
+//   LATE_BINDING_FIELDS   — enumerated for spec parity (matches spec §9.5 step 6); has no
 //                           runtime effect because the `lastHeader` spread in
 //                           `buildMergedHeader` already inherits these.
 //   All other fields      — late-bind by default via the spread (agent, source, etc).

@@ -1,6 +1,6 @@
 /**
  * Per-adapter namespace UUIDs for deterministic `session_uid`/entry-id
- * derivation (spec §8.5). The derivation helpers themselves live in
+ * derivation (spec §9.5). The derivation helpers themselves live in
  * `@agent-trail/adapter-kit` (shared by the mapping engine); this module pins
  * the per-adapter namespaces and re-exports the helpers.
  *
@@ -35,7 +35,7 @@ export const CLAUDE_CODE_SYNTHESIZED_ENTRY_ID_NAMESPACE = "d6c2f7e3-9e45-4fac-bf
 /**
  * Namespace for Codex CLI entry ids. Codex rollouts give us no per-record
  * uuid, so every entry id is derived from (session_uid, record_index,
- * entry_type) to keep re-parses idempotent per spec §8.5. Stable forever — do
+ * entry_type) to keep re-parses idempotent per spec §9.5. Stable forever — do
  * not change.
  */
 export const CODEX_ENTRY_ID_NAMESPACE = "e8f4b9a5-af67-4bcd-d156-738f9a0b1c23";

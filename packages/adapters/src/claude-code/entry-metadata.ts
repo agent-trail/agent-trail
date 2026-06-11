@@ -62,7 +62,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 // Per-parse context. Mirrors `PiEntryIdCtx`. Every emitted cc entry id is a
 // deterministic v5 UUID seeded from (session_uid, source_uuid [, suffix]) so
-// re-parses are idempotent per spec §8.5 and short-uuid source envelopes still
+// re-parses are idempotent per spec §9.5 and short-uuid source envelopes still
 // satisfy the v0.1 `#/$defs/id` regex. Original source uuid stays under
 // `source.raw.uuid` via `buildRaw`.
 //

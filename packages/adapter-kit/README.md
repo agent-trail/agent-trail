@@ -20,7 +20,7 @@ ready; per-adapter migration to it is tracked separately (epic Phase 4).
 | `commandFrom` | `(args) => string \| undefined` | Canonical shell command: `command` string → `cmd` string → argv array (quoted/joined; partial argv refused). |
 | `filePathFrom` | `(args) => string \| undefined` | `file_path` then `path`. |
 | `pick` | `(record, keys) => number \| undefined` | First non-negative-integer value across candidate keys. |
-| `mapAgentMessageUsage` | `(raw) => AgentMessageUsage \| undefined` | Maps a source usage envelope to spec §9.2 `payload.usage` (snake/camel, cache renames). |
+| `mapAgentMessageUsage` | `(raw) => AgentMessageUsage \| undefined` | Maps a source usage envelope to spec §10.2 `payload.usage` (snake/camel, cache renames). |
 
 ## Source readers
 

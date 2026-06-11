@@ -38,7 +38,7 @@ export function nearestMappedAncestor(
 
 // `sourceIdToFirstEntryId` maps a Pi envelope id to the **first** Agent Trail entry it emitted.
 // For multi-block envelopes (assistant message with text + toolCall blocks), the first entry sits
-// directly under the divergence parent and is therefore the spec §9.3 "root of abandoned branch".
+// directly under the divergence parent and is therefore the spec §10.3 "root of abandoned branch".
 // Using last-entry here would misanchor branch summaries deeper into the multi-block fan-out.
 export function findAbandonedBranchRootId(
   fromSourceId: string,

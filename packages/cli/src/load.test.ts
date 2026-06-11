@@ -462,7 +462,7 @@ test("reconcile: second load with matching session_uid merges segments, summary 
   const objectPath = join(storeRoot, "objects", "sha256", `${mergedHash}.trail.jsonl`);
   const mergedBytes = await readFile(objectPath, "utf8");
   const mergedRecords = await parseJsonlString(mergedBytes);
-  // Merged header has no segment.* per spec §8.5 step 6.
+  // Merged header has no segment.* per spec §9.5 step 6.
   const header = mergedRecords[0]?.value as Record<string, unknown>;
   expect(header.segment).toBeUndefined();
   expect(header.session_uid).toBe(sessionUid);
