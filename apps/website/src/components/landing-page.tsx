@@ -3,7 +3,7 @@ import { TrailArtifact } from "./trail-artifact.tsx";
 import {
   ArrowGlyph,
   BorderedActionLink,
-  BrandRhombus,
+  BrandInlineLockup,
   cn,
   Eyebrow,
   FOCUS_RING,
@@ -97,8 +97,8 @@ function highlightedAgentTrailSummary(summary: string) {
 
   return (
     <>
-      <span className="mr-2 inline-block translate-y-[-0.06em]">
-        <BrandRhombus className="text-[0.82em]" label={prefix} />
+      <span className="mr-3 inline align-baseline">
+        <BrandInlineLockup label="AGENT_TRAIL" />
       </span>
       {summary.slice(prefix.length)}
     </>

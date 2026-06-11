@@ -64,7 +64,7 @@ export function RouteLink({
 export function BrandMark({ withMeta = false }: { withMeta?: boolean }) {
   return (
     <RouteLink className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 no-underline" href="/">
-      <BrandRhombus className="text-sm" label="Agent Trail" />
+      <BrandLockup className="text-sm" />
       {withMeta ? (
         <span className="text-xs tracking-normal text-muted normal-case">
           v0.1.0 / Draft / Apache-2.0
@@ -74,15 +74,100 @@ export function BrandMark({ withMeta = false }: { withMeta?: boolean }) {
   );
 }
 
-export function BrandRhombus({ className, label }: { className?: string; label: string }) {
+export function BrandLockup({
+  className,
+  label = "AGENT_TRAIL",
+  showTrail = true,
+}: {
+  className?: string;
+  label?: string;
+  showTrail?: boolean;
+}) {
+  return (
+    <span className={cn("inline-flex items-center gap-[0.62em] leading-none", className)}>
+      <BrandPrompt className="h-[1.55em] w-[2.48em] shrink-0" />
+      <BrandWordmark label={label} />
+      {showTrail ? (
+        <BrandTrailEnd className="hidden h-[0.8em] w-[3.2em] shrink-0 sm:block" />
+      ) : null}
+    </span>
+  );
+}
+
+export function BrandInlineLockup({
+  className,
+  label = "AGENT_TRAIL",
+}: {
+  className?: string;
+  label?: string;
+}) {
   return (
     <span
-      className={cn("inline-block leading-none font-bold tracking-[0.08em] uppercase", className)}
+      className={cn(
+        "inline-flex items-baseline gap-[0.44em] align-baseline leading-none",
+        className,
+      )}
     >
-      <span className="inline-block bg-fg px-3 py-1 text-bg [transform:skewX(-14deg)]">
-        <span className="inline-block [transform:skewX(14deg)]">{label}</span>
-      </span>
+      <BrandPrompt className="h-[0.95em] w-[1.52em] translate-y-[0.08em] shrink-0" />
+      <BrandWordmark className="text-[0.82em]" label={label} />
     </span>
+  );
+}
+
+export function BrandGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 120 48"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 10L30 24L12 38" stroke="currentColor" strokeWidth="6" />
+      <path d="M36 38H58" stroke="currentColor" strokeWidth="6" />
+      <path d="M70 24H100" stroke="currentColor" strokeWidth="5" />
+      <rect height="13" width="13" x="100" y="17.5" stroke="currentColor" strokeWidth="5" />
+    </svg>
+  );
+}
+
+export function BrandWordmark({ className, label }: { className?: string; label: string }) {
+  return (
+    <span
+      className={cn("inline-block leading-none font-bold tracking-[0.18em] uppercase", className)}
+    >
+      {label}
+    </span>
+  );
+}
+
+function BrandPrompt({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 64 40"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M10 8L28 20L10 32" stroke="currentColor" strokeWidth="6" />
+      <path d="M36 32H58" stroke="currentColor" strokeWidth="6" />
+    </svg>
+  );
+}
+
+function BrandTrailEnd({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 72 18"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M0 9H52" stroke="currentColor" strokeWidth="4" />
+      <rect height="10" width="10" x="52" y="4" stroke="currentColor" strokeWidth="4" />
+    </svg>
   );
 }
 
