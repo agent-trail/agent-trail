@@ -202,7 +202,7 @@ export function sortedAgents(rows: readonly SessionBrowserRow[]): string[] {
       rows
         .map((row) => row.agent)
         .filter((agent): agent is string => agent !== null)
-        .map(sanitizeTerminalText),
+        .map(browserAgentFilterKey),
     ),
   ].sort((a, b) => a.localeCompare(b));
 }
@@ -232,7 +232,12 @@ function rowMatchesTrailFilter(row: SessionBrowserRow, filter: TrailFilter): boo
 }
 
 function rowMatchesAgentFilter(row: SessionBrowserRow, filter: string | null): boolean {
-  return filter === null || (row.agent !== null && sanitizeTerminalText(row.agent) === filter);
+  return filter === null || (row.agent !== null && browserAgentFilterKey(row.agent) === filter);
+}
+
+function browserAgentFilterKey(agent: string): string {
+  const sanitized = sanitizeTerminalText(agent);
+  return sanitized === "codex-cli" ? "codex" : sanitized;
 }
 
 function rowSearchText(row: SessionBrowserRow): string {

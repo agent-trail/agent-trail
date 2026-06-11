@@ -195,6 +195,64 @@ test("browser agent filter matches sanitized agent labels", async () => {
   }
 });
 
+test("browser agent filter treats codex and codex-cli as one agent", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  const codexCliRow = {
+    ...rows[1],
+    content_hash: "b".repeat(64),
+    registered_agent: "codex-cli",
+    agent: "codex-cli",
+    display_name: "Registered Codex row",
+  } as SessionBrowserRow;
+  try {
+    const app = mountSessionBrowser(setup.renderer, {
+      rows: [rows[0]!, codexCliRow],
+      warnings: [],
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+
+    expect(app.state().agentFilter).toBe("codex");
+    expect(setup.captureCharFrame()).toContain("AGENT codex");
+    expect(setup.captureCharFrame()).toContain("FILTERED 2");
+    expect(setup.captureCharFrame()).toContain("First source message for alpha");
+    expect(setup.captureCharFrame()).toContain("Registered Codex row");
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("browser scope reload clears agent filter", async () => {
+  const nextRows = [
+    {
+      ...rows[0],
+      source_id: "sess-next",
+      agent: "pi",
+      source_agent: "pi",
+      display_name: "Next scope row",
+    },
+  ] as SessionBrowserRow[];
+  const state = browserStateFromInput({
+    rows,
+    warnings: [],
+    scope: { mode: "cwd", label: "agent-trail" },
+    onToggleScope: async () => ({
+      rows: nextRows,
+      warnings: [],
+      scope: { mode: "all", label: "all projects" },
+    }),
+  });
+  state.agentFilter = "claude-code";
+
+  await toggleScopeSafely(state, () => {});
+
+  expect(state.agentFilter).toBeNull();
+  expect(renderBrowserFrame(state, { width: 120 })).toContain("FILTERED 1");
+  expect(renderBrowserFrame(state, { width: 120 })).toContain("Next scope row");
+});
+
 test("browser resume key shows disabled reason when handler is absent", async () => {
   const setup = await createTestRenderer({ width: 120, height: 24 });
   try {

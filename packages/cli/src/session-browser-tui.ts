@@ -624,6 +624,7 @@ async function toggleScope(state: BrowserState, update: () => void): Promise<voi
     state.query = "";
     state.searchMode = false;
     state.trailFilter = "all";
+    state.agentFilter = null;
     state.selectedIndex = 0;
     state.openedIdentity = null;
   } finally {
