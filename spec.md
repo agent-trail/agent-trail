@@ -359,7 +359,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 |---|---|---|---|
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
-| `id` | yes | string | UUID or ULID per §7.1/§17 |
+| `id` | yes | string | UUID or ULID per §7.1/§18 |
 | `name` | no | string | human session label |
 | `description` | no | string | free-text session description |
 | `tags` | no | string[] | free-form session labels |
@@ -455,7 +455,7 @@ and emit a new finalized trail with freshly computed hashes.
 
 Implementation merge policy is documented in `docs/implementation-semantics.md`.
 
-Whole-file graph rules (§16) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
+Whole-file graph rules (§17) apply **within** a segment, not across. Cross-segment references are out of scope for v0.1 (event `parent_id` chains do not span segments).
 
 #### Writer guidance
 
@@ -495,7 +495,7 @@ Entries that appear before the first `type:"session"` record (and after any enve
 
 #### 8.6.3 Per-group validation
 
-Whole-file graph rules (§16) apply **within** a group, not across:
+Whole-file graph rules (§17) apply **within** a group, not across:
 
 - `parent_id` resolution is scoped to the enclosing group. A `parent_id` that references an `id` in another group is treated as `unknown_parent_id` (cross-group references go through `fork_from`, not `parent_id`).
 - `tool_call` / `tool_result` pairing (§9.5) runs per group. An unmatched `tool_call` in group A is not satisfied by a `tool_result` in group B.
@@ -507,7 +507,7 @@ Event `id` uniqueness (§7.5) remains **file-scoped**: every `id` (across every 
 
 Each group's session-level `content_hash` is computed over the canonical bytes of that group's slice only (header + its events, envelope and sibling groups excluded). This is the same procedure as §7.3 / §7.4 applied to the slice. As a consequence, extracting one session from a multi-session file (drop the envelope, drop sibling groups, write only that group's canonical bytes) reproduces the same digest as the in-file value.
 
-When a reader extracts a single session from a multi-session file outside writer-strict validation and the recomputed `content_hash` does not match the value stored in the in-file header, it SHOULD emit a warning rather than an error. Strict validation of a finalized trail file still treats an in-place finalized `content_hash` mismatch as an error (§16.4).
+When a reader extracts a single session from a multi-session file outside writer-strict validation and the recomputed `content_hash` does not match the value stored in the in-file header, it SHOULD emit a warning rather than an error. Strict validation of a finalized trail file still treats an in-place finalized `content_hash` mismatch as an error (§17.4).
 
 #### 8.6.5 Cross-group references
 
@@ -570,7 +570,7 @@ Every event entry has this base shape:
 | Field | Required | Type | Notes |
 |---|---|---|---|
 | `type` | yes | string | event type; see §9.2-9.3 |
-| `id` | yes | string | globally unique; ULID or UUID per §17 |
+| `id` | yes | string | globally unique; ULID or UUID per §18 |
 | `parent_id` | no | string | references another `id` for tree topology; absent = linear file order |
 | `ts` | yes | string | ISO-8601 timestamp |
 | `payload` | yes | object | type-specific data |
@@ -1377,7 +1377,7 @@ Synthesized instances must set `source.synthesized: true`.
 
 #### `session_end`
 
-Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; many writers won't emit it. When present at EOF, signals a normal conclusion of the session and suppresses the "unmatched tool calls at EOF" warning of §16.4.
+Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; many writers won't emit it. When present at EOF, signals a normal conclusion of the session and suppresses the "unmatched tool calls at EOF" warning of §17.4.
 
 ```jsonc
 {
@@ -1420,7 +1420,7 @@ When `tool_result.payload.for_id` is null, missing, or refers to a non-existent 
 
 Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
 
-Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§17.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
 
 ### 9.6 Unknown event types
 
@@ -1439,7 +1439,7 @@ When a single source envelope produces multiple entries — for example, an assi
 - The **first** entry derived from a given source envelope sets `source.raw.envelope` (and `source.raw.block`, `source.raw.block_index` if applicable).
 - **Subsequent** entries derived from the same envelope set `source.raw.envelope_ref` to the first entry's `id`. They omit `source.raw.envelope` and keep `block` / `block_index`.
 
-`source.raw.envelope_ref` is an optional string. Writers must ensure it references the `id` of an entry that appears **earlier** in the same file — the same envelope, inlined once. Forward references and dangling references are reader errors (`source_raw_envelope_ref_unresolved`, §16.4). The first-inline-then-ref shape is streaming-write friendly: readers resolve refs in a single pass without backtracking.
+`source.raw.envelope_ref` is an optional string. Writers must ensure it references the `id` of an entry that appears **earlier** in the same file — the same envelope, inlined once. Forward references and dangling references are reader errors (`source_raw_envelope_ref_unresolved`, §17.4). The first-inline-then-ref shape is streaming-write friendly: readers resolve refs in a single pass without backtracking.
 
 This mechanism is additive over v0.1.0. Readers that do not understand `envelope_ref` will see it as an unknown raw-source field and ignore it; the entry's other fields (`type`, `payload`, `semantic`) remain fully self-describing.
 
@@ -1680,25 +1680,45 @@ Specific secret patterns, exact PII detectors, path-normalization strings, image
 
 ---
 
-## 16. Validation
+## 16. Security Considerations
+
+Trail files are untrusted input. All string content, including messages, tool output, file paths, URIs, agent names, titles, and source metadata, can be attacker-controlled. Renderers SHOULD escape HTML, SHOULD NOT execute or auto-open rendered Markdown links, and CLI viewers SHOULD sanitize terminal control sequences before writing text to a terminal.
+
+Agent Trail intentionally has no format-level size caps. Consumers SHOULD enforce deployment-specific limits for maximum line length, file size, event count, graph depth, and decoded attachment or overflow bytes. Consumers SHOULD stream rather than buffer whole files where possible; JSONL is the interchange shape partly to make bounded streaming readers practical.
+
+Hostile files can contain invalid graph structure even though `parent_id` cycles and cross-group links are invalid (§12, §17.4). Validators MUST NOT loop indefinitely while checking graph topology, and tree renderers SHOULD bound recursion or use iterative traversal when displaying deep parent chains.
+
+`content_hash` provides byte integrity for the canonical artifact (§7.3, §7.4), not authorship, provenance, or trust. A trail claiming `agent.name: "claude-code"` proves only that the file contains that string. Agent Trail v0.1.0 has no signature or attestation mechanism; signing may be added by a future extension.
+
+In v0.1.0, `content_hash` values are bare 64-character SHA-256 hex strings (§7.3). Other content-addressed references, such as attachment URIs (§9.2) and `overflow_ref` values (§14), use `sha256:<hex>` references. Consumers that verify prefixed content-addressed references MUST reject unknown algorithm prefixes rather than treating the reference as verified.
+
+Attachment URIs and overflow references can identify local resources on the producer's machine. Viewers SHOULD NOT dereference `file:` URIs, `overflow_ref` values, or other external references automatically. Viewers MUST NOT dereference local `file:` URIs or non-`sha256:` overflow references from redacted or shared trails; §15 requires share-time redactors to remove or rewrite those values before transport.
+
+Redaction reduces content exposure but does not make a shared trail private. Timestamps, event counts, tool names, model names, branch shape, unredacted file names, and remaining metadata can still reveal workflow information. Sharing a redacted trail SHOULD be treated as publishing it to anyone who can access the transport.
+
+Header fields need the same privacy review as event payloads. `cwd`, `vcs.remote_url`, `vcs.worktree`, `name`, `description`, and `tags` commonly contain usernames, internal hostnames, private repository names, or project identifiers. Sharing tools SHOULD scan headers and trail envelopes as well as event payloads (§15).
+
+---
+
+## 17. Validation
 
 Validation is layered because JSON Schema validates one line at a time, while several Agent Trail rules require whole-file context.
 
-### 16.1 Writer schema
+### 17.1 Writer schema
 
 `schema.json` is the writer-strict schema for v0.1.0. It validates a single JSON object line and requires header and envelope records to use `schema_version: "0.1.0"`. It rejects unknown top-level event types. Writers use this schema for emitted envelope, header, and event lines.
 
 `schema.json` is the canonical format contract through v1.0. Generated types, validators, and packages must derive from it rather than maintaining a separate manual contract.
 
-### 16.2 Reader tolerance
+### 17.2 Reader tolerance
 
 Readers may accept compatible future v0.x files best-effort: skip unknown event types, ignore unknown payload fields, preserve unknown records when round-tripping, and warn instead of aborting where possible. Reader tolerance is runtime behavior, not the writer-strict schema contract.
 
-### 16.3 Validation diagnostics
+### 17.3 Validation diagnostics
 
 Validators should report normalized diagnostics with `line`, `path` (JSON Pointer), `severity`, `code`, and `message`. Implementations may include extra fields, but these five fields are the portable diagnostic surface.
 
-### 16.4 File graph checks
+### 17.4 File graph checks
 
 A v0.1.0-compliant trail file must also pass whole-file checks:
 
@@ -1746,17 +1766,17 @@ Streaming rules (§8.4) are evaluated against the *current* header `stream.state
 
 ---
 
-## 17. Formal schema
+## 18. Formal schema
 
 The normative writer-strict JSON Schema lives in `schema.json` and is published at `https://agent-trail.dev/schema/v0.1.0.json`.
 
-This spec intentionally does not duplicate the full schema inline. Implementations should validate each JSONL line against `schema.json`, then run the whole-file checks in §16.4. Reader-tolerant parsing, including unknown future event preservation, is separate from writer-strict schema validation.
+This spec intentionally does not duplicate the full schema inline. Implementations should validate each JSONL line against `schema.json`, then run the whole-file checks in §17.4. Reader-tolerant parsing, including unknown future event preservation, is separate from writer-strict schema validation.
 
 ---
 
-## 18. Examples
+## 19. Examples
 
-### 18.1 Session with tool calls and semantic pairing
+### 19.1 Session with tool calls and semantic pairing
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
@@ -1766,7 +1786,7 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 {"type":"agent_message","id":"01HEVTB0000000000000000004","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}
 ```
 
-### 18.2 Tool result with missing for_id (fallback pairing)
+### 19.2 Tool result with missing for_id (fallback pairing)
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000002B","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
@@ -1777,7 +1797,7 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 
 The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` via `semantic.call_id` (rule §9.5 step 1).
 
-### 18.3 Tree with abandoned branch
+### 19.3 Tree with abandoned branch
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000003","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/tree"}}
@@ -1788,7 +1808,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 {"type":"agent_message","id":"01HEVTC0000000000000000005","parent_id":"01HEVTC0000000000000000004","ts":"2026-05-17T14:01:05.000Z","payload":{"text":"For approach B: ..."}}
 ```
 
-### 18.4 Synthesized event
+### 19.4 Synthesized event
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"},"vcs":{"type":"git","revision":"a1b2c3d4"}}
@@ -1797,7 +1817,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 {"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"x-example/agent","original_type":"git_commit_diff","synthesized":true}}
 ```
 
-### 18.5 Incomplete session
+### 19.5 Incomplete session
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000006","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
@@ -1806,7 +1826,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 {"type":"session_terminated","id":"01HEVTF0000000000000000003","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["01HEVTF0000000000000000002"]},"source":{"synthesized":true}}
 ```
 
-### 18.6 MCP call
+### 19.6 MCP call
 
 ```jsonl
 {"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000005","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
@@ -1831,7 +1851,7 @@ Initial public draft. v0.1.0 defines:
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - Tool-surface fidelity for truncated tool-call args, string-replacement `file_edit`, branch-scoped pairing warnings, stable user-query option ids, stricter attachment identity, and tool-result meta key hygiene.
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
-- Normative share-time redaction rules for local attachment URIs, unsafe `overflow_ref` values, unresolved `user_query_response` answers, and privacy-sensitive field handling (§15), plus the `tool_args_unredacted_secret` validator warning (§16.4).
+- Normative share-time redaction rules for local attachment URIs, unsafe `overflow_ref` values, unresolved `user_query_response` answers, and privacy-sensitive field handling (§15), plus the `tool_args_unredacted_secret` validator warning (§17.4).
 - Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 - During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
