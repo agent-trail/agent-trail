@@ -2,27 +2,27 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./parse-fidelity.ts";
 
-export function nonMonotonicEventTsWarnings(entries: JsonlRecord[]): Diagnostic[] {
+export function nonMonotonicEventTsWarnings(
+  entries: JsonlRecord[],
+  groupIds: Map<string, number>,
+  cyclicIds: Set<string>,
+): Diagnostic[] {
   const entryById = new Map<string, JsonlRecord>();
-  const parentById = new Map<string, string>();
   for (const entry of entries) {
     const id = entry.value.id;
     if (typeof id === "string" && !entryById.has(id)) {
       entryById.set(id, entry);
-      const parentId = entry.value.parent_id;
-      if (typeof parentId === "string") {
-        parentById.set(id, parentId);
-      }
     }
   }
 
-  const cyclicIds = cyclicParentIds(parentById);
   const diagnostics: Diagnostic[] = [];
   for (const entry of entries) {
     const id = entry.value.id;
     if (typeof id !== "string" || cyclicIds.has(id)) continue;
     const parentId = entry.value.parent_id;
-    if (typeof parentId !== "string" || cyclicIds.has(parentId)) continue;
+    if (typeof parentId !== "string" || !groupIds.has(parentId) || cyclicIds.has(parentId)) {
+      continue;
+    }
     const parent = entryById.get(parentId);
     if (parent === undefined) continue;
 
@@ -99,37 +99,6 @@ function eventTimestampMillis(record: JsonlRecord): number | undefined {
   if (typeof ts !== "string") return undefined;
   const millis = Date.parse(ts);
   return Number.isFinite(millis) ? millis : undefined;
-}
-
-function cyclicParentIds(parentById: Map<string, string>): Set<string> {
-  const cyclic = new Set<string>();
-  const resolved = new Set<string>();
-
-  for (const startId of parentById.keys()) {
-    if (resolved.has(startId)) continue;
-    const path: string[] = [];
-    const indexById = new Map<string, number>();
-    let cursor: string | undefined = startId;
-
-    while (cursor !== undefined && !resolved.has(cursor)) {
-      const index = indexById.get(cursor);
-      if (index !== undefined) {
-        for (const id of path.slice(index)) {
-          cyclic.add(id);
-        }
-        break;
-      }
-      indexById.set(cursor, path.length);
-      path.push(cursor);
-      cursor = parentById.get(cursor);
-    }
-
-    for (const id of path) {
-      resolved.add(id);
-    }
-  }
-
-  return cyclic;
 }
 
 // Spec §18.4: writers should emit `session_terminated` if any `tool_call`
