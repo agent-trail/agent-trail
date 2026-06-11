@@ -16,6 +16,8 @@ The repository is a Bun-based monorepo under the `@agent-trail` npm scope. It co
 
 Reader tooling can opt into `{ profile: "reader-tolerant" }` on the core validation APIs. Reader-tolerant parsing preserves compatible future records and unknown payload fields as warnings where safe, accepts compatible `0.1.x` patch headers with a warning, and reports `content_hash` mismatches as warnings. Malformed JSON, invalid hash syntax, graph errors, and non-extension payload shape errors remain errors.
 
+The spec names reader conformance classes R0, R1, and R2, plus writer class W. `@agent-trail/core` implements R2 reader behavior: tolerant parsing, structural validation, content-hash verification, and segment-chain reconciliation. It does not expose separate conformance-class constants or CLI flags.
+
 ## Repository Map
 
 - [`spec.md`](./spec.md) — Agent Trail format specification.

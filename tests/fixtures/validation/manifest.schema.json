@@ -20,11 +20,19 @@
     "fixture": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "strict", "tolerant"],
+      "required": ["path", "classes", "strict", "tolerant"],
       "properties": {
         "path": {
           "type": "string",
           "pattern": "^[a-z0-9-]+/[a-z0-9.-]+\\.trail\\.jsonl$"
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "enum": ["W", "R1", "R2"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "comment": {
           "type": "string"
