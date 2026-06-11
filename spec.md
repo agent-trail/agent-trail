@@ -1639,13 +1639,26 @@ Adapters MUST redact known secret patterns in `source.raw` before writing — em
 
 The raw file format does not mandate redaction. Sharing tools produce a separate redacted artifact before upload. Raw and redacted artifacts have different `content_hash` values.
 
-Writers and share tools should redact known secret patterns before producing shared artifacts, including string leaves inside structured metadata such as `tool_result.payload.meta`.
-
 A complete redaction protocol is out of scope for the file format; it belongs to share tooling. Redacted artifacts may record `redacted_from.content_hash` to link back to the raw artifact without exposing local paths or raw local IDs.
+
+Share-time redactors MUST apply the privacy rules below before producing shared artifacts. They MAY normalize a field instead of deleting it only when the normalized value no longer exposes raw local paths, raw local session identifiers, credentials, or private repository identity.
+
+| Field or value | Share-time action |
+|---|---|
+| `cwd` | Normalize or strip. |
+| `vcs.remote_url` | Strip or normalize per §8.2 unless the user explicitly opts in. |
+| `vcs.worktree.path`, `vcs.worktree.original_cwd` | Normalize or strip. |
+| `source.path` | Strip. |
+| `attachments[].uri` | Remove or rewrite local `file:` URIs. Rewrite to `sha256:<hex>` only when the referenced blob is content-addressed and transported with the share; otherwise remove `uri` and keep visible stub metadata such as `kind`, `name`, and `media_type`. |
+| `tool_result.payload.overflow_ref` | Keep `sha256:` references when useful; strip every other scheme or implementation-local reference. When stripped, keep `truncated` and `output_size` unchanged. |
+| `tool_call.payload.args.headers` for `mcp_call` and `web_fetch` | Strip or replace credential-bearing values with placeholders. |
+| `name`, `description`, `tags`, message text, output strings, and `meta` string leaves | Scrub secret patterns and PII according to the redactor's configured policy. |
+
+Redactors MUST resolve each `user_query_response.payload.for_id` to a `user_query` in the same session group before preserving answers for questions marked `is_secret`. If the query is unresolvable, the redactor MUST strip the response's `answers` entirely (fail closed).
 
 Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 
-Specific secret patterns, path normalization, image handling, token-usage policy, and upload workflow are implementation semantics.
+Specific secret patterns, exact PII detectors, path-normalization strings, image preview behavior, token-usage policy, blob upload mechanics, and share workflow remain implementation semantics.
 
 ---
 
@@ -1698,6 +1711,7 @@ Warnings (non-fatal):
 - `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§14.1).
 - `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
+- Privacy-sensitive tool arguments should not contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.
 - `source.raw.envelope_ref`, when set, must reference the `id` of an earlier entry in the same file (§9.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
 - Trail envelope position and uniqueness (§8.0):
   - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
@@ -1799,6 +1813,7 @@ Initial public draft. v0.1.0 defines:
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - Tool-surface fidelity for truncated tool-call args, string-replacement `file_edit`, branch-scoped pairing warnings, stable user-query option ids, stricter attachment identity, and tool-result meta key hygiene.
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
+- Normative share-time redaction rules for local attachment URIs, unsafe `overflow_ref` values, unresolved `user_query_response` answers, and privacy-sensitive field handling (§15), plus the `tool_args_unredacted_secret` validator warning (§16.4).
 - Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 - During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.

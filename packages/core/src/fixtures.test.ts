@@ -931,6 +931,19 @@ test("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl warns about unmatched
   });
 });
 
+test("invalid-graph/tool-args-unredacted-secret.trail.jsonl warns about tool arg secret", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/tool-args-unredacted-secret.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/args/headers/Authorization",
+    severity: "warning",
+    code: "tool_args_unredacted_secret",
+    message: "tool_call args contain unredacted Bearer authorization token (bearer_token)",
+  });
+});
+
 test("invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl warns about unmatched tool_call", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl"),

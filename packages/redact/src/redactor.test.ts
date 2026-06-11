@@ -563,12 +563,66 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(summary.counts.output_truncated).toBe(1);
 });
 
+test("redactTrail strips non-sha256 overflow_ref values and preserves sha256 refs", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "evtcall1",
+        ok: true,
+        output: "truncated local output",
+        truncated: true,
+        output_size: 1234,
+        overflow_ref: "file:///Users/alice/output.txt",
+      },
+    }),
+    record(3, {
+      type: "tool_result",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "evtcall2",
+        ok: true,
+        output: "truncated content-addressed output",
+        truncated: true,
+        output_size: 5678,
+        overflow_ref: `sha256:${"b".repeat(64)}`,
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const local = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { truncated: boolean; output_size: number; overflow_ref?: string };
+  };
+  const contentAddressed = out[2]?.value as { payload: { overflow_ref?: string } };
+  expect(local.payload.overflow_ref).toBeUndefined();
+  expect(local.payload.truncated).toBe(true);
+  expect(local.payload.output_size).toBe(1234);
+  expect(local.meta?.redaction_count).toBe(1);
+  expect(contentAddressed.payload.overflow_ref).toBe(`sha256:${"b".repeat(64)}`);
+  expect(summary.counts.overflow_ref_stripped).toBe(1);
+});
+
 test("redactTrail truncates user_query_response answer strings exceeding outputMaxBytes", () => {
   const bigSelected = "S".repeat(20_000);
   const bigOther = "O".repeat(20_000);
   const records: JsonlRecord[] = [
     header(),
     record(2, {
+      type: "user_query",
+      id: "query1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        questions: [{ id: "token", question: "Paste output" }],
+      },
+    }),
+    record(3, {
       type: "user_query_response",
       id: "response1",
       ts: "2026-05-22T00:00:02.000Z",
@@ -583,7 +637,7 @@ test("redactTrail truncates user_query_response answer strings exceeding outputM
 
   const { records: out, summary } = redactTrail(records);
 
-  const value = out[1]?.value as {
+  const value = out[2]?.value as {
     meta?: { redaction_count?: number };
     payload: {
       answers: {
@@ -599,6 +653,33 @@ test("redactTrail truncates user_query_response answer strings exceeding outputM
   expect(value.payload.answers.token.other.length).toBeLessThan(bigOther.length);
   expect(value.meta?.redaction_count).toBe(2);
   expect(summary.counts.user_query_answer_truncated).toBe(2);
+});
+
+test("redactTrail strips answers when user_query_response cannot resolve its query", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "missing-query",
+        answers: {
+          token: { selected: ["secret"], other: "freeform secret" },
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const response = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { answers: Record<string, unknown> };
+  };
+  expect(response.payload.answers).toEqual({});
+  expect(response.meta?.redaction_count).toBe(1);
+  expect(summary.counts.user_query_response_unresolved_answers_stripped).toBe(1);
 });
 
 test("redactTrail redacts user_query strings and strips secret answers", () => {
@@ -1429,13 +1510,18 @@ test("redactTrail redacts secrets on context_compact/branch_point/branch_summary
   );
   const uri = (
     out[4]?.value as {
-      payload: { attachments: Array<{ uri: string }> };
+      payload: { attachments: Array<{ kind: string; uri?: string; name?: string }> };
     }
   ).payload.attachments[0]?.uri;
-  expect(uri).not.toContain(key);
-  expect(uri).toContain("[OPENAI_KEY]");
-  expect(uri).toContain("<home>");
-  expect(summary.counts.openai_api_key).toBe(4);
+  const attachment = (
+    out[4]?.value as {
+      payload: { attachments: Array<{ kind: string; uri?: string; name?: string }> };
+    }
+  ).payload.attachments[0];
+  expect(uri).toBeUndefined();
+  expect(attachment).toEqual({ kind: "file", name: "secret.txt" });
+  expect(summary.counts.openai_api_key).toBe(3);
+  expect(summary.counts.attachment_file_uri_removed).toBe(1);
 });
 
 test("redactTrail redacts secrets in agent_message.attachments and tool_result.attachments", () => {
@@ -1466,19 +1552,56 @@ test("redactTrail redacts secrets in agent_message.attachments and tool_result.a
 
   const { records: out, summary } = redactTrail(records);
 
-  const agentUri = (out[1]?.value as { payload: { attachments: Array<{ uri: string }> } }).payload
-    .attachments[0]?.uri;
-  expect(agentUri).not.toContain(key);
-  expect(agentUri).toContain("[OPENAI_KEY]");
-  expect(agentUri).toContain("<home>");
+  const agentAttachment = (
+    out[1]?.value as {
+      payload: { attachments: Array<{ kind: string; uri?: string; name?: string }> };
+    }
+  ).payload.attachments[0];
+  expect(agentAttachment).toEqual({ kind: "image", name: "chart.png" });
 
-  const toolUri = (out[2]?.value as { payload: { attachments: Array<{ uri: string }> } }).payload
-    .attachments[0]?.uri;
-  expect(toolUri).not.toContain(key);
-  expect(toolUri).toContain("[OPENAI_KEY]");
-  expect(toolUri).toContain("<home>");
+  const toolAttachment = (
+    out[2]?.value as { payload: { attachments: Array<{ kind: string; uri?: string }> } }
+  ).payload.attachments[0];
+  expect(toolAttachment).toEqual({ kind: "image" });
 
-  expect(summary.counts.openai_api_key).toBe(2);
+  expect(summary.counts.openai_api_key).toBeUndefined();
+  expect(summary.counts.attachment_file_uri_removed).toBe(2);
+});
+
+test("redactTrail rewrites file attachment uris to transported sha256 refs", () => {
+  const fileUri = "file:///Users/alice/chart.png";
+  const shaRef = `sha256:${"a".repeat(64)}` as const;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "see attached",
+        attachments: [{ kind: "image", uri: fileUri, media_type: "image/png", name: "chart.png" }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    attachmentUriRewrites: { [fileUri]: shaRef },
+  });
+
+  const attachment = (
+    out[1]?.value as {
+      payload: {
+        attachments: Array<{ kind: string; uri?: string; media_type?: string; name?: string }>;
+      };
+    }
+  ).payload.attachments[0];
+  expect(attachment).toEqual({
+    kind: "image",
+    uri: shaRef,
+    media_type: "image/png",
+    name: "chart.png",
+  });
+  expect(summary.counts.attachment_file_uri_rewritten).toBe(1);
 });
 
 test("redactTrail redacts secrets in name-only attachments", () => {
