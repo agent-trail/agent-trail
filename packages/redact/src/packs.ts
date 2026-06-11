@@ -417,6 +417,7 @@ function containsActiveReplacementToken(placeholder: string): boolean {
       continue;
     }
     if (next === "&" || next === "`" || next === "'" || /[1-9]/.test(next ?? "")) return true;
+    if (next === "<" && placeholder.indexOf(">", index + 2) !== -1) return true;
   }
   return false;
 }

@@ -346,6 +346,7 @@ test("resolveRedactionConfig warns and skips packs with unsafe replacement place
   const placeholders = [
     { name: "wholematch", placeholder: "$&" },
     { name: "capture", placeholder: "$1" },
+    { name: "namedcapture", placeholder: "$<token>" },
   ];
   for (const { name, placeholder } of placeholders) {
     writeFileSync(
@@ -356,7 +357,7 @@ test("resolveRedactionConfig warns and skips packs with unsafe replacement place
         "rules:",
         `  - id: ${name}_token`,
         "    description: replaying placeholder",
-        "    regex: 'ACME-([A-Z0-9]{8})'",
+        "    regex: 'ACME-(?<token>[A-Z0-9]{8})'",
         `    placeholder: '${placeholder}'`,
       ].join("\n"),
     );
@@ -365,7 +366,7 @@ test("resolveRedactionConfig warns and skips packs with unsafe replacement place
   const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
 
   expect(config.packs).toEqual([]);
-  expect(config.warnings.join("\n").match(/unsafe replacement token/g)).toHaveLength(2);
+  expect(config.warnings.join("\n").match(/unsafe replacement token/g)).toHaveLength(3);
 });
 
 test("resolveRedactionConfig rejects redacted samples that leave the matched secret", async () => {
