@@ -102,9 +102,10 @@ export function toolKindAndArgs(
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
       //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // Single-file shapes map to spec §10.1 `file_edit`. Multi-file shapes map
-      // to `file_patch` so consumers can preserve one source operation touching
-      // several paths. Unknown shapes still fall through to `other`.
+      // One-hunk replacement shapes map to spec §10.1 `file_edit` replacement
+      // args. Multi-hunk/no-line-context shapes fall through to `other` so we
+      // do not fabricate diff hunk headers. Real patch text still maps to
+      // `file_edit`/`file_patch`.
       const topPath = stringValue(args.path) ?? stringValue(args.file_path);
       const editsArray = Array.isArray(args.edits) ? args.edits : undefined;
       if (editsArray !== undefined && topPath !== undefined) {

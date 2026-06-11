@@ -152,10 +152,6 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     }
   }
 
-  if (hasSessionEnd) {
-    return [];
-  }
-
   // Pass A: explicit `for_id` reference — primary pairing method (spec §9.5).
   // A `for_id` that resolves to an existing `tool_call` consumes the result
   // even if the call was already paired (duplicate result), so the result
@@ -235,19 +231,21 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     }
   }
 
-  diagnostics.push(
-    ...calls
-      .filter((c) => !c.matched && !suppressedIds.has(c.id))
-      .map((call) =>
-        createDiagnostic({
-          line: call.line,
-          path: "/id",
-          severity: "warning",
-          code: "unmatched_tool_call_at_eof",
-          message: `tool_call "${call.id}" has no matching tool_result or call-scoped tool_call_aborted at EOF`,
-        }),
-      ),
-  );
+  if (!hasSessionEnd) {
+    diagnostics.push(
+      ...calls
+        .filter((c) => !c.matched && !suppressedIds.has(c.id))
+        .map((call) =>
+          createDiagnostic({
+            line: call.line,
+            path: "/id",
+            severity: "warning",
+            code: "unmatched_tool_call_at_eof",
+            message: `tool_call "${call.id}" has no matching tool_result or call-scoped tool_call_aborted at EOF`,
+          }),
+        ),
+    );
+  }
   return diagnostics;
 }
 

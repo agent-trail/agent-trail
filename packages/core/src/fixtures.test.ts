@@ -509,6 +509,21 @@ test("invalid-graph/ambiguous-sequential-pairing.trail.jsonl warns on ambiguous 
   });
 });
 
+test("invalid-graph/ambiguous-sequential-pairing-with-session-end.trail.jsonl keeps ambiguity warning", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/ambiguous-sequential-pairing-with-session-end.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 4,
+    path: "/payload",
+    severity: "warning",
+    code: "ambiguous_sequential_pairing",
+    message:
+      "tool_result was paired by sequential fallback with 2 unmatched prior tool_call candidates; writers should populate payload.for_id or semantic.call_id",
+  });
+  expect(diagnostics.map((d) => d.code)).not.toContain("unmatched_tool_call_at_eof");
+});
+
 test("invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl does not pair across inline subagent branch", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl"),
