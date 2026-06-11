@@ -8,6 +8,7 @@ import { gzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   computeContentHash,
+  GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
   parseJsonlString,
   verifyContentHash,
 } from "@agent-trail/core";
@@ -82,6 +83,59 @@ test("registerTrail accepts a .trail.jsonl.gz file and stores canonical uncompre
   const storedBytes = await readFile(result.objectPath as string, "utf8");
   const expectedCanonical = canonicalizeRecords(await parseJsonlString(sourceBytes));
   expect(storedBytes).toBe(expectedCanonical);
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
+test("registerTrail reports corrupt .trail.jsonl.gz input as a gzip decode failure", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
+  const gzPath = join(inputDir, "broken.trail.jsonl.gz");
+  await writeFile(gzPath, "not gzip");
+
+  const result = await registerTrail(gzPath, { storeRoot });
+
+  expect(result.status).toBe("invalid");
+  expect(result.contentHash).toBeNull();
+  expect(result.objectPath).toBeNull();
+  expect(result.diagnostics).toHaveLength(1);
+  expect(result.diagnostics[0]).toMatchObject({
+    severity: "error",
+    code: "gzip_decode_failed",
+    line: 0,
+    path: "",
+  });
+  expect(result.diagnostics[0]?.message).toContain("failed to decode gzip trail");
+
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
+test("registerTrail rejects .trail.jsonl.gz input over the decompressed byte limit", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
+  const gzPath = join(inputDir, "oversized.trail.jsonl.gz");
+  await writeFile(
+    gzPath,
+    gzipSync(Buffer.from("a".repeat(GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES + 1))),
+  );
+
+  const result = await registerTrail(gzPath, { storeRoot });
+
+  expect(result.status).toBe("invalid");
+  expect(result.contentHash).toBeNull();
+  expect(result.objectPath).toBeNull();
+  expect(result.diagnostics).toHaveLength(1);
+  expect(result.diagnostics[0]).toMatchObject({
+    severity: "error",
+    code: "gzip_decode_failed",
+    line: 0,
+    path: "",
+  });
+  expect(result.diagnostics[0]?.message).toContain("decompressed payload exceeds");
+
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
 
   rmSync(inputDir, { recursive: true, force: true });
 });

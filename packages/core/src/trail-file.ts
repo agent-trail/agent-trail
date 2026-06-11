@@ -1,6 +1,8 @@
-import { gunzipSync } from "node:zlib";
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 
 export const GZIPPED_TRAIL_EXTENSION = ".trail.jsonl.gz";
+export const GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES = 8_000_000;
 
 export class TrailFileDecodeError extends Error {
   constructor(message: string) {
@@ -13,17 +15,41 @@ export function isGzippedTrailPath(path: string): boolean {
   return path.endsWith(GZIPPED_TRAIL_EXTENSION);
 }
 
-export function decodeGzippedTrailBytes(bytes: Uint8Array, path: string): string {
-  let decoded: Buffer;
+export type DecodeGzippedTrailBytesOptions = {
+  maxDecompressedBytes?: number;
+};
+
+export async function decodeGzippedTrailBytes(
+  bytes: Uint8Array,
+  path: string,
+  options: DecodeGzippedTrailBytesOptions = {},
+): Promise<string> {
+  const maxDecompressedBytes = options.maxDecompressedBytes ?? GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES;
+  const compressed = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const gunzip = createGunzip();
+  const chunks: Buffer[] = [];
+  let total = 0;
+
   try {
-    decoded = gunzipSync(bytes);
+    for await (const chunk of Readable.from([compressed]).pipe(gunzip)) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.byteLength;
+      if (total > maxDecompressedBytes) {
+        gunzip.destroy();
+        throw new TrailFileDecodeError(
+          `failed to decode gzip trail ${path}: decompressed payload exceeds ${maxDecompressedBytes} bytes`,
+        );
+      }
+      chunks.push(buffer);
+    }
   } catch (error) {
+    if (error instanceof TrailFileDecodeError) throw error;
     const detail = error instanceof Error ? error.message : String(error);
     throw new TrailFileDecodeError(`failed to decode gzip trail ${path}: ${detail}`);
   }
 
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(decoded);
+    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
   } catch (error) {
     if (error instanceof TypeError) {
       throw new TrailFileDecodeError(`failed to decode gzip trail ${path}: invalid UTF-8`);

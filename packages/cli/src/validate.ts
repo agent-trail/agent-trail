@@ -1,4 +1,6 @@
 import {
+  createDiagnostic,
+  type Diagnostic,
   decodeGzippedTrailBytes,
   formatDiagnosticsJsonValue,
   formatDiagnosticsText,
@@ -39,13 +41,27 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
     return { exitCode: 1, stdout: "", stderr: `file not found: ${path}\n` };
   }
 
-  const diagnostics = [];
+  const diagnostics: Diagnostic[] = [];
   if (isGzippedTrailPath(path)) {
     let text: string;
     try {
-      text = decodeGzippedTrailBytes(new Uint8Array(await file.arrayBuffer()), path);
+      text = await decodeGzippedTrailBytes(new Uint8Array(await file.arrayBuffer()), path);
     } catch (error) {
       if (error instanceof TrailFileDecodeError) {
+        if (options.json) {
+          const diagnostic = createDiagnostic({
+            line: 0,
+            path: "",
+            severity: "error",
+            code: "gzip_decode_failed",
+            message: error.message,
+          });
+          return {
+            exitCode: 1,
+            stdout: `${JSON.stringify(formatDiagnosticsJsonValue([diagnostic]))}\n`,
+            stderr: "",
+          };
+        }
         return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
       }
       throw error;

@@ -542,7 +542,7 @@ This is the URL referenced by the schema's `$id` field. Tools validating trail f
 
 #### 8.4.4 Web viewer (`/view/gist/<gist-id>`)
 
-Accepts a gist identifier or gist URL. Decodes embedded gzipped base64 trail content (`.trail.jsonl.gz.b64`, a transport wrapper rather than a native file extension). The gist ID locates the artifact; `content_hash` verifies the decompressed canonical JSONL bytes after load. Content-hash resolver URLs such as `/view/sha256/<hash>` are deferred until there is a backend or public index. Renders:
+Accepts a gist identifier or gist URL. Decodes embedded base64-encoded, gzip-wrapped trail content used as the gist transport payload. The gist ID locates the artifact; `content_hash` verifies the decompressed canonical JSONL bytes after load. Content-hash resolver URLs such as `/view/sha256/<hash>` are deferred until there is a backend or public index. Renders:
 
 - User messages (chat bubbles, markdown rendered).
 - Agent messages (markdown, code blocks syntax-highlighted).

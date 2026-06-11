@@ -141,7 +141,7 @@ async function readTrailFileText(
   }
 
   try {
-    return { text: decodeGzippedTrailBytes(await readFile(filePath), filePath) };
+    return { text: await decodeGzippedTrailBytes(await readFile(filePath), filePath) };
   } catch (error) {
     if (error instanceof TrailFileDecodeError) {
       return {

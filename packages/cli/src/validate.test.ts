@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES } from "@agent-trail/core";
 import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
@@ -115,6 +116,48 @@ test("corrupt gzipped trail exits 1 with decode diagnostic on stderr", async () 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("failed to decode gzip trail");
+});
+
+test("--json on corrupt gzipped trail returns a JSON decode diagnostic", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "broken.trail.jsonl.gz");
+  await Bun.write(path, "not gzip");
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+    }),
+  ]);
+});
+
+test("oversized gzipped trail exits 1 with decode diagnostic before validation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "oversized.trail.jsonl.gz");
+  await Bun.write(
+    path,
+    gzipSync(Buffer.from("a".repeat(GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES + 1))),
+  );
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+      message: expect.stringContaining("decompressed payload exceeds"),
+    }),
+  ]);
 });
 
 test("multiple positional file arguments exit 1 with usage on stderr", async () => {
