@@ -15,6 +15,7 @@ import {
   wrapText,
 } from "./session-browser-layout.ts";
 import {
+  agentFilterLabel,
   type BrowserState,
   browserStateFromInput,
   clampSelection,
@@ -54,6 +55,7 @@ export {
   defaultScope,
   exitResult,
   filteredRows,
+  nextAgentFilter,
   nextTrailFilter,
   rowIdentity,
   sanitizeTerminalText,
@@ -272,7 +274,7 @@ function renderHeader(state: BrowserState, width: number): string {
     "AGENT TRAIL BROWSER",
     `PROJECT ${scopeLabel(state.scope)}  TRAIL ${trailFilterLabel(
       state.trailFilter,
-    )}${loading}  SEARCH ${searchLabel(state)}`,
+    )}  AGENT ${agentFilterLabel(state.agentFilter)}${loading}  SEARCH ${searchLabel(state)}`,
     width,
   );
 }
@@ -286,9 +288,9 @@ function renderFooter(state: BrowserState, filteredCount: number, width: number)
     warnings.length === 0
       ? `${rowCounts}${status}`
       : `${rowCounts}  WARN ${warnings.join(" | ")}${status}`;
-  return alignBetween(
-    left,
-    "keys: j/k move  enter open  s/e/y  a all  t trail  / search  q quit",
-    width,
-  );
+  const shortcuts =
+    warnings.length === 0
+      ? "j/k move  enter open  r resume  s/e/y  a all  t trail  g agent  / search  q quit"
+      : "j/k move  enter open  r resume  s/e/y  a/t/g  /  q";
+  return alignBetween(left, shortcuts, width);
 }

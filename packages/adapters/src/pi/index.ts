@@ -11,6 +11,7 @@ import type {
   TrailFile,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
+import { resumeCommand } from "../resume.ts";
 import { DISCOVERY_CONCURRENCY_LIMIT, mapConcurrent } from "../shared/concurrency.ts";
 import { readJsonlHeadObjects } from "../shared/jsonl-head.ts";
 import { sanitizeTrailFile } from "../trail-sanitizer.ts";
@@ -20,6 +21,12 @@ import { piProjectDir, piProjectsRoot, piSessionsDir } from "./paths.ts";
 import { parseLines, versionString } from "./source.ts";
 
 const PRODUCER = `@agent-trail/adapters-pi/${pkg.version}`;
+const PI_SESSION_UUID_SUFFIX_RE =
+  /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+function piResumeSessionId(id: string): string {
+  return PI_SESSION_UUID_SUFFIX_RE.exec(id)?.[1] ?? id;
+}
 
 async function dirExists(path: string): Promise<boolean> {
   try {
@@ -187,6 +194,10 @@ export const piAdapter: TrailAdapter = {
     const groups = [{ header, entries }];
     const envelope = buildTrailEnvelope({ producer: PRODUCER, groups });
     return sanitizeTrailFile({ envelope, groups });
+  },
+  async resumeSession(ref: SessionRef) {
+    const id = piResumeSessionId(ref.id);
+    return resumeCommand(ref, `Resume Pi session ${id}`, ["pi", "--session", id]);
   },
   async isAvailable(): Promise<boolean> {
     const sessionsDir = piSessionsDir();

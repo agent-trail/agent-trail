@@ -22,6 +22,10 @@ export type SessionBrowserActionContext = {
   confirm: (message: string) => Promise<boolean>;
 };
 
+export type SessionBrowserResumeContext = {
+  beforeSpawn: () => void;
+};
+
 export type SessionBrowserInput = {
   rows: SessionBrowserRow[];
   warnings: string[];
@@ -33,11 +37,13 @@ export type SessionBrowserInput = {
   ) => Promise<SessionBrowserActionResult>;
   onExport?: (row: SessionBrowserRow) => Promise<SessionBrowserActionResult>;
   onCopyUrl?: (url: string) => Promise<SessionBrowserActionResult>;
+  onResume?: (row: SessionBrowserRow, context?: SessionBrowserResumeContext) => Promise<CliResult>;
 };
 
 export type BrowserState = SessionBrowserInput & {
   scope: BrowserScope;
   trailFilter: TrailFilter;
+  agentFilter: string | null;
   query: string;
   searchMode: boolean;
   selectedIndex: number;
@@ -67,6 +73,7 @@ export function browserStateFromInput(input: SessionBrowserInput | BrowserState)
         ...input,
         scope: input.scope ?? defaultScope(),
         trailFilter: "all",
+        agentFilter: null,
         query: "",
         searchMode: false,
         selectedIndex: 0,
@@ -82,6 +89,7 @@ export function filteredRows(state: BrowserState): SessionBrowserRow[] {
   const query = state.query.trim().toLowerCase();
   return state.rows.filter((row) => {
     if (!rowMatchesTrailFilter(row, state.trailFilter)) return false;
+    if (!rowMatchesAgentFilter(row, state.agentFilter)) return false;
     return query.length === 0 || rowSearchText(row).toLowerCase().includes(query);
   });
 }
@@ -175,6 +183,30 @@ export function trailFilterLabel(filter: TrailFilter): string {
   return "all";
 }
 
+export function agentFilterLabel(filter: string | null): string {
+  return filter === null ? "all" : sanitizeTerminalText(filter);
+}
+
+export function nextAgentFilter(state: BrowserState): string | null {
+  const agents = sortedAgents(state.rows);
+  if (agents.length === 0) return null;
+  if (state.agentFilter === null) return agents[0] ?? null;
+  const index = agents.indexOf(state.agentFilter);
+  if (index === -1 || index === agents.length - 1) return null;
+  return agents[index + 1] ?? null;
+}
+
+export function sortedAgents(rows: readonly SessionBrowserRow[]): string[] {
+  return [
+    ...new Set(
+      rows
+        .map((row) => row.agent)
+        .filter((agent): agent is string => agent !== null)
+        .map(sanitizeTerminalText),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
 export function sanitizeTerminalText(value: string): string {
   let sanitized = "";
   for (const char of value.replace(ANSI_ESCAPE_RE, "")) {
@@ -197,6 +229,10 @@ function rowMatchesTrailFilter(row: SessionBrowserRow, filter: TrailFilter): boo
   if (filter === "all") return true;
   const registered = row.content_hash !== null;
   return filter === "registered" ? registered : !registered;
+}
+
+function rowMatchesAgentFilter(row: SessionBrowserRow, filter: string | null): boolean {
+  return filter === null || row.agent === filter;
 }
 
 function rowSearchText(row: SessionBrowserRow): string {

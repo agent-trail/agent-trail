@@ -99,6 +99,7 @@ test("browser frame renders session table columns and preview details", () => {
 
   expect(frame).toContain("PROJECT agent-trail");
   expect(frame).toContain("SEARCH -");
+  expect(frame).toContain("AGENT all");
   expect(frame).toContain("ROWS 2  FILTERED 2");
   expect(frame).not.toContain("status:");
   expect(frame).toContain("#");
@@ -119,10 +120,105 @@ test("browser frame renders session table columns and preview details", () => {
   expect(frame).toContain("NAME First source message for alpha");
   expect(frame).toContain("TRAIL NO");
   expect(frame).toContain("enter open");
+  expect(frame).toContain("r resume");
   expect(frame).toContain("a all");
   expect(frame).toContain("t trail");
+  expect(frame).toContain("g agent");
   expect(frame).not.toContain("name:");
   expect(frame).not.toContain("trail:");
+});
+
+test("browser agent shortcut cycles agent filters", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const app = mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+
+    expect(app.state().agentFilter).toBe("claude-code");
+    expect(setup.captureCharFrame()).toContain("AGENT claude-code");
+    expect(setup.captureCharFrame()).toContain("FILTERED 1");
+    expect(setup.captureCharFrame()).toContain("Registered Trail Name");
+    expect(setup.captureCharFrame()).not.toContain("First source message for alpha");
+
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+
+    expect(app.state().agentFilter).toBe("codex");
+    expect(setup.captureCharFrame()).toContain("AGENT codex");
+    expect(setup.captureCharFrame()).toContain("FILTERED 1");
+    expect(setup.captureCharFrame()).toContain("First source message for alpha");
+    expect(setup.captureCharFrame()).not.toContain("Registered Trail Name");
+
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+
+    expect(app.state().agentFilter).toBeNull();
+    expect(setup.captureCharFrame()).toContain("AGENT all");
+    expect(setup.captureCharFrame()).toContain("FILTERED 2");
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("browser resume key shows disabled reason when handler is absent", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    mountSessionBrowser(setup.renderer, { rows, warnings: [] });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("r");
+    await setup.renderOnce();
+
+    expect(setup.captureCharFrame()).toContain("Resume unavailable");
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("browser resume key destroys TUI and returns resume result", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const app = mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onResume: async () => ({ exitCode: 7, stdout: "", stderr: "resume exited 7\n" }),
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("r");
+    const result = await app.waitForExit();
+
+    expect(setup.renderer.isDestroyed).toBe(true);
+    expect(result).toEqual({ exitCode: 7, stdout: "", stderr: "resume exited 7\n" });
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
+});
+
+test("browser resume key returns clear error when handoff fails", async () => {
+  const setup = await createTestRenderer({ width: 120, height: 24 });
+  try {
+    const app = mountSessionBrowser(setup.renderer, {
+      rows,
+      warnings: [],
+      onResume: async (_row, context) => {
+        context?.beforeSpawn();
+        throw new Error("spawn failed");
+      },
+    });
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("r");
+    const result = await app.waitForExit();
+
+    expect(setup.renderer.isDestroyed).toBe(true);
+    expect(result).toEqual({ exitCode: 1, stdout: "", stderr: "Resume failed: spawn failed\n" });
+  } finally {
+    if (!setup.renderer.isDestroyed) setup.renderer.destroy();
+  }
 });
 
 test("browser frame renders all scope in header", () => {

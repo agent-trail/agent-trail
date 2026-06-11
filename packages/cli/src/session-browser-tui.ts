@@ -18,6 +18,7 @@ import {
   exitResult,
   filteredRows,
   headerBackgroundRects,
+  nextAgentFilter,
   nextTrailFilter,
   renderStyledBrowserFrame,
   rowIdentity,
@@ -259,13 +260,22 @@ export function mountSessionBrowser(
     activeStatusDialog = null;
     update();
   };
+  let handoffInProgress = false;
+  const detachHandlers = () => {
+    renderer.keyInput.off("keypress", onKey);
+    renderer.off("resize", onResize);
+  };
 
   const quit = () => {
     if (activeConfirmDialog !== null) closeConfirmDialog(false);
-    renderer.keyInput.off("keypress", onKey);
-    renderer.off("resize", onResize);
+    detachHandlers();
     if (!renderer.isDestroyed) renderer.destroy();
     resolveExit(exitResult(state));
+  };
+  const beforeResumeSpawn = () => {
+    handoffInProgress = true;
+    detachHandlers();
+    if (!renderer.isDestroyed) renderer.destroy();
   };
 
   const onKey = (key: KeyEvent) => {
@@ -311,6 +321,13 @@ export function mountSessionBrowser(
       update();
       return;
     }
+    if (key.name === "g" || key.sequence === "g") {
+      state.agentFilter = nextAgentFilter(state);
+      state.selectedIndex = 0;
+      state.openedIdentity = null;
+      update();
+      return;
+    }
     if (key.name === "s" || key.sequence === "s") {
       void runRowActionSafely(
         state,
@@ -325,6 +342,10 @@ export function mountSessionBrowser(
     }
     if (key.name === "e" || key.sequence === "e") {
       void runRowActionSafely(state, "export", update);
+      return;
+    }
+    if (key.name === "r" || key.sequence === "r") {
+      void runResumeActionSafely(state, update, beforeResumeSpawn, resolveExit);
       return;
     }
     if (key.name === "y" || key.sequence === "y") {
@@ -364,8 +385,8 @@ export function mountSessionBrowser(
       activeConfirmDialog = null;
     }
     activeStatusDialog = null;
-    renderer.keyInput.off("keypress", onKey);
-    renderer.off("resize", onResize);
+    detachHandlers();
+    if (handoffInProgress) return;
     resolveExit(exitResult(state));
   });
 
@@ -599,6 +620,7 @@ async function toggleScope(state: BrowserState, update: () => void): Promise<voi
     state.onShare = input.onShare ?? state.onShare;
     state.onExport = input.onExport ?? state.onExport;
     state.onCopyUrl = input.onCopyUrl ?? state.onCopyUrl;
+    state.onResume = input.onResume ?? state.onResume;
     state.query = "";
     state.searchMode = false;
     state.trailFilter = "all";
@@ -759,6 +781,64 @@ export async function runRowActionSafely(
       showShareStatus,
       closeShareStatus,
     );
+  } catch (error) {
+    state.loading = false;
+    state.actionMessage = error instanceof Error ? error.message : String(error);
+    update();
+  }
+}
+
+async function runResumeAction(
+  state: BrowserState,
+  update: () => void,
+  beforeSpawn: () => void,
+  resolveExit: (result: CliResult) => void,
+): Promise<void> {
+  if (state.loading) return;
+  const row = filteredRows(state)[state.selectedIndex];
+  if (row === undefined) {
+    state.actionMessage = "No row selected";
+    update();
+    return;
+  }
+  if (state.onResume === undefined) {
+    state.actionMessage = "Resume unavailable";
+    update();
+    return;
+  }
+  state.loading = true;
+  state.actionMessage = null;
+  update();
+  let handoffStarted = false;
+  try {
+    const result = await state.onResume(row, {
+      beforeSpawn: () => {
+        handoffStarted = true;
+        beforeSpawn();
+      },
+    });
+    if (!handoffStarted) beforeSpawn();
+    resolveExit(result);
+  } catch (error) {
+    state.loading = false;
+    const message = error instanceof Error ? error.message : String(error);
+    if (handoffStarted) {
+      resolveExit({ exitCode: 1, stdout: "", stderr: `Resume failed: ${message}\n` });
+      return;
+    }
+    state.actionMessage = message;
+    update();
+  }
+}
+
+export async function runResumeActionSafely(
+  state: BrowserState,
+  update: () => void,
+  beforeSpawn: () => void,
+  resolveExit: (result: CliResult) => void,
+): Promise<void> {
+  try {
+    await runResumeAction(state, update, beforeSpawn, resolveExit);
   } catch (error) {
     state.loading = false;
     state.actionMessage = error instanceof Error ? error.message : String(error);

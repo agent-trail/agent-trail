@@ -13,6 +13,7 @@ import type {
   TrailSessionGroup,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
+import { resumeCommand } from "../resume.ts";
 import {
   CLAUDE_CODE_SESSION_UID_NAMESPACE,
   canonicalizeIdentityString,
@@ -405,6 +406,13 @@ export const claudeCodeAdapter: TrailAdapter = {
       groups,
     });
     return sanitizeTrailFile({ envelope, groups });
+  },
+  async resumeSession(ref: SessionRef) {
+    return resumeCommand(ref, `Resume Claude Code session ${ref.id}`, [
+      "claude",
+      "--resume",
+      ref.id,
+    ]);
   },
   async isAvailable(): Promise<boolean> {
     const configDir = claudeCodeConfigDir();
