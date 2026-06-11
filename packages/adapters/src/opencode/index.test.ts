@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateSourceRecord } from "@agent-trail/adapter-kit";
 import { opencodeAdapter, trailRecords, validateAdapterTrail } from "../index.ts";
+import { tokenTotalsFromSession } from "./metadata.ts";
 import { mapTool } from "./tools.ts";
 
 let prevHome: string | undefined;
@@ -1301,6 +1302,20 @@ test("parseSession() emits useful SQLite session metadata and permission surface
   expect(trail.groups[0]!.header.vcs).toBeUndefined();
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("tokenTotalsFromSession preserves partial aggregate counters", () => {
+  expect(
+    tokenTotalsFromSession({
+      tokens_reasoning: 7,
+      tokens_cache_read: 11,
+      tokens_cache_write: 13,
+    }),
+  ).toEqual({
+    reasoning_tokens: 7,
+    cache_read_tokens: 11,
+    cache_creation_tokens: 13,
+  });
 });
 
 test("parseSession() enriches file-storage sessions with matching SQLite metadata", async () => {

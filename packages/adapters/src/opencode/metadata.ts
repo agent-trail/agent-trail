@@ -1,29 +1,31 @@
 import { basename } from "node:path";
-import { mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Header } from "@agent-trail/types";
 import { arrayValue, numberValue, objectValue, type Raw, stringValue } from "./source.ts";
 
 export function tokenTotalsFromSession(session: Raw): Raw | undefined {
-  const usage = mapAgentMessageUsage({
-    input: numberValue(session.tokens_input),
-    output: numberValue(session.tokens_output),
-    total: numberValue(session.tokens_total),
-    reasoning_tokens: numberValue(session.tokens_reasoning),
-    cache_read_tokens: numberValue(session.tokens_cache_read),
-    cache_creation_tokens: numberValue(session.tokens_cache_write),
-  });
-  if (usage === undefined) return undefined;
+  const input = numberValue(session.tokens_input);
+  const output = numberValue(session.tokens_output);
+  const total = numberValue(session.tokens_total);
+  const reasoning = numberValue(session.tokens_reasoning);
+  const cacheRead = numberValue(session.tokens_cache_read);
+  const cacheWrite = numberValue(session.tokens_cache_write);
+  if (
+    input === undefined &&
+    output === undefined &&
+    total === undefined &&
+    reasoning === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined
+  ) {
+    return undefined;
+  }
   return {
-    ...(usage.input_tokens !== undefined ? { input_tokens: usage.input_tokens } : {}),
-    ...(usage.output_tokens !== undefined ? { output_tokens: usage.output_tokens } : {}),
-    ...(usage.total_tokens !== undefined ? { total_tokens: usage.total_tokens } : {}),
-    ...(usage.reasoning_tokens !== undefined ? { reasoning_tokens: usage.reasoning_tokens } : {}),
-    ...(usage.cache_read_tokens !== undefined
-      ? { cache_read_tokens: usage.cache_read_tokens }
-      : {}),
-    ...(usage.cache_creation_tokens !== undefined
-      ? { cache_creation_tokens: usage.cache_creation_tokens }
-      : {}),
+    ...(input !== undefined ? { input_tokens: input } : {}),
+    ...(output !== undefined ? { output_tokens: output } : {}),
+    ...(total !== undefined ? { total_tokens: total } : {}),
+    ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
+    ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cache_creation_tokens: cacheWrite } : {}),
   };
 }
 

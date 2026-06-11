@@ -11,6 +11,7 @@ import {
   runRealSessionSmoke,
 } from "../test-helpers.ts";
 import { opencodeDbPath, opencodeStorageDir } from "./paths.ts";
+import { loadFileSession } from "./storage/index.ts";
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 const OPENCODE_SOURCE_SCHEMA_VERSION = "v1";
@@ -25,9 +26,50 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function assertOptionalString(value: unknown, label: string, summary: string): void {
   if (value !== undefined && stringValue(value) === undefined) {
     throw new Error(`${label} must be a non-empty string when present\n${summary}`);
+  }
+}
+
+async function assertOpenCodeMessageTotalsCaptured(
+  trail: Parameters<NonNullable<Parameters<typeof runRealSessionSmoke>[0]["assertTrail"]>>[0],
+  summary: string,
+  ref: { path?: string },
+): Promise<void> {
+  if (ref.path === undefined || ref.path.includes("#")) return;
+  const loaded = await loadFileSession(ref.path);
+  const totalsByMessageId = new Map<string, number>();
+  for (const message of loaded.messages) {
+    const total = numberValue(objectValue(message.tokens)?.total);
+    if (total !== undefined) totalsByMessageId.set(message.id, total);
+  }
+  if (totalsByMessageId.size === 0) return;
+
+  let checked = 0;
+  for (const group of trail.groups) {
+    for (const entry of group.entries) {
+      const payload = objectValue(entry.payload);
+      const usage = objectValue(payload?.usage);
+      if (usage === undefined) continue;
+      const raw = objectValue(entry.source?.raw);
+      const data = objectValue(raw?.data);
+      const messageId = stringValue(data?.messageID) ?? stringValue(data?.message_id);
+      if (messageId === undefined) continue;
+      const expectedTotal = totalsByMessageId.get(messageId);
+      if (expectedTotal === undefined) continue;
+      expect(usage.total_tokens).toBe(expectedTotal);
+      checked += 1;
+    }
+  }
+  if (checked === 0) {
+    throw new Error(
+      `real OpenCode session had message totals but no emitted merged usage\n${summary}`,
+    );
   }
 }
 
@@ -212,7 +254,7 @@ runRealSessionSmoke({
   defaultSessionPath: () => firstOpenCodeSessionJson(opencodeStorageDir()),
   testName:
     "real OpenCode session (AGENT_TRAIL_REAL_OPENCODE_ROOT) parses, validates, and exposes feature coverage",
-  assertTrail: (trail, summary) => {
+  assertTrail: async (trail, summary, ref) => {
     expect(trail.envelope?.content_hash).toMatch(HEX_SHA256);
     const group = trail.groups[0]!;
     expect(group.header.content_hash).toMatch(HEX_SHA256);
@@ -226,6 +268,7 @@ runRealSessionSmoke({
     const toolCallIds = new Set<string>();
     for (const entry of group.entries) assertOpenCodeEntry(entry, toolCallIds, summary);
     assertEmbeddedSourceUsageCaptured(trail, summary);
+    await assertOpenCodeMessageTotalsCaptured(trail, summary, ref);
   },
 });
 
