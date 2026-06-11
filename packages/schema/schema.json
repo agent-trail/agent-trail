@@ -342,6 +342,16 @@
         },
         "name": { "type": "string" }
       },
+      "anyOf": [
+        {
+          "properties": { "uri": {} },
+          "required": ["uri"]
+        },
+        {
+          "properties": { "name": {} },
+          "required": ["name"]
+        }
+      ],
       "additionalProperties": false
     },
 
@@ -692,12 +702,43 @@
             "properties": {
               "tool": { "$ref": "#/$defs/toolKind" },
               "args": { "type": "object" },
-              "usage": { "$ref": "#/$defs/agentMessageUsage" }
+              "usage": { "$ref": "#/$defs/agentMessageUsage" },
+              "truncated": { "type": "boolean" },
+              "args_size": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "UTF-8 byte length of the original args object before truncation. Required when truncated is true."
+              },
+              "overflow_ref": {
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
+              }
             },
             "additionalProperties": false,
+            "dependentSchemas": {
+              "truncated": {
+                "if": {
+                  "properties": {
+                    "truncated": { "const": true }
+                  },
+                  "required": ["truncated"]
+                },
+                "then": {
+                  "properties": {
+                    "args_size": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["args_size"]
+                }
+              }
+            },
             "allOf": [
               {
-                "if": { "properties": { "tool": { "const": "file_read" } } },
+                "if": { "properties": { "tool": { "const": "file_read" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -718,7 +759,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_write" } } },
+                "if": { "properties": { "tool": { "const": "file_write" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -734,23 +775,38 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_edit" } } },
+                "if": { "properties": { "tool": { "const": "file_edit" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
-                      "type": "object",
-                      "required": ["path", "diff"],
-                      "properties": {
-                        "path": { "type": "string" },
-                        "diff": { "type": "string" }
-                      },
-                      "additionalProperties": false
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "required": ["path", "diff"],
+                          "properties": {
+                            "path": { "type": "string" },
+                            "diff": { "type": "string" }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": ["path", "old", "new"],
+                          "properties": {
+                            "path": { "type": "string" },
+                            "old": { "type": "string" },
+                            "new": { "type": "string" },
+                            "replace_all": { "type": "boolean" }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
                     }
                   }
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_patch" } } },
+                "if": { "properties": { "tool": { "const": "file_patch" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -778,7 +834,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_list" } } },
+                "if": { "properties": { "tool": { "const": "file_list" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -795,7 +851,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_search" } } },
+                "if": { "properties": { "tool": { "const": "file_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -812,7 +868,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_command" } } },
+                "if": { "properties": { "tool": { "const": "shell_command" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -829,7 +885,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_output" } } },
+                "if": { "properties": { "tool": { "const": "shell_output" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -843,7 +899,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_input" } } },
+                "if": { "properties": { "tool": { "const": "shell_input" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -860,7 +916,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "mcp_call" } } },
+                "if": { "properties": { "tool": { "const": "mcp_call" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -878,7 +934,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "web_fetch" } } },
+                "if": { "properties": { "tool": { "const": "web_fetch" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -895,7 +951,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "web_search" } } },
+                "if": { "properties": { "tool": { "const": "web_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -910,7 +966,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "tool_search" } } },
+                "if": { "properties": { "tool": { "const": "tool_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -926,7 +982,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "notebook_edit" } } },
+                "if": { "properties": { "tool": { "const": "notebook_edit" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -944,7 +1000,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "subagent_invoke" } } },
+                "if": { "properties": { "tool": { "const": "subagent_invoke" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -961,7 +1017,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "other" } } },
+                "if": { "properties": { "tool": { "const": "other" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -1001,7 +1057,10 @@
                 "description": "UTF-8 byte length of the original output before truncation. Required when truncated is true."
               },
               "overflow_ref": {
-                "oneOf": [{ "type": "string" }, { "type": "null" }]
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
               },
               "error": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]
@@ -1077,6 +1136,9 @@
                     },
                     "additionalProperties": false
                   }
+                },
+                "propertyNames": {
+                  "pattern": "^(?:[a-z][a-z0-9_]*|x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*)$"
                 },
                 "additionalProperties": { "type": "object" }
               }
@@ -1204,6 +1266,7 @@
                         "type": "object",
                         "required": ["label"],
                         "properties": {
+                          "id": { "type": "string", "minLength": 1 },
                           "label": { "type": "string" },
                           "description": { "type": "string" }
                         },

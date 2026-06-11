@@ -278,6 +278,9 @@ generated = generated.replace(
     "      [k: string]: unknown;",
     "    };",
     "    usage?: AgentMessageUsage;",
+    "    truncated?: boolean;",
+    "    args_size?: number;",
+    "    overflow_ref?: string | null;",
     "  };",
     "  [k: string]: unknown;",
     "}",
@@ -430,6 +433,35 @@ generated = generated.replace(
     "        output_tokens_cumulative: number;",
     "      }",
     "  );",
+  ].join("\n"),
+);
+
+// json-schema-to-typescript lowers attachment uri|name anyOf branches to an
+// index-signature union intersected with the base shape, which makes both uri
+// and name appear required. Rewrite to the writer-strict structural contract.
+const ATTACHMENT_RE =
+  /export type Attachment = Attachment1 & \{[\s\S]*?\};\nexport type Attachment1 =[\s\S]*?\n {4}\};/;
+if (!ATTACHMENT_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the Attachment anyOf block to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+generated = generated.replace(
+  ATTACHMENT_RE,
+  [
+    "export type Attachment = {",
+    '  kind: "image" | "file" | "other";',
+    "  media_type?: string;",
+    "} & (",
+    "  | {",
+    "      uri: string;",
+    "      name?: string;",
+    "    }",
+    "  | {",
+    "      name: string;",
+    "      uri?: string;",
+    "    }",
+    ");",
   ].join("\n"),
 );
 

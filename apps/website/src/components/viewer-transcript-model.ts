@@ -143,23 +143,38 @@ function pairToolLifecycleEventsInRange(
   pairedCallIdByEventIndex: Map<number, string>,
 ): void {
   type Call = {
+    branchScope: string;
     id: string;
     matched: boolean;
+    parentId?: string;
     semanticCallId?: string;
   };
   type Result = {
+    branchScope: string;
     callIndex: number;
     canExplicitMatch: boolean;
     canFallback: boolean;
     eventIndex: number;
     forId?: string;
     matched: boolean;
+    parentId?: string;
     semanticCallId?: string;
   };
 
   const calls: Call[] = [];
   const callById = new Map<string, Call>();
   const results: Result[] = [];
+  const eventById = new Map<string, ViewerEvent>();
+  const childCounts = new Map<string, number>();
+
+  for (let eventIndex = start; eventIndex < end; eventIndex += 1) {
+    const event = events[eventIndex];
+    if (event === undefined) continue;
+    if (event.id !== null) eventById.set(event.id, event);
+    if (event.parentId !== undefined) {
+      childCounts.set(event.parentId, (childCounts.get(event.parentId) ?? 0) + 1);
+    }
+  }
 
   for (let eventIndex = start; eventIndex < end; eventIndex += 1) {
     const event = events[eventIndex];
@@ -167,8 +182,10 @@ function pairToolLifecycleEventsInRange(
     if (event.kind === "tool_call") {
       if (event.id === null) continue;
       const call = {
+        branchScope: branchScopeFor(event, eventById, childCounts),
         id: event.id,
         matched: false,
+        parentId: event.parentId,
         semanticCallId: event.tool?.semanticCallId,
       };
       calls.push(call);
@@ -177,12 +194,14 @@ function pairToolLifecycleEventsInRange(
     }
     if (event.kind !== "tool_result" && event.kind !== "tool_aborted") continue;
     results.push({
+      branchScope: branchScopeFor(event, eventById, childCounts),
       callIndex: calls.length,
       canExplicitMatch: event.kind === "tool_result" || event.tool?.scope === "tool_call",
       canFallback: event.kind === "tool_result",
       eventIndex,
       forId: event.tool?.forId,
       matched: false,
+      parentId: event.parentId,
       semanticCallId: event.kind === "tool_result" ? event.tool?.semanticCallId : undefined,
     });
   }
@@ -223,12 +242,51 @@ function pairToolLifecycleEventsInRange(
     for (let index = result.callIndex - 1; index >= 0; index -= 1) {
       const call = calls[index];
       if (call === undefined || call.matched) continue;
+      if (!isSequentialCandidate(call, result)) continue;
       call.matched = true;
       result.matched = true;
       pairedCallIdByEventIndex.set(result.eventIndex, call.id);
       break;
     }
   }
+}
+
+function isSequentialCandidate(
+  call: { branchScope: string; parentId?: string },
+  result: { branchScope: string; parentId?: string },
+): boolean {
+  return (
+    call.branchScope === result.branchScope ||
+    (call.parentId !== undefined && call.parentId === result.parentId)
+  );
+}
+
+function branchScopeFor(
+  event: ViewerEvent,
+  eventById: Map<string, ViewerEvent>,
+  childCounts: Map<string, number>,
+): string {
+  let current = event;
+  const seen = new Set<string>();
+
+  while (true) {
+    const parentId = current.parentId;
+    if (parentId === undefined || seen.has(parentId)) return "root";
+    seen.add(parentId);
+
+    const parent = eventById.get(parentId);
+    if (parent === undefined) return "root";
+    if ((childCounts.get(parentId) ?? 0) > 1) {
+      return current.id === null ? `branch:${parentId}` : `branch:${parentId}:${current.id}`;
+    }
+    if (isSubagentInvoke(parent)) return `subagent:${parentId}`;
+
+    current = parent;
+  }
+}
+
+function isSubagentInvoke(event: ViewerEvent): boolean {
+  return event.kind === "tool_call" && event.tool?.name === "subagent_invoke";
 }
 
 function groupConsecutiveToolItems(items: TranscriptBuildItem[]): TranscriptItem[] {

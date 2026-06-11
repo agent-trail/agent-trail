@@ -163,6 +163,12 @@ function assertEntryShape(entry: Entry, summary: string): void {
 
 function assertFeatureInvariants(entry: Entry, summary: string): void {
   try {
+    const payload = entry.payload as Record<string, unknown>;
+    assertAttachmentShape(payload.attachments);
+
+    if (entry.type === "tool_call" && entry.payload.tool === "file_edit") {
+      assertFileEditArgs(entry.payload.args);
+    }
     if (entry.type === "tool_result") {
       expect(entry.payload.for_id).toMatch(ID_PATTERN);
     }
@@ -178,6 +184,50 @@ function assertFeatureInvariants(entry: Entry, summary: string): void {
     throw new Error(
       `real-session smoke feature invariant failed: ${error instanceof Error ? error.message : String(error)}\n${summary}`,
     );
+  }
+}
+
+function assertAttachmentShape(attachments: unknown): void {
+  if (attachments === undefined) return;
+  expect(Array.isArray(attachments)).toBe(true);
+  for (const attachment of attachments as unknown[]) {
+    expect(attachment).toEqual(expect.any(Object));
+    const item = attachment as Record<string, unknown>;
+    expect(item.kind).toEqual(expect.any(String));
+    expect(String(item.kind).length).toBeGreaterThan(0);
+    if (item.uri !== undefined) {
+      expect(item.uri).toEqual(expect.any(String));
+      expect(String(item.uri).length).toBeGreaterThan(0);
+    }
+    if (item.name !== undefined) {
+      expect(item.name).toEqual(expect.any(String));
+      expect(String(item.name).length).toBeGreaterThan(0);
+    }
+    expect(item.uri !== undefined || item.name !== undefined).toBe(true);
+    if (item.media_type !== undefined) {
+      expect(item.media_type).toEqual(expect.any(String));
+      expect(String(item.media_type).length).toBeGreaterThan(0);
+    }
+  }
+}
+
+function assertFileEditArgs(args: unknown): void {
+  expect(args).toEqual(expect.any(Object));
+  const value = args as Record<string, unknown>;
+  expect(value.path).toEqual(expect.any(String));
+  expect(String(value.path).length).toBeGreaterThan(0);
+  const hasDiff = value.diff !== undefined;
+  const hasReplacement = value.old !== undefined && value.new !== undefined;
+  expect(hasDiff || hasReplacement).toBe(true);
+  expect(hasDiff && hasReplacement).toBe(false);
+  if (hasDiff) {
+    expect(value.diff).toEqual(expect.any(String));
+    expect(String(value.diff).length).toBeGreaterThan(0);
+  }
+  if (hasReplacement) {
+    expect(value.old).toEqual(expect.any(String));
+    expect(value.new).toEqual(expect.any(String));
+    if (value.replace_all !== undefined) expect(typeof value.replace_all).toBe("boolean");
   }
 }
 
