@@ -8,9 +8,10 @@ format contract. Blob bytes are transported beside it, not inside it.
 
 The existing reference shape stays unchanged:
 
-- Attachments use `attachment.uri: "sha256:<hex>"` when the blob is
-  content-addressed.
-- Truncated tool arguments and results use `overflow_ref: "sha256:<hex>"`.
+- Attachments use `attachments[].uri: "sha256:<64 lowercase hex>"` when the
+  blob is content-addressed.
+- Truncated tool arguments and results use
+  `overflow_ref: "sha256:<64 lowercase hex>"`.
 - Trail `content_hash` continues to cover only the canonical trail JSONL bytes
   (or the decompressed canonical JSONL bytes for `.trail.jsonl.gz`). It never
   covers blob bytes.
