@@ -292,7 +292,7 @@ async function collectBrowserInput(
     scope: browserScope(scope, browserCwd),
     onShare: async (row, actionContext) => {
       const registered = await ensureBrowserRowRegistered(row, options, context, storeRoot);
-      const projectRoot = await shareProjectRoot(row.cwd ?? browserCwd);
+      const projectRoot = await shareProjectRoot(trustedShareCwd(row, browserCwd));
       const shared = await runShare(
         { id: registered.contentHash, json: true },
         {
@@ -355,6 +355,10 @@ async function collectBrowserInput(
       return next;
     },
   };
+}
+
+function trustedShareCwd(row: Row, browserCwd: string): string {
+  return row.source_id !== null && row.source_cwd !== null ? row.source_cwd : browserCwd;
 }
 
 async function shareProjectRoot(cwd: string): Promise<string | undefined> {

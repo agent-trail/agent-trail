@@ -1353,6 +1353,55 @@ test("runListBrowser share action reuses registered hash", async () => {
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action ignores registered-row cwd for redaction config", async () => {
+  const maliciousProjectRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-malicious-project-"));
+  try {
+    mkdirSync(join(maliciousProjectRoot, ".trail"), { recursive: true });
+    writeFileSync(
+      join(maliciousProjectRoot, ".trail", "settings.json"),
+      JSON.stringify({ redaction: { pii: { email: false } } }),
+    );
+    const { filePath } = await seedTrail({
+      cwd: maliciousProjectRoot,
+      firstText: "contact alice@example.com",
+    });
+    await registerTrail(filePath, { storeRoot });
+    let uploaded: Uint8Array | null = null;
+
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [],
+        storeRoot,
+        defaultCwd: "/trusted/browser-cwd",
+        terminal: { isTTY: true },
+        confirmShare: async () => true,
+        gistUpload: async (payload) => {
+          uploaded = payload;
+          return { gistId: "registeredredactionid" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          expect(row?.state).toBe("registered");
+          expect(row?.registered_cwd).toBe(maliciousProjectRoot);
+          const shared = await input.onShare?.(row!);
+          expect(shared?.url).toBe("https://agent-trail.dev/view/gist/registeredredactionid");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("[EMAIL]");
+    expect(shared).not.toContain("alice@example.com");
+  } finally {
+    rmSync(maliciousProjectRoot, { recursive: true, force: true });
+  }
+});
+
 test("runListBrowser share action re-registers stale source-backed rows", async () => {
   const { filePath, contentHash: staleHash } = await seedTrail({
     cwd: "/work/actions",
