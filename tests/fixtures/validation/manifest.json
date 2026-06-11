@@ -3045,6 +3045,22 @@
       ]
     },
     {
+      "path": "valid/system-event-vcs-commit.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "valid/tool-call-aborted-closes-call.trail.jsonl",
       "strict": {
         "valid": true,
