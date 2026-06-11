@@ -1,6 +1,10 @@
 export { defineMapping } from "./mapping/define-mapping.ts";
 export { dispatch } from "./mapping/dispatch.ts";
-export { deriveSessionUid, deriveSynthesizedEntryId } from "./mapping/ids.ts";
+export {
+  canonicalizeIdentityString,
+  deriveSessionUid,
+  deriveSynthesizedEntryId,
+} from "./mapping/ids.ts";
 export { matchesPattern } from "./mapping/match.ts";
 export { type Adapter, defineAdapter } from "./pipeline/define-adapter.ts";
 export { type Pass1Params, runPass1 } from "./pipeline/engine.ts";

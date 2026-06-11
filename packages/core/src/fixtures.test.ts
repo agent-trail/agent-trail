@@ -53,6 +53,20 @@ test("valid/agent-message-usage.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-call-usage.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-usage.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/agent-thinking-usage.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/agent-thinking-usage.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/agent-message-attachments.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/agent-message-attachments.trail.jsonl"),
@@ -91,6 +105,13 @@ test("valid/capability-change.trail.jsonl validates clean", async () => {
 test("valid/session-metadata-update-name.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/session-metadata-update-name.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
+test("valid/session-header-metadata-base.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/session-header-metadata-base.trail.jsonl"),
   );
   expect(diagnostics).toEqual([]);
 });
@@ -168,6 +189,32 @@ test("invalid-schema/agent-message-usage-missing-output.trail.jsonl rejects usag
   );
   expect(diagnostics).toContainEqual({
     line: 3,
+    path: "/payload/usage",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
+test("invalid-schema/tool-call-usage-missing-output.trail.jsonl rejects usage missing output pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/tool-call-usage-missing-output.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/usage",
+    severity: "error",
+    code: "anyOf",
+    message: "must match a schema in anyOf",
+  });
+});
+
+test("invalid-schema/agent-thinking-usage-missing-output.trail.jsonl rejects usage missing output pair", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-schema/agent-thinking-usage-missing-output.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
     path: "/payload/usage",
     severity: "error",
     code: "anyOf",
@@ -1105,6 +1152,30 @@ test("reader-tolerant/unknown-payload-field: strict errors, tolerant warns", asy
     message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
   });
   expect(tolerant.some((d) => d.severity === "error")).toBe(false);
+});
+
+test("reader-tolerant/ill-formed-string: strict errors, tolerant warns", async () => {
+  const text = await loadFixture("reader-tolerant/ill-formed-string.trail.jsonl");
+
+  const strict = await validateTrailString(text);
+  expect(strict).toContainEqual({
+    line: 2,
+    path: "/payload/text",
+    severity: "error",
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  });
+
+  const tolerant = await validateTrailString(text, { profile: "reader-tolerant" });
+  expect(tolerant).toEqual([
+    {
+      line: 2,
+      path: "/payload/text",
+      severity: "warning",
+      code: "ill_formed_string",
+      message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+    },
+  ]);
 });
 
 test("reader-tolerant/nested-unknown-payload-field warns at nested path", async () => {

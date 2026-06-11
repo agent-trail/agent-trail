@@ -1,3 +1,4 @@
+import { canonicalizeIdentityString } from "../session-uid.ts";
 import { isObject, jsonObjectValue, maybeNumber, stringValue } from "./source.ts";
 
 // Mirrors schema.json#/$defs/sessionUid; keep in sync with schema id rules.
@@ -6,7 +7,9 @@ const AGENT_TRAIL_ID_RE =
 
 function agentTrailId(value: unknown): string | undefined {
   const id = stringValue(value);
-  return id !== undefined && AGENT_TRAIL_ID_RE.test(id) ? id : undefined;
+  return id !== undefined && AGENT_TRAIL_ID_RE.test(id)
+    ? canonicalizeIdentityString(id)
+    : undefined;
 }
 
 function prefixLines(text: string, prefix: string): string[] {

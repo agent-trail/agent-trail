@@ -43,6 +43,14 @@ Header + one `user_message` whose payload marks runtime-injected user-role conte
 
 Expected: no diagnostics under either profile.
 
+#### `valid/session-header-metadata-base.trail.jsonl`
+
+Header carries base `name`, `description`, and `tags`, followed by a later
+`session_metadata_update` for `name`. Exercises the header-as-base replay
+semantics.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/minimal-with-content-hash.trail.jsonl`
 
 Same shape as `minimal-linear` with a precomputed `content_hash`:
@@ -149,6 +157,18 @@ Expected: no diagnostics under either profile.
 #### `valid/agent-message-usage.trail.jsonl`
 
 `agent_message` payload carries the full `usage` object (deltas, cumulative totals, cache read/creation, reasoning) per spec §9.2. Exercises that the schema accepts every documented sub-field and that the validator passes the cache-subset and presence rules.
+
+Expected: no diagnostics under either profile.
+
+#### `valid/tool-call-usage.trail.jsonl`
+
+`tool_call` payload carries `usage` because the call is the first entry derived from a source envelope. The usage object keeps the same required input/output coverage rules as `agent_message.payload.usage`.
+
+Expected: no diagnostics under either profile.
+
+#### `valid/agent-thinking-usage.trail.jsonl`
+
+`agent_thinking` payload carries `usage` because the thinking block is the first entry derived from a source envelope.
 
 Expected: no diagnostics under either profile.
 
@@ -322,6 +342,18 @@ Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the mi
 
 Expected (subset, both profiles): `error anyOf /payload/usage line 3` for the missing output pair.
 
+#### `invalid-schema/tool-call-usage-missing-output.trail.jsonl`
+
+`tool_call.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`.
+
+Expected (subset, both profiles): `error anyOf /payload/usage line 2` for the missing output pair.
+
+#### `invalid-schema/agent-thinking-usage-missing-output.trail.jsonl`
+
+`agent_thinking.payload.usage` is present but carries only `input_tokens`, missing both `output_tokens` and `output_tokens_cumulative`.
+
+Expected (subset, both profiles): `error anyOf /payload/usage line 2` for the missing output pair.
+
 #### `invalid-schema/agent-message-usage-zero-context-window.trail.jsonl`
 
 `agent_message.payload.usage.context_window_tokens` is `0`. Spec §9.2 only allows a positive context-window size when the source exposes it.
@@ -344,7 +376,15 @@ Header `content_hash` is 64 zeros (schema-valid hex, wrong digest).
 
 Expected (strict, exact set): single `error content_hash_mismatch /content_hash line 1`. Message includes the computed digest.
 
-Expected (reader-tolerant, exact set): single `warning content_hash_mismatch /content_hash line 1` — severity downgraded from error to warning, message unchanged.
+### reader-tolerant/
+
+#### `reader-tolerant/ill-formed-string.trail.jsonl`
+
+`user_message.payload.text` contains a raw JSON `\udc00` escape, which parses to an unpaired surrogate. Writers must replace such values with U+FFFD before emission.
+
+Expected:
+- strict: `error ill_formed_string /payload/text line 2`
+- reader-tolerant: `warning ill_formed_string /payload/text line 2`
 
 #### `hash-mismatch/content-hash-invalid-hex.trail.jsonl`
 

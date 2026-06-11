@@ -1,6 +1,7 @@
 import { lstat, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DetectOptions, SessionRef } from "../index.ts";
+import { canonicalizeIdentityString } from "../session-uid.ts";
 import { readJsonlHead as readJsonLinesHead } from "../shared/jsonl-head.ts";
 import { isRecord } from "../shared/type-guards.ts";
 import { codexSessionsDir } from "./paths.ts";
@@ -156,7 +157,8 @@ export async function walkRolloutFiles(root: string): Promise<string[]> {
 
 export async function buildSessionRef(filePath: string): Promise<SessionRef> {
   const meta = await readMetadataFromHead(filePath).catch(() => ({}) as HeadMetadata);
-  const id = meta.id ?? deriveIdFromFilename(filePath) ?? filePath;
+  const rawId = meta.id ?? deriveIdFromFilename(filePath) ?? filePath;
+  const id = canonicalizeIdentityString(rawId);
   const ref: SessionRef = {
     id,
     adapter: "codex",

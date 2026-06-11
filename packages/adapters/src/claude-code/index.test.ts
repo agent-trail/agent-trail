@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { claudeCodeAdapter, validateAdapterTrail } from "../index.ts";
+import { CLAUDE_CODE_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { ID_PATTERN } from "../test-helpers.ts";
 import { cleanGitEnv } from "../vcs.ts";
 import { INLINE_ATTACHMENT_MAX_DECODED_BYTES } from "./mappings.ts";
@@ -129,6 +130,9 @@ const FIXTURE_PATH = fileURLToPath(
 const FIDELITY_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/claude-code/fidelity-edge-cases.jsonl", import.meta.url),
 );
+const USAGE_FIRST_ENTRY_FIXTURE_PATH = fileURLToPath(
+  new URL("../../tests/fixtures/claude-code/usage-first-entry.jsonl", import.meta.url),
+);
 const COMPACT_PROVENANCE_FIXTURE_PATH = fileURLToPath(
   new URL("../../tests/fixtures/claude-code/compact-provenance.jsonl", import.meta.url),
 );
@@ -155,6 +159,14 @@ async function parseFidelityFixture() {
     id: "fidelity-edge-cases",
     adapter: "claude-code",
     path: FIDELITY_FIXTURE_PATH,
+  });
+}
+
+async function parseUsageFirstEntryFixture() {
+  return claudeCodeAdapter.parseSession({
+    id: "usage-first-entry",
+    adapter: "claude-code",
+    path: USAGE_FIRST_ENTRY_FIXTURE_PATH,
   });
 }
 
@@ -324,6 +336,13 @@ test("parseSession() emits a tool_call for assistant tool_use blocks, with seman
   expect(toolCall?.payload).toEqual({
     tool: "shell_command",
     args: { command: "ls" },
+    usage: {
+      input_tokens: 4,
+      output_tokens: 32,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      context_input_tokens: 4,
+    },
   });
   expect(toolCall?.semantic).toEqual({
     group_id: "req_synthetic_01",
@@ -462,7 +481,10 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
 
 test("parseSession() bundles a direct Agent child session from subagents directory", async () => {
   const dir = createProjectDir();
-  const parentId = "00000000-0000-0000-0000-aaaa00000001";
+  const parentId = "00000000-0000-0000-0000-AAAA00000001";
+  const canonicalParentId = parentId.toLowerCase();
+  const childAgentId = "00000000-0000-0000-0000-BBBB00000001";
+  const canonicalChildAgentId = childAgentId.toLowerCase();
   const parentPath = join(dir, `${parentId}.jsonl`);
   const childDir = join(dir, parentId, "subagents");
   mkdirSync(childDir, { recursive: true });
@@ -531,7 +553,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         parentUuid: null,
         isSidechain: true,
         type: "user",
-        agentId: "child-one",
+        agentId: childAgentId,
         message: { role: "user", content: "inspect parser" },
         uuid: "00000000-0000-0000-0000-bbbb00000011",
         timestamp: "2026-05-17T14:00:08.000Z",
@@ -544,7 +566,7 @@ test("parseSession() bundles a direct Agent child session from subagents directo
         parentUuid: "00000000-0000-0000-0000-bbbb00000011",
         isSidechain: true,
         type: "assistant",
-        agentId: "child-one",
+        agentId: childAgentId,
         message: {
           role: "assistant",
           model: "claude-opus-4-7",
@@ -582,6 +604,14 @@ test("parseSession() bundles a direct Agent child session from subagents directo
   });
   expect(child.header.id).toMatch(ID_PATTERN);
   expect(child.header.id).not.toBe(parent.header.id);
+  expect(parent.header.id).toBe(canonicalParentId);
+  expect(child.header.id).toBe(
+    deriveSessionUid(
+      CLAUDE_CODE_SESSION_UID_NAMESPACE,
+      `${canonicalParentId}\x1f${canonicalChildAgentId}`,
+    ),
+  );
+  expect(child.header.meta?.["dev.claudecode.agent_id"]).toBe(childAgentId);
   expect(child.header.fork_from).toEqual({ session_id: parent.header.id, entry_id: invoke?.id });
   expect(child.entries.some((entry) => entry.type === "agent_message")).toBe(true);
   const childBranchUpdates = child.entries.filter(
@@ -1414,6 +1444,26 @@ test("parseSession() emits an agent_message for assistant text records with mode
   );
 });
 
+test("parseSession() attaches assistant envelope usage to a tool_call-only first entry", async () => {
+  const trail = await parseUsageFirstEntryFixture();
+  const call = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "tooluse-usage-read",
+  );
+  expect(call?.payload).toEqual({
+    tool: "file_read",
+    args: { path: "package.json" },
+    usage: {
+      input_tokens: 21,
+      output_tokens: 7,
+      cache_read_tokens: 3,
+      context_input_tokens: 24,
+    },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits a session_summary for summary records", async () => {
   const trail = await parseFixture();
   const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
@@ -1697,9 +1747,11 @@ test("parseSession() maps hook_additional_context attachments to a system_event"
   );
 
   expect(evt).toBeDefined();
-  expect((evt?.payload as { kind?: string }).kind).toBe("x-claudecode/hook_additional_context");
+  expect((evt?.payload as { kind?: string }).kind).toBe("context_injected");
   const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
   expect(payload.text).toContain("CAVEMAN MODE ACTIVE");
+  expect(payload.data?.source_kind).toBe("hook");
+  expect(payload.data?.name).toBe("inject-context");
   expect(payload.data?.hook_event).toBe("UserPromptSubmit");
   expect(payload.data?.hook_name).toBe("inject-context");
   expect(payload.data?.tool_call_id).toBe("tooluse-ctx");
@@ -3770,6 +3822,7 @@ test("parseSession() maps ai-title and agent-name to session_metadata_update eve
     });
     expect(trail.envelope?.name).toBeUndefined();
     expect(trail.envelope?.meta).toBeUndefined();
+    expect(trail.groups[0]!.header.name).toBe("Wire ai-title plumbing");
     const updates = trail.groups[0]!.entries.filter(
       (entry) => entry.type === "session_metadata_update",
     );

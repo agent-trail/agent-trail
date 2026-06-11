@@ -271,6 +271,8 @@ async function validateTrailJsonl(text: string): Promise<{
   const diagnostics: ViewerDiagnostic[] = [];
   const validate = recordValidator();
   for (const record of records) {
+    diagnostics.push(...illFormedStringDiagnostics(record, "warning"));
+    diagnostics.push(...timestampDiagnostics(record));
     if (validate(record.value)) continue;
     if (isReaderTolerantUnknownRecord(record)) {
       diagnostics.push({
@@ -311,6 +313,155 @@ function parseTrailJsonl(text: string): TrailRecord[] {
     records.push({ line: i + 1, value: value as Record<string, unknown> });
   }
   return records;
+}
+
+function illFormedStringDiagnostics(
+  record: TrailRecord,
+  severity: ViewerDiagnostic["severity"],
+): ViewerDiagnostic[] {
+  const diagnostics: ViewerDiagnostic[] = [];
+  const stack: Array<{ value: unknown; path: string }> = [{ value: record.value, path: "" }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) continue;
+    const { value, path } = current;
+
+    if (typeof value === "string") {
+      if (hasUnpairedSurrogate(value)) {
+        diagnostics.push(illFormedStringDiagnostic(record.line, path, severity));
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[i], path: jsonPointer(path, String(i)) });
+      }
+      continue;
+    }
+
+    if (value !== null && typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const [key, child] = entries[i] as [string, unknown];
+        if (hasUnpairedSurrogate(key)) {
+          diagnostics.push(
+            illFormedStringDiagnostic(record.line, jsonPointer(path, key), severity),
+          );
+        }
+        stack.push({ value: child, path: jsonPointer(path, key) });
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
+const WRITER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const INVALID_TIMESTAMP_MESSAGE =
+  "Timestamp must be a valid UTC ISO-8601 value with millisecond precision";
+
+function timestampDiagnostics(record: TrailRecord): ViewerDiagnostic[] {
+  const diagnostics: ViewerDiagnostic[] = [];
+  appendTimestampDiagnostic(diagnostics, record.line, "/ts", record.value.ts);
+
+  if (record.value.type === "session") {
+    const stream = record.value.stream;
+    if (stream !== null && typeof stream === "object" && !Array.isArray(stream)) {
+      appendTimestampDiagnostic(
+        diagnostics,
+        record.line,
+        "/stream/started_at",
+        (stream as Record<string, unknown>).started_at,
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+function appendTimestampDiagnostic(
+  diagnostics: ViewerDiagnostic[],
+  line: number,
+  path: string,
+  value: unknown,
+): void {
+  if (typeof value !== "string" || !WRITER_TIMESTAMP_PATTERN.test(value)) return;
+  const parsed = new Date(value);
+  if (Number.isFinite(parsed.getTime()) && parsed.toISOString() === value) return;
+  diagnostics.push({
+    line,
+    path,
+    severity: "error",
+    code: "invalid_timestamp",
+    message: INVALID_TIMESTAMP_MESSAGE,
+  });
+}
+
+function illFormedStringDiagnostic(
+  line: number,
+  path: string,
+  severity: ViewerDiagnostic["severity"],
+): ViewerDiagnostic {
+  return {
+    line,
+    path,
+    severity,
+    code: "ill_formed_string",
+    message: "String contains an unpaired surrogate; writers must replace it with U+FFFD",
+  };
+}
+
+function hasUnpairedSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        i += 1;
+        continue;
+      }
+      return true;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function jsonPointer(path: string, segment: string): string {
+  return `${path}/${replaceUnpairedSurrogates(segment).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+}
+
+function replaceUnpairedSurrogates(value: string): string {
+  let out = "";
+  let changed = false;
+
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += value[i] ?? "";
+        i += 1;
+        out += value[i] ?? "";
+      } else {
+        out += "\ufffd";
+        changed = true;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      out += "\ufffd";
+      changed = true;
+      continue;
+    }
+    out += value[i] ?? "";
+  }
+
+  return changed ? out : value;
 }
 
 function splitSessionGroups(
@@ -834,7 +985,7 @@ function buildPreview(text: string): { bytes: number; text: string; truncated: b
 let validateRecord: ReturnType<Ajv2020["compile"]> | undefined;
 
 function recordValidator(): ReturnType<Ajv2020["compile"]> {
-  validateRecord ??= new Ajv2020({ strict: false }).compile(schema);
+  validateRecord ??= new Ajv2020({ strict: false, validateFormats: false }).compile(schema);
   return validateRecord;
 }
 

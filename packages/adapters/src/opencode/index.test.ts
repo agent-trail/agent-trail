@@ -121,6 +121,7 @@ test("mapTool builds valid unified diff lines for multiline OpenCode edits", () 
 
 function seedFileSession(opts: {
   id: string;
+  parentID?: string;
   projectID?: string;
   directory: string;
   title?: string;
@@ -137,6 +138,7 @@ function seedFileSession(opts: {
     `${JSON.stringify(
       {
         id: opts.id,
+        ...(opts.parentID !== undefined ? { parentID: opts.parentID } : {}),
         version: opts.version ?? "1.0.153",
         projectID,
         directory: opts.directory,
@@ -609,6 +611,17 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
     "task_plan_update",
   ]);
   expect(group.entries[2]?.payload).toEqual({ text: "hello opencode" });
+  expect(group.entries[3]?.payload).toEqual({
+    text: "Need inspect file.",
+    model: "claude-sonnet-4-5",
+    usage: {
+      input_tokens: 11,
+      output_tokens: 7,
+      reasoning_tokens: 3,
+      cache_read_tokens: 2,
+      cache_creation_tokens: 1,
+    },
+  });
   expect(group.entries[4]?.payload).toEqual({
     tool: "file_read",
     args: { path: "README.md", range: [1, 6] },
@@ -621,13 +634,6 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   expect(group.entries[6]?.payload).toEqual({
     text: "Read complete.",
     model: "claude-sonnet-4-5",
-    usage: {
-      input_tokens: 11,
-      output_tokens: 7,
-      reasoning_tokens: 3,
-      cache_read_tokens: 2,
-      cache_creation_tokens: 1,
-    },
   });
   expect(group.entries.every((entry) => entry.meta?.["dev.opencode.raw_type"] !== undefined)).toBe(
     true,
@@ -639,6 +645,48 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
   expect(trailRecords(trail)[0]).toHaveProperty("content_hash");
+});
+
+test("parseSession() canonicalizes identity boundaries and sanitizes file storage strings", async () => {
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  const sessionID = "11111111-2222-4333-8444-ABCDEF123456";
+  const parentID = "01arz3ndektsv4rrffq69g5fav";
+  const messageID = "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB";
+  const sessionPath = seedFileSession({
+    id: sessionID,
+    parentID,
+    directory: "/work/canonical",
+    title: `Canonical ${loneSurrogate}`,
+  });
+  seedFileMessage({ id: messageID, sessionID, role: "user", created: 1766258474000 });
+  seedFilePart({
+    id: "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC",
+    sessionID,
+    messageID,
+    type: "text",
+    text: `hello ${loneSurrogate}`,
+    time: { created: 1766258474000, updated: 1766258474000 },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: sessionID,
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const group = trail.groups[0]!;
+  const userMessage = group.entries.find((entry) => entry.type === "user_message");
+
+  expect(group.header.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  expect(group.header.session_uid).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  );
+  expect(group.header.fork_from).toEqual({ session_id: parentID.toUpperCase() });
+  expect(userMessage?.payload).toEqual({ text: "hello �" });
+  expect((userMessage?.source?.raw as { data?: { text?: string } } | undefined)?.data?.text).toBe(
+    "hello �",
+  );
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 });
 
 test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool termination", async () => {
@@ -896,6 +944,7 @@ test("parseSession() folds file parts into message attachments and maps upstream
     id: "msg_assistant_parts",
     sessionID: "ses_parts",
     role: "assistant",
+    tokens: { input: 5, output: 2, reasoning: 1 },
     created: 1766258475000,
   });
   for (const part of [
@@ -970,6 +1019,7 @@ test("parseSession() folds file parts into message attachments and maps upstream
     payload: {
       tool: "subagent_invoke",
       args: { task: "Inspect package scripts", agent_type: "explore" },
+      usage: { input_tokens: 5, output_tokens: 2, reasoning_tokens: 1 },
     },
   });
   expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 0 });
@@ -1010,6 +1060,7 @@ test("parseSession() emits useful SQLite session metadata and permission surface
   });
   const entries = trail.groups[0]!.entries;
   const metadata = entries.filter((entry) => entry.type === "session_metadata_update");
+  expect(trail.groups[0]!.header.name).toBe("Metadata Session");
   expect(metadata.map((entry) => entry.payload.field)).toEqual([
     "name",
     "agent.model_default",

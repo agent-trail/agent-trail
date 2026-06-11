@@ -113,6 +113,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Each line is one self-contained JSON object.
 - Empty lines are not allowed.
 - A trailing newline at EOF is recommended but not required.
+- Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
 
 ### 5.3 File layout
 
@@ -161,7 +162,7 @@ Writer schemas are exact per release: the v0.1.0 writer schema requires `schema_
 
 ### 7.1 Session identity
 
-Every session has a local identifier `id` in the header. ULID (26 Crockford base32 chars, case-insensitive) or UUID (RFC 4122, hyphenated or unhyphenated). The schema enforces this shape so cross-segment reconciliation can dedup events by id; older v0.1 fixtures whose ids were free-form strings have been migrated.
+Every session has a local identifier `id` in the header. Writers emit uppercase ULIDs (26 Crockford base32 chars) or lowercase UUIDs (RFC 4122, hyphenated or unhyphenated). The schema enforces this canonical casing so cross-segment reconciliation can dedup events by exact string equality; older v0.1 fixtures whose ids were free-form strings or non-canonical casing have been migrated.
 
 ### 7.2 Artifact classes
 
@@ -184,6 +185,7 @@ Canonical bytes are defined as:
 - No trailing whitespace.
 - A trailing newline at EOF.
 - Each JSON object serialized using RFC 8785 JSON Canonicalization Scheme (JCS).
+- Writer-valid strings are well-formed per §5.2, so canonical bytes remain pure JCS; hash-time string repair is not part of this procedure.
 
 Because the hash depends on the file content that includes the hash field, we use a two-pass approach:
 
@@ -217,7 +219,7 @@ Writers MUST choose the matching tier; mixing tiers across a chain breaks verifi
 
 ### 7.5 Event identifiers
 
-Event `id` values are globally unique. The schema enforces a ULID-or-UUID shape (see §7 / §17). Globally-unique ids let a reconciler dedup events across segments by exact string equality.
+Event `id` values are globally unique. Writers emit uppercase ULIDs or lowercase UUIDs, matching §7.1 and the schema. Globally-unique canonical ids let a reconciler dedup events across segments by exact string equality.
 
 ---
 
@@ -240,7 +242,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
   "tags": ["..."],                                  // optional
   "vcs": { "type": "git", "revision": "..." },      // optional; same shape as §8 vcs
   "fork_from": {                                    // optional; file-level fork link
-    "trail_id": "<parent-file-id>",
+    "trail_id": "<parent-file-id>",                 // UUID or ULID id
     "content_hash": "<parent-file-hash>"            // optional
   },
   "redacted_from": {                                // optional; redacted artifacts only
@@ -269,7 +271,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
 | `content_hash` | no | string | SHA-256 hex of the whole-file canonical bytes; see §7.4 |
 | `tags` | no | string[] | free-form labels |
 | `vcs` | no | object | working-tree context at file-assembly time |
-| `fork_from` | no | object | reference to a parent file when forked |
+| `fork_from` | no | object | reference to a parent file when forked; `trail_id` is a UUID or ULID id and `content_hash` is optional |
 | `redacted_from` | no | object | provenance link from a redacted file to its raw counterpart |
 | `sessions` | no | array | manifest of sessions in this file; validator warns on drift vs file content |
 | `meta` | no | object | free-form vendor extensions (§8.0.3) |
@@ -308,6 +310,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "type": "session",
   "schema_version": "0.1.0",
   "id": "<session-uuid-or-ulid>",
+  "name": "<session-title>",                       // optional
+  "description": "<free-text-description>",        // optional
+  "tags": ["feature", "debug"],                    // optional
   "content_hash": "<sha256-hex>",               // optional; populated at finalize
   "ts": "<ISO-8601 timestamp>",
   "stream": {                                   // optional; live-capture marker (§8.4)
@@ -321,7 +326,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
   },
   "cwd": "<absolute-path-or-normalized>",       // optional
   "vcs": {                                      // optional
-    "type": "git" | "jj" | "hg" | "svn",
+    "type": "git" | "jj" | "hg" | "svn" | "x-<vendor>/<name>",
     "revision": "<sha-or-change-id>",
     "remote_url": "<canonical-remote-url>"      // optional; see §8.2
   },
@@ -355,6 +360,9 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
 | `id` | yes | string | UUID or ULID per §7.1/§17 |
+| `name` | no | string | human session label |
+| `description` | no | string | free-text session description |
+| `tags` | no | string[] | free-form session labels |
 | `content_hash` | no | string | SHA-256 hex of this artifact; see §7.3 |
 | `ts` | yes | string | ISO-8601 session start time; writers emit UTC `Z` with millisecond precision |
 | `stream` | no | object | live-capture marker; see §8.4 |
@@ -363,7 +371,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `agent.model_default` | no | string | default model for the session |
 | `cwd` | no | string | working directory; may be normalized for privacy |
 | `vcs` | no | object | version control context at session time |
-| `vcs.type` | yes (if `vcs` present) | enum | `git`, `jj`, `hg`, or `svn` |
+| `vcs.type` | yes (if `vcs` present) | enum or extension | `git`, `jj`, `hg`, `svn`, or `x-<vendor>/<name>` for non-reserved systems |
 | `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
 | `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
 | `vcs.branch` | no | string | active branch / bookmark / topic name the session is running on (e.g., `feature/x`). Detached-HEAD sessions MAY omit. |
@@ -431,7 +439,7 @@ A live `system_event` heartbeat convention is described in §9.3.
 
 A single logical source session MAY be split across multiple trail-file artifacts — "segments" — when a long-running session is captured in chunks (e.g., a daemon writing periodically) or recovered after a writer is killed mid-session. The header carries three fields that let a reconciler group, order, and verify segment chains. All three are optional in v0.1; a single-segment trail simply omits them.
 
-- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: ULID (recommended, lexicographic time-prefix; case-insensitive) or UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
+- `session_uid` — globally-unique source-session identifier. Stable across **all** segments of one source session. Reconcilers group segments by exact string equality on `session_uid`. Format: uppercase ULID (recommended, lexicographic time-prefix) or lowercase UUID (any RFC 4122 version, hyphenated or unhyphenated). Writers SHOULD emit `session_uid` even for single-segment trails, so a later segment can be reconciled against the first without rewriting the head. The schema enforces `session_uid` as required when `segment.seq >= 2` (multi-segment continuation MUST be linkable).
 
 - `segment.seq` — 1-based integer identifying which segment of the session this file is. Single-segment trails MAY omit `segment` entirely, which is equivalent to `{seq: 1}`.
 
@@ -633,21 +641,21 @@ A text response from the agent.
 | `text` | yes | string | the agent's output |
 | `model` | no | string | model that produced this message |
 | `stop_reason` | no | string | source-specific stop reason |
-| `usage` | no | object | per-message token usage; see below |
+| `usage` | no | object | token usage for the source envelope; see below |
 | `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
 
 `attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, `uri`, `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
 
-Captures per-message token accounting emitted by the source agent. Optional. When the source provides no token data, writers MUST omit `usage` — fabricating zeros is not allowed.
+Captures token accounting emitted by the source agent for a model-response envelope. Optional. When the source provides no token data, writers MUST omit `usage` — fabricating zeros is not allowed.
 
 | Sub-field | Required | Type | Notes |
 |---|---|---|---|
-| `input_tokens` | conditional | integer ≥0 | delta for this message |
-| `output_tokens` | conditional | integer ≥0 | delta for this message |
-| `input_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
-| `output_tokens_cumulative` | conditional | integer ≥0 | running total through this message |
+| `input_tokens` | conditional | integer ≥0 | delta for this envelope |
+| `output_tokens` | conditional | integer ≥0 | delta for this envelope |
+| `input_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
+| `output_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
 | `cache_read_tokens` | no | integer ≥0 | input tokens served from prompt cache; billed separately from `input_tokens` |
 | `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
 | `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
@@ -662,7 +670,7 @@ Context token semantics are for context-pressure analytics, not billing. Writers
 
 Model identification for downstream cost analysis uses `payload.model` first, falls back to `header.agent.model_default`, and is otherwise unknown. The `usage` object does not carry its own model field.
 
-When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first `agent_message` derived from that envelope and MUST NOT repeat it on later derived entries. Tool calls and thinking blocks within the same envelope do not carry `usage`.
+When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first derived entry whose payload supports `usage`, skip non-usage-capable derived entries, and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads; if an envelope emits none of those entries, canonical `usage` is omitted.
 
 Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
@@ -748,6 +756,7 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 |---|---|---|---|
 | `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
+| `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
 
@@ -968,7 +977,7 @@ Part of the canonical vocabulary. Adapters need not emit them. Readers must tole
 
 #### `session_metadata_update`
 
-Post-creation update to logical session metadata that was not known when the immutable header was written. The header remains as-written; consumers that need the effective session metadata replay these events in file order, with the last update to a field winning. The event is part of normal session content and contributes to the session-level `content_hash`.
+Post-creation update to logical session metadata. The session header carries the base value when it is known at write time; consumers that need effective session metadata start with the header value and then replay these events in file order, with the last update to a field winning. The header remains as-written, and the event is part of normal session content that contributes to the session-level `content_hash`.
 
 ```jsonc
 {
@@ -1174,7 +1183,12 @@ Chain-of-thought or reasoning block.
 }
 ```
 
-`level` is a non-empty source-defined string. Readers MUST treat unknown level tokens as opaque.
+| Payload field | Required | Type | Notes |
+|---|---|---|---|
+| `text` | yes | string | reasoning content exposed by the source |
+| `model` | no | string | model that produced this thinking block |
+| `level` | no | string | non-empty source-defined string; readers MUST treat unknown level tokens as opaque |
+| `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `user_interrupt`
 
@@ -1640,11 +1654,12 @@ A v0.1.0-compliant trail file must also pass whole-file checks:
 4. Every non-null `parent_id` references an `id` in the same file.
 5. The `parent_id` graph is acyclic.
 6. Writer timestamps are valid UTC `Z` ISO-8601 values with millisecond precision. Readers may tolerate broader ISO-8601 timestamps.
+7. All string values are well-formed: no unpaired high or low surrogate code units. Violations are `ill_formed_string` diagnostics at the offending JSON Pointer. Strict validation reports an error; reader-tolerant validation reports a warning and does not repair the value.
 
 If `content_hash` is present:
 
-7. The value is 64 hex characters (SHA-256).
-8. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers may warn but must not abort.
+8. The value is 64 hex characters (SHA-256).
+9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers may warn but must not abort.
 
 Warnings (non-fatal):
 
@@ -1667,10 +1682,10 @@ Warnings (non-fatal):
 
 Streaming rules (§8.4) are evaluated against the *current* header `stream.state` at validation time — the validator reads the present value, not a history of transitions. Crash-recovery writers MUST finalize (`stream.state` to `"closed"` or remove `stream`) before appending terminal events; once the stream is no longer marked live, the rules below stop applying.
 
-9. If the current `header.stream.state == "open"`:
-   - **9a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
-   - **9b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
-10. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 9b does not apply once the stream is no longer marked live.
+10. If the current `header.stream.state == "open"`:
+   - **10a.** `content_hash` should be absent or `"<pending>"`. A populated hex hash is a warning, since the canonical bytes are still in flux.
+   - **10b.** Terminal events (`session_end`, `session_terminated`) should not appear. A terminal event in a file whose current `header.stream.state == "open"` is a warning — the writer claims the stream is still open but has already emitted a terminal event. Finalize the header (set `stream.state` to `"closed"` or remove `stream`) before appending terminal events.
+11. If the current `header.stream.state == "closed"` or `stream` is absent, finalized artifacts should populate `content_hash`. Readers may warn but must not abort when it is missing on otherwise complete files. Trail files produced by stream-unaware writers, or files appended across crashes and recoveries, may contain both `session_end` and `session_terminated` legitimately; rule 10b does not apply once the stream is no longer marked live.
 
 ---
 
@@ -1754,11 +1769,14 @@ Initial public draft. v0.1.0 defines:
 - JSONL file layout, session header, core event envelope, mandatory event types, optional events, the canonical tool taxonomy, vendor `meta` extensions (§8.0.3), tree semantics, layered validation, and artifact-level content addressing.
 - Stable local source filenames (`spec.md`, `schema.json`) with immutable hosted release snapshots at `/spec/v0.1.0` and `/schema/v0.1.0.json`.
 - The optional trail envelope record `type:"trail"` at line 1 (§8.0) with Tier 1 fields (`id`, `name`, `description`, `ts`, `producer`, `content_hash`) and Tier 2 fields (`tags`, `vcs`, `fork_from`, `redacted_from`, `sessions`, `meta`), and two-tier identity (§7.4): session-level `content_hash` excludes the envelope, file-level `content_hash` covers the whole file.
+- Session headers may carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
+- Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 - During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
+- During the v0.1.0 draft cycle, writer-strict identity and encoding were hardened: ULIDs are uppercase, UUIDs are lowercase, timestamps carry schema `format:"date-time"` annotation, and strings with unpaired surrogates are invalid (`ill_formed_string`).
 
 ---
 

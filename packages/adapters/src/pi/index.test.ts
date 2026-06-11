@@ -83,6 +83,10 @@ const COMPACT_FIXTURE_PATH = new URL(
 ).pathname;
 const USAGE_FIXTURE_PATH = new URL("../../tests/fixtures/pi/usage-and-cost.jsonl", import.meta.url)
   .pathname;
+const USAGE_FIRST_ENTRY_FIXTURE_PATH = new URL(
+  "../../tests/fixtures/pi/usage-first-entry.jsonl",
+  import.meta.url,
+).pathname;
 const TOOL_RESULT_ERROR_FIXTURE_PATH = new URL(
   "../../tests/fixtures/pi/tool-result-error.jsonl",
   import.meta.url,
@@ -143,6 +147,14 @@ async function parseUsageFixture() {
     id: "usage-and-cost",
     adapter: "pi",
     path: USAGE_FIXTURE_PATH,
+  });
+}
+
+async function parseUsageFirstEntryFixture() {
+  return piAdapter.parseSession({
+    id: "usage-first-entry",
+    adapter: "pi",
+    path: USAGE_FIRST_ENTRY_FIXTURE_PATH,
   });
 }
 
@@ -221,6 +233,34 @@ test("parseSession() builds a header from session record id, ts, version (int->s
   });
 });
 
+test("parseSession() canonicalizes UUID ids and sanitizes emitted strings", async () => {
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  const sessionId = "00000000-0000-0000-0000-ABCDEF123456";
+  const messageId = "00000000-0000-0000-0000-ABCDEF123457";
+  const file = join(tmpCwd, "pi-canonicalization.jsonl");
+  writeFileSync(
+    file,
+    `${JSON.stringify({ type: "session", version: 3, id: sessionId, timestamp: "2026-05-21T14:00:00.000Z", cwd: "/tmp/synthetic-project" })}\n${JSON.stringify({ type: "message", id: messageId, parentId: null, timestamp: "2026-05-21T14:00:01.000Z", message: { role: "user", content: `hello ${loneSurrogate}` } })}\n`,
+  );
+
+  const trail = await piAdapter.parseSession({
+    id: "pi-canonicalization",
+    adapter: "pi",
+    path: file,
+  });
+  const group = trail.groups[0]!;
+  const userMessage = group.entries.find((entry) => entry.type === "user_message");
+
+  expect(group.header.id).toBe(sessionId.toLowerCase());
+  expect(group.header.session_uid).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  );
+  expect(userMessage?.payload).toEqual({ text: "hello �" });
+  expect((userMessage?.source?.raw as { id?: string } | undefined)?.id).toBe(messageId);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
 // TDD step 3: user_message mapping
 test("parseSession() emits a user_message for user role records with no parent_id when parentId is null", async () => {
   const trail = await parseFixture();
@@ -272,6 +312,33 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
     totalTokens: 1801,
     cost: 0.0123,
   });
+});
+
+test("parseSession() attaches Pi assistant envelope usage to the first derived non-message entries", async () => {
+  const trail = await parseUsageFirstEntryFixture();
+  const thinking = trail.groups[0]!.entries.find((entry) => entry.type === "agent_thinking");
+  const text = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
+  const call = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+
+  expect((thinking?.payload as { usage?: Record<string, unknown> })?.usage).toEqual({
+    input_tokens: 321,
+    output_tokens: 45,
+    context_input_tokens: 321,
+  });
+  expect(text?.payload).not.toHaveProperty("usage");
+  expect(call?.payload).toEqual({
+    tool: "file_read",
+    args: { path: "spec.md" },
+    usage: {
+      input_tokens: 12,
+      output_tokens: 3,
+      cache_read_tokens: 2,
+      context_input_tokens: 14,
+    },
+  });
+
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("parseSession() preserves Pi tool-result contextAtCompletion under vendor meta", async () => {
@@ -1415,6 +1482,7 @@ test("session_info emits session_metadata_update name instead of x-pi/session_in
   const update = trail.groups[0]!.entries.find(
     (e) => e.type === "session_metadata_update" && e.payload?.field === "name",
   );
+  expect(trail.groups[0]!.header.name).toBe("Refactor adapter kit");
   expect(update?.payload).toEqual({
     field: "name",
     value: "Refactor adapter kit",

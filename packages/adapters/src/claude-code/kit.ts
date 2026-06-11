@@ -17,6 +17,7 @@ import {
   ccGitBranchMetadataSynth,
   ccModelChangeSynth,
   ccPermissionModeDelta,
+  ccRequestUsageDedupe,
   ccTaskPlanDeltas,
   ccToolKindToResult,
   ccUnresolvedHookAbortFallback,
@@ -114,6 +115,7 @@ export const claudeCodeKitAdapter: Adapter = defineAdapter({
     custom: [
       ccGitBranchMetadataSynth,
       ccModelChangeSynth,
+      ccRequestUsageDedupe,
       ccToolKindToResult,
       ccPermissionModeDelta,
       ccTaskPlanDeltas,

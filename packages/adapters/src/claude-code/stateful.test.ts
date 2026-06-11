@@ -118,6 +118,84 @@ describe("claude-code v2 stateful behaviors", () => {
     expect(all.some((e) => e.id === ref)).toBe(true);
   });
 
+  test("request usage dedupe: split assistant records keep usage only on first request entry", async () => {
+    const usage = { input_tokens: 8, output_tokens: 13 };
+    const all = await parseClaudeCodeSnapshotEntries(
+      [
+        {
+          type: "user",
+          uuid: "00000000-0000-0000-0000-00000000ab01",
+          parentUuid: null,
+          timestamp: "2026-05-18T10:00:00.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          message: { role: "user", content: "run split request" },
+        },
+        {
+          type: "assistant",
+          uuid: "00000000-0000-0000-0000-00000000ab02",
+          parentUuid: "00000000-0000-0000-0000-00000000ab01",
+          timestamp: "2026-05-18T10:00:01.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          requestId: "req-split-usage",
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "thinking", thinking: "plan" }],
+            usage,
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "00000000-0000-0000-0000-00000000ab03",
+          parentUuid: "00000000-0000-0000-0000-00000000ab02",
+          timestamp: "2026-05-18T10:00:02.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          requestId: "req-split-usage",
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [{ type: "text", text: "reading" }],
+            usage,
+          },
+        },
+        {
+          type: "assistant",
+          uuid: "00000000-0000-0000-0000-00000000ab04",
+          parentUuid: "00000000-0000-0000-0000-00000000ab03",
+          timestamp: "2026-05-18T10:00:03.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          requestId: "req-split-usage",
+          message: {
+            role: "assistant",
+            model: "claude-opus-4-7",
+            content: [
+              { type: "tool_use", id: "tooluse-read", name: "Read", input: { file_path: "a.ts" } },
+            ],
+            usage,
+          },
+        },
+      ],
+      "unit-test",
+    );
+
+    const requestEntries = all.filter((entry) => entry.semantic?.group_id === "req-split-usage");
+    const usageEntries = requestEntries.filter((entry) => "usage" in entry.payload);
+    expect(requestEntries.map((entry) => entry.type)).toEqual([
+      "agent_thinking",
+      "agent_message",
+      "tool_call",
+    ]);
+    expect(usageEntries.map((entry) => entry.type)).toEqual(["agent_thinking"]);
+    expect((usageEntries[0]?.payload as { usage?: unknown }).usage).toEqual({
+      ...usage,
+      context_input_tokens: 8,
+    });
+  });
+
   test("summary fallback preserves structured message content as JSON text", async () => {
     const path = writeTempJsonl("cc-v2-summary-", [
       {

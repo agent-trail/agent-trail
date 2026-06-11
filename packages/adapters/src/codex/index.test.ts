@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { codexAdapter, validateAdapterTrail } from "../index.ts";
+import { CODEX_SESSION_UID_NAMESPACE, deriveSessionUid } from "../session-uid.ts";
 import { mapTool, patchFiles } from "./parser.ts";
 import { codexHomeDir, codexSessionsDir } from "./paths.ts";
 
@@ -235,6 +236,24 @@ test("parseSession on the desktop tracer fixture emits a valid trail with codex-
   expect(errors).toEqual([]);
 });
 
+test("parseSession canonicalizes UUID source ids before emission", async () => {
+  const sourceId = "019D7909-85DD-7881-AA12-95FFC8CA8BA1";
+  const canonicalId = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id: sourceId,
+    cwd: process.cwd(),
+  });
+
+  const trail = await codexAdapter.parseSession({ id: sourceId, adapter: "codex", path });
+
+  expect(trail.groups[0]!.header.id).toBe(canonicalId);
+  expect(trail.groups[0]!.header.session_uid).toBe(
+    deriveSessionUid(CODEX_SESSION_UID_NAMESPACE, canonicalId),
+  );
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
 test("parseSession emits trimmed session_metadata_update name from CRLF session_index thread_name", async () => {
   const id = "019d7909-85dd-7881-aa12-95ffc8ca8ba1";
   const path = seedSession({
@@ -260,6 +279,7 @@ test("parseSession emits trimmed session_metadata_update name from CRLF session_
     (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
   );
 
+  expect(trail.groups[0]!.header.name).toBe("Address TDD #125");
   expect(update?.ts).toBe("2026-06-02T04:51:00.000Z");
   expect(update?.payload).toEqual({
     field: "name",
@@ -394,7 +414,7 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect(call).toBeDefined();
   expect(result).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("shell_command");
-  expect((call?.payload as { args: { command: string } }).args.command).toBe("echo hi");
+  expect((call?.payload as unknown as { args: { command: string } }).args.command).toBe("echo hi");
   expect(call?.semantic?.call_id).toBe("call-abc");
   expect((result?.payload as { ok: boolean }).ok).toBe(true);
   expect((result?.payload as { output: string }).output).toBe("hi\n");
@@ -1209,6 +1229,64 @@ test("parseSession maps nested failed function output to a failed tool_result", 
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession sanitizes ill-formed strings before emitted records are validated", async () => {
+  const id = "019d8a00-1311-7000-a000-00000000013a";
+  const loneSurrogate = String.fromCharCode(0xdc00);
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "28" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-28T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-ill-formed-output",
+          name: "exec_command",
+          arguments: JSON.stringify({ cmd: "printf bad" }),
+        },
+      },
+      {
+        timestamp: "2026-05-28T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-ill-formed-output",
+          output: {
+            body: `bad ${loneSurrogate}`,
+            success: false,
+          },
+        },
+      },
+    ],
+  });
+  const codexHome = codexHomeDir();
+  if (codexHome === undefined) throw new Error("expected codex home");
+  writeFileSync(
+    join(codexHome, "session_index.jsonl"),
+    `${JSON.stringify({
+      id,
+      thread_name: `  source ${loneSurrogate} raw  `,
+      updated_at: "2026-06-02T04:51:00.000000Z",
+    })}\n`,
+  );
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const result = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
+  const update = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "session_metadata_update" && entry.payload?.field === "name",
+  );
+
+  expect((result?.payload as { output?: string; error?: string }).output).toBe("bad �");
+  expect((result?.payload as { output?: string; error?: string }).error).toBe("bad �");
+  expect((update?.payload as { value?: string }).value).toBe("source � raw");
+  expect((update?.source?.raw as { thread_name?: string } | undefined)?.thread_name).toBe(
+    "  source � raw  ",
+  );
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
 test("parseSession keeps nonzero command output successful when tool metadata says success", async () => {
   const id = "019d8a00-1311-7000-a000-000000000133";
   const path = seedSession({
@@ -1367,6 +1445,20 @@ test("mapTool promotes common Codex function calls out of other", () => {
   expect(mapTool("write_stdin", { chars: "yes\n", command_id: "cmd-1", session_id: 42 })).toEqual({
     tool: "shell_input",
     args: { input: "yes\n", command_id: "cmd-1", session_id: "42" },
+  });
+  expect(
+    mapTool("write_stdin", {
+      chars: "yes\n",
+      command_id: "01hevta0000000000000000001",
+      session_id: "00000000-0000-5000-8000-ABCDEFABCDEF",
+    }),
+  ).toEqual({
+    tool: "shell_input",
+    args: {
+      input: "yes\n",
+      command_id: "01hevta0000000000000000001",
+      session_id: "00000000-0000-5000-8000-ABCDEFABCDEF",
+    },
   });
   expect(mapTool("write_stdin", { chars: "", session_id: 42 })).toEqual({
     tool: "shell_output",
@@ -2431,6 +2523,7 @@ test("event_msg.thread_goal_updated emits session_metadata_update description", 
     (e) => e.type === "session_metadata_update" && e.payload?.field === "description",
   );
   expect(evt).toBeDefined();
+  expect(trail.groups[0]!.header.description).toBe("finish the task");
   expect(evt?.payload).toEqual({
     field: "description",
     value: "finish the task",
@@ -2495,7 +2588,7 @@ test("web_search_end emits x-codex/web_search_end system_event with query-based 
   expect(data?.query).toBe("site:example.com api docs");
   expect(data?.call_id).toBe("ws_abc123");
   const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
-  expect((call?.payload as { args: { query: string } }).args.query).toBe(
+  expect((call?.payload as unknown as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
   expect(evt?.meta?.["dev.codex.raw_type"]).toBe("event_msg.web_search_end");
@@ -2539,7 +2632,7 @@ test("web_search_call with action.type='search' maps to tool_call{tool:'web_sear
   const call = trail.groups[0]!.entries.find((e) => e.type === "tool_call");
   expect(call).toBeDefined();
   expect((call?.payload as { tool: string }).tool).toBe("web_search");
-  expect((call?.payload as { args: { query: string } }).args.query).toBe(
+  expect((call?.payload as unknown as { args: { query: string } }).args.query).toBe(
     "site:example.com api docs",
   );
   expect(call?.meta?.["dev.codex.raw_type"]).toBe("response_item.web_search_call");

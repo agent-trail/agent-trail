@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Entry } from "@agent-trail/types";
+import { canonicalizeIdentityString } from "../session-uid.ts";
 import { enforceSourceRawSize, redactValue } from "../source-raw.ts";
 
 export const SOURCE_SCHEMA_VERSION = "v1";
@@ -157,7 +158,7 @@ export function metaFor(rawType: string): Entry["meta"] {
 }
 
 export function sourceId(raw: Raw, fallback: string): string {
-  return stringValue(raw.id) ?? fallback;
+  return canonicalizeIdentityString(stringValue(raw.id) ?? fallback);
 }
 
 export function partTimestamp(part: Raw, message?: Raw): string {

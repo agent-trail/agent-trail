@@ -170,6 +170,15 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
     const messageAttachments = messageParts
       .filter((part) => stringValue(part.type) === "file")
       .map(attachmentFrom);
+    const messageUsage = role === "assistant" ? usageFrom(message) : undefined;
+    let usageEmitted = false;
+    const consumeUsage = (part?: Raw): ReturnType<typeof usageFrom> => {
+      if (usageEmitted) return undefined;
+      const usage = messageUsage ?? (part !== undefined ? usageFrom(part) : undefined);
+      if (usage === undefined) return undefined;
+      usageEmitted = true;
+      return usage;
+    };
     for (const part of messageParts) {
       const type = stringValue(part.type);
       if (type === "file") continue;
@@ -196,7 +205,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
           );
         } else {
           const model = stringValue(message.modelID) ?? sessionModel;
-          const usage = usageFrom(message) ?? usageFrom(part);
+          const usage = consumeUsage(part);
           push(
             {
               ...base,
@@ -220,11 +229,16 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
             ? "[encrypted reasoning]"
             : undefined);
         if (text === undefined) continue;
+        const usage = consumeUsage(part);
         push(
           {
             ...base,
             type: "agent_thinking",
-            payload: { text, ...(sessionModel !== undefined ? { model: sessionModel } : {}) },
+            payload: {
+              text,
+              ...(sessionModel !== undefined ? { model: sessionModel } : {}),
+              ...(usage !== undefined ? { usage } : {}),
+            },
           },
           part.id,
         );
@@ -275,11 +289,12 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
         const existingCallId = openCalls.get(callID);
         let forId = existingCallId;
         if (forId === undefined) {
+          const usage = consumeUsage(part);
           const call = push(
             {
               ...toolBase,
               type: "tool_call",
-              payload: mapped,
+              payload: { ...mapped, ...(usage !== undefined ? { usage } : {}) },
               semantic: { call_id: callID, tool_kind: mapped.tool },
             },
             `${part.id}:call`,
@@ -363,6 +378,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
       if (type === "subtask") {
         const prompt = stringValue(part.prompt) ?? stringValue(part.description);
         if (prompt !== undefined) {
+          const usage = consumeUsage(part);
           push(
             {
               ...base,
@@ -375,6 +391,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
                     ? { agent_type: stringValue(part.agent) }
                     : {}),
                 },
+                ...(usage !== undefined ? { usage } : {}),
               },
               semantic: { call_id: part.id, tool_kind: "subagent_invoke" },
             },

@@ -8,7 +8,7 @@
  */
 export type AgentTrailV010 = TrailEnvelope | Header | Entry;
 /**
- * Writer timestamp: UTC ISO-8601 with millisecond precision
+ * Writer timestamp: UTC ISO-8601 with millisecond precision. Format-aware validators may use the date-time annotation; whole-file validation rule 6 remains authoritative for calendar validity.
  */
 export type Iso8601 = string;
 /**
@@ -46,9 +46,12 @@ export type Header = {
   type: "session";
   schema_version: "0.1.0";
   /**
-   * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
    */
   id: string;
+  name?: string;
+  description?: string;
+  tags?: string[];
   /**
    * Globally-unique source-session identifier. Stable across all segments of one source session (spec §8.5). Reconcilers group segments by session_uid. Optional in v0.1 single-segment trails; writers SHOULD emit it for forward-compat. Required (and enforced by the header allOf if/then) when segment.seq > 1. ULID is recommended (lexicographic tie-breaker); UUID accepted.
    */
@@ -72,12 +75,12 @@ export type Header = {
   vcs?: Vcs;
   fork_from?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     session_id: string;
     content_hash?: Sha256Hex;
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     entry_id?: string;
   };
@@ -152,7 +155,7 @@ export type ToolKind =
   | "subagent_invoke"
   | "other";
 /**
- * Token usage for this agent_message. input_tokens/output_tokens are deltas for this message; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
+ * Token usage for this source agent envelope. May appear on agent_message, agent_thinking, or tool_call when that entry is the first entry derived from the envelope. input_tokens/output_tokens are deltas for this envelope; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
  */
 export type AgentMessageUsage = {
   cache_read_tokens?: number;
@@ -221,7 +224,7 @@ export interface TrailEnvelope {
   type: "trail";
   schema_version: "0.1.0";
   /**
-   * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
    */
   id: string;
   name?: string;
@@ -232,6 +235,9 @@ export interface TrailEnvelope {
   tags?: string[];
   vcs?: Vcs;
   fork_from?: {
+    /**
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
+     */
     trail_id: string;
     content_hash?: Sha256Hex;
   };
@@ -243,7 +249,7 @@ export interface TrailEnvelope {
    */
   sessions?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     id: string;
     agent: AgentName;
@@ -256,7 +262,7 @@ export interface TrailEnvelope {
   };
 }
 export interface Vcs {
-  type: "git" | "jj" | "hg" | "svn";
+  type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
   revision: string;
   /**
    * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
@@ -311,7 +317,7 @@ export interface ParseFidelity {
 export interface EntryBase {
   type: string;
   /**
-   * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+   * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
    */
   id: string;
   parent_id?: string | null;
@@ -359,13 +365,7 @@ export interface UserMessage {
     /**
      * Authorship marker for user-role text. Absent means user-authored.
      */
-    origin?: (
-      | ("user" | "injected" | "mixed")
-      | {
-          [k: string]: unknown;
-        }
-    ) &
-      string;
+    origin?: "user" | "injected" | "mixed" | `x-${string}/${string}`;
     attachments?: Attachment[];
   };
   [k: string]: unknown;
@@ -408,7 +408,11 @@ export interface TaskPlanItem {
 export interface ToolCall {
   type?: "tool_call";
   payload?: {
-    [k: string]: unknown;
+    tool: ToolKind;
+    args: {
+      [k: string]: unknown;
+    };
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
 }
@@ -416,7 +420,7 @@ export interface ToolResult {
   type?: "tool_result";
   payload?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     for_id?: string;
     ok: boolean;
@@ -552,7 +556,7 @@ export interface UserQueryResponse {
   type?: "user_query_response";
   payload?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     for_id: string;
     answers: {
@@ -623,6 +627,7 @@ export interface AgentThinking {
     text: string;
     model?: string;
     level?: string;
+    usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
 }
@@ -651,7 +656,7 @@ export interface BranchPoint {
   type?: "branch_point";
   payload?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     from_id: string;
     reason?: string;
@@ -662,7 +667,7 @@ export interface BranchSummary {
   type?: "branch_summary";
   payload?: {
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     abandoned_branch_id: string;
     summary: string;
@@ -746,7 +751,7 @@ export interface SessionEnd {
   payload?: {
     reason: "complete" | "user_quit" | "agent_idle";
     /**
-     * Globally-unique identifier shape: ULID (26 Crockford base32 chars, case-insensitive), hyphenated UUID (36 chars), or unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by id (spec §8.5).
+     * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §8.5).
      */
     final_message_id?: string;
   };
@@ -787,36 +792,83 @@ export interface CommandInvoke {
 }
 export interface CapabilityChange {
   type?: "capability_change";
-  payload?: {
-    scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
-    reason:
-      | "registered"
-      | "deregistered"
-      | "connected"
-      | "disconnected"
-      | "loaded"
-      | "unloaded"
-      | "error"
-      | "instructions_updated";
-    /**
-     * @minItems 1
-     */
-    added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-    /**
-     * @minItems 1
-     */
-    removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-    /**
-     * @minItems 1
-     */
-    changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-    /**
-     * @minItems 1
-     */
-    snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-  } & {
-    [k: string]: unknown;
-  };
+  payload?:
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        /**
+         * @minItems 1
+         */
+        added: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        /**
+         * @minItems 1
+         */
+        removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        /**
+         * @minItems 1
+         */
+        changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      }
+    | {
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        reason:
+          | "registered"
+          | "deregistered"
+          | "connected"
+          | "disconnected"
+          | "loaded"
+          | "unloaded"
+          | "error"
+          | "instructions_updated";
+        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
+        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
+        /**
+         * @minItems 1
+         */
+        snapshot: [CapabilityAddedItem, ...CapabilityAddedItem[]];
+      };
   [k: string]: unknown;
 }
 export interface CapabilityAddedItem {
