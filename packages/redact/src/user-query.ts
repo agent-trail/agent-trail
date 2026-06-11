@@ -1,7 +1,7 @@
 import type { JsonlRecord } from "@agent-trail/core";
 import { addMutationCount } from "./mutation-accounting.ts";
 import { redactString } from "./rules.ts";
-import type { RedactionPattern, RedactionSummary } from "./types.ts";
+import type { PiiConfig, RedactionPattern, RedactionSummary } from "./types.ts";
 
 function secretQuestionIdsByQueryId(records: JsonlRecord[]): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
@@ -100,9 +100,11 @@ export function redactUserQueryQuestionIds(
   records: JsonlRecord[],
   userPatterns: RedactionPattern[],
   patterns: readonly RedactionPattern[],
+  allowedSecrets: readonly string[],
   summary: RedactionSummary,
   maxSamples: number,
   enableEntropyRedaction: boolean,
+  pii: PiiConfig,
 ): Map<string, Map<string, string>> {
   const idMaps = new Map<string, Map<string, string>>();
 
@@ -125,9 +127,11 @@ export function redactUserQueryQuestionIds(
         `records[${index}].payload.questions[${i}].id`,
         userPatterns,
         patterns,
+        allowedSecrets,
         summary,
         maxSamples,
         enableEntropyRedaction,
+        pii,
       );
       const after = uniqueKey(redacted, used);
       questionObject.id = after;
@@ -145,9 +149,11 @@ export function redactUserQueryAnswerKeys(
   queryIdMaps: Map<string, Map<string, string>>,
   userPatterns: RedactionPattern[],
   patterns: readonly RedactionPattern[],
+  allowedSecrets: readonly string[],
   summary: RedactionSummary,
   maxSamples: number,
   enableEntropyRedaction: boolean,
+  pii: PiiConfig,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -167,9 +173,11 @@ export function redactUserQueryAnswerKeys(
         `records[${index}].payload.answers.${before}`,
         userPatterns,
         patterns,
+        allowedSecrets,
         summary,
         maxSamples,
         enableEntropyRedaction,
+        pii,
       );
       const mapped = idMap?.get(before) ?? redacted;
       const after = uniqueKey(mapped, used);

@@ -529,6 +529,187 @@ test("redactTrail redacts PII (email, phone, ssn) via @redactpii/node", () => {
   expect(summary.counts.ssn_pii).toBeGreaterThanOrEqual(1);
 });
 
+test("redactTrail preserves default allowlisted automation emails", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "actions@github.com noreply@example.com actions@private.example user@users.noreply.github.com alice@example.com",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toContain("actions@github.com");
+  expect(text).toContain("user@users.noreply.github.com");
+  expect(text).not.toContain("noreply@example.com");
+  expect(text).not.toContain("actions@private.example");
+  expect(text).not.toContain("alice@example.com");
+  expect(text).toContain("[EMAIL]");
+  expect(summary.counts.email_pii).toBe(3);
+  expect(summary.counts.allowlisted_skip).toBe(2);
+});
+
+test("redactTrail phone PII avoids IP and version false positives", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "ip 192.168.001.0001 version 1.234.567.8901 call 415-555-2671 or (415) 555-2672 or +1-415-555-2673",
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toContain("192.168.001.0001");
+  expect(text).toContain("1.234.567.8901");
+  expect(text).not.toContain("415-555-2671");
+  expect(text).not.toContain("(415) 555-2672");
+  expect(text).not.toContain("+1-415-555-2673");
+  expect(text).toContain("[PHONE]");
+  expect(summary.counts.phone_pii).toBe(3);
+});
+
+test("redactTrail applies custom PII labels", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "employee EMP-123456 opened the ticket" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    pii: { customLabels: { employee_id: "EMP-\\d{6}" } },
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe("employee [REDACTED_EMPLOYEE_ID] opened the ticket");
+  expect(summary.counts.employee_id_pii).toBe(1);
+});
+
+test("redactTrail rejects unsafe custom label regexes", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "EMP-123456" },
+    }),
+  ];
+
+  expect(() =>
+    redactTrail(records, {
+      pii: { customLabels: { employee_id: "^(EMP-\\d+)+$" } },
+    }),
+  ).toThrow("regex is unsafe");
+});
+
+test("redactTrail preserves allowed secrets in credential-looking fields", () => {
+  const allowed = "sk-proj-AllowedAllowedAllowedAllowedAllowedAllowed";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { args: { api_key: allowed, command: allowed } },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: [allowed] });
+
+  const value = out[1]?.value as { payload: { args: { api_key: string; command: string } } };
+  expect(value.payload.args.api_key).toBe(allowed);
+  expect(value.payload.args.command).toBe(allowed);
+  expect(summary.counts.allowlisted_skip).toBe(2);
+  expect(summary.counts.credential_context).toBeUndefined();
+  expect(summary.counts.openai_api_key).toBeUndefined();
+});
+
+test("redactTrail does not preserve larger detector matches for allowed-secret substrings", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `key ${key}` },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: ["AbCdEf"] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).not.toContain(key);
+  expect(text).toContain("[OPENAI_KEY]");
+  expect(summary.counts.openai_api_key).toBe(1);
+  expect(summary.counts.allowlisted_skip).toBeUndefined();
+});
+
+test("redactTrail allowed-secret sentinels do not collide with existing text", () => {
+  const allowed = "sk-proj-AllowedAllowedAllowedAllowedAllowedAllowed";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `prefix [ALLOWED_SECRET_0_0] keep ${allowed}` },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: [allowed] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe(`prefix [ALLOWED_SECRET_0_0] keep ${allowed}`);
+  expect(summary.counts.allowlisted_skip).toBe(1);
+});
+
+test("redactTrail allowed-secret protection is not affected by later pattern placeholders", () => {
+  const allowed = "sk-proj-AllowedAllowedAllowedAllowedAllowedAllowed";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `keep ${allowed} redact SECRET` },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    allowedSecrets: [allowed],
+    extendPatterns: [
+      {
+        id: "marker",
+        description: "marker",
+        regex: /SECRET/g,
+        placeholder: "[ALLOWED_SECRET_0_0]",
+      },
+    ],
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe(`keep ${allowed} redact [ALLOWED_SECRET_0_0]`);
+  expect(summary.counts.allowlisted_skip).toBe(1);
+  expect(summary.counts.marker).toBe(1);
+});
+
 test("redactTrail redacts only the password segment in credentialed URIs", () => {
   const records: JsonlRecord[] = [
     header(),

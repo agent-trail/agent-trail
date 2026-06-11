@@ -12,12 +12,42 @@ export type RedactionSample = {
 export type RedactionSummary = {
   counts: Record<string, number>;
   samples: RedactionSample[];
+  packs?: RedactionPackSummary[];
+  warnings?: string[];
+};
+
+export type RedactionPackSource = "project" | "user_global";
+
+export type RedactionPackSummary = {
+  name: string;
+  version: number;
+  contentHash: string;
+  source: RedactionPackSource;
+};
+
+export type LoadedRedactionPack = RedactionPackSummary & {
+  path: string;
+  patterns: RedactionPattern[];
+  allowlist: string[];
+};
+
+export type PiiConfig = {
+  email?: boolean;
+  phone?: boolean;
+  ssn?: boolean;
+  creditCard?: boolean;
+  name?: boolean;
+  emailAllowlist?: string[];
+  customLabels?: Record<string, string>;
 };
 
 export type RedactTrailOptions = {
   patterns?: RedactionPattern[];
   extendPatterns?: RedactionPattern[];
+  redactionPacks?: LoadedRedactionPack[];
   userSecrets?: string[];
+  allowedSecrets?: string[];
+  pii?: PiiConfig;
   includeSourceRaw?: boolean;
   outputMaxBytes?: number;
   maxSamples?: number;

@@ -2,56 +2,54 @@ import { applyCredentialContext, isOpaqueTokenVisit } from "./credential-context
 import { applyEntropyRedaction } from "./entropy.ts";
 import { addMutationCount } from "./mutation-accounting.ts";
 import { applyPii } from "./pii.ts";
-import { applyPattern } from "./rules.ts";
-import type { RedactionPattern, RedactionSummary } from "./types.ts";
+import { allowedSecretSet, applyPattern } from "./rules.ts";
+import type { PiiConfig, RedactionPattern, RedactionSummary } from "./types.ts";
 import type { Visit } from "./visits.ts";
 
 export function redactVisitedStrings(
   visits: Iterable<Visit>,
   userPatterns: RedactionPattern[],
   patterns: readonly RedactionPattern[],
+  allowedSecrets: readonly string[],
   summary: RedactionSummary,
   maxSamples: number,
   redactionCounts: Map<number, number>,
   enableEntropyRedaction: boolean,
+  pii: PiiConfig,
 ): void {
+  const allowed = allowedSecretSet(allowedSecrets);
   for (const visit of visits) {
+    const before = visit.get();
+    if (allowed.has(before)) {
+      summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + 1;
+      continue;
+    }
+    let mutationCount = 0;
     for (const pattern of userPatterns) {
-      addMutationCount(
-        redactionCounts,
-        visit.recordIndex,
-        applyPattern(visit, pattern, summary, maxSamples),
-      );
+      mutationCount += applyPattern(visit, pattern, summary, maxSamples, allowed);
     }
     for (const pattern of patterns) {
-      addMutationCount(
-        redactionCounts,
-        visit.recordIndex,
-        applyPattern(visit, pattern, summary, maxSamples),
-      );
+      mutationCount += applyPattern(visit, pattern, summary, maxSamples, allowed);
     }
-    addMutationCount(
-      redactionCounts,
-      visit.recordIndex,
-      applyCredentialContext(visit, summary, maxSamples),
-    );
-    if (isOpaqueTokenVisit(visit)) continue;
-    if (enableEntropyRedaction) {
-      addMutationCount(
-        redactionCounts,
-        visit.recordIndex,
-        applyEntropyRedaction(visit, summary, maxSamples),
-      );
+    mutationCount += applyCredentialContext(visit, summary, maxSamples);
+    if (!isOpaqueTokenVisit(visit)) {
+      if (enableEntropyRedaction) {
+        mutationCount += applyEntropyRedaction(visit, summary, maxSamples, allowed);
+      }
+      const beforePii = visit.get();
+      const piiResult = applyPii(beforePii, visit.location, summary, maxSamples, pii, allowed);
+      if (piiResult.text !== beforePii) {
+        visit.set(piiResult.text);
+        mutationCount += piiResult.count;
+      }
+      for (const sample of piiResult.samples) {
+        if (summary.samples.length >= maxSamples) break;
+        summary.samples.push(sample);
+      }
     }
-    const current = visit.get();
-    const pii = applyPii(current, visit.location, summary, maxSamples);
-    if (pii.text !== current) {
-      visit.set(pii.text);
-      addMutationCount(redactionCounts, visit.recordIndex, pii.count);
-    }
-    for (const sample of pii.samples) {
-      if (summary.samples.length >= maxSamples) break;
-      summary.samples.push(sample);
+    const next = visit.get();
+    if (next !== before) {
+      addMutationCount(redactionCounts, visit.recordIndex, mutationCount);
     }
   }
 }

@@ -84,7 +84,8 @@ let storeRoot: string;
 
 function shareOptions(argv: string[]): RunShareOptions {
   const options: Partial<RunShareOptions> = {};
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
     if (arg === "--dry-run") {
       options.dryRun = true;
     } else if (arg === "--yes" || arg === "-y") {
@@ -93,6 +94,10 @@ function shareOptions(argv: string[]): RunShareOptions {
       options.skipRedaction = true;
     } else if (arg === "--keep-remote-url") {
       options.keepRemoteUrl = true;
+    } else if (arg === "--allowed-secret") {
+      i += 1;
+      options.allowedSecrets ??= [];
+      options.allowedSecrets.push(argv[i] ?? "");
     } else if (arg === "--json") {
       options.json = true;
     } else if (options.id === undefined) {
@@ -232,6 +237,317 @@ test("--json invalid id emits parseable error object", async () => {
     copied: false,
     error: { message: "share: invalid id: not-a-hash (expected 8–64 hex chars)" },
   });
+});
+
+test("dry-run json loads project redactor packs and reports pack metadata", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-pack-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "redactors", "acme.yaml"),
+      [
+        "name: acme",
+        "version: 1",
+        "description: ACME internal tokens",
+        "rules:",
+        "  - id: acme_internal_token",
+        "    description: ACME internal service token",
+        "    regex: 'ACME-[A-Z0-9]{32}'",
+        "    placeholder: '[ACME_TOKEN]'",
+        "    samples:",
+        "      - input: 'ACME-ABCDEF0123456789ABCDEF0123456789'",
+        "        redacted: true",
+        "      - input: 'ACME-too-short'",
+        "        redacted: false",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const { contentHash } = await seedRegistered({
+      text: "token ACME-ABCDEF0123456789ABCDEF0123456789",
+    });
+
+    const result = await runShare([contentHash, "--dry-run", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const json = JSON.parse(result.stdout) as {
+      redaction: {
+        summary: {
+          counts: Record<string, number>;
+          packs?: Array<{ name: string; version: number; source: string; contentHash: string }>;
+        };
+      };
+    };
+    expect(json.redaction.summary.counts.acme_internal_token).toBe(1);
+    expect(json.redaction.summary.packs).toEqual([
+      {
+        name: "acme",
+        version: 1,
+        source: "project",
+        contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+    ]);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("dry-run warns and continues for malformed redactor packs", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-bad-pack-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail", "redactors", "local"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "redactors", "good.yaml"),
+      [
+        "name: good",
+        "version: 1",
+        "rules:",
+        "  - id: good_token",
+        "    description: Good token",
+        "    regex: 'GOOD-[A-Z0-9]{8}'",
+        "    placeholder: '[GOOD_TOKEN]'",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(projectRoot, ".trail", "redactors", "local", "broken.yaml"),
+      [
+        "name: broken",
+        "version: 1",
+        "rules:",
+        "  - id: broken_token",
+        "    description: Broken token",
+        "    regex: 'BROKEN-[A-Z0-9]{8}'",
+        "    placeholder: '[BROKEN_TOKEN]'",
+        "    samples:",
+        "      - input: 'no match here'",
+        "        redacted: true",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(join(projectRoot, ".trail", "redactors", "invalid.json"), "{", "utf8");
+    const { contentHash } = await seedRegistered({ text: "GOOD-ABC12345 BROKEN-ABC12345" });
+
+    const result = await runShare([contentHash, "--dry-run", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("WARNING: redaction pack skipped");
+    expect(result.stderr).toContain("broken.yaml");
+    expect(result.stderr).toContain("invalid.json");
+    const json = JSON.parse(result.stdout) as {
+      redaction: {
+        summary: {
+          counts: Record<string, number>;
+          packs?: Array<{ name: string }>;
+        };
+      };
+    };
+    expect(json.redaction.summary.counts.good_token).toBe(1);
+    expect(json.redaction.summary.counts.broken_token).toBeUndefined();
+    expect(json.redaction.summary.packs).toEqual([expect.objectContaining({ name: "good" })]);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("share applies project redaction settings for PII categories", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-settings-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "settings.json"),
+      JSON.stringify({
+        redaction: {
+          pii: {
+            email: true,
+            phone: true,
+            ssn: false,
+            credit_card: false,
+            name: false,
+          },
+        },
+      }),
+      "utf8",
+    );
+    const { contentHash } = await seedRegistered({
+      text: "Contact alice@example.com or 415-555-2671. SSN 123-45-6789. Hello Jonathan Smith.",
+    });
+    let uploaded: Uint8Array | null = null;
+    const gistUpload = async (payload: Uint8Array) => {
+      uploaded = payload;
+      return { gistId: "settingsid" };
+    };
+
+    const result = await runShare([contentHash, "--yes"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+      gistUpload,
+    });
+
+    expect(result.exitCode).toBe(0);
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("[EMAIL]");
+    expect(shared).toContain("[PHONE]");
+    expect(shared).toContain("123-45-6789");
+    expect(shared).toContain("Jonathan Smith");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("share applies project email allowlist settings", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-email-allowlist-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "settings.json"),
+      JSON.stringify({
+        redaction: {
+          pii: {
+            emailAllowlist: ["*@project.example"],
+          },
+        },
+      }),
+      "utf8",
+    );
+    const { contentHash } = await seedRegistered({
+      text: "keep dev@project.example redact alice@example.com",
+    });
+    let uploaded: Uint8Array | null = null;
+    const gistUpload = async (payload: Uint8Array) => {
+      uploaded = payload;
+      return { gistId: "emailallowid" };
+    };
+
+    const result = await runShare([contentHash, "--yes", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+      gistUpload,
+    });
+
+    expect(result.exitCode).toBe(0);
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("dev@project.example");
+    expect(shared).not.toContain("alice@example.com");
+    expect(shared).toContain("[EMAIL]");
+    const json = JSON.parse(result.stdout) as {
+      redaction: { summary: { counts: Record<string, number> } };
+    };
+    expect(json.redaction.summary.counts.allowlisted_skip).toBe(1);
+    expect(json.redaction.summary.counts.email_pii).toBe(1);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test("share allowed-secret preserves a detector match and reports allowlisted skip", async () => {
+  const allowed = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const { contentHash } = await seedRegistered({
+    text: `fixture key ${allowed} repeated ${allowed}`,
+  });
+  let uploaded: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    uploaded = payload;
+    return { gistId: "allowedid" };
+  };
+
+  const result = await runShare([contentHash, "--yes", "--allowed-secret", allowed, "--json"], {
+    storeRoot,
+    gistUpload,
+  });
+
+  expect(result.exitCode).toBe(0);
+  if (uploaded === null) throw new Error("expected upload payload");
+  const shared = decodePayload(uploaded);
+  expect(shared).toContain(allowed);
+  expect(shared.match(new RegExp(allowed, "g"))).toHaveLength(2);
+  const json = JSON.parse(result.stdout) as {
+    redaction: { summary: { counts: Record<string, number> } };
+  };
+  expect(json.redaction.summary.counts.allowlisted_skip).toBe(2);
+  expect(json.redaction.summary.counts.openai_api_key).toBeUndefined();
+});
+
+test("runCli share passes --allowed-secret through Commander", async () => {
+  const allowed = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const { contentHash } = await seedRegistered({
+    text: `fixture key ${allowed}`,
+  });
+
+  const result = await runCli(
+    ["share", contentHash, "--dry-run", "--yes", "--json", "--allowed-secret", allowed],
+    { storeRoot },
+  );
+
+  expect(result.exitCode).toBe(0);
+  const json = JSON.parse(result.stdout) as {
+    redaction: { summary: { counts: Record<string, number> } };
+  };
+  expect(json.redaction.summary.counts.allowlisted_skip).toBe(1);
+  expect(json.redaction.summary.counts.openai_api_key).toBeUndefined();
+});
+
+test("share applies rule pack allowlist entries as exact skip literals", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-pack-allowlist-project-"));
+  try {
+    const allowed = "ACME-ABCDEF0123456789ABCDEF0123456789";
+    mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "redactors", "acme.yaml"),
+      [
+        "name: acme",
+        "version: 1",
+        "allowlist:",
+        `  - ${allowed}`,
+        "rules:",
+        "  - id: acme_internal_token",
+        "    description: ACME internal service token",
+        "    regex: 'ACME-[A-Z0-9]{32}'",
+        "    placeholder: '[ACME_TOKEN]'",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const { contentHash } = await seedRegistered({ text: `fixture key ${allowed}` });
+    let uploaded: Uint8Array | null = null;
+    const gistUpload = async (payload: Uint8Array) => {
+      uploaded = payload;
+      return { gistId: "packallowid" };
+    };
+
+    const result = await runShare([contentHash, "--yes", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+      gistUpload,
+    });
+
+    expect(result.exitCode).toBe(0);
+    if (uploaded === null) throw new Error("expected upload payload");
+    expect(decodePayload(uploaded)).toContain(allowed);
+    const json = JSON.parse(result.stdout) as {
+      redaction: { summary: { counts: Record<string, number> } };
+    };
+    expect(json.redaction.summary.counts.allowlisted_skip).toBe(1);
+    expect(json.redaction.summary.counts.acme_internal_token).toBeUndefined();
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
 });
 
 test("--skip-redaction --yes: warning still printed, unredacted confirm required", async () => {

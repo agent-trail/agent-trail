@@ -13,29 +13,40 @@ export function applyEntropyRedaction(
   visit: Visit,
   summary: RedactionSummary,
   maxSamples: number,
+  allowedSecrets: ReadonlySet<string> = new Set(),
 ): number {
   const current = visit.get();
   TOKEN_PATTERN.lastIndex = 0;
   const matches: string[] = [];
   const redacted = current.replace(TOKEN_PATTERN, (candidate: string, offset: number) => {
+    if (allowedSecrets.has(candidate)) {
+      matches.push("");
+      return candidate;
+    }
     const match = { 0: candidate, index: offset } as RegExpMatchArray;
     if (!isHighEntropyCandidate(current, match)) return candidate;
     matches.push(candidate);
     return "[HIGH_ENTROPY_SECRET]";
   });
-  if (matches.length === 0) return 0;
+  const redactedMatches = matches.filter((match) => match.length > 0);
+  const skipped = matches.length - redactedMatches.length;
+  if (skipped > 0) {
+    summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + skipped;
+  }
+  if (redactedMatches.length === 0) return 0;
 
   visit.set(redacted);
-  summary.counts.high_entropy_token = (summary.counts.high_entropy_token ?? 0) + matches.length;
+  summary.counts.high_entropy_token =
+    (summary.counts.high_entropy_token ?? 0) + redactedMatches.length;
   if (summary.samples.length < maxSamples) {
     summary.samples.push({
       patternId: "high_entropy_token",
       location: visit.location,
-      before: maskSample(matches[0] as string),
+      before: maskSample(redactedMatches[0] as string),
       after: "[HIGH_ENTROPY_SECRET]",
     });
   }
-  return matches.length;
+  return redactedMatches.length;
 }
 
 function isHighEntropyCandidate(text: string, match: RegExpMatchArray): boolean {

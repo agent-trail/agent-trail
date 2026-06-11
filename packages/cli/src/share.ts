@@ -6,7 +6,7 @@ import {
   parseJsonlString,
   splitSessionGroups,
 } from "@agent-trail/core";
-import { type RedactionSummary, redactTrail } from "@agent-trail/redact";
+import { type RedactionSummary, redactTrail, resolveRedactionConfig } from "@agent-trail/redact";
 import {
   IndexCorruptError,
   type IndexFile,
@@ -39,10 +39,13 @@ export type RunShareOptions = {
   json?: boolean;
   skipRedaction?: boolean;
   keepRemoteUrl?: boolean;
+  allowedSecrets?: string[];
 };
 
 export type RunShareContext = {
   storeRoot?: string;
+  env?: Record<string, string | undefined>;
+  projectRoot?: string;
   confirm?: (message: string) => Promise<boolean>;
   gistUpload?: GistUpload;
 };
@@ -67,6 +70,7 @@ type ShareSuccessJson = {
 
 type ShareRedactionSummary = {
   counts: Record<string, number>;
+  packs?: NonNullable<RedactionSummary["packs"]>;
 };
 
 type ShareJson =
@@ -118,7 +122,35 @@ export async function runShare(
       stderr +=
         "WARNING: --keep-remote-url will share the repository's remote URL in the gist. Project identity (and private repo identity) will be exposed.\n";
     }
-    const result = redactTrail(records, { keepRemoteUrl: options.keepRemoteUrl === true });
+    let redactionConfig: Awaited<ReturnType<typeof resolveRedactionConfig>>;
+    try {
+      redactionConfig = await resolveRedactionConfig({
+        env: context.env,
+        projectRoot: context.projectRoot,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return shareErrorReturn(
+        {
+          exitCode: 1,
+          stdout: options.json === true ? "" : `${stdoutLines.join("\n")}\n`,
+          stderr: `${stderr}share: ${message}\n`,
+        },
+        options,
+      );
+    }
+    if (redactionConfig.warnings.length > 0) {
+      stderr += redactionConfig.warnings.map((warning) => `WARNING: ${warning}\n`).join("");
+    }
+    const result = redactTrail(records, {
+      keepRemoteUrl: options.keepRemoteUrl === true,
+      redactionPacks: redactionConfig.packs,
+      allowedSecrets: [...redactionConfig.allowedSecrets, ...(options.allowedSecrets ?? [])],
+      pii: redactionConfig.pii,
+    });
+    if (redactionConfig.warnings.length > 0) {
+      result.summary.warnings = redactionConfig.warnings;
+    }
     redactedRecords = result.records;
     redactionSummary = result.summary;
     stdoutLines.push("Redaction summary:");
@@ -352,7 +384,10 @@ function jsonResult(
 
 function safeRedactionSummary(summary: RedactionSummary | null): ShareRedactionSummary | null {
   if (summary === null) return null;
-  return { counts: summary.counts };
+  return {
+    counts: summary.counts,
+    ...(summary.packs === undefined ? {} : { packs: summary.packs }),
+  };
 }
 
 function shareReturn(
@@ -414,7 +449,11 @@ async function tryConfirm(
   }
 }
 
-export function addShareCommand(program: Command, writeResult: ResultWriter): void {
+export function addShareCommand(
+  program: Command,
+  writeResult: ResultWriter,
+  context: Pick<RunShareContext, "env" | "projectRoot" | "storeRoot"> = {},
+): void {
   addExamples(
     program
       .command("share")
@@ -428,19 +467,41 @@ export function addShareCommand(program: Command, writeResult: ResultWriter): vo
       .option("--json", "Print share result as JSON.", false)
       .option("--skip-redaction", "Share raw unredacted trail content.", false)
       .option("--keep-remote-url", "Preserve vcs.remote_url in shared content.", false)
+      .option(
+        "--allowed-secret <literal>",
+        "Preserve an exact known-safe secret literal.",
+        collect,
+        [],
+      )
       .description("Redact and share a registered Trail object.")
-      .action(async (id: string, options: Omit<RunShareOptions, "id">) => {
-        writeResult(
-          await runShare({
-            id,
-            dryRun: options.dryRun,
-            yes: options.yes,
-            json: options.json,
-            skipRedaction: options.skipRedaction,
-            keepRemoteUrl: options.keepRemoteUrl,
-          }),
-        );
-      }),
+      .action(
+        async (
+          id: string,
+          options: Omit<RunShareOptions, "id" | "allowedSecrets"> & {
+            allowedSecret?: string[];
+          },
+        ) => {
+          writeResult(
+            await runShare(
+              {
+                id,
+                dryRun: options.dryRun,
+                yes: options.yes,
+                json: options.json,
+                skipRedaction: options.skipRedaction,
+                keepRemoteUrl: options.keepRemoteUrl,
+                allowedSecrets: options.allowedSecret,
+              },
+              context,
+            ),
+          );
+        },
+      ),
     ["trail share abcdef12", "trail share abcdef12 --dry-run"],
   );
+}
+
+function collect(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
 }
