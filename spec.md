@@ -1648,13 +1648,14 @@ Share-time redactors MUST apply the privacy rules below before producing shared 
 | `cwd` | Normalize or strip. |
 | `vcs.remote_url` | Strip or normalize per §8.2 unless the user explicitly opts in. |
 | `vcs.worktree.path`, `vcs.worktree.original_cwd` | Normalize or strip. |
-| `source.path` | Strip. |
+| `source.path` | Normalize or strip. |
 | `attachments[].uri` | Remove or rewrite local `file:` URIs. Rewrite to `sha256:<hex>` only when the referenced blob is content-addressed and transported with the share; otherwise remove `uri` and keep visible stub metadata such as `kind`, `name`, and `media_type`. |
 | `tool_result.payload.overflow_ref` | Keep `sha256:` references when useful; strip every other scheme or implementation-local reference. When stripped, keep `truncated` and `output_size` unchanged. |
 | `tool_call.payload.args.headers` for `mcp_call` and `web_fetch` | Strip or replace credential-bearing values with placeholders. |
 | `name`, `description`, `tags`, message text, output strings, and `meta` string leaves | Scrub secret patterns and PII according to the redactor's configured policy. |
 
 Redactors MUST resolve each `user_query_response.payload.for_id` to a `user_query` in the same session group before preserving answers for questions marked `is_secret`. If the query is unresolvable, the redactor MUST strip the response's `answers` entirely (fail closed).
+If a resolved response contains answer keys that do not appear on the referenced `user_query`, the redactor MUST strip those unknown answers and any raw source payload for that response.
 
 Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 

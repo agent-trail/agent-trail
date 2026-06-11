@@ -531,6 +531,7 @@ test("redactTrail redacts PII (email, phone, ssn) via @redactpii/node", () => {
 
 test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets truncated=true", () => {
   const big = "X".repeat(20_000);
+  const overflowRef = `sha256:${"a".repeat(64)}`;
   const records: JsonlRecord[] = [
     header(),
     record(2, {
@@ -541,7 +542,7 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
         for_id: "evtcall",
         ok: true,
         output: big,
-        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        overflow_ref: overflowRef,
       },
     }),
   ];
@@ -556,9 +557,7 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(value.payload.output.length).toBeLessThan(big.length);
   expect(value.payload.truncated).toBe(true);
   expect(value.payload.output_size).toBe(new TextEncoder().encode(big).byteLength);
-  expect(value.payload.overflow_ref).toBe(
-    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  );
+  expect(value.payload.overflow_ref).toBe(overflowRef);
   expect(value.meta?.redaction_count).toBe(1);
   expect(summary.counts.output_truncated).toBe(1);
 });
@@ -592,6 +591,45 @@ test("redactTrail strips non-sha256 overflow_ref values and preserves sha256 ref
         overflow_ref: `sha256:${"b".repeat(64)}`,
       },
     }),
+    record(4, {
+      type: "tool_result",
+      id: "evt3",
+      ts: "2026-05-22T00:00:03.000Z",
+      payload: {
+        for_id: "evtcall3",
+        ok: true,
+        output: "malformed content ref",
+        truncated: true,
+        output_size: 90,
+        overflow_ref: "sha256:file:///Users/alice/output.txt",
+      },
+    }),
+    record(5, {
+      type: "tool_result",
+      id: "evt4",
+      ts: "2026-05-22T00:00:04.000Z",
+      payload: {
+        for_id: "evtcall4",
+        ok: true,
+        output: "uppercase digest",
+        truncated: true,
+        output_size: 90,
+        overflow_ref: `sha256:${"A".repeat(64)}`,
+      },
+    }),
+    record(6, {
+      type: "tool_result",
+      id: "evt5",
+      ts: "2026-05-22T00:00:05.000Z",
+      payload: {
+        for_id: "evtcall5",
+        ok: true,
+        output: "short digest",
+        truncated: true,
+        output_size: 90,
+        overflow_ref: `sha256:${"a".repeat(63)}`,
+      },
+    }),
   ];
 
   const { records: out, summary } = redactTrail(records);
@@ -601,12 +639,33 @@ test("redactTrail strips non-sha256 overflow_ref values and preserves sha256 ref
     payload: { truncated: boolean; output_size: number; overflow_ref?: string };
   };
   const contentAddressed = out[2]?.value as { payload: { overflow_ref?: string } };
+  const malformed = out[3]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { overflow_ref?: string };
+  };
+  const uppercase = out[4]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { overflow_ref?: string };
+  };
+  const short = out[5]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { overflow_ref?: string };
+  };
   expect(local.payload.overflow_ref).toBeUndefined();
   expect(local.payload.truncated).toBe(true);
   expect(local.payload.output_size).toBe(1234);
   expect(local.meta?.redaction_count).toBe(1);
   expect(contentAddressed.payload.overflow_ref).toBe(`sha256:${"b".repeat(64)}`);
-  expect(summary.counts.overflow_ref_stripped).toBe(1);
+  expect(malformed.payload.overflow_ref).toBeUndefined();
+  expect(malformed.meta?.redaction_count).toBe(1);
+  expect(uppercase.payload.overflow_ref).toBeUndefined();
+  expect(uppercase.meta?.redaction_count).toBe(1);
+  expect(short.payload.overflow_ref).toBeUndefined();
+  expect(short.meta?.redaction_count).toBe(1);
+  expect(summary.counts.overflow_ref_stripped).toBe(4);
+  expect(
+    summary.samples.find((sample) => sample.patternId === "overflow_ref_stripped")?.before,
+  ).toBe("[overflow_ref]");
 });
 
 test("redactTrail truncates user_query_response answer strings exceeding outputMaxBytes", () => {
@@ -668,6 +727,12 @@ test("redactTrail strips answers when user_query_response cannot resolve its que
           token: { selected: ["secret"], other: "freeform secret" },
         },
       },
+      source: {
+        agent: "codex-cli",
+        raw: {
+          text: "freeform secret that does not match any configured pattern",
+        },
+      },
     }),
   ];
 
@@ -676,10 +741,166 @@ test("redactTrail strips answers when user_query_response cannot resolve its que
   const response = out[1]?.value as {
     meta?: { redaction_count?: number };
     payload: { answers: Record<string, unknown> };
+    source: { raw: unknown };
   };
   expect(response.payload.answers).toEqual({});
-  expect(response.meta?.redaction_count).toBe(1);
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED unresolved user_query_response source.raw]",
+  });
+  expect(response.meta?.redaction_count).toBe(2);
   expect(summary.counts.user_query_response_unresolved_answers_stripped).toBe(1);
+  expect(summary.counts.user_query_response_unresolved_source_raw_stripped).toBe(1);
+});
+
+test("redactTrail strips unresolved user_query_response source raw even when answers are empty", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "missing-query",
+        answers: {},
+      },
+      source: {
+        agent: "codex-cli",
+        raw: {
+          text: "raw response content that should not survive",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const response = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { answers: Record<string, unknown> };
+    source: { raw: unknown };
+  };
+  expect(response.payload.answers).toEqual({});
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED unresolved user_query_response source.raw]",
+  });
+  expect(response.meta?.redaction_count).toBe(1);
+  expect(summary.counts.user_query_response_unresolved_answers_stripped).toBeUndefined();
+  expect(summary.counts.user_query_response_unresolved_source_raw_stripped).toBe(1);
+});
+
+test("redactTrail treats cross-session user_query_response references as unresolved", () => {
+  const records: JsonlRecord[] = [
+    header({ id: "01HSESS0000000000000000001" }),
+    record(2, {
+      type: "user_query",
+      id: "query1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { questions: [{ id: "token", question: "Paste token" }] },
+    }),
+    header({ id: "01HSESS0000000000000000002" }),
+    record(4, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "query1",
+        answers: { token: { selected: ["secret"] } },
+      },
+      source: {
+        agent: "codex-cli",
+        raw: { text: "cross-session answer content" },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const response = out[3]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { answers: Record<string, unknown> };
+    source: { raw: unknown };
+  };
+  expect(response.payload.answers).toEqual({});
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED unresolved user_query_response source.raw]",
+  });
+  expect(response.meta?.redaction_count).toBe(2);
+  expect(summary.counts.user_query_response_unresolved_answers_stripped).toBe(1);
+  expect(summary.counts.user_query_response_unresolved_source_raw_stripped).toBe(1);
+});
+
+test("redactTrail strips unknown answer keys on resolved user_query_response", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query",
+      id: "query1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { questions: [{ id: "safe", question: "Keep this?" }] },
+    }),
+    record(3, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "query1",
+        answers: {
+          safe: { selected: ["yes"] },
+          token: { selected: ["secret"] },
+        },
+      },
+      source: {
+        agent: "codex-cli",
+        raw: { text: "raw token answer content" },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const response = out[2]?.value as {
+    meta?: { redaction_count?: number };
+    payload: { answers: Record<string, unknown> };
+    source: { raw: unknown };
+  };
+  expect(response.payload.answers).toEqual({ safe: { selected: ["yes"] } });
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED unresolved user_query_response source.raw]",
+  });
+  expect(response.meta?.redaction_count).toBe(2);
+  expect(summary.counts.user_query_response_unknown_answers_stripped).toBe(1);
+  expect(summary.counts.user_query_response_unknown_source_raw_stripped).toBe(1);
+});
+
+test("redactTrail does not recount already stripped unresolved user_query_response source raw", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_query_response",
+      id: "response1",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "missing-query",
+        answers: {},
+      },
+      source: {
+        agent: "codex-cli",
+        raw: { redacted: "[STRIPPED unresolved user_query_response source.raw]" },
+      },
+      meta: { redaction_count: 1 },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+  const response = out[1]?.value as {
+    meta?: { redaction_count?: number };
+    source: { raw: unknown };
+  };
+  expect(response.source.raw).toEqual({
+    redacted: "[STRIPPED unresolved user_query_response source.raw]",
+  });
+  expect(response.meta?.redaction_count).toBe(1);
+  expect(summary.counts.user_query_response_unresolved_source_raw_stripped).toBeUndefined();
 });
 
 test("redactTrail redacts user_query strings and strips secret answers", () => {
@@ -740,6 +961,7 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
     };
   };
   const response = out[2]?.value as {
+    meta?: { redaction_count?: number };
     payload: {
       answers: {
         token: { selected: string[]; other?: string };
@@ -762,6 +984,7 @@ test("redactTrail redacts user_query strings and strips secret answers", () => {
   expect(summary.counts.email_pii).toBeGreaterThanOrEqual(2);
   expect(summary.counts.user_query_secret_answer).toBe(1);
   expect(summary.counts.user_query_secret_source_raw).toBe(1);
+  expect(response.meta?.redaction_count).toBe(3);
 });
 
 test("redactTrail does not recount already stripped user_query_response source raw", () => {
@@ -1624,6 +1847,31 @@ test("redactTrail redacts secrets in name-only attachments", () => {
     .attachments[0]?.name;
   expect(name).toBe("[USER_SECRET].txt");
   expect(summary.counts.user_secret).toBe(1);
+});
+
+test("redactTrail removes mixed-case file attachment uris", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "see attached",
+        attachments: [{ kind: "file", uri: "FILE:///Users/alice/secret.txt", name: "secret.txt" }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const attachment = (
+    out[1]?.value as {
+      payload: { attachments: Array<{ kind: string; uri?: string; name?: string }> };
+    }
+  ).payload.attachments[0];
+  expect(attachment).toEqual({ kind: "file", name: "secret.txt" });
+  expect(summary.counts.attachment_file_uri_removed).toBe(1);
 });
 
 test("redactTrail redacts quarantined source drift while preserving raw shape", () => {

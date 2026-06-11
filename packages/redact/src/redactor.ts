@@ -59,7 +59,7 @@ export function redactTrail(
   );
   redactUserQueryAnswerKeys(out, queryIdMaps, userPatterns, patterns, rawSummary, maxSamples);
 
-  stripSecretUserQueryAnswers(out, rawSummary, maxSamples);
+  stripSecretUserQueryAnswers(out, rawSummary, maxSamples, redactionCounts);
 
   redactVisitedStrings(
     visitStrings(out, includeSourceRaw),
