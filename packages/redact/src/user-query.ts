@@ -1,4 +1,5 @@
 import type { JsonlRecord } from "@agent-trail/core";
+import { addMutationCount } from "./mutation-accounting.ts";
 import { redactString } from "./rules.ts";
 import type { RedactionPattern, RedactionSummary } from "./types.ts";
 
@@ -25,6 +26,7 @@ export function stripSecretUserQueryAnswers(
   records: JsonlRecord[],
   summary: RedactionSummary,
   maxSamples: number,
+  mutationCounts: Map<number, number>,
 ): void {
   const secretByQueryId = secretQuestionIdsByQueryId(records);
   if (secretByQueryId.size === 0) return;
@@ -56,6 +58,7 @@ export function stripSecretUserQueryAnswers(
             after: "[STRIPPED]",
           });
         }
+        addMutationCount(mutationCounts, index, 1);
       }
     }
     const answers = payload.answers as Record<string, unknown>;
@@ -77,6 +80,7 @@ export function stripSecretUserQueryAnswers(
           after: "[STRIPPED]",
         });
       }
+      addMutationCount(mutationCounts, index, 1);
     }
   }
 }

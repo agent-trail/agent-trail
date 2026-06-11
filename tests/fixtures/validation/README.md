@@ -288,6 +288,12 @@ Header + one `tool_call` with no matching `tool_result` and no terminal event. T
 
 Expected (subset, both profiles): `warning unmatched_tool_call_at_eof /id line 2` ("tool_call \"evta1\" has no matching tool_result or call-scoped tool_call_aborted at EOF").
 
+#### `invalid-graph/tool-args-unredacted-secret.trail.jsonl`
+
+`mcp_call.payload.args.headers.Authorization` contains a bearer token. The call has a matching result so the fixture isolates the privacy warning.
+
+Expected (subset, both profiles): `warning tool_args_unredacted_secret /payload/args/headers/Authorization line 2`.
+
 #### `invalid-graph/tool-call-aborted-turn-scope-does-not-close-call.trail.jsonl`
 
 `tool_call` open at EOF followed by a turn-scoped `tool_call_aborted`. Turn-scoped aborts are valid events, but they do not close any specific tool call.

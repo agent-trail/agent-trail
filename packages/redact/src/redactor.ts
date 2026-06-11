@@ -3,6 +3,11 @@ import { applyRedactionCounts, snapshotToolResultOutputSizes } from "./mutation-
 import { DEFAULT_PATTERNS } from "./patterns.ts";
 import { resetContentHashes, stripVcsRemoteUrl, syncRawRecords } from "./record-transforms.ts";
 import { userSecretsPatterns } from "./rules.ts";
+import {
+  applyAttachmentUriRules,
+  stripUnresolvedUserQueryResponses,
+  stripUnsafeOverflowRefs,
+} from "./share-rules.ts";
 import { redactVisitedStrings } from "./string-sweep.ts";
 import { truncateOutputs } from "./truncate.ts";
 import type { RedactionSummary, RedactTrailOptions, RedactTrailResult } from "./types.ts";
@@ -35,6 +40,16 @@ export function redactTrail(
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
   }
 
+  applyAttachmentUriRules(
+    out,
+    options.attachmentUriRewrites,
+    rawSummary,
+    maxSamples,
+    redactionCounts,
+  );
+  stripUnsafeOverflowRefs(out, rawSummary, maxSamples, redactionCounts);
+  stripUnresolvedUserQueryResponses(out, rawSummary, maxSamples, redactionCounts);
+
   const queryIdMaps = redactUserQueryQuestionIds(
     out,
     userPatterns,
@@ -44,7 +59,7 @@ export function redactTrail(
   );
   redactUserQueryAnswerKeys(out, queryIdMaps, userPatterns, patterns, rawSummary, maxSamples);
 
-  stripSecretUserQueryAnswers(out, rawSummary, maxSamples);
+  stripSecretUserQueryAnswers(out, rawSummary, maxSamples, redactionCounts);
 
   redactVisitedStrings(
     visitStrings(out, includeSourceRaw),

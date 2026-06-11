@@ -2,6 +2,7 @@ import { validateWriterStrictRecord } from "./ajv-validation.ts";
 import {
   sourceRawSecretDiagnostics,
   sourceRawSizeDiagnostics,
+  toolArgsSecretDiagnostics,
   vcsRemoteUrlDiagnostics,
 } from "./business-rules.ts";
 import { type Diagnostic, diagnosticFromJsonlParseError } from "./diagnostics.ts";
@@ -36,9 +37,13 @@ function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfil
   const sourceRawExtras = sourceRawSizeDiagnostics(record).concat(
     sourceRawSecretDiagnostics(record),
   );
+  const toolArgExtras = toolArgsSecretDiagnostics(record);
   const headerExtras = vcsRemoteUrlDiagnostics(record);
 
-  return baseDiagnosticsForProfile(record, profile).concat(sourceRawExtras).concat(headerExtras);
+  return baseDiagnosticsForProfile(record, profile)
+    .concat(sourceRawExtras)
+    .concat(toolArgExtras)
+    .concat(headerExtras);
 }
 
 export async function* validateWriterStrictSchemaJsonlStream(
