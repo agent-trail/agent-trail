@@ -134,12 +134,14 @@ kit path:
 (a) single-replace `{path, oldText, newText}` → `file_edit` with replacement args
 `{path, old, new}`;
 (b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with
-replacement args for one hunk or a multi-hunk diff when multiple edits share one file;
+replacement args for one hunk, otherwise `other` because Pi does not expose line context for
+multi-hunk replacements;
 (c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with
-replacement args for one hunk or a multi-hunk diff when multiple edits share one file;
-(d) `{multi: [...]}` spanning multiple files → `file_patch`;
+replacement args for one hunk, otherwise `other` for the same no-line-context reason;
+(d) `{multi: [...]}` spanning multiple files → `other` unless the source provides real patch text;
 (e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
 `file_patch` for multi-file patches.
+This keeps the adapter aligned with spec §10.1: writers do not fabricate unified-diff hunk headers.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
 `fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.7,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
