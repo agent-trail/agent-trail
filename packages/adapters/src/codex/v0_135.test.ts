@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatDiagnosticsText, validateWriterStrictRecord } from "@agent-trail/core";
 import type { Entry } from "@agent-trail/types";
-import { parseCodexEntries } from "./kit.ts";
+import { parseCodexEntries, parseCodexSnapshotEntries } from "./kit.ts";
 import { INLINE_IMAGE_MAX_DECODED_BYTES } from "./mappings.ts";
 
 const FIXTURES = join(import.meta.dir, "../../tests/fixtures/codex");
@@ -390,6 +390,58 @@ describe("codex v0.135 image-bearing response_item.message", () => {
     );
     expect(all[1]?.type).toBe("agent_message");
     expect((all[1]?.payload as { text?: string }).text).toBe("later reply");
+  });
+
+  test("unmatched assistant image fallback carries usage and effective model", async () => {
+    const all = await parseCodexSnapshotEntries(
+      [
+        {
+          timestamp: "2026-06-01T11:10:00.000Z",
+          type: "session_meta",
+          payload: { id: "019d8900-cccc-7000-e000-0000000000bd", cli_version: "0.135.0" },
+        },
+        {
+          timestamp: "2026-06-01T11:10:01.000Z",
+          type: "turn_context",
+          payload: { turn_id: "turn-1", model: "gpt-5-codex" },
+        },
+        {
+          timestamp: "2026-06-01T11:10:02.000Z",
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "output_text", text: "assistant image" },
+              {
+                type: "input_image",
+                detail: "auto",
+                image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+              },
+            ],
+          },
+        },
+        {
+          timestamp: "2026-06-01T11:10:03.000Z",
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              model: "gpt-5-token-fallback",
+              last_token_usage: { total_tokens: 13 },
+            },
+          },
+        },
+      ],
+      "unit-test",
+    );
+    expectWriterStrict(all);
+    const agent = all.find((entry) => entry.type === "agent_message");
+    expect(agent?.payload).toMatchObject({
+      text: "assistant image",
+      model: "gpt-5-codex",
+      usage: { total_tokens: 13 },
+    });
   });
 
   test("image rollup binds repeated text to the nearest matching message", async () => {

@@ -188,11 +188,12 @@ compactions and is preserved under `metadata["dev.pi.compaction"]`). `model_chan
 assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
 
 Pi usage telemetry: assistant `message.usage` maps `input` → `input_tokens`, `output` →
-`output_tokens`, `cacheRead` → `cache_read_tokens`, `cacheWrite` → `cache_creation_tokens`, and
-`context_input_tokens = input + cacheRead + cacheWrite`. The mapped usage is attached once to the
-first usage-capable entry derived from that assistant envelope (`agent_message`, `agent_thinking`,
-or `tool_call`) and is not repeated on later entries. `totalTokens` is intentionally not mapped to
-`context_input_tokens` because it includes output tokens; `cost` remains source-only under
+`output_tokens`, `totalTokens` → `total_tokens`, `cacheRead` → `cache_read_tokens`,
+`cacheWrite` → `cache_creation_tokens`, and `context_input_tokens = input + cacheRead + cacheWrite`.
+The mapped usage is attached once to the first usage-capable entry derived from that assistant
+envelope (`agent_message`, `agent_thinking`, or `tool_call`) and is not repeated on later entries.
+`totalTokens` is intentionally not mapped to `context_input_tokens` because it includes output
+tokens; it is preserved separately as `total_tokens`. `cost` remains source-only under
 `source.raw`. Tool-result `message.details.toolMetadata.contextAtCompletion` is preserved exactly at
 `meta["dev.pi.context_at_completion"]` and is not promoted to assistant `context_window_tokens`.
 
@@ -400,10 +401,14 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `payload.info.total_token_usage` (cumulative); the adapter translates Codex field names to
   spec slots: `cached_input_tokens` → `cache_read_tokens` (delta only — spec has no cumulative
   slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
-  `{input,output}_tokens` → `{input,output}_tokens`, `last_token_usage.input_tokens` →
-  `context_input_tokens`, `total_token_usage` `{input,output}_tokens` →
-  `{input,output}_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when
-  present. Codex's `total_tokens` field is dropped (recoverable from input+output). `payload.info: null` rate-limit-only snapshots emit no usage; multiple
+  `input_tokens` → non-cached `input_tokens` plus cache-inclusive `context_input_tokens`,
+  `last_token_usage.output_tokens` → `output_tokens`, `last_token_usage.total_tokens` →
+  `total_tokens`, `total_token_usage.input_tokens` minus
+  `total_token_usage.cached_input_tokens` → non-cached `input_tokens_cumulative`,
+  `total_token_usage.output_tokens` → `output_tokens_cumulative`,
+  `total_token_usage.total_tokens` →
+  `total_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when present.
+  `payload.info: null` rate-limit-only snapshots emit no usage; multiple
   `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals
   are monotonic). The `payload.rate_limits` slot is intentionally not rolled up — see deferred
   shapes below.

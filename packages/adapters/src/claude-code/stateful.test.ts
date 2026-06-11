@@ -85,6 +85,38 @@ describe("claude-code v2 stateful behaviors", () => {
     expect(change?.meta).toBeUndefined();
   });
 
+  test("assistant text and thinking entries carry source model", async () => {
+    const all = await parseClaudeCodeSnapshotEntries(
+      [
+        {
+          type: "assistant",
+          uuid: "00000000-0000-0000-0000-00000000ac01",
+          parentUuid: null,
+          timestamp: "2026-05-18T10:00:00.000Z",
+          sessionId: "s",
+          version: "1.0.0-synthetic",
+          requestId: "req-model",
+          message: {
+            role: "assistant",
+            model: "claude-model-from-source",
+            content: [
+              { type: "thinking", thinking: "source thinking" },
+              { type: "text", text: "source text" },
+            ],
+          },
+        },
+      ],
+      "unit-test",
+    );
+    const assistantEntries = all.filter(
+      (entry) => entry.type === "agent_thinking" || entry.type === "agent_message",
+    );
+    expect(assistantEntries.map((entry) => entry.payload.model)).toEqual([
+      "claude-model-from-source",
+      "claude-model-from-source",
+    ]);
+  });
+
   test("permission_mode delta: from/to mode payload on the second change", async () => {
     const all = await entries("permission-mode.jsonl");
     const pms = all.filter((e) => e.type === "mode_change" && e.payload.scope === "permission");

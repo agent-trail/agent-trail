@@ -25,6 +25,7 @@ export { IMAGE_CARRIER, INLINE_IMAGE_MAX_DECODED_BYTES } from "./mappings/messag
  * trail never contains the carrier or this key.
  */
 export const USAGE_CARRIER = "x-codex/_usage";
+export const TOKEN_MODEL_CARRIER = "x-codex/_token_model";
 
 const compacted = defineMapping<Raw>({
   match: { type: "compacted" },
@@ -55,12 +56,27 @@ const tokenCount = defineMapping<Raw>({
   match: { type: "event_msg", payload: { type: "token_count" } },
   emit: (record) => {
     if (!emittable(record)) return [];
-    const usage = codexUsageFromTokenCount(payloadOf(record));
-    if (usage === undefined) return [];
+    const payload = payloadOf(record);
+    const usage = codexUsageFromTokenCount(payload);
+    const info =
+      typeof payload.info === "object" && payload.info !== null ? (payload.info as Raw) : {};
+    const model =
+      stringValue(payload.model) ??
+      stringValue(info.model) ??
+      stringValue(info.model_id) ??
+      stringValue(info.modelId);
+    if (usage === undefined && model === undefined) return [];
     // Transient carrier folded into the preceding agent_message by
     // codexTokenRollup, then dropped.
     return [
-      { type: "system_event", payload: { kind: USAGE_CARRIER }, meta: { [USAGE_CARRIER]: usage } },
+      {
+        type: "system_event",
+        payload: { kind: USAGE_CARRIER },
+        meta: {
+          ...(usage !== undefined ? { [USAGE_CARRIER]: usage } : {}),
+          ...(model !== undefined ? { [TOKEN_MODEL_CARRIER]: model } : {}),
+        },
+      },
     ];
   },
 });

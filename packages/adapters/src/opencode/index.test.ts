@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateSourceRecord } from "@agent-trail/adapter-kit";
 import { opencodeAdapter, trailRecords, validateAdapterTrail } from "../index.ts";
+import { tokenTotalsFromSession } from "./metadata.ts";
 import { mapTool } from "./tools.ts";
 
 let prevHome: string | undefined;
@@ -545,6 +546,7 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
     tokens: {
       input: 11,
       output: 7,
+      total: 18,
       reasoning: 3,
       cache: { read: 2, write: 1 },
     },
@@ -618,6 +620,7 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
     usage: {
       input_tokens: 11,
       output_tokens: 7,
+      total_tokens: 18,
       reasoning_tokens: 3,
       cache_read_tokens: 2,
       cache_creation_tokens: 1,
@@ -646,6 +649,57 @@ test("parseSession() emits a valid finalized trail from file storage", async () 
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
   expect(trailRecords(trail)[0]).toHaveProperty("content_hash");
+});
+
+test("parseSession() prefers message modelID for reasoning parts over session default", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_reason_model",
+    directory: "/work/reason-model",
+    title: "Reason Model",
+  });
+  seedFileMessage({
+    id: "msg_default",
+    sessionID: "ses_reason_model",
+    role: "assistant",
+    modelID: "session-default-model",
+    created: 1766258474000,
+  });
+  seedFilePart({
+    id: "prt_default_text",
+    sessionID: "ses_reason_model",
+    messageID: "msg_default",
+    type: "text",
+    text: "default model response",
+    time: { created: 1766258474000, updated: 1766258474000 },
+  });
+  seedFileMessage({
+    id: "msg_reason",
+    sessionID: "ses_reason_model",
+    role: "assistant",
+    modelID: "message-reasoning-model",
+    created: 1766258475000,
+  });
+  seedFilePart({
+    id: "prt_reason_model",
+    sessionID: "ses_reason_model",
+    messageID: "msg_reason",
+    type: "reasoning",
+    text: "Use message-specific model.",
+    time: { created: 1766258475000, updated: 1766258475000 },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_reason_model",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const group = trail.groups[0]!;
+  expect(group.header.agent.model_default).toBe("session-default-model");
+  const thinking = group.entries.find((entry) => entry.type === "agent_thinking");
+  expect(thinking?.payload).toEqual({
+    text: "Use message-specific model.",
+    model: "message-reasoning-model",
+  });
 });
 
 test("parseSession() canonicalizes identity boundaries and sanitizes file storage strings", async () => {
@@ -1003,7 +1057,7 @@ test("parseSession() folds file parts into message attachments and maps upstream
     id: "msg_assistant_parts",
     sessionID: "ses_parts",
     role: "assistant",
-    tokens: { input: 5, output: 2, reasoning: 1 },
+    tokens: { input: 5, output: 2, total: 7, reasoning: 1 },
     created: 1766258475000,
   });
   for (const part of [
@@ -1078,10 +1132,89 @@ test("parseSession() folds file parts into message attachments and maps upstream
     payload: {
       tool: "subagent_invoke",
       args: { task: "Inspect package scripts", agent_type: "explore" },
-      usage: { input_tokens: 5, output_tokens: 2, reasoning_tokens: 1 },
+      usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7, reasoning_tokens: 1 },
     },
   });
   expect(trail.groups[0]!.header.parse_fidelity).toEqual({ quarantined_count: 0 });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("parseSession() preserves OpenCode total-only token usage", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_total_only",
+    directory: "/work/total-only",
+  });
+  seedFileMessage({
+    id: "msg_total_only",
+    sessionID: "ses_total_only",
+    role: "assistant",
+    tokens: { total: 42 },
+    created: 1766258475000,
+  });
+  seedFilePart({
+    id: "prt_total_only",
+    sessionID: "ses_total_only",
+    messageID: "msg_total_only",
+    type: "text",
+    text: "Done.",
+    tokens: { input: 5, output: 3 },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_total_only",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const agent = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
+  expect(agent?.payload).toEqual({
+    text: "Done.",
+    usage: { input_tokens: 5, output_tokens: 3, total_tokens: 42 },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("parseSession() merges OpenCode message totals onto the first part with token buckets", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_total_late_part",
+    directory: "/work/total-late-part",
+  });
+  seedFileMessage({
+    id: "msg_total_late_part",
+    sessionID: "ses_total_late_part",
+    role: "assistant",
+    tokens: { total: 42 },
+    created: 1766258475000,
+  });
+  seedFilePart({
+    id: "prt_total_late_reasoning",
+    sessionID: "ses_total_late_part",
+    messageID: "msg_total_late_part",
+    type: "reasoning",
+    text: "Thinking.",
+  });
+  seedFilePart({
+    id: "prt_total_late_text",
+    sessionID: "ses_total_late_part",
+    messageID: "msg_total_late_part",
+    type: "text",
+    text: "Done.",
+    tokens: { input: 5, output: 3 },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_total_late_part",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const thinking = trail.groups[0]!.entries.find((entry) => entry.type === "agent_thinking");
+  expect(thinking?.payload).toEqual({ text: "Thinking." });
+  const agent = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
+  expect(agent?.payload).toEqual({
+    text: "Done.",
+    usage: { input_tokens: 5, output_tokens: 3, total_tokens: 42 },
+  });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 });
@@ -1169,6 +1302,20 @@ test("parseSession() emits useful SQLite session metadata and permission surface
   expect(trail.groups[0]!.header.vcs).toBeUndefined();
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("tokenTotalsFromSession preserves partial aggregate counters", () => {
+  expect(
+    tokenTotalsFromSession({
+      tokens_reasoning: 7,
+      tokens_cache_read: 11,
+      tokens_cache_write: 13,
+    }),
+  ).toEqual({
+    reasoning_tokens: 7,
+    cache_read_tokens: 11,
+    cache_creation_tokens: 13,
+  });
 });
 
 test("parseSession() enriches file-storage sessions with matching SQLite metadata", async () => {

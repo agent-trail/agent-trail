@@ -605,11 +605,11 @@ export function stableAxisKey(axis: Record<string, unknown>): string {
 // `payload.info.{last_token_usage, total_token_usage}`. Translate Codex's
 // field names to the spec's `agentMessageUsage` slots before running the
 // shared validator: `cached_input_tokens` → `cache_read_tokens` (delta),
-// `reasoning_output_tokens` → `reasoning_tokens` (delta). The Codex
-// `total_*` counterparts map to `*_cumulative`. Codex's `total_tokens`,
-// `cached_input_tokens` cumulative, and `reasoning_output_tokens` cumulative
-// have no spec slot and are dropped (input+output remain recoverable). Codex
-// `last_token_usage.input_tokens` also maps to `context_input_tokens`;
+// `reasoning_output_tokens` → `reasoning_tokens` (delta). Codex
+// `total_token_usage` maps to cumulative fields. Codex `total_tokens` maps to
+// source-reported inclusive total fields. Codex reports input cache-inclusive,
+// so canonical `input_tokens` subtracts cached input while
+// `context_input_tokens` keeps the raw cache-inclusive input count.
 // `model_context_window`, when present, maps to `context_window_tokens`.
 //
 // Returns `undefined` when `payload.info` is null/missing or every translated
@@ -623,20 +623,27 @@ export function codexUsageFromTokenCount(
   const total = isObject(info.total_token_usage) ? info.total_token_usage : {};
   const merged: Record<string, unknown> = {};
   const inputDelta = numericValue(last.input_tokens);
+  const cacheReadDelta = numericValue(last.cached_input_tokens);
   if (inputDelta !== undefined) {
-    merged.input_tokens = inputDelta;
+    merged.input_tokens = Math.max(0, inputDelta - (cacheReadDelta ?? 0));
     merged.context_input_tokens = inputDelta;
   }
   const outputDelta = numericValue(last.output_tokens);
   if (outputDelta !== undefined) merged.output_tokens = outputDelta;
-  const cacheReadDelta = numericValue(last.cached_input_tokens);
   if (cacheReadDelta !== undefined) merged.cache_read_tokens = cacheReadDelta;
   const reasoningDelta = numericValue(last.reasoning_output_tokens);
   if (reasoningDelta !== undefined) merged.reasoning_tokens = reasoningDelta;
+  const totalDelta = numericValue(last.total_tokens);
+  if (totalDelta !== undefined) merged.total_tokens = totalDelta;
   const inputCumulative = numericValue(total.input_tokens);
-  if (inputCumulative !== undefined) merged.input_tokens_cumulative = inputCumulative;
+  const cacheReadCumulative = numericValue(total.cached_input_tokens);
+  if (inputCumulative !== undefined) {
+    merged.input_tokens_cumulative = Math.max(0, inputCumulative - (cacheReadCumulative ?? 0));
+  }
   const outputCumulative = numericValue(total.output_tokens);
   if (outputCumulative !== undefined) merged.output_tokens_cumulative = outputCumulative;
+  const totalCumulative = numericValue(total.total_tokens);
+  if (totalCumulative !== undefined) merged.total_tokens_cumulative = totalCumulative;
   const contextWindow = numericValue(info.model_context_window);
   if (contextWindow !== undefined) merged.context_window_tokens = contextWindow;
   return mapAgentMessageUsage(merged);

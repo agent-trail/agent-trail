@@ -58,6 +58,17 @@ function firstTurnContextSnapshot(
   return undefined;
 }
 
+function firstTurnContextModel(records: Record<string, unknown>[]): string | undefined {
+  for (const record of records) {
+    if (record.type !== "turn_context") continue;
+    if (timestampToIso(record.timestamp) === undefined) continue;
+    const payload = isObject(record.payload) ? record.payload : {};
+    const model = stringValue(payload.model);
+    if (model !== undefined) return model;
+  }
+  return undefined;
+}
+
 async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<TrailSessionGroup> {
   const records = parseObjectRecords(await readFile(path, "utf8"));
   const firstRecord = records[0];
@@ -78,6 +89,10 @@ async function parseSingleGroup(path: string, forkFrom?: ForkFrom): Promise<Trai
   const snapshot = firstTurnContextSnapshot(records);
   if (snapshot !== undefined) {
     header.meta = { ...(header.meta ?? {}), "dev.codex.turn_context": snapshot };
+  }
+  const modelDefault = firstTurnContextModel(records);
+  if (modelDefault !== undefined && header.agent.model_default === undefined) {
+    header.agent = { ...header.agent, model_default: modelDefault };
   }
   const sessionUid = header.session_uid ?? header.id;
   const entries = await parseCodexSnapshotEntries(records, sessionUid);

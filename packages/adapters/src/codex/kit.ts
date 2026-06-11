@@ -6,6 +6,7 @@ import { type CodexState, codexOverrides, initialCodexState } from "./overrides.
 import {
   codexDropTaskPlanResults,
   codexImageRollup,
+  codexModelReplay,
   codexTaskPlanDeltas,
   codexTokenRollup,
   codexUserQueryResponses,
@@ -45,8 +46,9 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
     parentChain: false, // Codex is linear and emits no parent_id
     cumulativeTokens: false, // usage carries native cumulative via token_count rollup
     custom: [
-      codexTokenRollup,
       codexImageRollup,
+      codexModelReplay,
+      codexTokenRollup,
       codexTaskPlanDeltas,
       codexDropTaskPlanResults,
       codexUserQueryResponses,

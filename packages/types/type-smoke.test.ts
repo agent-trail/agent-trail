@@ -76,7 +76,7 @@ test("Vcs.type accepts reserved and extension values", () => {
   expect(bare.type).toBe("fossil");
 });
 
-test("AgentMessageUsage requires input/output coverage and rejects extra fields", () => {
+test("AgentMessageUsage accepts input/output or total coverage and rejects extra fields", () => {
   const delta = {
     input_tokens: 1,
     output_tokens: 2,
@@ -86,16 +86,24 @@ test("AgentMessageUsage requires input/output coverage and rejects extra fields"
     output_tokens_cumulative: 20,
     context_window_tokens: 200000,
   } satisfies AgentMessageUsage;
+  const total = {
+    total_tokens: 30,
+  } satisfies AgentMessageUsage;
+  const totalCumulative = {
+    total_tokens_cumulative: 40,
+  } satisfies AgentMessageUsage;
 
   // @ts-expect-error writer schema rejects extra usage fields.
   const extra = { input_tokens: 1, output_tokens: 2, cost_usd: 0.01 } satisfies AgentMessageUsage;
-  // @ts-expect-error writer schema requires an output counter when usage is present.
+  // @ts-expect-error writer schema requires output or total coverage when usage is present.
   const missingOutput = { input_tokens: 1 } satisfies AgentMessageUsage;
-  // @ts-expect-error writer schema requires an input counter when usage is present.
+  // @ts-expect-error writer schema requires input or total coverage when usage is present.
   const missingInput = { output_tokens: 2 } satisfies AgentMessageUsage;
 
   expect(delta.input_tokens).toBe(1);
   expect(cumulative.output_tokens_cumulative).toBe(20);
+  expect(total.total_tokens).toBe(30);
+  expect(totalCumulative.total_tokens_cumulative).toBe(40);
   expect(extra.cost_usd).toBe(0.01);
   expect(missingOutput.input_tokens).toBe(1);
   expect(missingInput.output_tokens).toBe(2);

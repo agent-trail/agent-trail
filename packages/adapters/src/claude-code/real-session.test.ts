@@ -1,5 +1,9 @@
 import { claudeCodeAdapter } from "../index.ts";
-import { firstJsonlFile, runRealSessionSmoke } from "../test-helpers.ts";
+import {
+  assertEmbeddedSourceUsageCaptured,
+  firstJsonlFile,
+  runRealSessionSmoke,
+} from "../test-helpers.ts";
 import { claudeCodeConfigDir, claudeCodeProjectsRoot } from "./paths.ts";
 
 function defaultClaudeCodeSessionPath(): string | undefined {
@@ -23,4 +27,5 @@ runRealSessionSmoke({
   defaultSessionPath: defaultClaudeCodeSessionPath,
   testName:
     "real Claude Code session (AGENT_TRAIL_REAL_CLAUDE_CODE_SESSION) parses, validates, and exposes feature coverage",
+  assertTrail: assertEmbeddedSourceUsageCaptured,
 });
