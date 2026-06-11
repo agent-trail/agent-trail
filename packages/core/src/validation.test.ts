@@ -2106,6 +2106,122 @@ test("emits source_raw_unredacted_secret warning when source.raw contains a Bear
   );
 });
 
+test("emits source_raw_unredacted_secret warning for credential-keyed source.raw strings", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "agent_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: { text: "hi" },
+        source: {
+          raw: {
+            envelope: {
+              password: "novel internal password",
+              token: "bare-token-internal-secret",
+              API_KEY: "uppercase-api-key-secret",
+              AUTH_TOKEN: "uppercase-auth-token-secret",
+              api_token: "opaque-internal-token-value",
+              database_url: "internal-db-credential",
+              apiKey: "camel-case-internal-secret",
+              accessToken: "01234567-89ab-cdef-0123-456789abcdef",
+              privateKey: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              id: "01HEVTA0000000000000000001",
+              checksum: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            },
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/password",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/token",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/API_KEY",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/AUTH_TOKEN",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/api_token",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/database_url",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/apiKey",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/accessToken",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/envelope/privateKey",
+      severity: "warning",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).not.toContainEqual(
+    expect.objectContaining({
+      path: "/source/raw/envelope/id",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).not.toContainEqual(
+    expect.objectContaining({
+      path: "/source/raw/envelope/checksum",
+      code: "source_raw_unredacted_secret",
+    }),
+  );
+});
+
 test("emits tool_args_unredacted_secret warning when mcp_call headers contain a Bearer token", async () => {
   const diagnostics = await validateTrailString(
     [
@@ -2132,6 +2248,121 @@ test("emits tool_args_unredacted_secret warning when mcp_call headers contain a 
       line: 2,
       path: "/payload/args/headers/Authorization",
       severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+});
+
+test("emits tool_args_unredacted_secret warning for credential-keyed tool args", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "tool_call",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "shell_command",
+          args: {
+            command: "echo ok",
+            password: "novel internal password",
+            token: "bare-token-internal-secret",
+            API_KEY: "uppercase-api-key-secret",
+            AUTH_TOKEN: "uppercase-auth-token-secret",
+            api_token: "opaque-internal-token-value",
+            database_url: "internal-db-credential",
+            apiKey: "camel-case-internal-secret",
+            accessToken: "01234567-89ab-cdef-0123-456789abcdef",
+            privateKey: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            id: "01HEVTA0000000000000000001",
+            checksum: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/password",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/token",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/API_KEY",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/AUTH_TOKEN",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/api_token",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/database_url",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/apiKey",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/accessToken",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/privateKey",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).not.toContainEqual(
+    expect.objectContaining({
+      path: "/payload/args/id",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+  expect(diagnostics).not.toContainEqual(
+    expect.objectContaining({
+      path: "/payload/args/checksum",
       code: "tool_args_unredacted_secret",
     }),
   );
@@ -2220,8 +2451,7 @@ test("walks deeply-nested source.raw without stack overflow (regression for #105
 
   const diagnostics = sourceRawSecretDiagnostics(record);
 
-  expect(diagnostics).toHaveLength(1);
-  expect(diagnostics[0]).toEqual(
+  expect(diagnostics).toContainEqual(
     expect.objectContaining({
       line: 2,
       path: `/source/raw${"/next".repeat(depth)}/token`,

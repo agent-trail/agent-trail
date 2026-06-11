@@ -1,3 +1,5 @@
+import { applyCredentialContext, isOpaqueTokenVisit } from "./credential-context.ts";
+import { applyEntropyRedaction } from "./entropy.ts";
 import { addMutationCount } from "./mutation-accounting.ts";
 import { applyPii } from "./pii.ts";
 import { applyPattern } from "./rules.ts";
@@ -11,6 +13,7 @@ export function redactVisitedStrings(
   summary: RedactionSummary,
   maxSamples: number,
   redactionCounts: Map<number, number>,
+  enableEntropyRedaction: boolean,
 ): void {
   for (const visit of visits) {
     for (const pattern of userPatterns) {
@@ -25,6 +28,19 @@ export function redactVisitedStrings(
         redactionCounts,
         visit.recordIndex,
         applyPattern(visit, pattern, summary, maxSamples),
+      );
+    }
+    addMutationCount(
+      redactionCounts,
+      visit.recordIndex,
+      applyCredentialContext(visit, summary, maxSamples),
+    );
+    if (isOpaqueTokenVisit(visit)) continue;
+    if (enableEntropyRedaction) {
+      addMutationCount(
+        redactionCounts,
+        visit.recordIndex,
+        applyEntropyRedaction(visit, summary, maxSamples),
       );
     }
     const current = visit.get();

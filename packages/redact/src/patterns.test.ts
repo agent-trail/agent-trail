@@ -93,6 +93,99 @@ const CASES: Case[] = [
     sample: "Authorization: Bearer abcdefABCDEF0123456789xyzXYZ",
     placeholderContains: "Bearer [TOKEN]",
   },
+  {
+    patternId: "npm_token",
+    sample: "npm token npm_abcdefghijklmnopqrstuvwxyz0123456789",
+    placeholderContains: "[NPM_TOKEN]",
+  },
+  {
+    patternId: "pypi_token",
+    sample: `pypi ${"pypi-".concat("A".repeat(48))}`,
+    placeholderContains: "[PYPI_TOKEN]",
+  },
+  {
+    patternId: "datadog_api_key",
+    sample: "DD_API_KEY=0123456789abcdef0123456789abcdef",
+    placeholderContains: "[DATADOG_KEY]",
+  },
+  {
+    patternId: "sentry_dsn",
+    sample: "SENTRY_DSN=https://0123456789abcdef0123456789abcdef@o123.ingest.sentry.io/456",
+    placeholderContains: "[SENTRY_DSN]",
+  },
+  {
+    patternId: "twilio_auth_token",
+    sample: "TWILIO_AUTH_TOKEN=0123456789abcdef0123456789abcdef",
+    placeholderContains: "[TWILIO_TOKEN]",
+  },
+  {
+    patternId: "sendgrid_api_key",
+    sample: `sendgrid SG.${"A".repeat(22)}.${"B".repeat(43)}`,
+    placeholderContains: "[SENDGRID_KEY]",
+  },
+  {
+    patternId: "cloudflare_api_token",
+    sample: "CLOUDFLARE_API_TOKEN=abcdefghijklmnopqrstuvwxyz0123456789_-",
+    placeholderContains: "[CLOUDFLARE_TOKEN]",
+  },
+  {
+    patternId: "vercel_token",
+    sample: "VERCEL_TOKEN=abcdefghijklmnopqrstuvwxyz0123456789",
+    placeholderContains: "[VERCEL_TOKEN]",
+  },
+  {
+    patternId: "heroku_api_key",
+    sample: "HEROKU_API_KEY=01234567-89ab-cdef-0123-456789abcdef",
+    placeholderContains: "[HEROKU_KEY]",
+  },
+  {
+    patternId: "twitter_bearer_token",
+    sample: `TWITTER_BEARER_TOKEN=${"A".repeat(84)}`,
+    placeholderContains: "[TWITTER_TOKEN]",
+  },
+  {
+    patternId: "discord_webhook",
+    sample:
+      "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+    placeholderContains: "[DISCORD_WEBHOOK]",
+  },
+  {
+    patternId: "firebase_key",
+    sample: "FIREBASE_API_KEY=AIzaSyD-AbCdEfGhIjKlMnOpQrStUvWxYz01234",
+    placeholderContains: "[FIREBASE_KEY]",
+  },
+  {
+    patternId: "algolia_api_key",
+    sample: "ALGOLIA_API_KEY=0123456789abcdef0123456789abcdef",
+    placeholderContains: "[ALGOLIA_KEY]",
+  },
+  {
+    patternId: "mongodb_atlas_uri",
+    sample: "mongodb+srv://app:secret-pass-123@cluster0.abcd1.mongodb.net/app",
+    placeholderContains: "[MONGODB_ATLAS_URI]",
+  },
+  {
+    patternId: "gitlab_pat",
+    sample: "glpat-abcdefghijklmnopqrstuvwxyz012345",
+    placeholderContains: "[GITLAB_PAT]",
+  },
+  {
+    patternId: "bitbucket_app_password",
+    sample: "BITBUCKET_APP_PASSWORD=abcdefghijklmnopqrstuvwxyz0123456789",
+    placeholderContains: "[BITBUCKET_APP_PASSWORD]",
+  },
+  {
+    patternId: "azure_sas",
+    sample:
+      "https://acct.blob.core.windows.net/container/blob.txt?sv=2024-11-04&sig=abcdefghijklmnopqrstuvwxyz0123456789%2Babcdef",
+    placeholderContains: "sig=[AZURE_SAS_SIGNATURE]",
+  },
+  {
+    patternId: "gcp_service_account_private_key",
+    sample:
+      '"private_key":"-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END PRIVATE KEY-----\\n"',
+    placeholderContains: "[GCP_PRIVATE_KEY]",
+  },
 ];
 
 for (const c of CASES) {
