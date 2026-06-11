@@ -1,0 +1,3 @@
+{"agent":{"name":"codex-cli"},"content_hash":"3a676114740d09c2620c1c5e106ea8066bfc3926e478faf5cabd0cedfff398ec","id":"01HSESS0000000000000000602","schema_version":"0.1.0","segment":{"prev_content_hash":"b12c68969624665898a4e3ec4dc5c0d06f7a7f305f8f7b16e347e18ccd2f6e67","seq":2},"session_uid":"01HZZZZZZZZZZZZZZZZZZZZ601","ts":"2026-05-17T14:55:00.000Z","type":"session"}
+{"type":"user_message","id":"01HEVTA0000000000000000603","ts":"2026-05-17T14:55:05.000Z","payload":{"text":"segment two"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000604","ts":"2026-05-17T14:55:07.000Z","payload":{"text":"chain verified"}}

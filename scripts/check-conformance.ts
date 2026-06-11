@@ -13,6 +13,7 @@ type DiagnosticAssertion = {
 
 type ManifestFixture = {
   path: string;
+  comment?: string;
   strict: {
     valid: boolean;
     diagnostics: DiagnosticAssertion[];

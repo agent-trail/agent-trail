@@ -1,0 +1,3 @@
+{"agent":{"name":"codex-cli"},"content_hash":"594a06fa452fc097bce145be95dd614ddb81b6adf8fe2baf80cbe6e13fcaf4f2","id":"01HSESS0000000000000000501","schema_version":"0.1.0","ts":"2026-05-17T14:40:00.000Z","type":"session"}
+{"type":"user_message","id":"01HEVTA0000000000000000501","ts":"2026-05-17T14:40:05.000Z","payload":{"text":"decoded byte: �"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000502","ts":"2026-05-17T14:40:07.000Z","payload":{"text":"replacement character preserved"}}

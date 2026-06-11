@@ -38,6 +38,16 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `hash-mismatch/content-hash-mismatch.trail.jsonl` — strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `hash-mismatch/trail-envelope-content-hash-mismatch.trail.jsonl` — strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 
+### hash-vectors/
+
+- `hash-vectors/envelope-two-tier.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/jcs-stress.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/minimal-pending-roundtrip.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/multi-session-slice.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/replacement-char.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/segment-chain-seq1.trail.jsonl` — strict: valid, tolerant: clean
+- `hash-vectors/segment-chain-seq2.trail.jsonl` — strict: valid, tolerant: clean
+
 ### invalid-graph/
 
 - `invalid-graph/ambiguous-sequential-pairing-with-session-end.trail.jsonl` — strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)

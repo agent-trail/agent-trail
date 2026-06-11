@@ -1,0 +1,6 @@
+{"agent":{"name":"codex-cli"},"content_hash":"0805ade157038a1cbb2895c55383b39b5a42aaa7d6ccc164174c0b3346d8fc14","id":"01HSESS0000000000000000401","schema_version":"0.1.0","ts":"2026-05-17T14:30:00.000Z","type":"session"}
+{"type":"user_message","id":"01HEVTA0000000000000000401","ts":"2026-05-17T14:30:05.000Z","payload":{"text":"first group"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000402","ts":"2026-05-17T14:30:07.000Z","payload":{"text":"first reply"}}
+{"agent":{"name":"codex-cli"},"content_hash":"f7fe8ccdeaeddf70b868838614730c0a613d937bafeac48a42bb585e6df3ead7","fork_from":{"session_id":"01HSESS0000000000000000401"},"id":"01HSESS0000000000000000402","schema_version":"0.1.0","ts":"2026-05-17T14:31:00.000Z","type":"session"}
+{"type":"user_message","id":"01HEVTA0000000000000000403","ts":"2026-05-17T14:31:05.000Z","payload":{"text":"second group"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000404","ts":"2026-05-17T14:31:07.000Z","payload":{"text":"second reply"}}

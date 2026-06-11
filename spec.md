@@ -1849,6 +1849,44 @@ A session with only a header is valid. Events are optional.
 
 An envelope at line 1 followed by a session header at line 2 is valid. Events are optional.
 
+## Appendix B — Content hash worked example
+
+This example shows the §7.3 two-pass procedure for the
+`hash-vectors/minimal-pending-roundtrip.trail.jsonl` conformance fixture. The
+remaining canonicalization and two-tier identity cases are published in the
+`hash-vectors/` fixture category.
+
+Input file before stamping:
+
+```jsonl
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000101","content_hash":"<pending>","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000101","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000102","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+```
+
+Canonical bytes hashed by SHA-256, shown as UTF-8 text with the required trailing
+newline after the last line:
+
+```jsonl
+{"agent":{"name":"codex-cli"},"content_hash":"<pending>","id":"01HSESS0000000000000000101","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000101","payload":{"text":"hello"},"ts":"2026-05-17T14:00:05.000Z","type":"user_message"}
+{"id":"01HEVTA0000000000000000102","payload":{"text":"hi"},"ts":"2026-05-17T14:00:07.000Z","type":"agent_message"}
+```
+
+Resulting session-level digest:
+
+```text
+f215ed334d3928e1abde804f2c4a870431b18d4fa7d755ec94d94be2a6ddd06e
+```
+
+Stamped file:
+
+```jsonl
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000101","content_hash":"f215ed334d3928e1abde804f2c4a870431b18d4fa7d755ec94d94be2a6ddd06e","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000101","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000102","ts":"2026-05-17T14:00:07.000Z","payload":{"text":"hi"}}
+```
+
 ## License
 
 This specification is released under Apache-2.0.

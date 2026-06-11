@@ -1,0 +1,4 @@
+{"content_hash":"a55a96d3a19b624aa8f2e38337521046facf5a6f2a04c3f3c3f7a14880774443","id":"01HTRACE000000000000000201","meta":{"x-example/scope":"file"},"producer":"trail-cli/0.3.0","schema_version":"0.1.0","sessions":[{"agent":"codex-cli","id":"01HSESS0000000000000000201"}],"ts":"2026-05-17T14:10:00.000Z","type":"trail"}
+{"agent":{"name":"codex-cli"},"content_hash":"44b16ddea9fd914442eaf8f21c90b6f0eeb913ab499eb668a9c0c6e06b988522","id":"01HSESS0000000000000000201","meta":{"x-example/scope":"session"},"schema_version":"0.1.0","ts":"2026-05-17T14:10:01.000Z","type":"session"}
+{"type":"user_message","id":"01HEVTA0000000000000000201","ts":"2026-05-17T14:10:05.000Z","payload":{"text":"hash the envelope"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000202","ts":"2026-05-17T14:10:07.000Z","payload":{"text":"session first, envelope second"}}
