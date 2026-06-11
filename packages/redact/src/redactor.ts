@@ -1,7 +1,12 @@
 import type { JsonlRecord } from "@agent-trail/core";
 import { applyRedactionCounts, snapshotToolResultOutputSizes } from "./mutation-accounting.ts";
 import { DEFAULT_PATTERNS } from "./patterns.ts";
-import { resetContentHashes, stripVcsRemoteUrl, syncRawRecords } from "./record-transforms.ts";
+import {
+  resetContentHashes,
+  stripVcsCommitRepo,
+  stripVcsRemoteUrl,
+  syncRawRecords,
+} from "./record-transforms.ts";
 import { userSecretsPatterns } from "./rules.ts";
 import {
   applyAttachmentUriRules,
@@ -51,6 +56,7 @@ export function redactTrail(
 
   if (!keepRemoteUrl) {
     stripVcsRemoteUrl(out, rawSummary, maxSamples);
+    stripVcsCommitRepo(out, rawSummary, maxSamples);
   }
 
   applyAttachmentUriRules(

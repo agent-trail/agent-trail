@@ -525,6 +525,7 @@ test("parseSession() synthesizes vcs_commit from a successful Bash git commit", 
     },
   ]);
   const toolCall = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const toolResult = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   const commit = trail.groups[0]!.entries.find(
     (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
   );
@@ -538,6 +539,7 @@ test("parseSession() synthesizes vcs_commit from a successful Bash git commit", 
     },
   });
   expect(commit?.semantic).toEqual({ call_id: "tooluse-commit" });
+  expect(commit?.parent_id).toBe(toolResult?.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

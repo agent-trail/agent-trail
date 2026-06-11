@@ -45,6 +45,65 @@ test("extractGitCommitEvents parses amended and multiple commit summaries", () =
   ]);
 });
 
+test("extractGitCommitEvents recognizes git global options and root commits", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'git -C "$repo" -c user.name=Trail commit -m "init"',
+      output: "[master (root-commit) BAE7327] init\n 1 file changed, 1 insertion(+)\n",
+      toolCallId: "tool-call-root",
+    }),
+  ).toEqual([
+    {
+      sha: "bae7327",
+      branch: "master",
+      message: "init",
+      tool_call_id: "tool-call-root",
+    },
+  ]);
+});
+
+test("extractGitCommitEvents preserves successful empty commit messages", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'git commit --allow-empty-message -m ""',
+      output: "[master (root-commit) 66c7bdf] \n",
+      toolCallId: "tool-call-empty-message",
+    }),
+  ).toEqual([
+    {
+      sha: "66c7bdf",
+      branch: "master",
+      message: "",
+      tool_call_id: "tool-call-empty-message",
+    },
+  ]);
+});
+
+test("extractGitCommitEvents ignores mentions and caps summaries to commit invocations", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'echo "git commit"',
+      output: "[main deadbee] forged\n",
+      toolCallId: "tool-call-mention",
+    }),
+  ).toEqual([]);
+
+  expect(
+    extractGitCommitEvents({
+      command: 'git commit -m "real" && printf "[main deadbee] forged"',
+      output: "[main a1b2c3d] real\n[main deadbee] forged\n",
+      toolCallId: "tool-call-cap",
+    }),
+  ).toEqual([
+    {
+      sha: "a1b2c3d",
+      branch: "main",
+      message: "real",
+      tool_call_id: "tool-call-cap",
+    },
+  ]);
+});
+
 test("extractGitCommitEvents ignores non-commit commands and missing output", () => {
   expect(
     extractGitCommitEvents({
@@ -104,6 +163,7 @@ test("synthesizeVcsCommitEvents inserts a vcs_commit after a successful shell re
     },
   });
   expect(entries[2]?.semantic).toEqual({ call_id: "native-call" });
+  expect(entries[2]?.parent_id).toBe("result-entry");
   expect(entries[2]?.source).toEqual({
     agent: "claude-code",
     original_type: "user.vcs_commit",

@@ -456,6 +456,9 @@ test("parseSession synthesizes vcs_commit from a successful shell git commit", a
   const toolCall = entries.find(
     (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-vcs-commit",
   );
+  const toolResult = entries.find(
+    (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "call-vcs-commit",
+  );
   const commit = entries.find(
     (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
   );
@@ -471,6 +474,7 @@ test("parseSession synthesizes vcs_commit from a successful shell git commit", a
     },
   });
   expect(commit?.semantic).toEqual({ call_id: "call-vcs-commit" });
+  expect(commit?.parent_id).toBe(toolResult?.id);
   expect(await validateAdapterTrail(trail)).toEqual([]);
 });
 

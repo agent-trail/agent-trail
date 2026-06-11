@@ -1672,6 +1672,7 @@ Share-time redactors MUST apply the privacy rules below before producing shared 
 |---|---|
 | `cwd` | Normalize or strip. |
 | `vcs.remote_url` | Strip or normalize per §9.2 unless the user explicitly opts in. |
+| `system_event.payload.data.repo` for `vcs_commit` | Treat like `vcs.remote_url`; strip or normalize unless the user explicitly opts in. |
 | `vcs.worktree.path`, `vcs.worktree.original_cwd` | Normalize or strip. |
 | `source.path` | Normalize or strip. |
 | `attachments[].uri` | Remove or rewrite local `file:` URIs. Rewrite to `sha256:<hex>` only when the referenced blob is content-addressed and transported with the share; otherwise remove `uri` and keep visible stub metadata such as `kind`, `name`, and `media_type`. |

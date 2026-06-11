@@ -446,6 +446,7 @@ test("parseSession() synthesizes vcs_commit from a successful bash git commit", 
 
   const trail = await piAdapter.parseSession({ id: "sess-vcs-commit", adapter: "pi", path });
   const toolCall = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const toolResult = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
   const commit = trail.groups[0]!.entries.find(
     (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
   );
@@ -459,6 +460,7 @@ test("parseSession() synthesizes vcs_commit from a successful bash git commit", 
     },
   });
   expect(commit?.semantic).toEqual({ call_id: "00000000-0000-0000-0000-ddddd0000261" });
+  expect(commit?.parent_id).toBe(toolResult?.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

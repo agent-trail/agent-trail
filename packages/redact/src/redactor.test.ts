@@ -376,6 +376,66 @@ test("redactTrail keeps vcs.remote_url when keepRemoteUrl: true is passed", () =
   expect(summary.counts.vcs_remote_url).toBeUndefined();
 });
 
+test("redactTrail strips vcs_commit repo by default", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "system_event",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        kind: "vcs_commit",
+        data: {
+          sha: "a1b2c3d",
+          tool_call_id: "call1",
+          branch: "main",
+          repo: "https://github.com/private/repo",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as { payload: { data: Record<string, unknown> } };
+  expect(value.payload.data).toEqual({
+    sha: "a1b2c3d",
+    tool_call_id: "call1",
+    branch: "main",
+  });
+  expect(summary.counts.vcs_remote_url).toBe(1);
+  expect(summary.samples.find((s) => s.patternId === "vcs_remote_url")).toMatchObject({
+    patternId: "vcs_remote_url",
+    location: "records[1].payload.data.repo",
+    after: "[STRIPPED]",
+  });
+});
+
+test("redactTrail keeps vcs_commit repo when keepRemoteUrl: true is passed", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "system_event",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        kind: "vcs_commit",
+        data: {
+          sha: "a1b2c3d",
+          tool_call_id: "call1",
+          repo: "https://github.com/private/repo",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { keepRemoteUrl: true });
+
+  const value = out[1]?.value as { payload: { data: Record<string, unknown> } };
+  expect(value.payload.data.repo).toBe("https://github.com/private/repo");
+  expect(summary.counts.vcs_remote_url).toBeUndefined();
+});
+
 test("redactTrail normalizes vcs worktree paths on headers and trail envelopes", () => {
   const records: JsonlRecord[] = [
     record(1, {
