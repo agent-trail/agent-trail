@@ -662,6 +662,31 @@ test("redactTrail preserves allowed secrets in credential-looking fields", () =>
   expect(summary.counts.openai_api_key).toBeUndefined();
 });
 
+test("redactTrail preserves allowed secrets redacted by PII library rules", () => {
+  const ssn = "123-45-6789";
+  const card = "4111 1111 1111 1111";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `SSN ${ssn} and card ${card}` },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    allowedSecrets: [ssn, card],
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toContain(ssn);
+  expect(text).toContain(card);
+  expect(summary.counts.allowlisted_skip).toBe(2);
+  expect(summary.counts.ssn_pii).toBeUndefined();
+  expect(summary.counts.credit_card_pii).toBeUndefined();
+});
+
 test("redactTrail does not preserve larger detector matches for allowed-secret substrings", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

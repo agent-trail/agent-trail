@@ -482,6 +482,51 @@ test("share applies project email allowlist settings", async () => {
   }
 });
 
+test("share applies project custom PII label settings", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-share-custom-label-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+    await writeFile(
+      join(projectRoot, ".trail", "settings.json"),
+      JSON.stringify({
+        redaction: {
+          pii: {
+            customLabels: { employee_id: "EMP-\\d{6}" },
+          },
+        },
+      }),
+      "utf8",
+    );
+    const { contentHash } = await seedRegistered({
+      text: "employee EMP-123456 opened the ticket",
+    });
+    let uploaded: Uint8Array | null = null;
+    const gistUpload = async (payload: Uint8Array) => {
+      uploaded = payload;
+      return { gistId: "customlabelid" };
+    };
+
+    const result = await runShare([contentHash, "--yes", "--json"], {
+      storeRoot,
+      projectRoot,
+      env: { HOME: projectRoot },
+      gistUpload,
+    });
+
+    expect(result.exitCode).toBe(0);
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("[REDACTED_EMPLOYEE_ID]");
+    expect(shared).not.toContain("EMP-123456");
+    const json = JSON.parse(result.stdout) as {
+      redaction: { summary: { counts: Record<string, number> } };
+    };
+    expect(json.redaction.summary.counts.employee_id_pii).toBe(1);
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("share allowed-secret preserves a detector match and reports allowlisted skip", async () => {
   const allowed = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const { contentHash } = await seedRegistered({
@@ -508,6 +553,39 @@ test("share allowed-secret preserves a detector match and reports allowlisted sk
   };
   expect(json.redaction.summary.counts.allowlisted_skip).toBe(2);
   expect(json.redaction.summary.counts.openai_api_key).toBeUndefined();
+});
+
+test("share allowed-secret preserves PII library detector matches", async () => {
+  const ssn = "123-45-6789";
+  const card = "4111 1111 1111 1111";
+  const { contentHash } = await seedRegistered({
+    text: `SSN ${ssn} and card ${card}`,
+  });
+  let uploaded: Uint8Array | null = null;
+  const gistUpload = async (payload: Uint8Array) => {
+    uploaded = payload;
+    return { gistId: "allowedpiiid" };
+  };
+
+  const result = await runShare(
+    [contentHash, "--yes", "--allowed-secret", ssn, "--allowed-secret", card, "--json"],
+    {
+      storeRoot,
+      gistUpload,
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  if (uploaded === null) throw new Error("expected upload payload");
+  const shared = decodePayload(uploaded);
+  expect(shared).toContain(ssn);
+  expect(shared).toContain(card);
+  const json = JSON.parse(result.stdout) as {
+    redaction: { summary: { counts: Record<string, number> } };
+  };
+  expect(json.redaction.summary.counts.allowlisted_skip).toBe(2);
+  expect(json.redaction.summary.counts.ssn_pii).toBeUndefined();
+  expect(json.redaction.summary.counts.credit_card_pii).toBeUndefined();
 });
 
 test("runCli share passes --allowed-secret through Commander", async () => {

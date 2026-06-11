@@ -78,9 +78,18 @@ export function applyPii(
       NAME: config.name ?? true,
     },
   });
-  const anonymized = redactor.redact(current);
-  if (anonymized === current) {
-    return { text: protectedEmails.restore(current), samples: localSamples, count };
+  const protectedAllowed = protectAllowedPiiLiterals(current, redactor, allowedSecrets);
+  if (protectedAllowed.count > 0) {
+    summary.counts.allowlisted_skip =
+      (summary.counts.allowlisted_skip ?? 0) + protectedAllowed.count;
+  }
+  const anonymized = redactor.redact(protectedAllowed.text);
+  if (anonymized === protectedAllowed.text) {
+    return {
+      text: protectedEmails.restore(protectedAllowed.restore(anonymized)),
+      samples: localSamples,
+      count,
+    };
   }
 
   const seenPatternIds = new Set<string>();
@@ -107,7 +116,56 @@ export function applyPii(
     return TOKEN_TO_PLACEHOLDER[kind] ?? "[PII]";
   });
 
-  return { text: protectedEmails.restore(normalized), samples: localSamples, count };
+  return {
+    text: protectedEmails.restore(protectedAllowed.restore(normalized)),
+    samples: localSamples,
+    count,
+  };
+}
+
+function protectAllowedPiiLiterals(
+  text: string,
+  redactor: Redactor,
+  allowedSecrets: ReadonlySet<string>,
+): { text: string; restore: (value: string) => string; count: number } {
+  const protectedValues: string[] = [];
+  const tokens: string[] = [];
+  let current = text;
+  let count = 0;
+  const literals = [...allowedSecrets]
+    .filter((secret) => secret.length > 0 && redactor.redact(secret) !== secret)
+    .sort((a, b) => b.length - a.length);
+  for (const secret of literals) {
+    const token = allowedPiiToken(protectedValues.length, current, protectedValues);
+    const parts = current.split(secret);
+    const matches = parts.length - 1;
+    if (matches === 0) continue;
+    current = parts.join(token);
+    protectedValues.push(secret);
+    tokens.push(token);
+    count += matches;
+  }
+  return {
+    text: current,
+    count,
+    restore: (value: string) =>
+      protectedValues.reduce((next, secret, index) => {
+        const token = tokens[index];
+        return token === undefined ? next : next.replaceAll(token, secret);
+      }, value),
+  };
+}
+
+function allowedPiiToken(index: number, text: string, protectedValues: readonly string[]): string {
+  let token = allowedPiiTokenAt(index);
+  while (text.includes(token) || protectedValues.includes(token)) {
+    token = allowedPiiTokenAt(index + protectedValues.length + 1);
+  }
+  return token;
+}
+
+function allowedPiiTokenAt(index: number): string {
+  return `\u0000AGENT_TRAIL_ALLOWED_PII_${index}\u0000`;
 }
 
 function applyCustomLabels(
