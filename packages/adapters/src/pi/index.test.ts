@@ -392,6 +392,96 @@ test("parseSession() emits a tool_result for toolResult envelopes linked via too
   });
 });
 
+test("parseSession() synthesizes vcs_commit from a successful bash git commit", async () => {
+  const dir = createProjectDir();
+  const path = join(dir, "sess-vcs-commit.jsonl");
+  const lines = [
+    {
+      type: "session",
+      version: 3,
+      id: "00000000-0000-0000-0000-eeeee0000261",
+      timestamp: "2026-06-11T10:00:00.000Z",
+      cwd: "/tmp/synthetic-project",
+    },
+    {
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeeeeeee261",
+      parentId: null,
+      timestamp: "2026-06-11T10:00:01.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "toolUse",
+        content: [
+          {
+            type: "toolCall",
+            id: "00000000-0000-0000-0000-ddddd0000261",
+            name: "bash",
+            arguments: { command: 'git commit -m "fix: pi commit"' },
+          },
+        ],
+      },
+    },
+    {
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeeeeeee262",
+      parentId: "00000000-0000-0000-0000-eeeeeeeee261",
+      timestamp: "2026-06-11T10:00:02.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "00000000-0000-0000-0000-ddddd0000261",
+        toolName: "bash",
+        isError: false,
+        content: [
+          {
+            type: "text",
+            text: "[feature/pi badd00d] fix: pi commit\n 1 file changed, 1 insertion(+)\n",
+          },
+        ],
+      },
+    },
+    {
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeeeeeee263",
+      parentId: "00000000-0000-0000-0000-eeeeeeeee262",
+      timestamp: "2026-06-11T10:00:03.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "endTurn",
+        content: [{ type: "text", text: "done" }],
+      },
+    },
+  ];
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+  const trail = await piAdapter.parseSession({ id: "sess-vcs-commit", adapter: "pi", path });
+  const toolCall = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const toolResult = trail.groups[0]!.entries.find((entry) => entry.type === "tool_result");
+  const commit = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
+  );
+  expect(commit?.payload).toEqual({
+    kind: "vcs_commit",
+    data: {
+      sha: "badd00d",
+      branch: "feature/pi",
+      message: "fix: pi commit",
+      tool_call_id: toolCall?.id,
+    },
+  });
+  expect(commit?.semantic).toEqual({ call_id: "00000000-0000-0000-0000-ddddd0000261" });
+  expect(commit?.parent_id).toBe(toolResult?.id);
+  const nextMessage = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "agent_message" && entry.payload.text === "done",
+  );
+  expect(nextMessage?.parent_id).toBe(commit?.id);
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 // TDD step 7: multi-entry assistant envelope chained via localParentId
 // TDD step 8: full fixture round-trips through validation with zero errors
 test("linear-flow fixture round-trips through validateAdapterTrail with zero error diagnostics", async () => {

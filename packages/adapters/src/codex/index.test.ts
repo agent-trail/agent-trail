@@ -422,6 +422,62 @@ test("desktop fixture emits tool_call + tool_result with for_id linkage", async 
   expect(result?.semantic?.call_id).toBe("call-abc");
 });
 
+test("parseSession synthesizes vcs_commit from a successful shell git commit", async () => {
+  const id = "019d8800-9999-7000-d000-000000000009";
+  const path = seedSession({
+    date: { y: "2026", m: "05", d: "29" },
+    id,
+    cwd: process.cwd(),
+    extraRecords: [
+      {
+        timestamp: "2026-05-29T01:46:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          call_id: "call-vcs-commit",
+          name: "shell_command",
+          arguments: JSON.stringify({ command: 'git add . && git commit -m "fix: codex commit"' }),
+        },
+      },
+      {
+        timestamp: "2026-05-29T01:46:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-vcs-commit",
+          output: "[main DeAdBeE] fix: codex commit\n 1 file changed, 1 insertion(+)\n",
+        },
+      },
+    ],
+  });
+
+  const trail = await codexAdapter.parseSession({ id, adapter: "codex", path });
+  const entries = trail.groups[0]!.entries;
+  const toolCall = entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-vcs-commit",
+  );
+  const toolResult = entries.find(
+    (entry) => entry.type === "tool_result" && entry.semantic?.call_id === "call-vcs-commit",
+  );
+  const commit = entries.find(
+    (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
+  );
+
+  expect(toolCall).toBeDefined();
+  expect(commit?.payload).toEqual({
+    kind: "vcs_commit",
+    data: {
+      sha: "deadbee",
+      branch: "main",
+      message: "fix: codex commit",
+      tool_call_id: toolCall?.id,
+    },
+  });
+  expect(commit?.semantic).toEqual({ call_id: "call-vcs-commit" });
+  expect(commit?.parent_id).toBe(toolResult?.id);
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
 test("parseSession bundles a direct spawn_agent child session", async () => {
   const parentId = "019d9000-bbbb-7000-a000-000000000001";
   const childId = "019d9000-bbbb-7000-a000-000000000002";

@@ -175,6 +175,7 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `valid/spec-example-tree-abandoned-branch.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/streaming-finalized-clean.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/streaming-open.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
+- `valid/system-event-vcs-commit.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/tool-call-aborted-closes-call.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/tool-call-aborted-extension-scope-reason.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/tool-call-aborted-turn-scope.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean

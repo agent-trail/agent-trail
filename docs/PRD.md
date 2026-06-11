@@ -444,6 +444,7 @@ trail adapters status [--json]
 ```
 
 `trail share` targets registered store object IDs (full hashes or unique lowercase hex prefixes), not raw file paths. `--yes` bypasses the standard upload confirmation, but `--skip-redaction` still requires a separate explicit unredacted-share confirmation.
+`--keep-remote-url` preserves repository identity fields in shared content, including `vcs.remote_url` and `vcs_commit` `repo` data; by default share redaction strips them.
 
 **`trail doctor` behavior:**
 

@@ -1372,7 +1372,8 @@
                       "deprecation_notice",
                       "guardian_alert",
                       "model_rerouted",
-                      "hook_failed"
+                      "hook_failed",
+                      "vcs_commit"
                     ]
                   },
                   {

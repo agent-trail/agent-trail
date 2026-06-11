@@ -7,6 +7,7 @@ import {
   piParentResolution,
   piSessionTerminatedEof,
   piToolKindToResult,
+  piVcsCommitEvents,
 } from "./reconcile-rules.ts";
 import { type PiEnvelope, parseLines, timestampToIso, versionString } from "./source.ts";
 
@@ -37,6 +38,7 @@ export function buildPiKitAdapter(sessionVersion: string | undefined): Adapter {
         piModelChangeFromModel,
         piToolKindToResult,
         piParentResolution,
+        piVcsCommitEvents,
         piSessionTerminatedEof,
       ],
     },

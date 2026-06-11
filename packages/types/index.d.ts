@@ -623,6 +623,7 @@ export interface SystemEvent {
       | "guardian_alert"
       | "model_rerouted"
       | "hook_failed"
+      | "vcs_commit"
       | `x-${string}/${string}`;
     text?: string;
     data?: {

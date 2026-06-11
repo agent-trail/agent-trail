@@ -25,6 +25,12 @@ const PROJECT_LEAK =
 const REDACTED_VALUE = /^(?:\[REDACTED_[A-Z0-9_]+\]|\s)+$/;
 const REDACTED_PATCH =
   /^\*\*\* Begin Patch\n(?:\*\*\* (?:Update|Add|Delete) File: \[REDACTED_PATH(?:_[A-Z])?\]\n|\*\*\* Move to: \[REDACTED_PATH(?:_[A-Z])?\]\n|@@\n|[-+]\[REDACTED_(?:OLD|NEW)_TEXT\]\n|\*\*\* End Patch\n?)+$/;
+const REDACTED_GIT_COMMIT_COMMAND =
+  /^git add \[REDACTED_PATH\] && git commit -m "\[REDACTED_COMMIT_MESSAGE\]"$/;
+const REDACTED_GIT_COMMIT_ARGUMENTS =
+  /^\{"command":"git add \[REDACTED_PATH\] && git commit -m \\"\[REDACTED_COMMIT_MESSAGE\]\\""\}$/;
+const REDACTED_GIT_COMMIT_OUTPUT =
+  /^\[[^\]\n]+ [0-9a-f]{7,40}\] \[REDACTED_COMMIT_MESSAGE\](?:\n \d+ files? changed(?:, \d+ insertions?\(\+\))?(?:, \d+ deletions?\(-\))?)?\n?$/;
 const SENSITIVE_VALUE_KEYS = new Set([
   "activeForm",
   "agentName",
@@ -183,6 +189,13 @@ const FIXTURES: Fixture[] = [
     ],
   },
   {
+    key: "codex-v0_135-vcs-commit",
+    adapter: codexAdapter,
+    expectedAgentName: "codex-cli",
+    expectedSourceVersion: "0.135.0-alpha.1",
+    expectedFeatureTypes: ["system_event", "tool_call", "tool_result"],
+  },
+  {
     key: "claude-code-v1",
     adapter: claudeCodeAdapter,
     expectedAgentName: "claude-code",
@@ -202,6 +215,13 @@ const FIXTURES: Fixture[] = [
       "user_query",
       "user_message",
     ],
+  },
+  {
+    key: "claude-code-v1-vcs-commit",
+    adapter: claudeCodeAdapter,
+    expectedAgentName: "claude-code",
+    expectedSourceVersion: "2.1.132",
+    expectedFeatureTypes: ["system_event", "tool_call", "tool_result"],
   },
   {
     key: "pi-v1",
@@ -230,6 +250,13 @@ const FIXTURES: Fixture[] = [
     expectedFeatureTypes: ["tool_call", "tool_result"],
   },
   {
+    key: "pi-v1-vcs-commit",
+    adapter: piAdapter,
+    expectedAgentName: "pi",
+    expectedSourceVersion: "3",
+    expectedFeatureTypes: ["system_event", "tool_call", "tool_result"],
+  },
+  {
     key: "opencode-v1",
     adapter: opencodeAdapter,
     expectedAgentName: "opencode",
@@ -243,6 +270,13 @@ const FIXTURES: Fixture[] = [
       "task_plan_update",
       "user_message",
     ],
+  },
+  {
+    key: "opencode-v1-vcs-commit",
+    adapter: opencodeAdapter,
+    expectedAgentName: "opencode",
+    expectedSourceVersion: "1.0.127",
+    expectedFeatureTypes: ["system_event", "tool_call", "tool_result"],
   },
 ];
 
@@ -517,6 +551,9 @@ function assertNoSensitiveValue(
       value.length > 0 &&
       !(key === "value" && /^(?:claude|gpt-|github-copilot|openai|anthropic)/.test(value)) &&
       !(key === "patch" && REDACTED_PATCH.test(value)) &&
+      !REDACTED_GIT_COMMIT_COMMAND.test(value) &&
+      !REDACTED_GIT_COMMIT_ARGUMENTS.test(value) &&
+      !REDACTED_GIT_COMMIT_OUTPUT.test(value) &&
       !REDACTED_VALUE.test(value)
     ) {
       throw new Error(`${filePath}:${lineNumber} has unredacted sensitive value at ${key}`);

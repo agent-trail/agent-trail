@@ -9,6 +9,7 @@ import {
   codexTaskPlanDeltas,
   codexTokenRollup,
   codexUserQueryResponses,
+  codexVcsCommitEvents,
 } from "./reconcile-rules.ts";
 import { stringValue, timestampToIso } from "./source.ts";
 
@@ -49,6 +50,7 @@ export const codexKitAdapter: Adapter = defineAdapter<CodexState>({
       codexTaskPlanDeltas,
       codexDropTaskPlanResults,
       codexUserQueryResponses,
+      codexVcsCommitEvents,
     ],
   },
 });
