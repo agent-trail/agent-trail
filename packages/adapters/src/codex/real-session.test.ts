@@ -37,19 +37,16 @@ async function assertCodexTokenCountsCaptured(
   const tokenCountPayloads = sourceRecords
     .map((record) => objectValue(record.payload))
     .filter((payload): payload is RawObject => payload?.type === "token_count");
-  const actual = trail.groups.flatMap((group) =>
-    group.entries.flatMap((entry) => {
-      const usage = objectValue(objectValue(entry.payload)?.usage);
-      return usage === undefined ? [] : [usage];
-    }),
-  );
-  const actualUsageMessages = trail.groups.flatMap((group) =>
-    group.entries.flatMap((entry) => {
-      if (entry.type !== "agent_message") return [];
-      const payload = objectValue(entry.payload);
-      return objectValue(payload?.usage) === undefined ? [] : [payload];
-    }),
-  );
+  const sessionEntries = trail.groups[0]?.entries ?? [];
+  const actual = sessionEntries.flatMap((entry) => {
+    const usage = objectValue(objectValue(entry.payload)?.usage);
+    return usage === undefined ? [] : [usage];
+  });
+  const actualUsageMessages = sessionEntries.flatMap((entry) => {
+    if (entry.type !== "agent_message") return [];
+    const payload = objectValue(entry.payload);
+    return objectValue(payload?.usage) === undefined ? [] : [payload];
+  });
   if (expected.length === 0)
     throw new Error(`real Codex session had no token_count usage\n${summary}`);
   if (actual.length === 0)

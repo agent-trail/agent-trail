@@ -315,6 +315,20 @@ function sourceTotal(source: RawObject): number | undefined {
   );
 }
 
+function sourceTotalCumulative(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, [
+      "total_tokens_cumulative",
+      "totalTokensCumulative",
+      "cumulativeTotalTokens",
+      "cumulative_total",
+      "cumulativeTotal",
+      "totalCumulative",
+      "tokens_total_cumulative",
+    ]) ?? pickNumber(objectValue(source.tokens), ["total_cumulative", "cumulativeTotal"])
+  );
+}
+
 function sourceInput(source: RawObject): number | undefined {
   return (
     pickNumber(source, ["input_tokens", "inputTokens", "input", "tokens_input"]) ??
@@ -364,7 +378,7 @@ function sourceReasoning(source: RawObject): number | undefined {
 
 export function assertEmbeddedSourceUsageCaptured(trail: TrailFile, summary: string): void {
   let checked = 0;
-  let checkedTotal = 0;
+  let checkedAnyTotal = 0;
   for (const group of trail.groups) {
     for (const entry of group.entries) {
       const payload = objectValue(entry.payload);
@@ -376,8 +390,13 @@ export function assertEmbeddedSourceUsageCaptured(trail: TrailFile, summary: str
 
       const total = sourceTotal(source);
       if (total !== undefined) {
-        checkedTotal += 1;
+        checkedAnyTotal += 1;
         expect(usage.total_tokens).toBe(total);
+      }
+      const totalCumulative = sourceTotalCumulative(source);
+      if (totalCumulative !== undefined) {
+        checkedAnyTotal += 1;
+        expect(usage.total_tokens_cumulative).toBe(totalCumulative);
       }
       const input = sourceInput(source);
       if (input !== undefined) expect(usage.input_tokens).toBe(input);
@@ -397,7 +416,7 @@ export function assertEmbeddedSourceUsageCaptured(trail: TrailFile, summary: str
   if (
     trail.groups[0]?.header.agent.name !== "claude-code" &&
     trail.groups[0]?.header.agent.name !== "opencode" &&
-    checkedTotal === 0
+    checkedAnyTotal === 0
   ) {
     throw new Error(`real-session smoke found no source total token usage\n${summary}`);
   }
