@@ -206,6 +206,10 @@ export function addRegisterCommand(program: Command, writeResult: ResultWriter):
       .action(async (input: string, options: { json: boolean }) => {
         writeResult(await runRegister({ input, json: options.json }));
       }),
-    ["trail register session.trail.jsonl", "trail register claude-code:abc123"],
+    [
+      "trail register session.trail.jsonl",
+      "trail register session.trail.jsonl.gz",
+      "trail register claude-code:abc123",
+    ],
   );
 }

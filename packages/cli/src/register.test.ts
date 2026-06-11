@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import type { SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import {
   canonicalizeRecords,
@@ -166,6 +167,27 @@ test("file input with --json prints stable status, hash, and object path", async
     content_hash: contentHash,
     object_path: join(storeRoot, "objects", "sha256", `${contentHash}.trail.jsonl`),
   });
+});
+
+test("gzipped file input with --json registers canonical object and preserves source path", async () => {
+  const { filePath, contentHash } = await seedTrailFile();
+  const gzPath = join(inputRoot, "session.trail.jsonl.gz");
+  await writeFile(gzPath, gzipSync(await readFile(filePath)));
+
+  const result = await runRegister({ input: gzPath, json: true }, { storeRoot });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    status: "finalized",
+    content_hash: contentHash,
+    object_path: join(storeRoot, "objects", "sha256", `${contentHash}.trail.jsonl`),
+  });
+  const indexBytes = await readFile(join(storeRoot, "index", "objects.json"), "utf8");
+  const indexValue = JSON.parse(indexBytes) as {
+    entries: Record<string, { source_path: string | null }>;
+  };
+  expect(indexValue.entries[contentHash]?.source_path).toBe(gzPath);
 });
 
 test("file input with a colon in the path still registers as a file", async () => {
