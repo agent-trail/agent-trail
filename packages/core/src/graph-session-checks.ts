@@ -2,6 +2,48 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./parse-fidelity.ts";
 
+export function nonMonotonicEventTsWarnings(entries: JsonlRecord[]): Diagnostic[] {
+  const entryById = new Map<string, JsonlRecord>();
+  const parentById = new Map<string, string>();
+  for (const entry of entries) {
+    const id = entry.value.id;
+    if (typeof id === "string" && !entryById.has(id)) {
+      entryById.set(id, entry);
+      const parentId = entry.value.parent_id;
+      if (typeof parentId === "string") {
+        parentById.set(id, parentId);
+      }
+    }
+  }
+
+  const cyclicIds = cyclicParentIds(parentById);
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of entries) {
+    const id = entry.value.id;
+    if (typeof id !== "string" || cyclicIds.has(id)) continue;
+    const parentId = entry.value.parent_id;
+    if (typeof parentId !== "string" || cyclicIds.has(parentId)) continue;
+    const parent = entryById.get(parentId);
+    if (parent === undefined) continue;
+
+    const childTs = eventTimestampMillis(entry);
+    const parentTs = eventTimestampMillis(parent);
+    if (childTs === undefined || parentTs === undefined || childTs >= parentTs) continue;
+
+    diagnostics.push(
+      createDiagnostic({
+        line: entry.line,
+        path: "/ts",
+        severity: "warning",
+        code: "non_monotonic_event_ts",
+        message: `event "${id}" has ts earlier than parent_id "${parentId}"`,
+      }),
+    );
+  }
+
+  return diagnostics;
+}
+
 // Checks header stream state against file content (spec §18.4 rule 9): a live
 // header (stream.state == "open") must not carry a populated content_hash and
 // must not coexist with terminal events. Both checks are conditional on the
@@ -50,6 +92,44 @@ export function streamConsistencyWarnings(
   }
 
   return diagnostics;
+}
+
+function eventTimestampMillis(record: JsonlRecord): number | undefined {
+  const ts = record.value.ts;
+  if (typeof ts !== "string") return undefined;
+  const millis = Date.parse(ts);
+  return Number.isFinite(millis) ? millis : undefined;
+}
+
+function cyclicParentIds(parentById: Map<string, string>): Set<string> {
+  const cyclic = new Set<string>();
+  const resolved = new Set<string>();
+
+  for (const startId of parentById.keys()) {
+    if (resolved.has(startId)) continue;
+    const path: string[] = [];
+    const indexById = new Map<string, number>();
+    let cursor: string | undefined = startId;
+
+    while (cursor !== undefined && !resolved.has(cursor)) {
+      const index = indexById.get(cursor);
+      if (index !== undefined) {
+        for (const id of path.slice(index)) {
+          cyclic.add(id);
+        }
+        break;
+      }
+      indexById.set(cursor, path.length);
+      path.push(cursor);
+      cursor = parentById.get(cursor);
+    }
+
+    for (const id of path) {
+      resolved.add(id);
+    }
+  }
+
+  return cyclic;
 }
 
 // Spec §18.4: writers should emit `session_terminated` if any `tool_call`

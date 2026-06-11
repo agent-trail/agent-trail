@@ -658,6 +658,36 @@
       ]
     },
     {
+      "path": "invalid-graph/non-monotonic-event-ts.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 3,
+            "path": "/ts",
+            "severity": "warning",
+            "code": "non_monotonic_event_ts"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 3,
+            "path": "/ts",
+            "severity": "warning",
+            "code": "non_monotonic_event_ts"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-graph/parent-cycle.trail.jsonl",
       "strict": {
         "valid": false,

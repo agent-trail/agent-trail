@@ -376,6 +376,99 @@ test("parent_id scoped per group: pointing at another group's entry id is unknow
   });
 });
 
+test("warns when an event ts is earlier than its parent event ts", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      }),
+      record(3, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:04.999Z",
+        payload: { text: "hi" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/ts",
+    severity: "warning",
+    code: "non_monotonic_event_ts",
+    message:
+      'event "01HEVTA0000000000000000002" has ts earlier than parent_id "01HEVTA0000000000000000001"',
+  });
+});
+
+test("does not warn when child event ts is equal to or later than its parent event ts", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      }),
+      record(3, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "same tick" },
+      }),
+      record(4, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000003",
+        parent_id: "01HEVTA0000000000000000002",
+        ts: "2026-05-17T14:00:05.001Z",
+        payload: { text: "later" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
+});
+
+test("does not warn when sibling branches interleave in wall-clock time", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:05.000Z",
+        payload: { text: "hello" },
+      }),
+      record(3, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:10.000Z",
+        payload: { text: "branch a" },
+      }),
+      record(4, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000003",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:06.000Z",
+        payload: { text: "branch b" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
+});
+
 test("accepts a minimal valid linear trail with no parent_ids", () => {
   const diagnostics = validateTrailGraph([
     record(1, {

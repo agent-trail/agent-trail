@@ -1796,6 +1796,7 @@ If `content_hash` is present:
 - A `tool_result` paired by sequential fallback when two or more unmatched prior same-branch `tool_call` candidates existed emits `ambiguous_sequential_pairing` at `/payload`.
 - A `user_query` question with duplicate option labels among options that do not carry stable option ids emits `duplicate_option_labels` at the repeated option's `/payload/questions/<index>/options/<index>/label`.
 - `session_end.payload.final_message_id`, when present, SHOULD reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
+- An event's `ts` SHOULD NOT be earlier than its parent event's `ts` inside the same parent chain. Equal timestamps are allowed; sibling branches may interleave in wall-clock time. A strictly earlier child timestamp emits `non_monotonic_event_ts` (warning) at `/ts`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§15.1).
 - `source.raw` SHOULD NOT contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
 - Privacy-sensitive tool arguments SHOULD NOT contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.

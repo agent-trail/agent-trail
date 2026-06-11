@@ -8,6 +8,7 @@ export { envelopeSessionsManifestWarnings } from "./graph-envelope-checks.ts";
 export {
   envelopeRefWarnings,
   finalMessageIdWarnings,
+  nonMonotonicEventTsWarnings,
   parseFidelityConsistencyWarnings,
   streamConsistencyWarnings,
   unmatchedToolCallWarnings,
