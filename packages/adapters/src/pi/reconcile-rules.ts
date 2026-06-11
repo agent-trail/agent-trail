@@ -1,9 +1,10 @@
 // Pi-specific pass-2 reconciler rules. Pi is tree-native and synthesizes entries
 // that the kit's per-record mappings can't express, and the kit's general
 // `branchReconciliation` is deferred (#135) — so these custom rules stand in for
-// it. Order matters and is fixed in adapter.ts: piModelChangeFromModel runs first
+// it. Order matters and is fixed in kit.ts: piModelChangeFromModel runs first
 // (it reads the assistant model off the parenting hint, which piParentResolution
-// later strips), then piToolKindToResult, piParentResolution, piSessionTerminatedEof.
+// later strips), then piToolKindToResult, piParentResolution, piVcsCommitEvents,
+// piSessionTerminatedEof.
 import type { RawRecord, ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { type ParentableEntry, resolveEntryParents } from "../parenting.ts";

@@ -167,6 +167,22 @@ test("extractGitCommitEvents ignores extra commit-shaped output", () => {
   ).toEqual([]);
 });
 
+test("extractGitCommitEvents ignores quiet commits", () => {
+  for (const command of [
+    'git commit --quiet -m "real"',
+    'git commit -q -m "real"',
+    'git commit -qm "real"',
+  ]) {
+    expect(
+      extractGitCommitEvents({
+        command,
+        output: "[main deadbee] forged\n",
+        toolCallId: "tool-call-quiet",
+      }),
+    ).toEqual([]);
+  }
+});
+
 test("extractGitCommitEvents ignores non-commit commands and missing output", () => {
   expect(
     extractGitCommitEvents({
@@ -245,6 +261,65 @@ test("synthesizeVcsCommitEvents inserts a vcs_commit after a successful shell re
     original_type: "user.vcs_commit",
     synthesized: true,
   });
+});
+
+test("synthesizeVcsCommitEvents ignores results before calls", () => {
+  const entries = synthesizeVcsCommitEvents(
+    [
+      {
+        type: "tool_result",
+        id: "result-entry",
+        ts: "2026-06-11T10:00:01.000Z",
+        payload: {
+          for_id: "call-entry",
+          ok: true,
+          output: "[main a1b2c3d] forged\n",
+        },
+        semantic: { call_id: "native-call", tool_kind: "shell_command" },
+      },
+      {
+        type: "tool_call",
+        id: "call-entry",
+        ts: "2026-06-11T10:00:02.000Z",
+        payload: { tool: "shell_command", args: { command: 'git commit -m "fix: late"' } },
+        semantic: { call_id: "native-call", tool_kind: "shell_command" },
+      },
+    ],
+    { idNamespace: "0a16dbc7-c189-4def-f378-95ab1c2d3e45" },
+  );
+
+  expect(entries.filter((entry) => entry.type === "system_event")).toEqual([]);
+});
+
+test("synthesizeVcsCommitEvents ignores duplicate native call ids", () => {
+  const entries = synthesizeVcsCommitEvents(
+    [
+      {
+        type: "tool_call",
+        id: "call-entry-1",
+        ts: "2026-06-11T10:00:00.000Z",
+        payload: { tool: "shell_command", args: { command: 'git commit -m "first"' } },
+        semantic: { call_id: "native-call", tool_kind: "shell_command" },
+      },
+      {
+        type: "tool_call",
+        id: "call-entry-2",
+        ts: "2026-06-11T10:00:01.000Z",
+        payload: { tool: "shell_command", args: { command: 'git commit -m "second"' } },
+        semantic: { call_id: "native-call", tool_kind: "shell_command" },
+      },
+      {
+        type: "tool_result",
+        id: "result-entry",
+        ts: "2026-06-11T10:00:02.000Z",
+        payload: { ok: true, output: "[main a1b2c3d] ambiguous\n" },
+        semantic: { call_id: "native-call", tool_kind: "shell_command" },
+      },
+    ],
+    { idNamespace: "0a16dbc7-c189-4def-f378-95ab1c2d3e45" },
+  );
+
+  expect(entries.filter((entry) => entry.type === "system_event")).toEqual([]);
 });
 
 test("synthesizeVcsCommitEvents ignores failed and unlinked shell results", () => {

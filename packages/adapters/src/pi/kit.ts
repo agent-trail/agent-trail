@@ -37,8 +37,8 @@ export function buildPiKitAdapter(sessionVersion: string | undefined): Adapter {
         // parenting hint that piParentResolution strips.
         piModelChangeFromModel,
         piToolKindToResult,
-        piVcsCommitEvents,
         piParentResolution,
+        piVcsCommitEvents,
         piSessionTerminatedEof,
       ],
     },

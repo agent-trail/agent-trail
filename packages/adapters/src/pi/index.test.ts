@@ -441,6 +441,19 @@ test("parseSession() synthesizes vcs_commit from a successful bash git commit", 
         ],
       },
     },
+    {
+      type: "message",
+      id: "00000000-0000-0000-0000-eeeeeeeee263",
+      parentId: "00000000-0000-0000-0000-eeeeeeeee262",
+      timestamp: "2026-06-11T10:00:03.000Z",
+      message: {
+        role: "assistant",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        stopReason: "endTurn",
+        content: [{ type: "text", text: "done" }],
+      },
+    },
   ];
   writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
 
@@ -461,6 +474,10 @@ test("parseSession() synthesizes vcs_commit from a successful bash git commit", 
   });
   expect(commit?.semantic).toEqual({ call_id: "00000000-0000-0000-0000-ddddd0000261" });
   expect(commit?.parent_id).toBe(toolResult?.id);
+  const nextMessage = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "agent_message" && entry.payload.text === "done",
+  );
+  expect(nextMessage?.parent_id).toBe(commit?.id);
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });

@@ -134,14 +134,23 @@ function gitSubcommandIndex(tokens: string[], gitIndex: number): number | undefi
   return undefined;
 }
 
-function gitSubcommand(segment: string[]): string | undefined {
+type GitCommandInfo = {
+  subcommand: string;
+  args: string[];
+};
+
+function gitCommandInfo(segment: string[]): GitCommandInfo | undefined {
   let commandIndex = 0;
   while (ENV_ASSIGNMENT_PATTERN.test(segment[commandIndex] ?? "")) commandIndex += 1;
   if (segment[commandIndex] === "command") commandIndex += 1;
   const executable = segment[commandIndex];
   if (executable !== "git" && executable?.endsWith("/git") !== true) return undefined;
   const subcommandIndex = gitSubcommandIndex(segment, commandIndex);
-  return subcommandIndex !== undefined ? segment[subcommandIndex] : undefined;
+  if (subcommandIndex === undefined) return undefined;
+  return {
+    subcommand: segment[subcommandIndex]!,
+    args: segment.slice(subcommandIndex + 1),
+  };
 }
 
 function isSafeWrapperSegment(segment: string[]): boolean {
@@ -150,15 +159,25 @@ function isSafeWrapperSegment(segment: string[]): boolean {
   return segment[commandIndex] === "cd";
 }
 
+function hasQuietFlag(args: string[]): boolean {
+  return args.some((arg) => {
+    if (arg === "--quiet" || arg === "-q") return true;
+    return arg.startsWith("-") && !arg.startsWith("--") && arg.slice(1).includes("q");
+  });
+}
+
 function eligibleGitCommitInvocationCount(command: string): number {
   const shape = shellCommandShape(command);
   if (shape.hasUnsafeSeparator) return 0;
   let count = 0;
   for (const segment of shape.segments) {
-    const subcommand = gitSubcommand(segment);
-    if (subcommand === undefined && isSafeWrapperSegment(segment)) continue;
-    if (subcommand !== "add" && subcommand !== "commit") return 0;
-    if (subcommand === "commit") count += 1;
+    const git = gitCommandInfo(segment);
+    if (git === undefined && isSafeWrapperSegment(segment)) continue;
+    if (git?.subcommand !== "add" && git?.subcommand !== "commit") return 0;
+    if (git.subcommand === "commit") {
+      if (hasQuietFlag(git.args)) return 0;
+      count += 1;
+    }
   }
   return count;
 }
@@ -215,14 +234,9 @@ export function synthesizeVcsCommitEvents(
   entries: Entry[],
   options: SynthesizeVcsCommitEventsOptions,
 ): Entry[] {
+  type SeenCall = Entry | "ambiguous";
   const callsById = new Map<string, Entry>();
-  const callsByNativeId = new Map<string, Entry>();
-  for (const entry of entries) {
-    if (commandFromToolCall(entry) === undefined) continue;
-    callsById.set(entry.id, entry);
-    const nativeCallId = entry.semantic?.call_id;
-    if (nativeCallId !== undefined) callsByNativeId.set(nativeCallId, entry);
-  }
+  const callsByNativeId = new Map<string, SeenCall>();
 
   const out: Entry[] = [];
   let reparentNextChild:
@@ -241,14 +255,27 @@ export function synthesizeVcsCommitEvents(
     }
 
     out.push(current);
+    const currentCommand = commandFromToolCall(current);
+    if (currentCommand !== undefined) {
+      callsById.set(current.id, current);
+      const nativeCallId = current.semantic?.call_id;
+      if (nativeCallId !== undefined) {
+        callsByNativeId.set(
+          nativeCallId,
+          callsByNativeId.has(nativeCallId) ? "ambiguous" : current,
+        );
+      }
+      continue;
+    }
     if (current.type !== "tool_result") continue;
     const payload = objectPayload(current);
     if (payload.ok !== true || typeof payload.output !== "string") continue;
     const forId = typeof payload.for_id === "string" ? payload.for_id : undefined;
     const nativeCallId = current.semantic?.call_id;
-    const call =
-      (forId !== undefined ? callsById.get(forId) : undefined) ??
-      (nativeCallId !== undefined ? callsByNativeId.get(nativeCallId) : undefined);
+    const nativeCallMatch =
+      nativeCallId !== undefined ? callsByNativeId.get(nativeCallId) : undefined;
+    const callByNativeId = nativeCallMatch !== "ambiguous" ? nativeCallMatch : undefined;
+    const call = (forId !== undefined ? callsById.get(forId) : undefined) ?? callByNativeId;
     if (call === undefined) continue;
     const command = commandFromToolCall(call);
     if (command === undefined) continue;
