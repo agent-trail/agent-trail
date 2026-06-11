@@ -403,8 +403,10 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
   `input_tokens` → non-cached `input_tokens` plus cache-inclusive `context_input_tokens`,
   `last_token_usage.output_tokens` → `output_tokens`, `last_token_usage.total_tokens` →
-  `total_tokens`, `total_token_usage.{input,output}_tokens` →
-  `{input,output}_tokens_cumulative`, `total_token_usage.total_tokens` →
+  `total_tokens`, `total_token_usage.input_tokens` minus
+  `total_token_usage.cached_input_tokens` → non-cached `input_tokens_cumulative`,
+  `total_token_usage.output_tokens` → `output_tokens_cumulative`,
+  `total_token_usage.total_tokens` →
   `total_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when present.
   `payload.info: null` rate-limit-only snapshots emit no usage; multiple
   `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals

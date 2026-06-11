@@ -1,3 +1,4 @@
+import { mapAgentMessageUsage } from "@agent-trail/adapter-kit";
 import type { Entry, Header } from "@agent-trail/types";
 import { deriveSynthesizedEntryId, OPENCODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { attachmentFrom, attachmentsFrom } from "./attachments.ts";
@@ -37,26 +38,33 @@ const KNOWN_PART_TYPES = new Set([
   "retry",
   "compaction",
 ]);
+const USAGE_CAPABLE_PART_TYPES = new Set(["text", "reasoning", "tool", "subtask"]);
 
 function usageFrom(
   raw: Raw,
 ): NonNullable<Extract<Entry, { type?: "agent_message" }>["payload"]>["usage"] | undefined {
   const tokens = objectValue(raw.tokens);
   const cache = objectValue(tokens?.cache);
-  const input = numberValue(tokens?.input) ?? numberValue(raw.tokens_input);
-  const output = numberValue(tokens?.output) ?? numberValue(raw.tokens_output);
-  const total = numberValue(tokens?.total) ?? numberValue(raw.tokens_total);
-  const reasoning = numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning);
-  const cacheRead = numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read);
-  const cacheWrite = numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write);
-  if ((input === undefined || output === undefined) && total === undefined) return undefined;
+  const usage = mapAgentMessageUsage({
+    input: numberValue(tokens?.input) ?? numberValue(raw.tokens_input),
+    output: numberValue(tokens?.output) ?? numberValue(raw.tokens_output),
+    total: numberValue(tokens?.total) ?? numberValue(raw.tokens_total),
+    reasoning_tokens: numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning),
+    cache_read_tokens: numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read),
+    cache_creation_tokens: numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write),
+  });
+  if (usage === undefined) return undefined;
   return {
-    ...(input !== undefined ? { input_tokens: input } : {}),
-    ...(output !== undefined ? { output_tokens: output } : {}),
-    ...(total !== undefined ? { total_tokens: total } : {}),
-    ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
-    ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
-    ...(cacheWrite !== undefined ? { cache_creation_tokens: cacheWrite } : {}),
+    ...(usage.input_tokens !== undefined ? { input_tokens: usage.input_tokens } : {}),
+    ...(usage.output_tokens !== undefined ? { output_tokens: usage.output_tokens } : {}),
+    ...(usage.total_tokens !== undefined ? { total_tokens: usage.total_tokens } : {}),
+    ...(usage.reasoning_tokens !== undefined ? { reasoning_tokens: usage.reasoning_tokens } : {}),
+    ...(usage.cache_read_tokens !== undefined
+      ? { cache_read_tokens: usage.cache_read_tokens }
+      : {}),
+    ...(usage.cache_creation_tokens !== undefined
+      ? { cache_creation_tokens: usage.cache_creation_tokens }
+      : {}),
   } as NonNullable<Extract<Entry, { type?: "agent_message" }>["payload"]>["usage"];
 }
 
@@ -176,10 +184,22 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
         return attachment === undefined ? [] : [attachment];
       });
     const messageUsage = role === "assistant" ? usageFrom(message) : undefined;
+    const firstPartWithUsage = messageParts.find((part) => {
+      const type = stringValue(part.type);
+      if (type === undefined || !USAGE_CAPABLE_PART_TYPES.has(type)) return false;
+      return usageFrom(part) !== undefined;
+    });
     let usageEmitted = false;
     const consumeUsage = (part?: Raw): ReturnType<typeof usageFrom> => {
       if (usageEmitted) return undefined;
       const partUsage = part !== undefined ? usageFrom(part) : undefined;
+      if (
+        messageUsage !== undefined &&
+        firstPartWithUsage !== undefined &&
+        part !== firstPartWithUsage
+      ) {
+        return undefined;
+      }
       const usage =
         messageUsage !== undefined && partUsage !== undefined
           ? { ...partUsage, ...messageUsage }

@@ -43,6 +43,13 @@ async function assertCodexTokenCountsCaptured(
       return usage === undefined ? [] : [usage];
     }),
   );
+  const actualUsageMessages = trail.groups.flatMap((group) =>
+    group.entries.flatMap((entry) => {
+      if (entry.type !== "agent_message") return [];
+      const payload = objectValue(entry.payload);
+      return objectValue(payload?.usage) === undefined ? [] : [payload];
+    }),
+  );
   if (expected.length === 0)
     throw new Error(`real Codex session had no token_count usage\n${summary}`);
   if (actual.length === 0)
@@ -61,16 +68,22 @@ async function assertCodexTokenCountsCaptured(
   ).toBe(true);
   expect(actual.some((usage) => usage.total_tokens !== undefined)).toBe(true);
   expect(actual.some((usage) => usage.total_tokens_cumulative !== undefined)).toBe(true);
+  expect(actualUsageMessages).toHaveLength(actual.length);
+  expect(
+    actualUsageMessages.every(
+      (payload) => payload !== undefined && typeof payload.model === "string",
+    ),
+  ).toBe(true);
 
   let searchFrom = 0;
   for (const usage of actual) {
     const matchIndex = expected.findIndex((candidate, index) => {
       if (index < searchFrom) return false;
-      return Object.entries(usage).every(([key, value]) => candidate[key] === value);
+      return JSON.stringify(candidate) === JSON.stringify(usage);
     });
     if (matchIndex === -1) {
       throw new Error(
-        `real Codex canonical usage did not match any source token_count: ${JSON.stringify(usage)}\n${summary}`,
+        `real Codex canonical usage did not exactly match any source token_count: ${JSON.stringify(usage)}\n${summary}`,
       );
     }
     searchFrom = matchIndex + 1;

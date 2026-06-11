@@ -392,7 +392,7 @@ describe("codex v0.135 image-bearing response_item.message", () => {
     expect((all[1]?.payload as { text?: string }).text).toBe("later reply");
   });
 
-  test("unmatched assistant image fallback carries effective model", async () => {
+  test("unmatched assistant image fallback carries usage and effective model", async () => {
     const all = await parseCodexSnapshotEntries(
       [
         {
@@ -421,12 +421,27 @@ describe("codex v0.135 image-bearing response_item.message", () => {
             ],
           },
         },
+        {
+          timestamp: "2026-06-01T11:10:03.000Z",
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              model: "gpt-5-token-fallback",
+              last_token_usage: { total_tokens: 13 },
+            },
+          },
+        },
       ],
       "unit-test",
     );
     expectWriterStrict(all);
     const agent = all.find((entry) => entry.type === "agent_message");
-    expect(agent?.payload).toMatchObject({ text: "assistant image", model: "gpt-5-codex" });
+    expect(agent?.payload).toMatchObject({
+      text: "assistant image",
+      model: "gpt-5-codex",
+      usage: { total_tokens: 13 },
+    });
   });
 
   test("image rollup binds repeated text to the nearest matching message", async () => {

@@ -1174,6 +1174,50 @@ test("parseSession() preserves OpenCode total-only token usage", async () => {
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 });
 
+test("parseSession() merges OpenCode message totals onto the first part with token buckets", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_total_late_part",
+    directory: "/work/total-late-part",
+  });
+  seedFileMessage({
+    id: "msg_total_late_part",
+    sessionID: "ses_total_late_part",
+    role: "assistant",
+    tokens: { total: 42 },
+    created: 1766258475000,
+  });
+  seedFilePart({
+    id: "prt_total_late_reasoning",
+    sessionID: "ses_total_late_part",
+    messageID: "msg_total_late_part",
+    type: "reasoning",
+    text: "Thinking.",
+  });
+  seedFilePart({
+    id: "prt_total_late_text",
+    sessionID: "ses_total_late_part",
+    messageID: "msg_total_late_part",
+    type: "text",
+    text: "Done.",
+    tokens: { input: 5, output: 3 },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_total_late_part",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const thinking = trail.groups[0]!.entries.find((entry) => entry.type === "agent_thinking");
+  expect(thinking?.payload).toEqual({ text: "Thinking." });
+  const agent = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
+  expect(agent?.payload).toEqual({
+    text: "Done.",
+    usage: { input_tokens: 5, output_tokens: 3, total_tokens: 42 },
+  });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
 test("parseSession() emits useful SQLite session metadata and permission surfaces", async () => {
   const dbPath = seedSqliteSession({
     id: "ses_meta",
