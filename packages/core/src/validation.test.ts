@@ -844,6 +844,48 @@ test("tool_call args truncation requires args_size when truncated is true", () =
   );
 });
 
+test("tool_result overflow_ref must be a content hash reference", () => {
+  const valid = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"output":"truncated","output_size":42,"truncated":true,"overflow_ref":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: {
+        ok: true,
+        output: "truncated",
+        output_size: 42,
+        truncated: true,
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    },
+  });
+  expect(valid).toEqual([]);
+
+  const urlRef = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"overflow_ref":"https://blob.example/full-output?sig=secret"}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: {
+        ok: true,
+        overflow_ref: "https://blob.example/full-output?sig=secret",
+      },
+    },
+  });
+  expect(urlRef).toContainEqual(
+    expect.objectContaining({
+      line: 3,
+      path: "/payload/overflow_ref",
+      severity: "error",
+      code: "oneOf",
+    }),
+  );
+});
+
 test("file_edit accepts diff or old/new replacement forms exclusively", () => {
   const replacement = validateWriterStrictRecord({
     line: 2,
