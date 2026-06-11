@@ -331,10 +331,17 @@ function selectedFor(
       .map((option) => option.label)
       .filter((label): label is string => typeof label === "string"),
   );
+  const knownValues = new Set<string>();
   const labelCounts = new Map<string, number>();
   for (const option of options) {
     const label = option.label;
+    const id = option.id;
     if (typeof label === "string") labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    if (typeof id === "string") {
+      knownValues.add(id);
+    } else if (typeof label === "string") {
+      knownValues.add(label);
+    }
   }
   const labelToId = new Map<string, string>();
   for (const option of options) {
@@ -344,11 +351,8 @@ function selectedFor(
       labelToId.set(label, id);
     }
   }
-  const usesIds = optionIds.size > 0;
-  const normalizedSelected = usesIds
-    ? selected.map((value) => labelToId.get(value) ?? value)
-    : selected;
-  const knownOptions = usesIds ? optionIds : optionLabels;
+  const normalizedSelected = selected.map((value) => labelToId.get(value) ?? value);
+  const knownOptions = optionIds.size > 0 ? knownValues : optionLabels;
   if (question.allow_other !== true || knownOptions.size === 0) {
     return { selected: normalizedSelected };
   }

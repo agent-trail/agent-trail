@@ -87,9 +87,15 @@ export function toolKindAndArgs(
       const oldString = stringValue(args.old_string);
       const newString = stringValue(args.new_string);
       if (path !== undefined && (oldString !== undefined || newString !== undefined)) {
+        const replaceAll = typeof args.replace_all === "boolean" ? args.replace_all : undefined;
         return {
           tool: "file_edit",
-          args: { path, old: oldString ?? "", new: newString ?? "" },
+          args: {
+            path,
+            old: oldString ?? "",
+            new: newString ?? "",
+            ...(replaceAll !== undefined ? { replace_all: replaceAll } : {}),
+          },
         };
       }
       break;

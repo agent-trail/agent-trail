@@ -208,8 +208,7 @@ function queryQuestions(entry: Entry): Record<string, unknown>[] {
 }
 
 function optionIdentity(question: Record<string, unknown>): {
-  ids: Set<string>;
-  labels: Set<string>;
+  knownValues: Set<string>;
   labelToId: Map<string, string>;
 } {
   const options = (Array.isArray(question.options) ? question.options : []).filter(
@@ -217,6 +216,7 @@ function optionIdentity(question: Record<string, unknown>): {
   );
   const ids = new Set<string>();
   const labels = new Set<string>();
+  const knownValues = new Set<string>();
   const labelCounts = new Map<string, number>();
   const labelToId = new Map<string, string>();
   for (const option of options) {
@@ -226,7 +226,12 @@ function optionIdentity(question: Record<string, unknown>): {
       labels.add(label);
       labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
     }
-    if (typeof id === "string") ids.add(id);
+    if (typeof id === "string") {
+      ids.add(id);
+      knownValues.add(id);
+    } else if (typeof label === "string") {
+      knownValues.add(label);
+    }
   }
   for (const option of options) {
     const label = option.label;
@@ -235,7 +240,7 @@ function optionIdentity(question: Record<string, unknown>): {
       labelToId.set(label, id);
     }
   }
-  return { ids, labels, labelToId };
+  return { knownValues, labelToId };
 }
 
 function normalizeAnswers(
@@ -253,12 +258,9 @@ function normalizeAnswers(
     if (question === undefined) continue;
     const selected = selectedValues(rawAnswer);
     const options = optionIdentity(question);
-    const usesIds = options.ids.size > 0;
-    const normalizedSelected = usesIds
-      ? selected.map((value) => options.labelToId.get(value) ?? value)
-      : selected;
+    const normalizedSelected = selected.map((value) => options.labelToId.get(value) ?? value);
     const allowOther = question?.allow_other === true;
-    const knownOptions = usesIds ? options.ids : options.labels;
+    const knownOptions = options.knownValues;
     const known =
       knownOptions.size > 0
         ? normalizedSelected.filter((value) => knownOptions.has(value))

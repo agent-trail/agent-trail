@@ -2301,6 +2301,22 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     args: { path: "src" },
   });
   expect(
+    toolKindAndArgs("Edit", {
+      file_path: "src/app.ts",
+      old_string: "a",
+      new_string: "b",
+      replace_all: true,
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "src/app.ts",
+      old: "a",
+      new: "b",
+      replace_all: true,
+    },
+  });
+  expect(
     toolKindAndArgs("MultiEdit", {
       file_path: "src/app.ts",
       edits: [
@@ -2399,9 +2415,11 @@ test("AskUserQuestion emits structured user query and response events", async ()
                   {
                     question: "Ship it?",
                     header: "Ship",
-                    multiSelect: false,
+                    multiSelect: true,
+                    allowOther: true,
                     options: [
                       { id: "yes-safe", label: "yes", description: "Ship now" },
+                      { label: "later", description: "Ship later" },
                       { id: "no", label: "no", description: "Hold" },
                     ],
                   },
@@ -2427,7 +2445,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
               type: "tool_result",
               tool_use_id: "tooluse-question",
               content:
-                'User has answered your questions: "Ship it?"="yes". You can now continue...',
+                'User has answered your questions: "Ship it?"="yes, later, custom". You can now continue...',
             },
           ],
         },
@@ -2463,9 +2481,11 @@ test("AskUserQuestion emits structured user query and response events", async ()
           id: question.id,
           header: "Ship",
           question: "Ship it?",
-          multi_select: false,
+          multi_select: true,
+          allow_other: true,
           options: [
             { id: "yes-safe", label: "yes", description: "Ship now" },
+            { label: "later", description: "Ship later" },
             { id: "no", label: "no", description: "Hold" },
           ],
         },
@@ -2474,7 +2494,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
     expect(query.semantic?.group_id).toBe("req-question-1");
     expect(response.payload).toEqual({
       for_id: query.id,
-      answers: { [question.id]: { selected: ["yes-safe"] } },
+      answers: { [question.id]: { selected: ["yes-safe", "later"], other: "custom" } },
     });
     expect(
       trail.groups[0]!.entries.some(

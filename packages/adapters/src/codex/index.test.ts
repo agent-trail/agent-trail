@@ -2736,6 +2736,7 @@ test("request_user_input emits structured user query and response events", async
               allowOther: true,
               options: [
                 { id: "yes-safe", label: "yes", description: "Ship now" },
+                { label: "later", description: "Ship later" },
                 { id: "no", label: "no", description: "Hold" },
               ],
             },
@@ -2750,7 +2751,7 @@ test("request_user_input emits structured user query and response events", async
         type: "function_call_output",
         call_id: "call-user-input",
         output:
-          '{"answers":{"ship":{"answers":["yes"],"other":"with changelog"},"unknown":{"answers":["drop me"]}}}',
+          '{"answers":{"ship":{"answers":["yes","later","custom"],"other":"with changelog"},"unknown":{"answers":["drop me"]}}}',
       },
     },
   ];
@@ -2778,6 +2779,7 @@ test("request_user_input emits structured user query and response events", async
         allow_other: true,
         options: [
           { id: "yes-safe", label: "yes", description: "Ship now" },
+          { label: "later", description: "Ship later" },
           { id: "no", label: "no", description: "Hold" },
         ],
       },
@@ -2785,7 +2787,7 @@ test("request_user_input emits structured user query and response events", async
   });
   expect(response?.payload).toEqual({
     for_id: query?.id,
-    answers: { ship: { selected: ["yes-safe"], other: "with changelog" } },
+    answers: { ship: { selected: ["yes-safe", "later"], other: "with changelog, custom" } },
   });
   expect(
     trail.groups[0]!.entries.some(
