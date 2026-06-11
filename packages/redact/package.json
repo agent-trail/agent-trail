@@ -27,7 +27,9 @@
   },
   "dependencies": {
     "@agent-trail/core": "workspace:*",
-    "@redactpii/node": "^1.0.17"
+    "@redactpii/node": "^1.0.17",
+    "safe-regex2": "^5.1.1",
+    "yaml": "^2.9.0"
   },
   "scripts": {
     "check": "bun test && tsc --noEmit --project ../../tsconfig.json",

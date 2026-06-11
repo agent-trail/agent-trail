@@ -168,7 +168,11 @@ function buildProgram(output: OutputBuffer, context: RunCliContext): Command {
     projectRoot: context.projectRoot,
     resolveTrailConfig: resolveConfig,
   });
-  addShareCommand(program, writeResult);
+  addShareCommand(program, writeResult, {
+    env: context.env,
+    projectRoot: context.projectRoot,
+    storeRoot: context.storeRoot,
+  });
   addLoadCommand(program, writeResult);
   addExportCommand(program, writeResult);
 

@@ -23,18 +23,30 @@ export function redactTrail(
   options: RedactTrailOptions = {},
 ): RedactTrailResult {
   const basePatterns = options.patterns ?? DEFAULT_PATTERNS;
+  const packPatterns = options.redactionPacks?.flatMap((pack) => pack.patterns) ?? [];
   const patterns = options.extendPatterns
     ? [...basePatterns, ...options.extendPatterns]
     : basePatterns;
+  const allPatterns = [...packPatterns, ...patterns];
   const userPatterns = userSecretsPatterns(options.userSecrets ?? []);
+  const allowedSecrets = options.allowedSecrets ?? [];
   const includeSourceRaw = options.includeSourceRaw ?? true;
   const outputMaxBytes = options.outputMaxBytes ?? 10_240;
   const maxSamples = options.maxSamples ?? 20;
   const keepRemoteUrl = options.keepRemoteUrl ?? false;
   const enableEntropyRedaction = options.enableEntropyRedaction === true;
+  const pii = options.pii ?? {};
   const out = records.map((record) => structuredClone(record));
   const originalToolResultOutputSizes = snapshotToolResultOutputSizes(out);
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
+  if (options.redactionPacks !== undefined && options.redactionPacks.length > 0) {
+    rawSummary.packs = options.redactionPacks.map((pack) => ({
+      name: pack.name,
+      version: pack.version,
+      contentHash: pack.contentHash,
+      source: pack.source,
+    }));
+  }
   const redactionCounts = new Map<number, number>();
 
   if (!keepRemoteUrl) {
@@ -54,19 +66,23 @@ export function redactTrail(
   const queryIdMaps = redactUserQueryQuestionIds(
     out,
     userPatterns,
-    patterns,
+    allPatterns,
+    allowedSecrets,
     rawSummary,
     maxSamples,
     enableEntropyRedaction,
+    pii,
   );
   redactUserQueryAnswerKeys(
     out,
     queryIdMaps,
     userPatterns,
-    patterns,
+    allPatterns,
+    allowedSecrets,
     rawSummary,
     maxSamples,
     enableEntropyRedaction,
+    pii,
   );
 
   stripSecretUserQueryAnswers(out, rawSummary, maxSamples, redactionCounts);
@@ -74,11 +90,13 @@ export function redactTrail(
   redactVisitedStrings(
     visitStrings(out, includeSourceRaw),
     userPatterns,
-    patterns,
+    allPatterns,
+    allowedSecrets,
     rawSummary,
     maxSamples,
     redactionCounts,
     enableEntropyRedaction,
+    pii,
   );
 
   truncateOutputs(
@@ -98,7 +116,7 @@ export function redactTrail(
   // the mismatch and so share tooling recomputes the hashes on the redacted
   // artifact before publishing. Skip the reset on a true no-op pass so a
   // finalized clean trail remains verifiable after this call.
-  const changed = Object.keys(rawSummary.counts).length > 0;
+  const changed = Object.keys(rawSummary.counts).some((key) => key !== "allowlisted_skip");
   if (changed) {
     resetContentHashes(out);
   }

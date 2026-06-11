@@ -1,6 +1,6 @@
 import { applyEntropyRedaction } from "./entropy.ts";
 import { applyPii } from "./pii.ts";
-import type { RedactionPattern, RedactionSummary } from "./types.ts";
+import type { PiiConfig, RedactionPattern, RedactionSummary } from "./types.ts";
 import { keyVisit, type Visit } from "./visits.ts";
 
 const SAMPLE_HEAD = 4;
@@ -30,14 +30,27 @@ export function applyPattern(
   pattern: RedactionPattern,
   summary: RedactionSummary,
   maxSamples: number,
+  allowedSecrets: ReadonlySet<string> = new Set(),
 ): number {
   const current = visit.get();
   const regex = ensureGlobal(pattern.regex);
   regex.lastIndex = 0;
-  const matches = Array.from(current.matchAll(regex));
-  if (matches.length === 0) return 0;
+  const allMatches = Array.from(current.matchAll(regex));
+  const matches = allMatches.filter((match) => !allowedSecrets.has(match[0] ?? ""));
+  const skipped = allMatches.length - matches.length;
+  if (matches.length === 0) {
+    if (skipped > 0) {
+      summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + skipped;
+    }
+    return 0;
+  }
   regex.lastIndex = 0;
-  visit.set(current.replace(regex, pattern.placeholder));
+  visit.set(
+    current.replace(regex, (match: string, ...args: unknown[]) => {
+      if (allowedSecrets.has(match)) return match;
+      return expandReplacement(pattern.placeholder, match, args);
+    }),
+  );
   summary.counts[pattern.id] = (summary.counts[pattern.id] ?? 0) + matches.length;
   if (summary.samples.length < maxSamples) {
     const first = matches[0]?.[0] ?? "";
@@ -48,32 +61,70 @@ export function applyPattern(
       after: pattern.placeholder,
     });
   }
+  if (skipped > 0) {
+    summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + skipped;
+  }
   return matches.length;
+}
+
+function expandReplacement(placeholder: string, match: string, args: unknown[]): string {
+  const offsetIndex = args.findIndex((arg) => typeof arg === "number");
+  const offset = offsetIndex === -1 ? 0 : (args[offsetIndex] as number);
+  const input = typeof args[offsetIndex + 1] === "string" ? (args[offsetIndex + 1] as string) : "";
+  const captures = offsetIndex === -1 ? [] : args.slice(0, offsetIndex);
+  return placeholder.replace(/\$(\$|&|`|'|[1-9]\d?)/g, (token, name: string) => {
+    if (name === "$") return "$";
+    if (name === "&") return match;
+    if (name === "`") return input.slice(0, offset);
+    if (name === "'") return input.slice(offset + match.length);
+    return expandCaptureReference(token, name, captures);
+  });
+}
+
+function expandCaptureReference(token: string, digits: string, captures: unknown[]): string {
+  const index = Number.parseInt(digits, 10);
+  const capture = captures[index - 1];
+  if (index >= 1 && index <= captures.length) return typeof capture === "string" ? capture : "";
+  if (digits.length === 2) {
+    const firstIndex = Number.parseInt(digits[0]!, 10);
+    const firstCapture = captures[firstIndex - 1];
+    if (firstIndex >= 1 && firstIndex <= captures.length) {
+      return `${typeof firstCapture === "string" ? firstCapture : ""}${digits[1]}`;
+    }
+  }
+  return token;
+}
+
+export function allowedSecretSet(allowedSecrets: readonly string[]): Set<string> {
+  return new Set(allowedSecrets.filter((secret) => secret.length > 0));
 }
 
 function redactVisit(
   visit: Visit,
   userPatterns: RedactionPattern[],
   patterns: readonly RedactionPattern[],
+  allowedSecrets: readonly string[],
   summary: RedactionSummary,
   maxSamples: number,
   enableEntropyRedaction: boolean,
+  pii: PiiConfig,
 ): void {
+  const allowed = allowedSecretSet(allowedSecrets);
   for (const pattern of userPatterns) {
-    applyPattern(visit, pattern, summary, maxSamples);
+    applyPattern(visit, pattern, summary, maxSamples, allowed);
   }
   for (const pattern of patterns) {
-    applyPattern(visit, pattern, summary, maxSamples);
+    applyPattern(visit, pattern, summary, maxSamples, allowed);
   }
   if (enableEntropyRedaction) {
-    applyEntropyRedaction(visit, summary, maxSamples);
+    applyEntropyRedaction(visit, summary, maxSamples, allowed);
   }
   const current = visit.get();
-  const pii = applyPii(current, visit.location, summary, maxSamples);
-  if (pii.text !== current) {
-    visit.set(pii.text);
+  const piiResult = applyPii(current, visit.location, summary, maxSamples, pii, allowed);
+  if (piiResult.text !== current) {
+    visit.set(piiResult.text);
   }
-  for (const sample of pii.samples) {
+  for (const sample of piiResult.samples) {
     if (summary.samples.length >= maxSamples) break;
     summary.samples.push(sample);
   }
@@ -84,18 +135,22 @@ export function redactString(
   location: string,
   userPatterns: RedactionPattern[],
   patterns: readonly RedactionPattern[],
+  allowedSecrets: readonly string[],
   summary: RedactionSummary,
   maxSamples: number,
   enableEntropyRedaction = false,
+  pii: PiiConfig = {},
 ): string {
   const container: Record<string, unknown> = { value };
   redactVisit(
     keyVisit(container, "value", -1, location),
     userPatterns,
     patterns,
+    allowedSecrets,
     summary,
     maxSamples,
     enableEntropyRedaction,
+    pii,
   );
   return container.value as string;
 }

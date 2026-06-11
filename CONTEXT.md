@@ -46,6 +46,7 @@ _Avoid_: Original trail, private copy
 
 **Redacted trail**:
 A separate trail artifact produced from a raw trail with sensitive content removed or normalized.
+See [`docs/redaction-patterns.md`](./docs/redaction-patterns.md) for the generated detector catalog and rule pack schema.
 _Avoid_: Sanitized view, safe mode
 
 **Shared trail**:

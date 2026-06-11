@@ -1,9 +1,11 @@
 import parserSourceMatrix from "../../../docs/parser-source-matrix.md?raw";
+import redactionPatterns from "../../../docs/redaction-patterns.md?raw";
 import schemaJson from "../../../schema.json?raw";
 import specMarkdown from "../../../spec.md?raw";
 
 const repoText = {
   "docs/parser-source-matrix.md": parserSourceMatrix,
+  "docs/redaction-patterns.md": redactionPatterns,
   "schema.json": schemaJson,
   "spec.md": specMarkdown,
 };

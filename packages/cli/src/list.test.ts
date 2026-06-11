@@ -4,12 +4,18 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
+import { gunzipSync } from "node:zlib";
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "@agent-trail/adapters";
 import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agent-trail/core";
 import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
 import { parseShareJson, runList, runListBrowser, spawnResumeCommand } from "./list.ts";
+
+function decodePayload(payload: Uint8Array): string {
+  const base64 = Buffer.from(payload).toString("ascii");
+  return gunzipSync(Buffer.from(base64, "base64")).toString("utf8");
+}
 
 type SeedOpts = {
   agentName?: string;
@@ -942,6 +948,89 @@ test("runListBrowser share action registers source row before sharing", async ()
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
+test("runListBrowser share action uses selected project redaction config", async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-project-"));
+  try {
+    mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
+    writeFileSync(
+      join(projectRoot, ".trail", "redactors", "acme.yaml"),
+      [
+        "name: acme",
+        "version: 1",
+        "rules:",
+        "  - id: acme_token",
+        "    description: ACME token",
+        "    regex: 'ACME-[A-Z0-9]{8}'",
+        "    placeholder: '[ACME_TOKEN]'",
+      ].join("\n"),
+    );
+    const refs: SessionRef[] = [
+      {
+        id: "sess-share-project-redaction",
+        adapter: "codex",
+        cwd: projectRoot,
+        modifiedAt: "2026-05-17T14:00:00.000Z",
+        path: "/tmp/source-project-redaction.jsonl",
+      },
+    ];
+    const adapter = parseableAdapter("codex", refs);
+    adapter.parseSession = async (ref): Promise<TrailFile> => ({
+      groups: [
+        {
+          header: {
+            type: "session",
+            schema_version: "0.1.0",
+            id: "01HSESS0000000000000000001",
+            ts: "2026-05-17T14:00:00.000Z",
+            agent: { name: "codex-cli" },
+            cwd: ref.cwd,
+          },
+          entries: [
+            {
+              type: "user_message",
+              id: "01HEVTA0000000000000000001",
+              ts: "2026-05-17T14:00:05.000Z",
+              payload: { text: "use ACME-ABCDEFGH" },
+            },
+          ],
+        },
+      ],
+    });
+    let uploaded: Uint8Array | null = null;
+
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [adapter],
+        storeRoot,
+        defaultCwd: projectRoot,
+        terminal: { isTTY: true },
+        confirmShare: async () => true,
+        gistUpload: async (payload) => {
+          uploaded = payload;
+          return { gistId: "projectredactionid" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          expect(row?.cwd).toBe(projectRoot);
+          const shared = await input.onShare?.(row!);
+          expect(shared?.url).toBe("https://agent-trail.dev/view/gist/projectredactionid");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("[ACME_TOKEN]");
+    expect(shared).not.toContain("ACME-ABCDEFGH");
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test("runListBrowser resume action spawns adapter command for source rows", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "trail-resume-cwd-"));
   const refs: SessionRef[] = [
@@ -1262,6 +1351,55 @@ test("runListBrowser share action reuses registered hash", async () => {
   expect(launched).toBe(true);
   expect(filenames[0]).toBe(`trail-${contentHash.slice(0, 12)}.trail.jsonl.gz.b64`);
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser share action ignores registered-row cwd for redaction config", async () => {
+  const maliciousProjectRoot = mkdtempSync(join(tmpdir(), "trail-cli-list-malicious-project-"));
+  try {
+    mkdirSync(join(maliciousProjectRoot, ".trail"), { recursive: true });
+    writeFileSync(
+      join(maliciousProjectRoot, ".trail", "settings.json"),
+      JSON.stringify({ redaction: { pii: { email: false } } }),
+    );
+    const { filePath } = await seedTrail({
+      cwd: maliciousProjectRoot,
+      firstText: "contact alice@example.com",
+    });
+    await registerTrail(filePath, { storeRoot });
+    let uploaded: Uint8Array | null = null;
+
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [],
+        storeRoot,
+        defaultCwd: "/trusted/browser-cwd",
+        terminal: { isTTY: true },
+        confirmShare: async () => true,
+        gistUpload: async (payload) => {
+          uploaded = payload;
+          return { gistId: "registeredredactionid" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          expect(row?.state).toBe("registered");
+          expect(row?.registered_cwd).toBe(maliciousProjectRoot);
+          const shared = await input.onShare?.(row!);
+          expect(shared?.url).toBe("https://agent-trail.dev/view/gist/registeredredactionid");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    if (uploaded === null) throw new Error("expected upload payload");
+    const shared = decodePayload(uploaded);
+    expect(shared).toContain("[EMAIL]");
+    expect(shared).not.toContain("alice@example.com");
+  } finally {
+    rmSync(maliciousProjectRoot, { recursive: true, force: true });
+  }
 });
 
 test("runListBrowser share action re-registers stale source-backed rows", async () => {
