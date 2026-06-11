@@ -247,11 +247,14 @@ for (const fixture of (manifest as { fixtures: ManifestFixture[] }).fixtures) {
       json: true,
       profile: "reader-tolerant",
     });
-    const diagnostics = simplifyDiagnostics(JSON.parse(result.stdout));
+    const rawDiagnostics = JSON.parse(result.stdout);
+    const diagnostics = simplifyDiagnostics(rawDiagnostics);
     expect(diagnostics).toEqual(fixture.tolerant.diagnostics);
-    if (fixture.tolerant.clean) {
-      expect(result.exitCode).toBe(0);
-    }
+    expect(result.exitCode).toBe(
+      rawDiagnostics.some((diagnostic: { severity?: string }) => diagnostic.severity === "error")
+        ? 1
+        : 0,
+    );
   });
 }
 

@@ -8,7 +8,7 @@ Fixture policy for the workspace lives in [`docs/parser-source-matrix.md`](../..
 
 - File extension: `.trail.jsonl` (spec.md §5.1).
 - Synthetic data only. No real session content, no PII, no secrets.
-- Synthetic ids: `sess1`, `evta1`, `evta2`, ...; synthetic agent: `codex-cli`; synthetic timestamps anchored at `2026-05-17T14:00:00.000Z`.
+- Synthetic ids are deterministic spec-shaped values such as `01HSESS...` and `01HEVTA...`; synthetic agent: `codex-cli`; synthetic timestamps anchored at `2026-05-17T14:00:00.000Z`.
 - One scenario per file. Filename is the scenario in kebab-case.
 - Scenarios are grouped by validation layer (`valid/`, `invalid-schema/`, `invalid-graph/`, `hash-mismatch/`, `reader-tolerant/`).
 - Expected diagnostics are documented below. Tests in `packages/core/src/fixtures.test.ts` and `packages/cli/src/validate.test.ts` assert them.
