@@ -555,6 +555,28 @@ test("redactTrail preserves default allowlisted automation emails", () => {
   expect(summary.counts.allowlisted_skip).toBe(2);
 });
 
+test("redactTrail ignores partial email allowlist shorthands", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: "alice@gmail.com bob@example.com" },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, {
+    pii: { emailAllowlist: ["@gmail.com", "alice@"] },
+  });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).not.toContain("alice@gmail.com");
+  expect(text).not.toContain("bob@example.com");
+  expect(summary.counts.email_pii).toBe(2);
+  expect(summary.counts.allowlisted_skip).toBeUndefined();
+});
+
 test("redactTrail phone PII avoids IP and version false positives", () => {
   const records: JsonlRecord[] = [
     header(),

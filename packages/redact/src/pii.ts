@@ -184,8 +184,6 @@ function isEmailAllowlisted(email: string, allowlist: string[]): boolean {
     const pattern = rawPattern.toLowerCase();
     if (pattern.endsWith("@*") && lower.startsWith(pattern.slice(0, -1))) return true;
     if (pattern.startsWith("*@") && lower.endsWith(pattern.slice(1))) return true;
-    if (pattern.endsWith("@") && lower.startsWith(pattern)) return true;
-    if (pattern.startsWith("@") && lower.endsWith(pattern)) return true;
     if (lower === pattern) return true;
   }
   return false;

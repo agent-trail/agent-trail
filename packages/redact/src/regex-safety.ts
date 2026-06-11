@@ -90,7 +90,7 @@ function hasQuantifiedAlternation(source: string): boolean {
     }
     if (char === ")" && stack.length > 0) {
       const group = stack.pop();
-      if (group?.hasAlternation && isUnboundedQuantifierAfter(source, i + 1)) {
+      if (group?.hasAlternation && isQuantifierAfter(source, i + 1)) {
         return true;
       }
       const parent = stack.at(-1);
@@ -120,6 +120,15 @@ function isUnboundedQuantifierAfter(source: string, index: number): boolean {
   const close = source.indexOf("}", index + 1);
   if (close === -1) return false;
   return /^\{\d+,\}$/.test(source.slice(index, close + 1));
+}
+
+function isQuantifierAfter(source: string, index: number): boolean {
+  const char = source[index];
+  if (char === "*" || char === "+" || char === "?") return true;
+  if (char !== "{") return false;
+  const close = source.indexOf("}", index + 1);
+  if (close === -1) return false;
+  return /^\{\d+(?:,\d*)?\}$/.test(source.slice(index, close + 1));
 }
 
 function isEscaped(source: string, index: number): boolean {

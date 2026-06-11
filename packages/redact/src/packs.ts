@@ -173,6 +173,15 @@ function parsePiiConfig(path: string, value: unknown): PiiConfig | undefined {
     out.creditCard = creditCardSnake;
   }
   out.emailAllowlist = optionalStringArrayField(value, "emailAllowlist");
+  if (out.emailAllowlist !== undefined) {
+    for (const pattern of out.emailAllowlist) {
+      if (!isValidEmailAllowlistPattern(pattern)) {
+        throw new Error(
+          `redaction settings pii.emailAllowlist contains invalid pattern '${pattern}': ${path}`,
+        );
+      }
+    }
+  }
   if (value.customLabels !== undefined) {
     if (!isPlainObject(value.customLabels)) {
       throw new Error(`redaction settings pii.customLabels must be an object: ${path}`);
@@ -432,4 +441,13 @@ function messageFor(error: unknown): string {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function isValidEmailAllowlistPattern(pattern: string): boolean {
+  if (pattern.includes("*")) {
+    if (pattern.endsWith("@*")) return /^[^@\s*]+@\*$/.test(pattern);
+    if (pattern.startsWith("*@")) return /^\*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(pattern);
+    return false;
+  }
+  return /^[^@\s]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(pattern);
 }

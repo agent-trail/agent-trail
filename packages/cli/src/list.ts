@@ -60,6 +60,7 @@ export type RunListContext = {
   storeRoot?: string;
   config?: ResolvedConfig;
   adapters?: readonly TrailAdapter[];
+  env?: Record<string, string | undefined>;
   defaultCwd?: string;
   terminal?: TerminalIo;
   runSessionBrowser?: (input: SessionBrowserInput) => Promise<RunListResult>;
@@ -291,10 +292,13 @@ async function collectBrowserInput(
     scope: browserScope(scope, browserCwd),
     onShare: async (row, actionContext) => {
       const registered = await ensureBrowserRowRegistered(row, options, context, storeRoot);
+      const projectRoot = await shareProjectRoot(row.cwd ?? browserCwd);
       const shared = await runShare(
         { id: registered.contentHash, json: true },
         {
           storeRoot,
+          env: context.env,
+          projectRoot,
           confirm: context.confirmShare ?? actionContext?.confirm,
           gistUpload: context.gistUpload,
         },
@@ -351,6 +355,15 @@ async function collectBrowserInput(
       return next;
     },
   };
+}
+
+async function shareProjectRoot(cwd: string): Promise<string | undefined> {
+  try {
+    const stats = await stat(cwd);
+    return stats.isDirectory() ? cwd : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 type BrowserRegistration = { contentHash: string };

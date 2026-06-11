@@ -98,6 +98,22 @@ test("resolveRedactionConfig rejects unsafe custom label regexes in settings", a
   );
 });
 
+test("resolveRedactionConfig rejects partial email allowlist shorthands", async () => {
+  mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+  writeFileSync(
+    join(projectRoot, ".trail", "settings.json"),
+    JSON.stringify({
+      redaction: {
+        pii: { emailAllowlist: ["@gmail.com", "actions@"] },
+      },
+    }),
+  );
+
+  await expect(resolveRedactionConfig({ env: { HOME: home }, projectRoot })).rejects.toThrow(
+    "pii.emailAllowlist contains invalid pattern",
+  );
+});
+
 test("resolveRedactionConfig warns and skips packs with unsafe regexes", async () => {
   mkdirSync(join(projectRoot, ".trail", "redactors"), { recursive: true });
   writeFileSync(
@@ -157,11 +173,23 @@ test("resolveRedactionConfig warns and skips packs with quantified alternation r
       "    placeholder: '[NONCAPTURING_TOKEN]'",
     ].join("\n"),
   );
+  writeFileSync(
+    join(projectRoot, ".trail", "redactors", "bounded.yaml"),
+    [
+      "name: bounded",
+      "version: 1",
+      "rules:",
+      "  - id: bounded_token",
+      "    description: bounded unsafe alternation",
+      "    regex: '^(a|aa){1,250}$'",
+      "    placeholder: '[BOUNDED_TOKEN]'",
+    ].join("\n"),
+  );
 
   const config = await resolveRedactionConfig({ env: { HOME: home }, projectRoot });
 
   expect(config.packs).toEqual([]);
-  expect(config.warnings.join("\n").match(/quantified alternation/g)).toHaveLength(3);
+  expect(config.warnings.join("\n").match(/quantified alternation/g)).toHaveLength(4);
 });
 
 test("resolveRedactionConfig warns and skips packs with duplicate global rule ids", async () => {
