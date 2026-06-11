@@ -378,6 +378,10 @@ export interface UserMessage {
   type?: "user_message";
   payload?: {
     text: string;
+    /**
+     * Authorship marker for user-role text. Absent means user-authored.
+     */
+    origin?: "user" | "injected" | "mixed" | `x-${string}/${string}`;
     attachments?: Attachment[];
   };
   [k: string]: unknown;
@@ -593,7 +597,6 @@ export interface SystemEvent {
      */
     kind:
       | "session_start"
-      | "session_end"
       | "turn_start"
       | "turn_end"
       | "subagent_start"
@@ -603,7 +606,6 @@ export interface SystemEvent {
       | "hook_fired"
       | "permission_request"
       | "permission_decision"
-      | "permission_mode_change"
       | "cwd_change"
       | "env_snapshot"
       | "task_started"
@@ -611,6 +613,7 @@ export interface SystemEvent {
       | "plan_completed"
       | "turn_aborted"
       | "tool_decision"
+      | "context_injected"
       | "hook_progress"
       | "queue_operation"
       | "heartbeat"
@@ -635,7 +638,7 @@ export interface AgentThinking {
   payload?: {
     text: string;
     model?: string;
-    level?: "low" | "medium" | "high" | "xhigh";
+    level?: string;
     usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
@@ -817,17 +820,8 @@ export interface CapabilityChange {
          * @minItems 1
          */
         added: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -841,21 +835,12 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
         /**
          * @minItems 1
          */
         removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -869,21 +854,12 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
         /**
          * @minItems 1
          */
         changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -897,17 +873,8 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
         /**
          * @minItems 1

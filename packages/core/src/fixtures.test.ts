@@ -11,6 +11,13 @@ test("valid/minimal-linear.trail.jsonl validates clean", async () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/user-message-origin-injected.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/user-message-origin-injected.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("valid/minimal-with-content-hash.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/minimal-with-content-hash.trail.jsonl"),
