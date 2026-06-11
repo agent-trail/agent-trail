@@ -1,6 +1,8 @@
 import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trail/types";
+import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
+import { synthesizeVcsCommitEvents } from "../vcs-commit.ts";
 import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
@@ -152,6 +154,9 @@ export const codexTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDelt
 
 export const codexDropTaskPlanResults: ReconcilerRule = (entries) =>
   dropTaskPlanAckResults(entries);
+
+export const codexVcsCommitEvents: ReconcilerRule = (entries) =>
+  synthesizeVcsCommitEvents(entries, { idNamespace: CODEX_ENTRY_ID_NAMESPACE });
 
 function linkerCallId(entry: Entry): string | undefined {
   const linker = entry.meta?.linker;

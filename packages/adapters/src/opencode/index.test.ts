@@ -837,6 +837,60 @@ test("parseSession() emits SQLite-backed lifecycle entries and EOF open-tool ter
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 });
 
+test("parseSession() synthesizes vcs_commit from a successful bash git commit", async () => {
+  const sessionPath = seedFileSession({
+    id: "ses_vcs_commit",
+    directory: process.cwd(),
+    title: "VCS commit",
+  });
+  seedFileMessage({
+    id: "msg_vcs_commit",
+    sessionID: "ses_vcs_commit",
+    role: "assistant",
+    modelID: "claude-sonnet-4-5",
+    providerID: "anthropic",
+  });
+  seedFilePart({
+    id: "prt_vcs_commit",
+    sessionID: "ses_vcs_commit",
+    messageID: "msg_vcs_commit",
+    type: "tool",
+    callID: "call-vcs-commit",
+    tool: "bash",
+    state: {
+      status: "completed",
+      input: { command: 'git commit -m "fix: opencode commit"' },
+      output: "[main c0ffee1] fix: opencode commit\n 1 file changed, 1 insertion(+)\n",
+    },
+  });
+
+  const trail = await opencodeAdapter.parseSession({
+    id: "ses_vcs_commit",
+    adapter: "opencode",
+    path: sessionPath,
+  });
+  const entries = trail.groups[0]!.entries;
+  const toolCall = entries.find(
+    (entry) => entry.type === "tool_call" && entry.semantic?.call_id === "call-vcs-commit",
+  );
+  const commit = entries.find(
+    (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
+  );
+
+  expect(toolCall).toBeDefined();
+  expect(commit?.payload).toEqual({
+    kind: "vcs_commit",
+    data: {
+      sha: "c0ffee1",
+      branch: "main",
+      message: "fix: opencode commit",
+      tool_call_id: toolCall?.id,
+    },
+  });
+  expect(commit?.semantic).toEqual({ call_id: "call-vcs-commit" });
+  expect(await validateAdapterTrail(trail)).toEqual([]);
+});
+
 test("parseSession() quarantines source-schema drift as unknown_record", async () => {
   const sessionPath = seedFileSession({
     id: "ses_quarantine",

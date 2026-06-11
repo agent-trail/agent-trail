@@ -1066,6 +1066,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§9.4). Optional. Non-normative; readers MAY treat as informational. | `{ interval_ms? }` |
+| `vcs_commit` | Adapter detected a VCS commit created during the session. | `{ sha, tool_call_id, branch?, message?, repo? }` |
 
 Use `tool_call_aborted{scope:"turn"}` for stops in a tool-invocation context where no specific call is identifiable. Use `system_event.kind:"turn_aborted"` for model/system-level turn stops with no tool in flight.
 

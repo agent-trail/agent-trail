@@ -474,6 +474,74 @@ test("parseSession() emits a tool_result for user tool_result blocks linked back
   expect(toolResult?.semantic).toEqual({ call_id: "tooluse-1", tool_kind: "shell_command" });
 });
 
+test("parseSession() synthesizes vcs_commit from a successful Bash git commit", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-000000026100",
+      timestamp: "2026-06-11T10:00:00.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000261",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      parentUuid: null,
+      isSidechain: false,
+      message: { role: "user", content: "commit it" },
+    },
+    {
+      type: "assistant",
+      uuid: "00000000-0000-0000-0000-000000026101",
+      timestamp: "2026-06-11T10:00:01.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000261",
+      parentUuid: "00000000-0000-0000-0000-000000026100",
+      message: {
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [
+          {
+            type: "tool_use",
+            id: "tooluse-commit",
+            name: "Bash",
+            input: { command: 'git add . && git commit -m "fix: ship it"' },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      uuid: "00000000-0000-0000-0000-000000026102",
+      timestamp: "2026-06-11T10:00:02.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0000261",
+      parentUuid: "00000000-0000-0000-0000-000000026101",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tooluse-commit",
+            content: "[main a1b2c3d] fix: ship it\n 1 file changed, 1 insertion(+)\n",
+          },
+        ],
+      },
+    },
+  ]);
+  const toolCall = trail.groups[0]!.entries.find((entry) => entry.type === "tool_call");
+  const commit = trail.groups[0]!.entries.find(
+    (entry) => entry.type === "system_event" && entry.payload.kind === "vcs_commit",
+  );
+  expect(commit?.payload).toEqual({
+    kind: "vcs_commit",
+    data: {
+      sha: "a1b2c3d",
+      branch: "main",
+      message: "fix: ship it",
+      tool_call_id: toolCall?.id,
+    },
+  });
+  expect(commit?.semantic).toEqual({ call_id: "tooluse-commit" });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+});
+
 test("parseSession() bundles a direct Agent child session from subagents directory", async () => {
   const dir = createProjectDir();
   const parentId = "00000000-0000-0000-0000-AAAA00000001";

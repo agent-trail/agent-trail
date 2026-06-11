@@ -68,12 +68,11 @@ function firstOpenCodeDbSession(path: string | undefined): string | undefined {
 
 function assertOpenCodeEntry(entry: Entry, toolCallIds: Set<string>, summary: string): void {
   try {
-    expect(entry.meta?.["dev.opencode.raw_type"]).toEqual(expect.any(String));
-    expect(String(entry.meta?.["dev.opencode.raw_type"]).length).toBeGreaterThan(0);
-
     const source = objectValue(entry.source);
     expect(source?.agent).toBe("opencode");
     if (source?.synthesized !== true) {
+      expect(entry.meta?.["dev.opencode.raw_type"]).toEqual(expect.any(String));
+      expect(String(entry.meta?.["dev.opencode.raw_type"]).length).toBeGreaterThan(0);
       expect(source?.schema_version).toBe(OPENCODE_SOURCE_SCHEMA_VERSION);
       if (source?.raw !== undefined) expect(objectValue(source.raw)).toBeDefined();
     }

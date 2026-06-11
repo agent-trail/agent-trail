@@ -7,6 +7,7 @@ import {
   piParentResolution,
   piSessionTerminatedEof,
   piToolKindToResult,
+  piVcsCommitEvents,
 } from "./reconcile-rules.ts";
 import { type PiEnvelope, parseLines, timestampToIso, versionString } from "./source.ts";
 
@@ -36,6 +37,7 @@ export function buildPiKitAdapter(sessionVersion: string | undefined): Adapter {
         // parenting hint that piParentResolution strips.
         piModelChangeFromModel,
         piToolKindToResult,
+        piVcsCommitEvents,
         piParentResolution,
         piSessionTerminatedEof,
       ],

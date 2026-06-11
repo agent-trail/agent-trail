@@ -12,8 +12,10 @@ import type {
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
 import { resumeCommand } from "../resume.ts";
+import { OPENCODE_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { readGitVcs } from "../vcs.ts";
+import { synthesizeVcsCommitEvents } from "../vcs-commit.ts";
 import { headerFromLoaded } from "./header.ts";
 import { inspectSourceHealth } from "./health.ts";
 import { entriesFromLoaded } from "./mappings.ts";
@@ -69,7 +71,10 @@ export const opencodeAdapter: TrailAdapter = {
           : {}),
       };
     }
-    const entries = entriesFromLoaded(loaded, header);
+    const entries = synthesizeVcsCommitEvents(entriesFromLoaded(loaded, header), {
+      idNamespace: OPENCODE_ENTRY_ID_NAMESPACE,
+      repo: header.vcs?.remote_url,
+    });
     applyHeaderMetadataUpdates(header, entries);
     applyParseFidelity(header, entries);
     const group = { header, entries };

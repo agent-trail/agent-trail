@@ -8,6 +8,7 @@ import type { ReconcilerRule } from "@agent-trail/adapter-kit";
 import type { Entry, ToolKind } from "@agent-trail/types";
 import { CLAUDE_CODE_ENTRY_ID_NAMESPACE, deriveSynthesizedEntryId } from "../session-uid.ts";
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
+import { synthesizeVcsCommitEvents } from "../vcs-commit.ts";
 import { type CcHint, HINT } from "./mappings.ts";
 import { isObject, stringValue } from "./source.ts";
 
@@ -409,6 +410,9 @@ export const ccTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(
 
 export const ccDropTaskPlanResults: ReconcilerRule = (entries) =>
   dropTaskPlanAckResults(entries, { sourceGroupKey: (entry) => hintOf(entry)?.sid });
+
+export const ccVcsCommitEvents: ReconcilerRule = (entries) =>
+  synthesizeVcsCommitEvents(entries, { idNamespace: CLAUDE_CODE_ENTRY_ID_NAMESPACE });
 
 function hookFallbackPayload(entry: Entry): Entry["payload"] {
   const raw = isObject(entry.source?.raw) ? entry.source.raw : undefined;

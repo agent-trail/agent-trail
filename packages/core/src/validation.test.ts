@@ -45,6 +45,30 @@ test("writer-strict accepts a slashed custom agent name", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("writer-strict accepts reserved vcs_commit system_event kind", () => {
+  const value = {
+    type: "system_event",
+    id: "00000000-0000-5000-8000-000000000261",
+    ts: "2026-06-11T10:00:00.000Z",
+    payload: {
+      kind: "vcs_commit",
+      data: {
+        sha: "a1b2c3d",
+        tool_call_id: "00000000-0000-5000-8000-000000000262",
+        branch: "main",
+        message: "fix: ship it",
+      },
+    },
+  };
+  const diagnostics = validateWriterStrictRecord({
+    line: 2,
+    raw: JSON.stringify(value),
+    value,
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
 test("writer-strict rejects the legacy hyphenated custom agent name", () => {
   const legacyName = ["x-com", "example-myagent"].join("-");
   const value = {
