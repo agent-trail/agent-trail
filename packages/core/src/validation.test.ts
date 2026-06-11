@@ -2072,6 +2072,95 @@ test("emits source_raw_unredacted_secret warning when source.raw contains a Bear
   );
 });
 
+test("emits tool_args_unredacted_secret warning when mcp_call headers contain a Bearer token", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "tool_call",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "mcp_call",
+          args: {
+            server: "github",
+            tool: "get_issue",
+            args: { owner: "agent-trail", repo: "agent-trail" },
+            headers: { Authorization: "Bearer abcdefABCDEF0123456789xyzXYZ" },
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/headers/Authorization",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+});
+
+test("emits tool_args_unredacted_secret warning when web_fetch headers contain a secret", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "tool_call",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "web_fetch",
+          args: {
+            url: "https://example.com",
+            headers: { "X-API-Key": "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789" },
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/headers/X-API-Key",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+});
+
+test("emits tool_args_unredacted_secret warning when shell_command command contains a secret", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      JSON.stringify({
+        type: "tool_call",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-05-17T14:00:01.000Z",
+        payload: {
+          tool: "shell_command",
+          args: {
+            command:
+              "curl -H 'Authorization: Bearer abcdefABCDEF0123456789xyzXYZ' https://example.com",
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/args/command",
+      severity: "warning",
+      code: "tool_args_unredacted_secret",
+    }),
+  );
+});
+
 test("walks deeply-nested source.raw without stack overflow (regression for #105)", () => {
   // walkStringLeaves used to recurse; deep nesting could blow the call stack.
   // Build the JS object directly so the walker — not JSON.parse/stringify —

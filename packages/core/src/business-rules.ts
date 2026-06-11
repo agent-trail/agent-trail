@@ -15,6 +15,9 @@ import { isHeaderLikeRecord } from "./validation-utils.ts";
  *     to elide oversized raw payloads.
  *   - `sourceRawSecretDiagnostics` — walks `source.raw` string leaves and
  *     warns on credential pattern matches (Bearer tokens, API keys, etc.).
+ *   - `toolArgsSecretDiagnostics` — walks privacy-sensitive tool args
+ *     (`mcp_call` / `web_fetch` headers and `shell_command` command) and warns
+ *     on the same credential pattern matches.
  *   - `vcsRemoteUrlDiagnostics` — flags `vcs.remote_url` values containing
  *     `user:pass@` credentials; promotes to error when the password appears
  *     to be URL-encoded (writer leaked deliberately-encoded credentials).
@@ -101,6 +104,42 @@ export function sourceRawSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
   return diagnostics;
 }
 
+export function toolArgsSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
+  const value = record.value as Record<string, unknown>;
+  if (value.type !== "tool_call") return [];
+  const payload = value.payload as Record<string, unknown> | undefined;
+  const args = payload?.args as Record<string, unknown> | undefined;
+  if (args === undefined || args === null || typeof args !== "object") return [];
+
+  const diagnostics: Diagnostic[] = [];
+  const tool = payload?.tool;
+  if (tool === "mcp_call" || tool === "web_fetch") {
+    const headers = args.headers;
+    if (headers !== undefined) {
+      appendCredentialDiagnostics(
+        diagnostics,
+        record.line,
+        headers,
+        "/payload/args/headers",
+        "tool_args_unredacted_secret",
+        "tool_call args",
+      );
+    }
+  }
+  if (tool === "shell_command" && typeof args.command === "string") {
+    appendCredentialDiagnostics(
+      diagnostics,
+      record.line,
+      args.command,
+      "/payload/args/command",
+      "tool_args_unredacted_secret",
+      "tool_call args",
+    );
+  }
+
+  return diagnostics;
+}
+
 export function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
   if (!isHeaderLikeRecord(record)) {
     return [];
@@ -182,6 +221,31 @@ function matchesPattern(text: string, pattern: RedactionPattern): boolean {
     : new RegExp(pattern.regex.source, `${pattern.regex.flags}g`);
   regex.lastIndex = 0;
   return regex.test(text);
+}
+
+function appendCredentialDiagnostics(
+  diagnostics: Diagnostic[],
+  line: number,
+  root: unknown,
+  rootPath: string,
+  code: "source_raw_unredacted_secret" | "tool_args_unredacted_secret",
+  label: string,
+): void {
+  walkStringLeaves(root, rootPath, (text, path) => {
+    for (const pattern of CREDENTIAL_PATTERNS) {
+      if (matchesPattern(text, pattern)) {
+        diagnostics.push(
+          createDiagnostic({
+            line,
+            path,
+            severity: "warning",
+            code,
+            message: `${label} contain unredacted ${pattern.description} (${pattern.id})`,
+          }),
+        );
+      }
+    }
+  });
 }
 
 // Iterative DFS so deeply-nested source.raw payloads cannot blow the call

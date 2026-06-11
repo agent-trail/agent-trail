@@ -208,19 +208,15 @@ Raw trails preserve source fidelity. Redacted trails are separate artifacts,
 usually produced before sharing. Shared trails are redacted trails transported
 through a product or tool-specific mechanism.
 
-This repository's redaction policy is:
+Normative share-time redaction requirements live in `spec.md` §15. This
+document only records implementation-level choices below that contract:
 
-- Adapter emission should clean known secret patterns in `source.raw`.
-- Share-time redaction should scan messages, tool outputs, structured
-  `tool_result.payload.meta`, attachments metadata, header/envelope `name`,
-  `description`, and `tags`, paths, private remotes, and source raw.
-- Redaction mutates records, then hashes must be restamped.
-- Changed event entries should increment `entry.meta.redaction_count`.
-- `vcs.remote_url` should be stripped or normalized in shared artifacts unless
-  the user opts in.
-
-Exact patterns, thresholds, previews, and upload behavior belong to
-`@agent-trail/redact`, `@agent-trail/cli`, and product documentation.
+- Exact credential and PII patterns belong to `@agent-trail/redact`.
+- Source raw size thresholds and previews are implementation policy.
+- Attachment blob transport, image previews, and upload behavior belong to
+  `@agent-trail/cli` and product documentation.
+- Validator leak scans are implementation diagnostics unless `spec.md` names
+  the condition and diagnostic code.
 
 ## Promotion Process
 

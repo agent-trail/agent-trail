@@ -589,16 +589,14 @@ Verify `content_hash` if present; warn on mismatch.
 
 Standalone TS package usable by CLI and any adapter.
 
-**Pipeline (in order):**
+**Pipeline:**
 
-1. **Adapter-specific pre-clean** — each adapter calls redactor with hotspot patterns relevant to its source (e.g., MCP headers, env-var echoes).
-2. **User-supplied exact secrets** — read from `~/.config/trail/secrets.txt`; exact-match replacement.
-3. **Path normalization** — `/Users/<name>/...` → `/Users/<user>/...`; home dir → `<home>`.
-4. **PII via `@redactpii/node`** — emails, phones, SSNs, credit cards, names.
-5. **Curated API key patterns** — AWS, OpenAI, Anthropic, GitHub, Stripe, Slack, Google, JWT, SSH keys, Bearer headers, `.env`-style assignments (~30 patterns).
-6. **Output truncation** — tool outputs >10KB truncated with reference.
-7. **Header VCS scrubbing** — strip or normalize `vcs.remote_url` (spec §8.2) in redacted artifacts unless the user opts in. The field identifies the repository (and may identify a private repository); default-on stripping keeps share artifacts from leaking project identity by accident.
-8. **Confirmation UI** — terminal preview showing redaction count, sample lines, prompt for confirm.
+- Apply the normative share-time privacy rules in `spec.md` §15, including path normalization, VCS scrubbing, local attachment URI handling, unsafe `overflow_ref` stripping, unresolved user query response fail-closed behavior, and secret/PII string scrubbing.
+- Apply adapter-specific pre-clean hotspots where source agents are known to expose credentials or local-only data in implementation-specific shapes.
+- Apply user-supplied exact secrets from `~/.config/trail/secrets.txt` with exact-match replacement.
+- Apply curated API key, credential, and PII patterns for AWS, OpenAI, Anthropic, GitHub, Stripe, Slack, Google, JWT, SSH keys, Bearer headers, `.env`-style assignments, and common personal identifiers.
+- Truncate oversized tool outputs and keep `truncated` / `output_size` metadata.
+- Show a confirmation preview with redaction counts and bounded sample lines before upload.
 
 **Threat model:**
 
