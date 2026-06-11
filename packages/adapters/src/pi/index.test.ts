@@ -776,45 +776,43 @@ test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
 });
 
 test("toolKindAndArgs emits spec-conformant unified-diff hunk header (@@ -1,<oldN> +1,<newN> @@)", () => {
-  // Spec §10.1 example: `@@ -1,4 +1,4 @@`. Pi edit shapes carry no line numbers,
-  // so start lines are synthetic (1) but line counts are accurate.
-  const result = toolKindAndArgs("edit", { path: "x.md", oldText: "a\nb", newText: "c" });
+  // Multi-hunk replacement shapes require diff-form; Pi edit shapes carry no
+  // line numbers, so start lines are synthetic (1) but line counts are accurate.
+  const result = toolKindAndArgs("edit", {
+    path: "x.md",
+    edits: [
+      { oldText: "a\nb", newText: "c" },
+      { oldText: "d", newText: "e" },
+    ],
+  });
   const args = (result as { args: { diff: string } }).args;
   expect(args.diff).toContain("@@ -1,2 +1,1 @@");
 });
 
-test("toolKindAndArgs builds a valid unified diff for multi-line oldText/newText (prefixes every line)", () => {
+test("toolKindAndArgs preserves multi-line oldText/newText replacement edits", () => {
   const result = toolKindAndArgs("edit", {
     path: "a.md",
     oldText: "line1\nline2\nline3",
     newText: "newA\nnewB",
   });
   expect(result.tool).toBe("file_edit");
-  const args = result.args as { diff: string };
-  expect(args.diff).toBe(
-    "--- a/a.md\n+++ b/a.md\n@@ -1,3 +1,2 @@\n-line1\n-line2\n-line3\n+newA\n+newB",
-  );
+  expect(result.args).toEqual({ path: "a.md", old: "line1\nline2\nline3", new: "newA\nnewB" });
 });
 
 test("toolKindAndArgs handles pure-insertion edit (empty oldText, multi-line newText)", () => {
   const result = toolKindAndArgs("edit", { path: "a.md", oldText: "", newText: "hi\nthere" });
-  const args = (result as { args: { diff: string } }).args;
-  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@ -1,0 +1,2 @@\n+hi\n+there");
+  expect(result.args).toEqual({ path: "a.md", old: "", new: "hi\nthere" });
 });
 
 test("toolKindAndArgs handles pure-deletion edit (multi-line oldText, empty newText)", () => {
   const result = toolKindAndArgs("edit", { path: "a.md", oldText: "del1\ndel2", newText: "" });
-  const args = (result as { args: { diff: string } }).args;
-  expect(args.diff).toBe("--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,0 @@\n-del1\n-del2");
+  expect(result.args).toEqual({ path: "a.md", old: "del1\ndel2", new: "" });
 });
 
 test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -> file_edit", () => {
   expect(toolKindAndArgs("edit", { path: "a.md", oldText: "foo", newText: "bar" })).toEqual({
     tool: "file_edit",
-    args: {
-      path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
-    },
+    args: { path: "a.md", old: "foo", new: "bar" },
   });
 });
 
@@ -951,10 +949,7 @@ test("toolKindAndArgs maps Pi 'edit' apply_patch shape -> file_edit or file_patc
 test("toolKindAndArgs tolerates legacy Pi 'edit' (oldString/newString) for back-compat", () => {
   expect(toolKindAndArgs("edit", { path: "a.md", oldString: "foo", newString: "bar" })).toEqual({
     tool: "file_edit",
-    args: {
-      path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
-    },
+    args: { path: "a.md", old: "foo", new: "bar" },
   });
 });
 

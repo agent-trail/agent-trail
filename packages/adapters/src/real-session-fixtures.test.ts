@@ -22,6 +22,8 @@ const SECRET_OR_LOCAL_PATH =
 const PROJECT_LEAK =
   /LabelLens|label-lens|role-radar|jazzy-pond|hopperpymcp|dflatline|cotypist-analysis|developer_instructions":"#|user_instructions":"#|encrypted_content":"[^[]/;
 const REDACTED_VALUE = /^(?:\[REDACTED_[A-Z0-9_]+\]|\s)+$/;
+const REDACTED_PATCH =
+  /^\*\*\* Begin Patch\n(?:\*\*\* (?:Update|Add|Delete) File: \[REDACTED_PATH(?:_[A-Z])?\]\n|\*\*\* Move to: \[REDACTED_PATH(?:_[A-Z])?\]\n|@@\n|[-+]\[REDACTED_(?:OLD|NEW)_TEXT\]\n|\*\*\* End Patch\n?)+$/;
 const SENSITIVE_VALUE_KEYS = new Set([
   "activeForm",
   "agentName",
@@ -214,6 +216,13 @@ const FIXTURES: Fixture[] = [
       "user_interrupt",
       "user_message",
     ],
+  },
+  {
+    key: "pi-v1-edit-forms",
+    adapter: piAdapter,
+    expectedAgentName: "pi",
+    expectedSourceVersion: "3",
+    expectedFeatureTypes: ["tool_call", "tool_result"],
   },
   {
     key: "opencode-v1",
@@ -502,6 +511,7 @@ function assertNoSensitiveValue(
       !SAFE_METADATA_KEYS_IN_SENSITIVE_CONTEXT.has(key) &&
       value.length > 0 &&
       !(key === "value" && /^(?:claude|gpt-|github-copilot|openai|anthropic)/.test(value)) &&
+      !(key === "patch" && REDACTED_PATCH.test(value)) &&
       !REDACTED_VALUE.test(value)
     ) {
       throw new Error(`${filePath}:${lineNumber} has unredacted sensitive value at ${key}`);

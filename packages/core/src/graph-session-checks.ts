@@ -59,10 +59,18 @@ export function streamConsistencyWarnings(
 // fallback cascade (semantic.call_id match, sequential, heuristic). The
 // heuristic rule is reader-only and not implemented here.
 export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] {
-  type Call = { id: string; line: number; semanticCallId?: string; matched: boolean };
+  type Call = {
+    id: string;
+    line: number;
+    semanticCallId?: string;
+    branchScope: string;
+    matched: boolean;
+  };
   type Result = {
+    line: number;
     forId?: string;
     semanticCallId?: string;
+    branchScope: string;
     callIndex: number;
     matched: boolean;
     canFallback: boolean;
@@ -72,8 +80,20 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
   const calls: Call[] = [];
   const callById = new Map<string, Call>();
   const results: Result[] = [];
+  const entryById = new Map<string, JsonlRecord>();
+  const childCounts = new Map<string, number>();
   let hasSessionEnd = false;
   const suppressedIds = new Set<string>();
+
+  for (const entry of entries) {
+    const id = entry.value.id;
+    if (typeof id !== "string") continue;
+    entryById.set(id, entry);
+    const parentId = entry.value.parent_id;
+    if (typeof parentId === "string") {
+      childCounts.set(parentId, (childCounts.get(parentId) ?? 0) + 1);
+    }
+  }
 
   for (const entry of entries) {
     const type = entry.value.type;
@@ -86,6 +106,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
         id,
         line: entry.line,
         semanticCallId: readSemanticCallId(entry.value),
+        branchScope: branchScopeFor(entry, entryById, childCounts),
         matched: false,
       };
       calls.push(call);
@@ -101,8 +122,10 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
           ? (payload as { scope?: unknown }).scope
           : undefined;
       results.push({
+        line: entry.line,
         forId: typeof forIdRaw === "string" ? forIdRaw : undefined,
         semanticCallId: type === "tool_result" ? readSemanticCallId(entry.value) : undefined,
+        branchScope: branchScopeFor(entry, entryById, childCounts),
         callIndex: calls.length, // for sequential pairing: results pair only with calls prior to this entry
         matched: false,
         canFallback: type === "tool_result",
@@ -176,34 +199,86 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
   }
 
   // Pass C: sequential — spec §9.5 fallback rule 2. Each remaining unmatched
-  // result pairs with the most recent prior unmatched tool_call.
+  // result pairs with the most recent prior unmatched tool_call in the same
+  // branch scope.
+  const diagnostics: Diagnostic[] = [];
   for (const result of results) {
     if (result.matched || !result.canFallback) {
       continue;
     }
+    const candidates: Call[] = [];
     for (let i = result.callIndex - 1; i >= 0; i -= 1) {
       // i is bounded by calls.length (callIndex was captured as calls.length at
       // result-emit time, and calls is append-only thereafter).
       const call = calls[i] as Call;
-      if (!call.matched) {
-        call.matched = true;
-        result.matched = true;
-        break;
+      if (!call.matched && call.branchScope === result.branchScope) candidates.push(call);
+    }
+    const call = candidates[0];
+    if (call !== undefined) {
+      call.matched = true;
+      result.matched = true;
+      if (candidates.length >= 2) {
+        diagnostics.push(
+          createDiagnostic({
+            line: result.line,
+            path: "/payload",
+            severity: "warning",
+            code: "ambiguous_sequential_pairing",
+            message: `tool_result was paired by sequential fallback with ${candidates.length} unmatched prior tool_call candidates; writers should populate payload.for_id or semantic.call_id`,
+          }),
+        );
       }
     }
   }
 
-  return calls
-    .filter((c) => !c.matched && !suppressedIds.has(c.id))
-    .map((call) =>
-      createDiagnostic({
-        line: call.line,
-        path: "/id",
-        severity: "warning",
-        code: "unmatched_tool_call_at_eof",
-        message: `tool_call "${call.id}" has no matching tool_result or call-scoped tool_call_aborted at EOF`,
-      }),
-    );
+  diagnostics.push(
+    ...calls
+      .filter((c) => !c.matched && !suppressedIds.has(c.id))
+      .map((call) =>
+        createDiagnostic({
+          line: call.line,
+          path: "/id",
+          severity: "warning",
+          code: "unmatched_tool_call_at_eof",
+          message: `tool_call "${call.id}" has no matching tool_result or call-scoped tool_call_aborted at EOF`,
+        }),
+      ),
+  );
+  return diagnostics;
+}
+
+function branchScopeFor(
+  entry: JsonlRecord,
+  entryById: Map<string, JsonlRecord>,
+  childCounts: Map<string, number>,
+): string {
+  let current = entry;
+  let childOnPath: JsonlRecord | undefined;
+  const seen = new Set<string>();
+
+  while (true) {
+    const parentId = current.value.parent_id;
+    if (typeof parentId !== "string" || seen.has(parentId)) return "root";
+    seen.add(parentId);
+
+    const parent = entryById.get(parentId);
+    if (parent === undefined) return "root";
+    if (isSubagentInvoke(parent)) return `subagent:${parentId}`;
+    if ((childCounts.get(parentId) ?? 0) > 1) {
+      const childId = childOnPath?.value.id;
+      return typeof childId === "string" ? `branch:${parentId}:${childId}` : `branch:${parentId}`;
+    }
+
+    childOnPath = current;
+    current = parent;
+  }
+}
+
+function isSubagentInvoke(entry: JsonlRecord): boolean {
+  if (entry.value.type !== "tool_call") return false;
+  const payload = entry.value.payload;
+  if (typeof payload !== "object" || payload === null) return false;
+  return (payload as { tool?: unknown }).tool === "subagent_invoke";
 }
 
 // Spec §9.3 / §16.4: `session_end.payload.final_message_id` should reference
@@ -322,6 +397,33 @@ export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] 
             );
           }
           questionIds.add(questionId);
+        }
+        const options = (question as { options?: unknown }).options;
+        if (Array.isArray(options)) {
+          const labelsWithoutIds = new Map<string, number>();
+          for (const [optionIndex, option] of options.entries()) {
+            if (typeof option !== "object" || option === null) continue;
+            const optionId = (option as { id?: unknown }).id;
+            if (typeof optionId === "string") continue;
+            const label = (option as { label?: unknown }).label;
+            if (typeof label !== "string") continue;
+            const priorIndex = labelsWithoutIds.get(label);
+            if (priorIndex !== undefined) {
+              diagnostics.push(
+                createDiagnostic({
+                  line: entry.line,
+                  path: `/payload/questions/${index}/options/${optionIndex}/label`,
+                  severity: "warning",
+                  code: "duplicate_option_labels",
+                  message: `user_query question "${
+                    typeof questionId === "string" ? questionId : index
+                  }" has duplicate option label "${label}" without stable option ids; user_query_response selected values may be ambiguous`,
+                }),
+              );
+              continue;
+            }
+            labelsWithoutIds.set(label, optionIndex);
+          }
         }
       }
     }

@@ -149,6 +149,13 @@ export function toolKindAndArgs(
           }
         }
         if (hunks.length > 0) {
+          if (hunks.length === 1) {
+            const hunk = hunks[0]!;
+            return {
+              tool: "file_edit",
+              args: { path: topPath, old: hunk.oldText, new: hunk.newText },
+            };
+          }
           return {
             tool: "file_edit",
             args: { path: topPath, diff: buildDiff(topPath, hunks) },
@@ -195,6 +202,10 @@ export function toolKindAndArgs(
             Array<{ oldText: string; newText: string }>,
           ];
           if (hunks.length > 0) {
+            if (hunks.length === 1) {
+              const hunk = hunks[0]!;
+              return { tool: "file_edit", args: { path, old: hunk.oldText, new: hunk.newText } };
+            }
             return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
           }
         }
@@ -216,10 +227,7 @@ export function toolKindAndArgs(
         if (oldText !== undefined || newText !== undefined) {
           return {
             tool: "file_edit",
-            args: {
-              path: topPath,
-              diff: buildDiff(topPath, [{ oldText: oldText ?? "", newText: newText ?? "" }]),
-            },
+            args: { path: topPath, old: oldText ?? "", new: newText ?? "" },
           };
         }
       }

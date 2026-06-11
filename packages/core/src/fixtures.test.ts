@@ -488,6 +488,35 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
   expect(diagnostics).toEqual([]);
 });
 
+test("invalid-graph/ambiguous-sequential-pairing.trail.jsonl warns on ambiguous fallback", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/ambiguous-sequential-pairing.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 4,
+    path: "/payload",
+    severity: "warning",
+    code: "ambiguous_sequential_pairing",
+    message:
+      "tool_result was paired by sequential fallback with 2 unmatched prior tool_call candidates; writers should populate payload.for_id or semantic.call_id",
+  });
+});
+
+test("invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl does not pair across inline subagent branch", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message:
+      'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
+  });
+  expect(diagnostics.map((d) => d.code)).not.toContain("ambiguous_sequential_pairing");
+});
+
 test("valid/tool-call-aborted-closes-call.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/tool-call-aborted-closes-call.trail.jsonl"),
@@ -1012,6 +1041,20 @@ test("invalid-graph/session-end-forward-final-message-id.trail.jsonl warns on fo
     code: "unknown_final_message_id",
     message:
       'session_end final_message_id "01HEVTA0000000000000000002" does not reference the session header or a prior event in this file',
+  });
+});
+
+test("invalid-graph/duplicate-option-labels.trail.jsonl warns for duplicate labels without ids", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/duplicate-option-labels.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/questions/0/options/1/label",
+    severity: "warning",
+    code: "duplicate_option_labels",
+    message:
+      'user_query question "ship" has duplicate option label "yes" without stable option ids; user_query_response selected values may be ambiguous',
   });
 });
 

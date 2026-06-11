@@ -115,9 +115,11 @@ function imageAttachments(content: unknown): Attachment[] {
       }
     }
     if (ref?.uri === undefined) continue;
-    const attachment: Attachment = { kind: "image" };
-    if (mediaType !== undefined) attachment.media_type = mediaType;
-    attachment.uri = ref.uri;
+    const attachment: Attachment = {
+      kind: "image",
+      ...(mediaType !== undefined ? { media_type: mediaType } : {}),
+      uri: ref.uri,
+    };
     out.push(attachment);
   }
   return out;

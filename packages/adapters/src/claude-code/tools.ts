@@ -89,10 +89,7 @@ export function toolKindAndArgs(
       if (path !== undefined && (oldString !== undefined || newString !== undefined)) {
         return {
           tool: "file_edit",
-          args: {
-            path,
-            diff: buildDiff(path, [{ oldText: oldString ?? "", newText: newString ?? "" }]),
-          },
+          args: { path, old: oldString ?? "", new: newString ?? "" },
         };
       }
       break;
@@ -114,6 +111,10 @@ export function toolKindAndArgs(
       }
       if (byPath.size === 1) {
         for (const [path, hunks] of byPath.entries()) {
+          if (hunks.length === 1) {
+            const hunk = hunks[0]!;
+            return { tool: "file_edit", args: { path, old: hunk.oldText, new: hunk.newText } };
+          }
           return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
         }
       }

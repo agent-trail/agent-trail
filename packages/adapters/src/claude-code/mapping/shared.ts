@@ -76,12 +76,13 @@ export function imageAttachments(content: unknown): Attachment[] {
     const data = stringValue(source?.data);
     if (stringValue(source?.type) !== "base64" || data === undefined) continue;
     const mediaType = stringValue(source?.media_type) ?? stringValue(source?.mediaType);
+    const decoded = decodeCappedBase64(data);
+    if (decoded.bytes === undefined) continue;
     const att: Attachment = {
       kind: block.type === "image" ? "image" : "file",
+      ...(mediaType !== undefined ? { media_type: mediaType } : {}),
+      uri: sha256Ref(decoded.bytes),
     };
-    if (mediaType !== undefined) att.media_type = mediaType;
-    const decoded = decodeCappedBase64(data);
-    if (decoded.bytes !== undefined) att.uri = sha256Ref(decoded.bytes);
     out.push(att);
   }
   return out;

@@ -169,7 +169,10 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
     const messageParts = loaded.partsByMessage.get(message.id) ?? [];
     const messageAttachments = messageParts
       .filter((part) => stringValue(part.type) === "file")
-      .map(attachmentFrom);
+      .flatMap((part) => {
+        const attachment = attachmentFrom(part);
+        return attachment === undefined ? [] : [attachment];
+      });
     const messageUsage = role === "assistant" ? usageFrom(message) : undefined;
     let usageEmitted = false;
     const consumeUsage = (part?: Raw): ReturnType<typeof usageFrom> => {

@@ -419,12 +419,7 @@ test("parseSession() does not decode oversized inline base64 attachments", async
     },
   ]);
   const um = trail.groups[0]!.entries.find((e) => e.type === "user_message");
-  expect((um?.payload as { attachments?: unknown }).attachments).toEqual([
-    {
-      kind: "image",
-      media_type: "image/png",
-    },
-  ]);
+  expect((um?.payload as { attachments?: unknown }).attachments).toBeUndefined();
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -1793,7 +1788,7 @@ test("parseSession() does not decode oversized hook_additional_context inline me
       entry.source?.original_type === "attachment.hook_additional_context",
   );
   const payload = evt?.payload as { data?: Record<string, unknown> };
-  expect(payload.data?.attachments).toEqual([{ kind: "image", media_type: "image/png" }]);
+  expect(payload.data?.attachments).toBeUndefined();
   expect(JSON.stringify(payload)).not.toContain(oversizedBase64);
   expect(JSON.stringify(evt?.source?.raw)).not.toContain(oversizedBase64);
   const diagnostics = await validateAdapterTrail(trail);
@@ -2329,7 +2324,8 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     tool: "file_edit",
     args: {
       path: "src/app.ts",
-      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d",
+      old: "a\nb",
+      new: "c\nd",
     },
   });
   expect(

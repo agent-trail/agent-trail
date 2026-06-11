@@ -81,11 +81,16 @@ Known source tools should map to canonical `tool_call.payload.tool` values and
 the corresponding argument shape. Unknown tools should use
 `tool: "other"` with `args: { name, args }`.
 
-When a source exposes native call ids, adapters should populate
-`semantic.call_id` on calls and results. Populate `payload.for_id` when the
-matching Agent Trail `tool_call.id` is known. Do not emit fake `tool_result`
-records for calls that never completed; use `tool_call_aborted` or
-`session_terminated` when source evidence says the call did not finish.
+Adapters must preserve reliable tool pairing. Populate `payload.for_id` when
+the matching Agent Trail `tool_call.id` is known; otherwise use
+`semantic.call_id` when the source exposes native call ids. When the source
+records concurrent tool calls, one of those links is required so readers do not
+fall back to ambiguous sequence order. Sequential fallback is branch-scoped and
+the reference validator warns with `ambiguous_sequential_pairing` when a result
+can only be paired after multiple same-branch candidates existed. Do not emit
+fake `tool_result` records for calls that never completed; use
+`tool_call_aborted` or `session_terminated` when source evidence says the call
+did not finish.
 
 ### Source Raw And Envelope References
 
