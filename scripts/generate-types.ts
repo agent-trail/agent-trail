@@ -89,7 +89,7 @@ if (!AGENT_NAME_RE.test(generated)) {
 }
 const agentNameUnion = [
   ...agentNameEnum.map((value) => `  | ${JSON.stringify(value)}`),
-  "  | `x-$" + "{string}/$" + "{string}`",
+  "  | `x-$" + "{Lowercase<string>}/$" + "{Lowercase<string>}`",
 ].join("\n");
 generated = generated.replace(AGENT_NAME_RE, `export type AgentName =\n${agentNameUnion};`);
 

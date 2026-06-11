@@ -41,14 +41,19 @@ test("AgentName accepts registry names and slashed custom names", () => {
   const registered = "codex-cli" satisfies AgentName;
   const extension = "x-example/myagent" satisfies AgentName;
   const extensionWithUnderscore = "x-example/my_agent" satisfies AgentName;
-  const legacy = ["x-com", "example-myagent"].join("-");
-  // @ts-expect-error writer schema rejects arbitrary strings as agent names.
-  const invalidLegacy = legacy satisfies AgentName;
+  // @ts-expect-error legacy hyphenated custom agent names must not satisfy AgentName.
+  const invalidLegacy = "x-com-example-myagent" satisfies AgentName;
+  // @ts-expect-error custom agent vendor segment must be lowercase.
+  const invalidUppercaseVendor = "x-Example/myagent" satisfies AgentName;
+  // @ts-expect-error custom agent name segment must be lowercase.
+  const invalidUppercaseName = "x-example/Myagent" satisfies AgentName;
 
   expect(registered).toBe("codex-cli");
   expect(extension).toBe("x-example/myagent");
   expect(extensionWithUnderscore).toBe("x-example/my_agent");
-  expect(invalidLegacy).toBe(legacy);
+  expect(invalidLegacy).toBe("x-com-example-myagent");
+  expect(invalidUppercaseVendor).toBe("x-Example/myagent");
+  expect(invalidUppercaseName).toBe("x-example/Myagent");
 });
 
 test("Vcs.type accepts reserved and extension values", () => {

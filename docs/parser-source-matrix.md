@@ -404,7 +404,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   (sibling of the flattened SessionMeta fields) populates `header.vcs` and is authoritative —
   live `readGitVcs(cwd)` runs only as a fallback when no recorded `git` block exists (correct for
   archived / replayed / shared trails). `repository_url` routes through `normalizeRemoteUrl`.
-- SessionMeta extras → `header.meta` (`x-<vendor>/<name>`): `model_provider` →
+- SessionMeta extras → `header.meta` (existing opaque Codex keys): `model_provider` →
   `dev.codex.model_provider`; `memory_mode` → `dev.codex.memory_mode`; `base_instructions.text`
   (the system prompt, kept verbatim under `source.raw`) → a `dev.codex.base_instructions`
   fingerprint `{sha256, bytes}` that survives share-time elision and flags customization without

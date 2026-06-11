@@ -34,7 +34,7 @@ export type AgentName =
   | "copilot-chat"
   | "chatgpt"
   | "clawdbot"
-  | `x-${string}/${string}`;
+  | `x-${Lowercase<string>}/${Lowercase<string>}`;
 /**
  * Session header. The first session header is required at line 1, or at line 2 when a trail envelope occupies line 1. Multi-session files (spec §8.6) carry additional session headers later in the file; each opens a new (header, events*) group. Not part of the event graph.
  */
