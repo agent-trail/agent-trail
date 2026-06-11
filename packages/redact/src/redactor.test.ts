@@ -1074,6 +1074,32 @@ test("redactTrail redacts secrets in tool_call overflow references", () => {
   expect(call.payload.overflow_ref).not.toContain("secret-overflow-token");
 });
 
+test("redactTrail redacts secrets in tool_result overflow references", () => {
+  const secretRef = "https://blob.example/full-output?token=secret-overflow-token";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        ok: true,
+        truncated: true,
+        output_size: 42,
+        overflow_ref: secretRef,
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, {
+    userSecrets: ["secret-overflow-token"],
+  });
+
+  const result = out[1]?.value as { payload: { overflow_ref: string } };
+  expect(result.payload.overflow_ref).toContain("[USER_SECRET]");
+  expect(result.payload.overflow_ref).not.toContain("secret-overflow-token");
+});
+
 test("redactTrail redacts secrets in tool_result.payload.meta structured outputs", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

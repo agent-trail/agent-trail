@@ -775,18 +775,18 @@ test("toolKindAndArgs maps Pi 'write' -> file_write", () => {
   });
 });
 
-test("toolKindAndArgs emits spec-conformant unified-diff hunk header (@@ -1,<oldN> +1,<newN> @@)", () => {
-  // Multi-hunk replacement shapes require diff-form; Pi edit shapes carry no
-  // line numbers, so start lines are synthetic (1) but line counts are accurate.
-  const result = toolKindAndArgs("edit", {
+test("toolKindAndArgs keeps Pi multi-hunk edits without line context as other", () => {
+  const input = {
     path: "x.md",
     edits: [
       { oldText: "a\nb", newText: "c" },
       { oldText: "d", newText: "e" },
     ],
+  };
+  expect(toolKindAndArgs("edit", input)).toEqual({
+    tool: "other",
+    args: { name: "edit", args: input },
   });
-  const args = (result as { args: { diff: string } }).args;
-  expect(args.diff).toContain("@@ -1,2 +1,1 @@");
 });
 
 test("toolKindAndArgs preserves multi-line oldText/newText replacement edits", () => {
@@ -816,64 +816,41 @@ test("toolKindAndArgs maps Pi 'edit' single-replace ({path, oldText, newText}) -
   });
 });
 
-test("toolKindAndArgs maps current pi-mono 'edit' shape ({path, edits:[{oldText,newText}]}) -> file_edit", () => {
+test("toolKindAndArgs maps current pi-mono single edit shape -> file_edit replacement form", () => {
   expect(
     toolKindAndArgs("edit", {
       path: "a.md",
-      edits: [
-        { oldText: "foo", newText: "bar" },
-        { oldText: "baz", newText: "qux" },
-      ],
+      edits: [{ oldText: "foo", newText: "bar" }],
     }),
   ).toEqual({
     tool: "file_edit",
-    args: {
-      path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar\n@@ -1,1 +1,1 @@\n-baz\n+qux",
-    },
+    args: { path: "a.md", old: "foo", new: "bar" },
   });
 });
 
-test("toolKindAndArgs maps Pi 'edit' multi same-path -> file_edit with concatenated diff", () => {
-  expect(
-    toolKindAndArgs("edit", {
-      multi: [
-        { path: "a.md", oldText: "foo", newText: "bar" },
-        { path: "a.md", oldText: "baz", newText: "qux" },
-      ],
-    }),
-  ).toEqual({
-    tool: "file_edit",
-    args: {
-      path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar\n@@ -1,1 +1,1 @@\n-baz\n+qux",
-    },
+test("toolKindAndArgs keeps Pi 'edit' multi same-path without line context as other", () => {
+  const input = {
+    multi: [
+      { path: "a.md", oldText: "foo", newText: "bar" },
+      { path: "a.md", oldText: "baz", newText: "qux" },
+    ],
+  };
+  expect(toolKindAndArgs("edit", input)).toEqual({
+    tool: "other",
+    args: { name: "edit", args: input },
   });
 });
 
-test("toolKindAndArgs maps Pi 'edit' multi across multiple files -> file_patch", () => {
-  expect(
-    toolKindAndArgs("edit", {
-      multi: [
-        { path: "a.md", oldText: "foo", newText: "bar" },
-        { path: "b.md", oldText: "baz", newText: "qux" },
-      ],
-    }),
-  ).toEqual({
-    tool: "file_patch",
-    args: {
-      files: [
-        {
-          path: "a.md",
-          diff: "--- a/a.md\n+++ b/a.md\n@@ -1,1 +1,1 @@\n-foo\n+bar",
-        },
-        {
-          path: "b.md",
-          diff: "--- a/b.md\n+++ b/b.md\n@@ -1,1 +1,1 @@\n-baz\n+qux",
-        },
-      ],
-      atomic: true,
-    },
+test("toolKindAndArgs keeps Pi 'edit' multi across files without line context as other", () => {
+  const input = {
+    multi: [
+      { path: "a.md", oldText: "foo", newText: "bar" },
+      { path: "b.md", oldText: "baz", newText: "qux" },
+    ],
+  };
+  expect(toolKindAndArgs("edit", input)).toEqual({
+    tool: "other",
+    args: { name: "edit", args: input },
   });
 });
 

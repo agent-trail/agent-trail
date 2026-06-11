@@ -252,6 +252,9 @@ export function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean)
       if (typeof payload.error === "string") {
         yield keyVisit(payload, "error", index, `records[${index}].payload.error`);
       }
+      if (typeof payload.overflow_ref === "string") {
+        yield keyVisit(payload, "overflow_ref", index, `records[${index}].payload.overflow_ref`);
+      }
       yield* visitAttachments(payload, index);
       const resultMeta = payload.meta;
       if (resultMeta !== null && typeof resultMeta === "object") {
