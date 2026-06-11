@@ -15,10 +15,18 @@ export function applyCredentialContext(
   visit: Visit,
   summary: RedactionSummary,
   maxSamples: number,
+  allowedSecrets: ReadonlySet<string> = new Set(),
+  countAllowlistedSkip = true,
 ): number {
   if (!isCredentialKey(visit.key)) return 0;
   const current = visit.get();
   if (isSafeCredentialContextValue(current)) return 0;
+  if (allowedSecrets.has(current)) {
+    if (countAllowlistedSkip) {
+      summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + 1;
+    }
+    return 0;
+  }
   visit.set(CREDENTIAL_CONTEXT_PLACEHOLDER);
   summary.counts.credential_context = (summary.counts.credential_context ?? 0) + 1;
   if (summary.samples.length < maxSamples) {

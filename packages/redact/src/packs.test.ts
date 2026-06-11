@@ -98,6 +98,22 @@ test("resolveRedactionConfig rejects unsafe custom label regexes in settings", a
   );
 });
 
+test("resolveRedactionConfig rejects invalid custom label regex syntax in settings", async () => {
+  mkdirSync(join(projectRoot, ".trail"), { recursive: true });
+  writeFileSync(
+    join(projectRoot, ".trail", "settings.json"),
+    JSON.stringify({
+      redaction: {
+        pii: { customLabels: { employee_id: "a{2,1}" } },
+      },
+    }),
+  );
+
+  await expect(resolveRedactionConfig({ env: { HOME: home }, projectRoot })).rejects.toThrow(
+    "redaction settings pii.customLabels.employee_id regex is invalid",
+  );
+});
+
 test("resolveRedactionConfig rejects partial email allowlist shorthands", async () => {
   mkdirSync(join(projectRoot, ".trail"), { recursive: true });
   writeFileSync(

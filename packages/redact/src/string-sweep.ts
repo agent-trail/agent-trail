@@ -20,18 +20,23 @@ export function redactVisitedStrings(
   const allowed = allowedSecretSet(allowedSecrets);
   for (const visit of visits) {
     const before = visit.get();
-    if (allowed.has(before)) {
-      summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + 1;
-      continue;
-    }
     let mutationCount = 0;
+    const allowlistedSkipsBeforePatterns = summary.counts.allowlisted_skip ?? 0;
     for (const pattern of userPatterns) {
       mutationCount += applyPattern(visit, pattern, summary, maxSamples, allowed);
     }
     for (const pattern of patterns) {
       mutationCount += applyPattern(visit, pattern, summary, maxSamples, allowed);
     }
-    mutationCount += applyCredentialContext(visit, summary, maxSamples);
+    const countCredentialAllowlistedSkip =
+      (summary.counts.allowlisted_skip ?? 0) === allowlistedSkipsBeforePatterns;
+    mutationCount += applyCredentialContext(
+      visit,
+      summary,
+      maxSamples,
+      allowed,
+      countCredentialAllowlistedSkip,
+    );
     if (!isOpaqueTokenVisit(visit)) {
       if (enableEntropyRedaction) {
         mutationCount += applyEntropyRedaction(visit, summary, maxSamples, allowed);

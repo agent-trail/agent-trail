@@ -683,6 +683,28 @@ test("redactTrail does not preserve larger detector matches for allowed-secret s
   expect(summary.counts.allowlisted_skip).toBeUndefined();
 });
 
+test("redactTrail does not let a whole-leaf allowed secret bypass other detectors", () => {
+  const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const allowedLeaf = `safe wrapper alice@example.com ${key}`;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: allowedLeaf },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: [allowedLeaf] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toBe("safe wrapper [EMAIL] [OPENAI_KEY]");
+  expect(summary.counts.email_pii).toBe(1);
+  expect(summary.counts.openai_api_key).toBe(1);
+  expect(summary.counts.allowlisted_skip).toBeUndefined();
+});
+
 test("redactTrail allowed-secret sentinels do not collide with existing text", () => {
   const allowed = "sk-proj-AllowedAllowedAllowedAllowedAllowedAllowed";
   const records: JsonlRecord[] = [

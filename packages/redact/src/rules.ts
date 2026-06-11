@@ -110,11 +110,6 @@ function redactVisit(
   pii: PiiConfig,
 ): void {
   const allowed = allowedSecretSet(allowedSecrets);
-  const before = visit.get();
-  if (allowed.has(before)) {
-    summary.counts.allowlisted_skip = (summary.counts.allowlisted_skip ?? 0) + 1;
-    return;
-  }
   for (const pattern of userPatterns) {
     applyPattern(visit, pattern, summary, maxSamples, allowed);
   }

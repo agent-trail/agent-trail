@@ -6,6 +6,11 @@ export function assertSafeRegexSource(source: string, label: string): void {
   if (source.length > MAX_REGEX_SOURCE_LENGTH) {
     throw new Error(`${label} regex exceeds ${MAX_REGEX_SOURCE_LENGTH} characters`);
   }
+  try {
+    new RegExp(source, "g");
+  } catch {
+    throw new Error(`${label} regex is invalid`);
+  }
   if (hasBackreference(source)) throw new Error(`${label} regex backreferences are not supported`);
   if (hasLookaround(source)) throw new Error(`${label} regex lookaround is not supported`);
   if (hasNestedUnboundedQuantifier(source)) {
