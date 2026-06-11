@@ -26,7 +26,10 @@ test("spec section numbers and cross-references are editorially consistent", asy
   const prd = await readText("docs/PRD.md");
   const prdSectionNumbers = collectSectionNumbers(prd);
 
-  expect(topLevelNumbers).toEqual([...topLevelNumbers].sort((a, b) => a - b));
+  const strictlyIncreasingTopLevel = topLevelNumbers.every(
+    (value, index) => index === 0 || topLevelNumbers[index - 1]! < value,
+  );
+  expect(strictlyIncreasingTopLevel).toBe(true);
   expect(spec).not.toMatch(/^## 8\.0\b/m);
   expect(sectionNumbers).toContain("8");
   expect(sectionNumbers).toContain("9");
@@ -99,15 +102,31 @@ function findSectionRefs(
   text: string,
   file: string,
 ): Array<{ section: string; rangeEnd?: string; raw: string; index: number }> {
-  const pattern =
-    file === "spec.md"
-      ? /§(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/g
-      : /\bspec §(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/gi;
+  if (file === "spec.md") {
+    return extractSectionRefs(text, /§(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/g, 0);
+  }
+
+  const refs: Array<{ section: string; rangeEnd?: string; raw: string; index: number }> = [];
+  const specRefGroup =
+    /(?:\bspec(?:\.md)?|\[spec\.md\]\([^)]+\))\s+§\d+(?:\.\d+)*(?:-\d+(?:\.\d+)*)?(?:(?:\s*(?:,|\/|\+|\band\b)\s*)§\d+(?:\.\d+)*(?:-\d+(?:\.\d+)*)?)*/gi;
+  for (const group of text.matchAll(specRefGroup)) {
+    refs.push(
+      ...extractSectionRefs(group[0], /§(\d+(?:\.\d+)*)(?:-(\d+(?:\.\d+)*))?/g, group.index ?? 0),
+    );
+  }
+  return refs;
+}
+
+function extractSectionRefs(
+  text: string,
+  pattern: RegExp,
+  baseIndex: number,
+): Array<{ section: string; rangeEnd?: string; raw: string; index: number }> {
   return Array.from(text.matchAll(pattern), (match) => ({
     section: match[1]!,
     rangeEnd: match[2],
     raw: match[0],
-    index: match.index ?? 0,
+    index: baseIndex + (match.index ?? 0),
   }));
 }
 
