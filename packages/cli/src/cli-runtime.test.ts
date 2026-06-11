@@ -71,7 +71,7 @@ const HELP_CASES: HelpCase[] = [
     command: "validate",
     usage: "Usage: trail validate [options] <file>",
     flags: ["--json", "--profile <profile>"],
-    example: "trail validate session.trail.jsonl --profile reader",
+    example: "trail validate session.trail.jsonl --profile reader-tolerant",
   },
   {
     command: "list",

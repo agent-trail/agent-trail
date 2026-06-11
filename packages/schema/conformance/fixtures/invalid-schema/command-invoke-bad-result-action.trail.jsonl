@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"command_invoke","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"name":"/clear","kind":"builtin","via":"user_typed","result_action":"frobnicate"}}

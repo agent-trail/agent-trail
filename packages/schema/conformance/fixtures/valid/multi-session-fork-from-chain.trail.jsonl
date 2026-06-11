@@ -1,0 +1,4 @@
+{"agent":{"name":"codex-cli"},"content_hash":"cb67fb75b08a379e0ef919b7f8436082cb67908edea9d82171a3e5a2af532089","id":"01HSESS0000000000000000C01","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000C01","payload":{"text":"parent"},"ts":"2026-05-17T14:00:05.000Z","type":"user_message"}
+{"agent":{"name":"claude-code"},"content_hash":"51223c899e5b544edcfc47634cbee5a025578f0ca32cb3ffcffade0a1155d4a1","fork_from":{"content_hash":"cb67fb75b08a379e0ef919b7f8436082cb67908edea9d82171a3e5a2af532089","session_id":"01HSESS0000000000000000C01"},"id":"01HSESS0000000000000000C02","schema_version":"0.1.0","ts":"2026-05-17T14:05:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000C02","payload":{"text":"fork"},"ts":"2026-05-17T14:05:05.000Z","type":"user_message"}

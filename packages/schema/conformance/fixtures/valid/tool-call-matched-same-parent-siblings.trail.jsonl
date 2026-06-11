@@ -1,0 +1,4 @@
+{"type":"session","schema_version":"0.1.0","id":"01HEVTA0000000000000000000","ts":"2025-01-01T00:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000001","ts":"2025-01-01T00:00:01.000Z","payload":{"text":"run command"}}
+{"type":"tool_call","id":"01HEVTA0000000000000000002","parent_id":"01HEVTA0000000000000000001","ts":"2025-01-01T00:00:02.000Z","payload":{"tool":"shell_command","args":{"command":"echo hi"}}}
+{"type":"tool_result","id":"01HEVTA0000000000000000003","parent_id":"01HEVTA0000000000000000001","ts":"2025-01-01T00:00:03.000Z","payload":{"ok":true,"output":"hi"}}

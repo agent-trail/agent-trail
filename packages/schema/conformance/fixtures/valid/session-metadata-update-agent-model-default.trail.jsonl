@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"00000000-0000-0000-0000-000000000132","session_uid":"00000000-0000-0000-0000-000000000132","ts":"2026-06-01T00:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"session_metadata_update","id":"00000000-0000-0000-0000-000000001327","ts":"2026-06-01T00:00:01.000Z","payload":{"field":"agent.model_default","value":"gpt-5-codex","previous_value":"gpt-5","reason":"runtime_inferred"}}

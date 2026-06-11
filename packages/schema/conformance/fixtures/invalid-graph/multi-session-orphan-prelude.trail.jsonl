@@ -1,0 +1,3 @@
+{"type":"user_message","id":"01HEVTA0000000000000000D00","ts":"2026-05-17T13:59:00.000Z","payload":{"text":"orphan"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000D01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"user_message","id":"01HEVTA0000000000000000D01","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"msg"}}

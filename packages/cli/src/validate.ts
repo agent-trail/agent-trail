@@ -61,6 +61,9 @@ export function addValidateCommand(program: Command, writeResult: ResultWriter):
       .action(async (file: string, options: { json: boolean; profile: string }) => {
         writeResult(await runValidate({ file, json: options.json, profile: options.profile }));
       }),
-    ["trail validate session.trail.jsonl", "trail validate session.trail.jsonl --profile reader"],
+    [
+      "trail validate session.trail.jsonl",
+      "trail validate session.trail.jsonl --profile reader-tolerant",
+    ],
   );
 }

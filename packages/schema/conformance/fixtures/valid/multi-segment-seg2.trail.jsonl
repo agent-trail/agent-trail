@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","segment":{"seq":2,"prev_content_hash":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},"ts":"2026-05-26T10:05:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"agent_message","id":"01HEVTA0000000000000000002","ts":"2026-05-26T10:05:05.000Z","payload":{"text":"continuing"}}

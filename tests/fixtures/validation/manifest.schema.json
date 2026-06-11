@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-trail.dev/schema/v0.1.0/conformance-manifest.schema.json",
+  "title": "Agent Trail validation conformance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fixtures"],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    }
+  },
+  "$defs": {
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "strict", "tolerant"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+/[a-z0-9.-]+\\.trail\\.jsonl$"
+        },
+        "strict": {
+          "$ref": "#/$defs/strictExpectation"
+        },
+        "tolerant": {
+          "$ref": "#/$defs/tolerantExpectation"
+        },
+        "expected": {
+          "$ref": "#/$defs/hashExpectation"
+        }
+      }
+    },
+    "strictExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "diagnostics"],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
+      }
+    },
+    "tolerantExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clean", "diagnostics"],
+      "properties": {
+        "clean": {
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnosticAssertion"
+      }
+    },
+    "diagnosticAssertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line"],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": ["error", "warning"]
+        },
+        "code": {
+          "type": "string"
+        }
+      }
+    },
+    "hashExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session_hashes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "file_hash": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

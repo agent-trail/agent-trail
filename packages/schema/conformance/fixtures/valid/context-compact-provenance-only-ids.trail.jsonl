@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000176A","session_uid":"01HZZZZZZZZZZZZZZZZZZZ176A","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"context_compact","id":"01HEVTA000000000000000176A","ts":"2026-05-17T14:00:10.000Z","payload":{"summary":"Earlier messages were compacted before this segment was emitted.","trigger":"auto","replaced_message_ids":["01HEVTA000000000000000176B"]}}
