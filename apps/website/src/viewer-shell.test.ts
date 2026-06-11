@@ -479,6 +479,55 @@ test("viewer shell does not pair tool results across session boundaries", () => 
   expect(items[1].result?.id).toBe("01HEVTA0000000000000000002");
 });
 
+test("viewer shell sequential fallback pairs same-parent sibling tool events", () => {
+  const parentId = "01HEVTA0000000000000000001";
+  const items = buildTranscriptItemsForViewer(
+    [
+      {
+        body: "Run tool.",
+        id: parentId,
+        kind: "agent",
+        line: 2,
+        meta: [],
+        sessionIndex: 0,
+        ts: "2026-05-17T14:00:07.000Z",
+        title: "Agent message",
+        type: "agent_message",
+      },
+      toolCallEvent(3, "01HEVTA0000000000000000002", "file_read", { parentId }),
+      toolResultEvent(4, "01HEVTA0000000000000000003", undefined, { parentId }),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+
+  expect(items).toHaveLength(2);
+  expect(items[1]?.kind).toBe("tool");
+  if (items[1]?.kind !== "tool") throw new Error("expected same-parent sibling pair");
+  expect(items[1].call?.id).toBe("01HEVTA0000000000000000002");
+  expect(items[1].result?.id).toBe("01HEVTA0000000000000000003");
+});
+
+test("viewer shell sequential fallback does not pair child branch results to parent calls", () => {
+  const invokeId = "01HEVTA0000000000000000001";
+  const items = buildTranscriptItemsForViewer(
+    [
+      toolCallEvent(2, invokeId, "subagent_invoke"),
+      toolCallEvent(3, "01HEVTA0000000000000000002", "file_read"),
+      toolResultEvent(4, "01HEVTA0000000000000000003", undefined, { parentId: invokeId }),
+    ],
+    DEFAULT_TEST_FILTERS,
+  );
+
+  expect(items).toHaveLength(1);
+  expect(items[0]?.kind).toBe("tool_group");
+  if (items[0]?.kind !== "tool_group") throw new Error("expected grouped separate tool events");
+  expect(items[0].items).toHaveLength(3);
+  expect(items[0].items[1]?.call?.id).toBe("01HEVTA0000000000000000002");
+  expect(items[0].items[1]?.result).toBeUndefined();
+  expect(items[0].items[2]?.call).toBeUndefined();
+  expect(items[0].items[2]?.result?.id).toBe("01HEVTA0000000000000000003");
+});
+
 test("viewer shell renders user messages as safe markdown", async () => {
   const seed = await seedSharedTrailRecords([
     {
@@ -681,7 +730,7 @@ function toolCallEvent(
   line: number,
   id: string,
   tool: string,
-  opts: { semanticCallId?: string; sessionIndex?: number } = {},
+  opts: { parentId?: string; semanticCallId?: string; sessionIndex?: number } = {},
 ): ViewerEvent {
   return {
     body: tool,
@@ -689,6 +738,7 @@ function toolCallEvent(
     kind: "tool_call",
     line,
     meta: [],
+    ...eventParent(opts),
     sessionIndex: opts.sessionIndex ?? 0,
     ts: "2026-05-17T14:00:07.000Z",
     title: `Tool call: ${tool}`,
@@ -701,7 +751,7 @@ function toolResultEvent(
   line: number,
   id: string,
   forId?: string,
-  opts: { semanticCallId?: string; sessionIndex?: number } = {},
+  opts: { parentId?: string; semanticCallId?: string; sessionIndex?: number } = {},
 ): ViewerEvent {
   return {
     body: `${forId} output`,
@@ -709,6 +759,7 @@ function toolResultEvent(
     kind: "tool_result",
     line,
     meta: forId === undefined ? [] : [{ label: "for", value: forId }],
+    ...eventParent(opts),
     sessionIndex: opts.sessionIndex ?? 0,
     status: "ok",
     ts: "2026-05-17T14:00:08.000Z",
@@ -729,6 +780,10 @@ function toolOptions(opts: { semanticCallId?: string; sessionIndex?: number }): 
   semanticCallId?: string;
 } {
   return opts.semanticCallId === undefined ? {} : { semanticCallId: opts.semanticCallId };
+}
+
+function eventParent(opts: { parentId?: string }): { parentId?: string } {
+  return opts.parentId === undefined ? {} : { parentId: opts.parentId };
 }
 
 test("viewer shell renders validation diagnostics for error state", async () => {

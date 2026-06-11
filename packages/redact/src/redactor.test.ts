@@ -541,7 +541,7 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
         for_id: "evtcall",
         ok: true,
         output: big,
-        overflow_ref: "sha256:abc",
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     }),
   ];
@@ -556,7 +556,9 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(value.payload.output.length).toBeLessThan(big.length);
   expect(value.payload.truncated).toBe(true);
   expect(value.payload.output_size).toBe(new TextEncoder().encode(big).byteLength);
-  expect(value.payload.overflow_ref).toBe("sha256:abc");
+  expect(value.payload.overflow_ref).toBe(
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
   expect(value.meta?.redaction_count).toBe(1);
   expect(summary.counts.output_truncated).toBe(1);
 });
@@ -1045,6 +1047,68 @@ test("redactTrail redacts secrets across tool_call.args, tool_result.output, and
   expect(summary.counts.openai_api_key).toBeGreaterThanOrEqual(4);
 });
 
+test("redactTrail preserves schema-valid tool_call overflow references", async () => {
+  const overflowRef = `sha256:${"a".repeat(64)}`;
+  const records: JsonlRecord[] = [
+    header({ id: "01HSESS0000000000000000001" }),
+    record(2, {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        tool: "shell_command",
+        args: { command: "curl example.com" },
+        truncated: true,
+        args_size: 42,
+        overflow_ref: overflowRef,
+      },
+    }),
+    record(3, {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "01HEVTA0000000000000000001",
+        ok: true,
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, {
+    userSecrets: ["secret-overflow-token"],
+  });
+
+  const call = out[1]?.value as { payload: { overflow_ref: string } };
+  expect(call.payload.overflow_ref).toBe(overflowRef);
+  expect(await validateTrailString(out.map((item) => item.raw).join("\n"))).toEqual([]);
+});
+
+test("redactTrail preserves schema-valid tool_result overflow references", async () => {
+  const overflowRef = `sha256:${"b".repeat(64)}`;
+  const records: JsonlRecord[] = [
+    header({ id: "01HSESS0000000000000000001" }),
+    record(2, {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        ok: true,
+        truncated: true,
+        output_size: 42,
+        overflow_ref: overflowRef,
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, {
+    userSecrets: ["secret-overflow-token"],
+  });
+
+  const result = out[1]?.value as { payload: { overflow_ref: string } };
+  expect(result.payload.overflow_ref).toBe(overflowRef);
+  expect(await validateTrailString(out.map((item) => item.raw).join("\n"))).toEqual([]);
+});
+
 test("redactTrail redacts secrets in tool_result.payload.meta structured outputs", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
@@ -1415,6 +1479,28 @@ test("redactTrail redacts secrets in agent_message.attachments and tool_result.a
   expect(toolUri).toContain("<home>");
 
   expect(summary.counts.openai_api_key).toBe(2);
+});
+
+test("redactTrail redacts secrets in name-only attachments", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "see attachment",
+        attachments: [{ kind: "file", name: "secret-alpha.txt" }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { userSecrets: ["secret-alpha"] });
+
+  const name = (out[1]?.value as { payload: { attachments: Array<{ name: string }> } }).payload
+    .attachments[0]?.name;
+  expect(name).toBe("[USER_SECRET].txt");
+  expect(summary.counts.user_secret).toBe(1);
 });
 
 test("redactTrail redacts quarantined source drift while preserving raw shape", () => {

@@ -131,14 +131,17 @@ kit path:
   prior parser. All three are schema-valid (`parent_id` is optional and nullable).
 
 `edit` has four observed Pi argument shapes:
-(a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
-(b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with a
-multi-hunk diff;
-(c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
-multi-hunk diff;
-(d) `{multi: [...]}` spanning multiple files → `file_patch`;
+(a) single-replace `{path, oldText, newText}` → `file_edit` with replacement args
+`{path, old, new}`;
+(b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with
+replacement args for one hunk, otherwise `other` because Pi does not expose line context for
+multi-hunk replacements;
+(c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with
+replacement args for one hunk, otherwise `other` for the same no-line-context reason;
+(d) `{multi: [...]}` spanning multiple files → `other` unless the source provides real patch text;
 (e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
 `file_patch` for multi-file patches.
+This keeps the adapter aligned with spec §10.1: writers do not fabricate unified-diff hunk headers.
 Any other tool name (including MCP-extension tools real Pi sessions carry — `web_search`,
 `fetch_content`, custom user tools) falls through to the `other` escape hatch per spec §10.7,
 mirroring how Pi's own `/share` export-html renderer JSON-dumps unknown tools.
@@ -610,12 +613,13 @@ Inline image/document blocks are captured as `user_message.attachments` with con
 `sha256:` refs when the decoded bytes are below the inline cap; oversized inline media keeps
 attachment metadata without decoding into a URI.
 
+Claude Code `SessionEnd` hook progress and hook-success records map to the first-class `session_end` event, not `system_event.kind`.
+
 Emitted `system_event.kind` values (spec §9.3):
 
 Reserved lifecycle vocabulary (cross-agent portable):
 
 - `session_start` — `progress` envelope with `data.hookEvent == "SessionStart"`, plus continuation-preamble user messages.
-- `session_end` — `progress` envelope with `data.hookEvent == "SessionEnd"`.
 - `turn_end` — `progress` envelope with `data.hookEvent == "Stop"`, plus `system` envelope with `subtype == "stop_hook_summary"`.
 - `subagent_end` — `progress` envelope with `data.hookEvent == "SubagentStop"`.
 - `pre_tool_use` — `progress` envelope with `data.hookEvent == "PreToolUse"`.
@@ -627,10 +631,14 @@ Reserved lifecycle vocabulary (cross-agent portable):
 - `permission_request` — `attachment.command_permissions`, preserving `allowed_tools` and `model`.
 - `permission_decision` — `attachment.hook_permission_decision`, preserving explicit
   allow/deny decisions and `tool_call_id` when present.
+- `context_injected` — `attachment.hook_additional_context` injected into the prompt by a
+  hook. `payload.text` and `data.content` preserve text blocks up to 16,384 characters after
+  concatenating multi-block text; inline image/document blocks are represented under
+  `data.attachments` as hashed attachment refs rather than raw base64.
 - `hook_fired` — `progress` envelope with `data.type == "hook_progress"` and an unrecognized `hookEvent` (forward-compatibility fallback).
 - `queue_operation` — `queue-operation` envelope. id synthesized (`source.synthesized: true`) because the source records lack `uuid`.
 
-Note: `system_event.kind:"permission_mode_change"` remains schema-accepted as a deprecated v0.1.0 compatibility value. Current adapters do not emit it.
+Permission-mode envelopes map to `mode_change{scope:"permission"}`, not `system_event.kind`.
 
 Reserved diagnostic vocabulary (cross-agent portable):
 
@@ -649,10 +657,6 @@ Vendor extensions (Claude Code-specific):
 - `x-claudecode/local_command` — `system` envelope with `subtype == "local_command"` (slash-command stdout).
 - `x-claudecode/bridge_status` — `system` envelope with `subtype == "bridge_status"` (remote-control bridge).
 - `x-claudecode/compact_boundary` — `system` envelope with `subtype == "compact_boundary"` (compaction metadata; the canonical `context_compact` entry is produced from the summary envelope, and a prior boundary can populate `context_compact.payload.replaced_message_ids` with folded emitted entry ids).
-- `x-claudecode/hook_additional_context` — `attachment.hook_additional_context` injected into the
-  prompt by a hook. `payload.text` and `data.content` preserve text blocks up to 16,384 characters
-  after concatenating multi-block text; inline image/document blocks are represented under
-  `data.attachments` as hashed attachment refs rather than raw base64.
 - `x-claudecode/<subtype>` — fallback for unknown safe-named `system` subtypes.
 - `x-claudecode/system` — fallback for `system` envelopes without a recognizable subtype.
 - `x-claudecode/progress` — fallback for `progress` envelopes whose `data.type` is not `hook_progress`.

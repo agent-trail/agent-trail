@@ -80,13 +80,14 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 | **Session bundle** | A trail file with one or more session groups. At session-group level the bundle is a forest; each group may itself be linear or tree-native. |
 | **Child session** | A separate session group or external session spawned or forked from another session, linked by the child header's `fork_from`. |
 | **Event** | Any object after the header line; one unit of session content. |
+| **Turn** | One user-prompt-to-agent-completion cycle as delimited by the source. `turn_id` values are opaque source-correlation tokens; readers MUST NOT require them to resolve to any entry. |
 | **File-level content hash** | SHA-256 of the canonical bytes covering the whole file with the trail envelope's `content_hash` pinned to `<pending>`. |
 | **Session-level content hash** | SHA-256 of the canonical bytes covering ONLY the session header and its events (envelope excluded), with the session header's `content_hash` pinned to `<pending>`. |
 | **Entry** | Equivalent to "event"; either term may appear. |
 | **Adapter** | Software that reads a source agent's storage and emits a trail file. |
 | **Linear session** | A session whose events do not use `parent_id`. Events are ordered by file position. |
 | **Tree session** | A session where some events use `parent_id` to form a DAG. |
-| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#9-3-optional-event-types). |
+| **Canonical event** | One of the mandatory or optional event types in [§9.2](#9-2-mandatory-event-types) and [§9.3](#93-optional-event-types). |
 | **Raw trail** | A local artifact preserving source fidelity as much as possible. |
 | **Redacted trail** | A separate artifact produced from a raw trail for sharing. It has its own `content_hash`. |
 | **Shared trail** | A redacted trail transported through a sharing mechanism. |
@@ -389,7 +390,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
 | `meta` | no | object | vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention (§8.0.3 / §11) |
 
-When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
+When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`; see the §9.3 quarantine convention. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
 
 `vcs.remote_url` provides a canonical project identifier that survives across users, machines, and clones — useful for cross-machine aggregation, profile filtering, and project-scoped analysis. Adapters that populate it:
 
@@ -583,7 +584,7 @@ Every adapter must be able to emit these when the source data contains the corre
 
 #### `user_message`
 
-A message from the human user.
+A user-role message. By default this is text typed by the human user; `payload.origin` marks runtime-injected or mixed user-role content.
 
 ```jsonc
 {
@@ -602,9 +603,12 @@ A message from the human user.
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
 | `text` | yes | string | the user's input |
+| `origin` | no | enum or extension | `user`, `injected`, `mixed`, or `x-<adapter>/<name>`. Absent means `user`. |
 | `attachments` | no | array | images or files by reference |
 
-Attachment `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
+`origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
+
+Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
 
 #### `agent_message`
 
@@ -640,7 +644,7 @@ A text response from the agent.
 | `usage` | no | object | token usage for the source envelope; see below |
 | `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
 
-`attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, `uri`, `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
+`attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, and at least one of `uri` or `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
 
@@ -740,7 +744,10 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
   "ts": "...",
   "payload": {
     "tool": "file_read",
-    "args": { "path": "package.json" }
+    "args": { "path": "package.json" },
+    "truncated": false,
+    "args_size": 23,
+    "overflow_ref": null
   },
   "semantic": {
     "call_id": "toolu_01abc"
@@ -752,6 +759,9 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 |---|---|---|---|
 | `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
+| `truncated` | no | boolean | true when `args` is a bounded excerpt rather than complete tool arguments |
+| `args_size` | conditional | integer | original serialized argument byte size; required when `truncated: true` |
+| `overflow_ref` | no | string or null | optional content-addressed reference to full argument bytes when `args` is truncated; writer-strict values use `sha256:<64 lowercase hex>` |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
@@ -907,7 +917,7 @@ The agent asks the user one or more structured questions and yields control unti
 | `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
 | `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
 | `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
-| `options` | no | array | Option objects with required `label` and optional `description`. |
+| `options` | no | array | Option objects with required `label`, optional stable `id`, and optional `description`. |
 
 #### `user_query_response`
 
@@ -937,7 +947,7 @@ The user's response to a `user_query`. `payload.for_id` links to the query entry
 
 | Answer field | Required | Type | Notes |
 |---|---|---|---|
-| `selected` | yes | string[] | Selected option labels. Use one value for single-select answers. |
+| `selected` | yes | string[] | Selected option ids when that question's options carry ids, otherwise selected option labels. Use one value for single-select answers. |
 | `other` | no | string | Free-form answer when `allow_other` was used. |
 
 Privacy: share-time redaction MUST strip answers for questions whose `is_secret` is true, regardless of pattern matching.
@@ -964,6 +974,8 @@ A summary entry. Used for whole-session summaries. Branch and compaction summari
 | `scope` | yes | enum | `session` |
 | `text` | yes | string | the summary |
 | `model` | no | string | model that produced the summary |
+
+Multiple `session_summary` entries are allowed. The last one in file order is authoritative; position is unconstrained.
 
 ### 9.3 Optional event types
 
@@ -1015,14 +1027,13 @@ A meaningful source timeline record that is not a user message, agent message, t
 
 `kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
-`context_compact`, `user_interrupt`, `model_change`, `mode_change`, and `thinking_level_change` are first-class record types ([§9.3](#9-3-optional-event-types)). Do not duplicate them under `system_event.kind`.
+`context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#93-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
 ##### Reserved lifecycle vocabulary
 
 | `kind` | When to use |
 | --- | --- |
 | `session_start` | Explicit mid-stream session-start marker (header already covers, useful for tooling that splits on events). |
-| `session_end` | Clean exit marker. |
 | `turn_start` | User prompt accepted, agent begins work. |
 | `turn_end` | Agent finishes a turn. |
 | `subagent_start` | A spawned subagent begins. |
@@ -1032,7 +1043,6 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `hook_fired` | Generic adapter-emitted hook trace. |
 | `permission_request` | Agent asked the user for tool approval. |
 | `permission_decision` | User allowed/denied a specific tool invocation. |
-| `permission_mode_change` | Deprecated compatibility value for v0.1.0 trails. New writers MUST emit `mode_change` with `scope:"permission"` instead. |
 | `cwd_change` | Working directory shifted. |
 | `env_snapshot` | Shell/env state capture. |
 
@@ -1043,11 +1053,14 @@ A meaningful source timeline record that is not a user message, agent message, t
 | `task_started` | Source emits a structured task/step begin marker. | `{ task_id, title? }` |
 | `task_completed` | Pair to `task_started`. May be synthesized at EOF for unclosed tasks (set `source.synthesized: true`). | `{ task_id, summary?, status? }` |
 | `plan_completed` | Source emits a plan or todo completion marker without a full plan snapshot. | `{ plan_id, preview? }` |
-| `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error). Distinct from `user_interrupt`. | `{ reason }` |
+| `turn_aborted` | Model or system stopped a turn for non-user reasons (length limit, refusal, error) with no tool in flight. Distinct from `user_interrupt`. | `{ reason }` |
 | `tool_decision` | Source recorded a user approve/reject decision on a tool call. | `{ decision, tool_call_id }` |
-| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `session_end` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
+| `context_injected` | Runtime injected standalone context that should remain visible outside a `user_message`. | `{ source_kind, name?, size_bytes? }` |
+| `hook_progress` | Catch-all for source-emitted progress/hook/queue records that do not map to a more specific reserved lifecycle kind. Adapters SHOULD prefer `session_start` / `turn_end` / `pre_tool_use` / `post_tool_use` / `subagent_end` / `hook_fired` when the source signal is unambiguous, and fall back to `hook_progress` only for unrecognised progress streams. | `{ hook_event?, hook_name?, ... }` |
 | `queue_operation` | Source recorded an enqueue or dequeue operation. | Free-form. |
 | `heartbeat` | Periodic liveness ping during streaming capture (§8.4). Optional. Non-normative; readers may treat as informational. | `{ interval_ms? }` |
+
+Use `tool_call_aborted{scope:"turn"}` for stops in a tool-invocation context where no specific call is identifiable. Use `system_event.kind:"turn_aborted"` for model/system-level turn stops with no tool in flight.
 
 ##### Reserved diagnostic vocabulary
 
@@ -1076,7 +1089,6 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 | --- | --- |
 | `permission_request` | `{ tool_call_id?: string, capability?: string, prompt?: string }` |
 | `permission_decision` | `{ decision: "allow" \| "deny", tool_call_id?: string, capability?: string }` |
-| `permission_mode_change` | Deprecated v0.1.0 compatibility shape `{ to: string, from?: string }`. New writers MUST use `mode_change{scope:"permission"}`. |
 
 ##### Extension policy and promotion
 
@@ -1084,6 +1096,7 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 - Anything else must use `x-<adapter>/<name>` form, e.g. `x-claudecode/notification`.
 - Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
+- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<adapter>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§8.2).
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
 #### `capability_change`
@@ -1180,7 +1193,7 @@ Chain-of-thought or reasoning block.
 |---|---|---|---|
 | `text` | yes | string | reasoning content exposed by the source |
 | `model` | no | string | model that produced this thinking block |
-| `level` | no | enum | `low` \| `medium` \| `high` \| `xhigh` |
+| `level` | no | string | non-empty source-defined string; readers MUST treat unknown level tokens as opaque |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `user_interrupt`
@@ -1339,6 +1352,8 @@ Active reasoning/thinking level changed or was first observed. This records the 
 | `turn_id` | no | string | source turn id associated with the observation |
 | `data` | no | object | curated adapter metadata for this level axis |
 
+Recommended thinking-level vocabulary is `none`, `low`, `medium`, `high`, and `xhigh`. This vocabulary is not schema-enforced; source-defined tokens remain valid and opaque to readers.
+
 #### `session_terminated`
 
 Marks an incomplete session ending. Adapters may emit this synthetically at EOF when the source file ends with unmatched `tool_call` events (process killed mid-execution, file truncated, etc.).
@@ -1395,17 +1410,17 @@ Writers should populate `semantic.call_id` on tool_call/tool_result pairs when t
 
 ### 9.5 Tool call terminal pairing
 
-`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
+`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. Writers MUST populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
 
 When `tool_result.payload.for_id` is null, missing, or refers to a non-existent event, readers use these fallback rules in order:
 
 1. **Semantic match.** If both events have `semantic.call_id` and they're equal, pair them.
-2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call`.
+2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call` in the same branch scope. Sequential fallback considers only calls in the same nearest `parent_id` ancestry as the result, so an inline subagent subtree cannot capture a parent timeline result and a parent timeline result cannot capture a child subtree call. Linear sessions without `parent_id` are unchanged.
 3. **Heuristic match.** Readers may use further heuristics (timestamp proximity, payload shape) but must flag the pairing as uncertain in rendered output.
 
 Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
 
-Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
 
 ### 9.6 Unknown event types
 
@@ -1438,7 +1453,7 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 |---|---|
 | `file_read` | `{ path, range? }` |
 | `file_write` | `{ path, content }` |
-| `file_edit` | `{ path, diff }` (unified diff) |
+| `file_edit` | `{ path, diff }` (unified diff) or `{ path, old, new, replace_all? }` |
 | `file_patch` | `{ files: [{ path, diff }], atomic? }` |
 | `file_list` | `{ path, recursive?, glob? }` |
 | `file_search` | `{ query, path?, glob? }` |
@@ -1457,7 +1472,14 @@ Checklist and plan snapshots use `task_plan_update` ([§9.2](#9-2-mandatory-even
 
 ### 10.1 `file_edit`
 
-The `diff` is a unified diff:
+`file_edit` has two exclusive argument forms:
+
+- `{ path, diff }` where `diff` is a unified diff.
+- `{ path, old, new, replace_all? }` for sources that record only string replacement with no line context.
+
+Writers MUST prefer the diff form when a real unified diff is derivable from source data. Writers MUST NOT fabricate hunk headers to fake the diff form.
+
+The `diff` form uses a unified diff:
 
 ```diff
 --- a/src/main.ts
@@ -1571,9 +1593,19 @@ Writers MAY truncate large `tool_result` outputs to keep trails tractable. The w
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
 | `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
-| `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
+| `overflow_ref` | string or null | optional content-addressed reference to the full output (`sha256:<64 lowercase hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
+
+Tool call arguments use the same top-level marker on `tool_call.payload`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `truncated` | boolean | `true` when `args` was shortened from its original object |
+| `args_size` | integer ≥0 | UTF-8 byte length of the JCS-serialized original `args` object before truncation; required when `truncated` is true |
+| `overflow_ref` | string or null | optional content-addressed reference to the full args object (`sha256:<64 lowercase hex>`) |
+
+The marker applies to the `args` object as a whole. Individual arg strings keep their declared per-toolkind shape, just shortened. Specific thresholds and algorithms remain writer policy.
 
 `source.raw` is optional. Writers should omit or summarize very large or sensitive raw source objects when they would make trail files unwieldy or unsafe. Share tools must inspect `source.raw` during redaction before producing a shared artifact.
 
@@ -1661,6 +1693,8 @@ Warnings (non-fatal):
 - Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
   - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).
   - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
+- A `tool_result` paired by sequential fallback when two or more unmatched prior same-branch `tool_call` candidates existed emits `ambiguous_sequential_pairing` at `/payload`.
+- A `user_query` question with duplicate option labels among options that do not carry stable option ids emits `duplicate_option_labels` at the repeated option's `/payload/questions/<index>/options/<index>/label`.
 - `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§14.1).
 - `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
@@ -1763,9 +1797,11 @@ Initial public draft. v0.1.0 defines:
 - Session headers may carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
+- Tool-surface fidelity for truncated tool-call args, string-replacement `file_edit`, branch-scoped pairing warnings, stable user-query option ids, stricter attachment identity, and tool-result meta key hygiene.
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 - Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
+- During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
 - During the v0.1.0 draft cycle, writer-strict identity and encoding were hardened: ULIDs are uppercase, UUIDs are lowercase, timestamps carry schema `format:"date-time"` annotation, and strings with unpaired surrogates are invalid (`ill_formed_string`).
 
 ---

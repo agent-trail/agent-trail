@@ -155,6 +155,22 @@ export type ToolKind =
   | "subagent_invoke"
   | "other";
 /**
+ * An image or file carried by a message or tool result, by reference. v0.1.0 uri schemes are references only (https:, local file:, content-addressed sha256:); inline data: payloads are deferred.
+ */
+export type Attachment = {
+  kind: "image" | "file" | "other";
+  media_type?: string;
+} & (
+  | {
+      uri: string;
+      name?: string;
+    }
+  | {
+      name: string;
+      uri?: string;
+    }
+);
+/**
  * Token usage for this source agent envelope. May appear on agent_message, agent_thinking, or tool_call when that entry is the first entry derived from the envelope. input_tokens/output_tokens are deltas for this envelope; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
  */
 export type AgentMessageUsage = {
@@ -362,18 +378,13 @@ export interface UserMessage {
   type?: "user_message";
   payload?: {
     text: string;
+    /**
+     * Authorship marker for user-role text. Absent means user-authored.
+     */
+    origin?: "user" | "injected" | "mixed" | `x-${string}/${string}`;
     attachments?: Attachment[];
   };
   [k: string]: unknown;
-}
-/**
- * An image or file carried by a message or tool result, by reference. v0.1.0 uri schemes are references only (https:, local file:, content-addressed sha256:); inline data: payloads are deferred.
- */
-export interface Attachment {
-  kind: "image" | "file" | "other";
-  media_type?: string;
-  uri?: string;
-  name?: string;
 }
 export interface AgentMessage {
   type?: "agent_message";
@@ -409,6 +420,9 @@ export interface ToolCall {
       [k: string]: unknown;
     };
     usage?: AgentMessageUsage;
+    truncated?: boolean;
+    args_size?: number;
+    overflow_ref?: string | null;
   };
   [k: string]: unknown;
 }
@@ -528,6 +542,7 @@ export interface UserQuery {
         is_secret?: boolean;
         allow_other?: boolean;
         options?: {
+          id?: string;
           label: string;
           description?: string;
         }[];
@@ -540,6 +555,7 @@ export interface UserQuery {
         is_secret?: boolean;
         allow_other?: boolean;
         options?: {
+          id?: string;
           label: string;
           description?: string;
         }[];
@@ -581,7 +597,6 @@ export interface SystemEvent {
      */
     kind:
       | "session_start"
-      | "session_end"
       | "turn_start"
       | "turn_end"
       | "subagent_start"
@@ -591,7 +606,6 @@ export interface SystemEvent {
       | "hook_fired"
       | "permission_request"
       | "permission_decision"
-      | "permission_mode_change"
       | "cwd_change"
       | "env_snapshot"
       | "task_started"
@@ -599,6 +613,7 @@ export interface SystemEvent {
       | "plan_completed"
       | "turn_aborted"
       | "tool_decision"
+      | "context_injected"
       | "hook_progress"
       | "queue_operation"
       | "heartbeat"
@@ -623,7 +638,7 @@ export interface AgentThinking {
   payload?: {
     text: string;
     model?: string;
-    level?: "low" | "medium" | "high" | "xhigh";
+    level?: string;
     usage?: AgentMessageUsage;
   };
   [k: string]: unknown;
@@ -805,17 +820,8 @@ export interface CapabilityChange {
          * @minItems 1
          */
         added: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -829,21 +835,12 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
         /**
          * @minItems 1
          */
         removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -857,21 +854,12 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
         /**
          * @minItems 1
          */
         changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];
-        /**
-         * @minItems 1
-         */
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
@@ -885,17 +873,8 @@ export interface CapabilityChange {
           | "unloaded"
           | "error"
           | "instructions_updated";
-        /**
-         * @minItems 1
-         */
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
-        /**
-         * @minItems 1
-         */
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
-        /**
-         * @minItems 1
-         */
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
         /**
          * @minItems 1

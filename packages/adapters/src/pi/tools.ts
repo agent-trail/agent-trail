@@ -1,37 +1,6 @@
 import { coerceInt as maybeNumber, quoteShellArg } from "@agent-trail/adapter-kit";
 import { isObject, jsonObjectValue, stringValue } from "./source.ts";
 
-// `oldText` / `newText` may span multiple lines. A unified diff requires every
-// removed line to be prefixed with `-` and every added line with `+`, so we
-// split on `\n` and prefix each line individually. Empty `oldText` (pure insert)
-// and empty `newText` (pure delete) emit no `-`/`+` lines respectively.
-function prefixLines(text: string, prefix: string): string[] {
-  if (text.length === 0) return [];
-  return text.split("\n").map((line) => `${prefix}${line}`);
-}
-
-function lineCount(text: string): number {
-  return text.length === 0 ? 0 : text.split("\n").length;
-}
-
-// Pi `edit` shapes (single-replace, edits[], single-path multi) carry no line
-// numbers, only oldText/newText pairs. To stay spec §10.1 conformant we emit
-// `@@ -1,<oldN> +1,<newN> @@` with synthetic start lines (1) and accurate
-// line counts derived from the texts themselves. Downstream readers that
-// only care about hunk bodies render correctly; strict unified-diff parsers
-// accept the header format. `source.raw` preserves the original Pi args.
-function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
-  return [
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    ...hunks.flatMap((h) => [
-      `@@ -1,${lineCount(h.oldText)} +1,${lineCount(h.newText)} @@`,
-      ...prefixLines(h.oldText, "-"),
-      ...prefixLines(h.newText, "+"),
-    ]),
-  ].join("\n");
-}
-
 const PATCH_FILE_MARKER = /^\*\*\* (Update|Add|Delete) File: (.+)$/gm;
 
 function endPatchIndex(input: string, start: number): number {
@@ -133,9 +102,10 @@ export function toolKindAndArgs(
       //   multi-replace:   { multi: [{ path, oldText, newText }, ...] }   (path is per-entry)
       //   edits-array:     { path, edits: [{ oldText, newText }, ...] }   (current pi-mono schema)
       //   apply_patch:     { patch: "*** Begin Patch\n*** Update File: ...\n..." }
-      // Single-file shapes map to spec §10.1 `file_edit`. Multi-file shapes map
-      // to `file_patch` so consumers can preserve one source operation touching
-      // several paths. Unknown shapes still fall through to `other`.
+      // One-hunk replacement shapes map to spec §10.1 `file_edit` replacement
+      // args. Multi-hunk/no-line-context shapes fall through to `other` so we
+      // do not fabricate diff hunk headers. Real patch text still maps to
+      // `file_edit`/`file_patch`.
       const topPath = stringValue(args.path) ?? stringValue(args.file_path);
       const editsArray = Array.isArray(args.edits) ? args.edits : undefined;
       if (editsArray !== undefined && topPath !== undefined) {
@@ -149,10 +119,14 @@ export function toolKindAndArgs(
           }
         }
         if (hunks.length > 0) {
-          return {
-            tool: "file_edit",
-            args: { path: topPath, diff: buildDiff(topPath, hunks) },
-          };
+          if (hunks.length === 1) {
+            const hunk = hunks[0]!;
+            return {
+              tool: "file_edit",
+              args: { path: topPath, old: hunk.oldText, new: hunk.newText },
+            };
+          }
+          break;
         }
         break;
       }
@@ -177,25 +151,18 @@ export function toolKindAndArgs(
           arr.push({ oldText: oldText ?? "", newText: newText ?? "" });
           editsByPath.set(p, arr);
         }
-        if (!bad && editsByPath.size > 1) {
-          return {
-            tool: "file_patch",
-            args: {
-              files: [...editsByPath.entries()].map(([path, hunks]) => ({
-                path,
-                diff: buildDiff(path, hunks),
-              })),
-              atomic: true,
-            },
-          };
-        }
+        if (!bad && editsByPath.size > 1) break;
         if (!bad && editsByPath.size === 1) {
           const [path, hunks] = [...editsByPath.entries()][0] as [
             string,
             Array<{ oldText: string; newText: string }>,
           ];
           if (hunks.length > 0) {
-            return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+            if (hunks.length === 1) {
+              const hunk = hunks[0]!;
+              return { tool: "file_edit", args: { path, old: hunk.oldText, new: hunk.newText } };
+            }
+            break;
           }
         }
         break;
@@ -216,10 +183,7 @@ export function toolKindAndArgs(
         if (oldText !== undefined || newText !== undefined) {
           return {
             tool: "file_edit",
-            args: {
-              path: topPath,
-              diff: buildDiff(topPath, [{ oldText: oldText ?? "", newText: newText ?? "" }]),
-            },
+            args: { path: topPath, old: oldText ?? "", new: newText ?? "" },
           };
         }
       }

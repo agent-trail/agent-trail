@@ -37,6 +37,12 @@ Header + one `user_message` + one `agent_message`. No `parent_id`, no `content_h
 
 Expected: no diagnostics under either profile.
 
+#### `valid/user-message-origin-injected.trail.jsonl`
+
+Header + one `user_message` whose payload marks runtime-injected user-role content with `origin:"injected"`.
+
+Expected: no diagnostics under either profile.
+
 #### `valid/session-header-metadata-base.trail.jsonl`
 
 Header carries base `name`, `description`, and `tags`, followed by a later

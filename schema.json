@@ -342,6 +342,16 @@
         },
         "name": { "type": "string" }
       },
+      "anyOf": [
+        {
+          "properties": { "uri": {} },
+          "required": ["uri"]
+        },
+        {
+          "properties": { "name": {} },
+          "required": ["name"]
+        }
+      ],
       "additionalProperties": false
     },
 
@@ -617,6 +627,16 @@
             "required": ["text"],
             "properties": {
               "text": { "type": "string" },
+              "origin": {
+                "type": "string",
+                "description": "Authorship marker for user-role text. Absent means user-authored.",
+                "anyOf": [
+                  { "enum": ["user", "injected", "mixed"] },
+                  {
+                    "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$"
+                  }
+                ]
+              },
               "attachments": {
                 "type": "array",
                 "items": { "$ref": "#/$defs/attachment" }
@@ -682,12 +702,43 @@
             "properties": {
               "tool": { "$ref": "#/$defs/toolKind" },
               "args": { "type": "object" },
-              "usage": { "$ref": "#/$defs/agentMessageUsage" }
+              "usage": { "$ref": "#/$defs/agentMessageUsage" },
+              "truncated": { "type": "boolean" },
+              "args_size": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "UTF-8 byte length of the original args object before truncation. Required when truncated is true."
+              },
+              "overflow_ref": {
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
+              }
             },
             "additionalProperties": false,
+            "dependentSchemas": {
+              "truncated": {
+                "if": {
+                  "properties": {
+                    "truncated": { "const": true }
+                  },
+                  "required": ["truncated"]
+                },
+                "then": {
+                  "properties": {
+                    "args_size": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["args_size"]
+                }
+              }
+            },
             "allOf": [
               {
-                "if": { "properties": { "tool": { "const": "file_read" } } },
+                "if": { "properties": { "tool": { "const": "file_read" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -708,7 +759,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_write" } } },
+                "if": { "properties": { "tool": { "const": "file_write" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -724,23 +775,38 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_edit" } } },
+                "if": { "properties": { "tool": { "const": "file_edit" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
-                      "type": "object",
-                      "required": ["path", "diff"],
-                      "properties": {
-                        "path": { "type": "string" },
-                        "diff": { "type": "string" }
-                      },
-                      "additionalProperties": false
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "required": ["path", "diff"],
+                          "properties": {
+                            "path": { "type": "string" },
+                            "diff": { "type": "string" }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": ["path", "old", "new"],
+                          "properties": {
+                            "path": { "type": "string" },
+                            "old": { "type": "string" },
+                            "new": { "type": "string" },
+                            "replace_all": { "type": "boolean" }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
                     }
                   }
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_patch" } } },
+                "if": { "properties": { "tool": { "const": "file_patch" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -768,7 +834,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_list" } } },
+                "if": { "properties": { "tool": { "const": "file_list" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -785,7 +851,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "file_search" } } },
+                "if": { "properties": { "tool": { "const": "file_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -802,7 +868,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_command" } } },
+                "if": { "properties": { "tool": { "const": "shell_command" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -819,7 +885,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_output" } } },
+                "if": { "properties": { "tool": { "const": "shell_output" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -833,7 +899,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "shell_input" } } },
+                "if": { "properties": { "tool": { "const": "shell_input" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -850,7 +916,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "mcp_call" } } },
+                "if": { "properties": { "tool": { "const": "mcp_call" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -868,7 +934,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "web_fetch" } } },
+                "if": { "properties": { "tool": { "const": "web_fetch" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -885,7 +951,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "web_search" } } },
+                "if": { "properties": { "tool": { "const": "web_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -900,7 +966,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "tool_search" } } },
+                "if": { "properties": { "tool": { "const": "tool_search" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -916,7 +982,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "notebook_edit" } } },
+                "if": { "properties": { "tool": { "const": "notebook_edit" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -934,7 +1000,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "subagent_invoke" } } },
+                "if": { "properties": { "tool": { "const": "subagent_invoke" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -951,7 +1017,7 @@
                 }
               },
               {
-                "if": { "properties": { "tool": { "const": "other" } } },
+                "if": { "properties": { "tool": { "const": "other" } }, "required": ["tool"] },
                 "then": {
                   "properties": {
                     "args": {
@@ -991,7 +1057,10 @@
                 "description": "UTF-8 byte length of the original output before truncation. Required when truncated is true."
               },
               "overflow_ref": {
-                "oneOf": [{ "type": "string" }, { "type": "null" }]
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
               },
               "error": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]
@@ -1067,6 +1136,9 @@
                     },
                     "additionalProperties": false
                   }
+                },
+                "propertyNames": {
+                  "pattern": "^(?:[a-z][a-z0-9_]*|x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*)$"
                 },
                 "additionalProperties": { "type": "object" }
               }
@@ -1194,6 +1266,7 @@
                         "type": "object",
                         "required": ["label"],
                         "properties": {
+                          "id": { "type": "string", "minLength": 1 },
                           "label": { "type": "string" },
                           "description": { "type": "string" }
                         },
@@ -1272,7 +1345,6 @@
                   {
                     "enum": [
                       "session_start",
-                      "session_end",
                       "turn_start",
                       "turn_end",
                       "subagent_start",
@@ -1282,7 +1354,6 @@
                       "hook_fired",
                       "permission_request",
                       "permission_decision",
-                      "permission_mode_change",
                       "cwd_change",
                       "env_snapshot",
                       "task_started",
@@ -1290,6 +1361,7 @@
                       "plan_completed",
                       "turn_aborted",
                       "tool_decision",
+                      "context_injected",
                       "hook_progress",
                       "queue_operation",
                       "heartbeat",
@@ -1326,7 +1398,7 @@
             "properties": {
               "text": { "type": "string" },
               "model": { "type": "string" },
-              "level": { "type": "string", "enum": ["low", "medium", "high", "xhigh"] },
+              "level": { "type": "string", "minLength": 1 },
               "usage": { "$ref": "#/$defs/agentMessageUsage" }
             },
             "additionalProperties": false
@@ -1604,10 +1676,10 @@
         "properties": {
           "type": { "const": "capability_change" },
           "payload": {
-            "anyOf": [
+            "allOf": [
               {
                 "type": "object",
-                "required": ["scope", "reason", "added"],
+                "required": ["scope", "reason"],
                 "properties": {
                   "scope": {
                     "type": "string",
@@ -1650,136 +1722,12 @@
                 "additionalProperties": false
               },
               {
-                "type": "object",
-                "required": ["scope", "reason", "removed"],
-                "properties": {
-                  "scope": {
-                    "type": "string",
-                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
-                  },
-                  "reason": {
-                    "type": "string",
-                    "enum": [
-                      "registered",
-                      "deregistered",
-                      "connected",
-                      "disconnected",
-                      "loaded",
-                      "unloaded",
-                      "error",
-                      "instructions_updated"
-                    ]
-                  },
-                  "added": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  },
-                  "removed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
-                  },
-                  "changed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
-                  },
-                  "snapshot": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["scope", "reason", "changed"],
-                "properties": {
-                  "scope": {
-                    "type": "string",
-                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
-                  },
-                  "reason": {
-                    "type": "string",
-                    "enum": [
-                      "registered",
-                      "deregistered",
-                      "connected",
-                      "disconnected",
-                      "loaded",
-                      "unloaded",
-                      "error",
-                      "instructions_updated"
-                    ]
-                  },
-                  "added": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  },
-                  "removed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
-                  },
-                  "changed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
-                  },
-                  "snapshot": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "required": ["scope", "reason", "snapshot"],
-                "properties": {
-                  "scope": {
-                    "type": "string",
-                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
-                  },
-                  "reason": {
-                    "type": "string",
-                    "enum": [
-                      "registered",
-                      "deregistered",
-                      "connected",
-                      "disconnected",
-                      "loaded",
-                      "unloaded",
-                      "error",
-                      "instructions_updated"
-                    ]
-                  },
-                  "added": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  },
-                  "removed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityRemovedItem" }
-                  },
-                  "changed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityChangedItem" }
-                  },
-                  "snapshot": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": { "$ref": "#/$defs/capabilityAddedItem" }
-                  }
-                },
-                "additionalProperties": false
+                "anyOf": [
+                  { "type": "object", "required": ["added"] },
+                  { "type": "object", "required": ["removed"] },
+                  { "type": "object", "required": ["changed"] },
+                  { "type": "object", "required": ["snapshot"] }
+                ]
               }
             ]
           }
