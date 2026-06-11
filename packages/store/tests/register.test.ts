@@ -8,6 +8,7 @@ import { gzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   computeContentHash,
+  GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
   GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
   parseJsonlString,
   verifyContentHash,
@@ -133,6 +134,31 @@ test("registerTrail rejects .trail.jsonl.gz input over the decompressed byte lim
     path: "",
   });
   expect(result.diagnostics[0]?.message).toContain("decompressed payload exceeds");
+
+  const objectsDir = join(storeRoot, "objects", "sha256");
+  await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });
+
+  rmSync(inputDir, { recursive: true, force: true });
+});
+
+test("registerTrail rejects .trail.jsonl.gz input over the compressed byte limit", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
+  const gzPath = join(inputDir, "oversized-compressed.trail.jsonl.gz");
+  await writeFile(gzPath, Buffer.alloc(GZIPPED_TRAIL_MAX_COMPRESSED_BYTES + 1));
+
+  const result = await registerTrail(gzPath, { storeRoot });
+
+  expect(result.status).toBe("invalid");
+  expect(result.contentHash).toBeNull();
+  expect(result.objectPath).toBeNull();
+  expect(result.diagnostics).toHaveLength(1);
+  expect(result.diagnostics[0]).toMatchObject({
+    severity: "error",
+    code: "gzip_decode_failed",
+    line: 0,
+    path: "",
+  });
+  expect(result.diagnostics[0]?.message).toContain("compressed payload exceeds");
 
   const objectsDir = join(storeRoot, "objects", "sha256");
   await expect(stat(objectsDir)).rejects.toMatchObject({ code: "ENOENT" });

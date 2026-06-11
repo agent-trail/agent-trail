@@ -1,4 +1,5 @@
 import {
+  assertGzippedTrailCompressedSize,
   createDiagnostic,
   type Diagnostic,
   decodeGzippedTrailBytes,
@@ -45,6 +46,7 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
   if (isGzippedTrailPath(path)) {
     let text: string;
     try {
+      assertGzippedTrailCompressedSize(path, file.size);
       text = await decodeGzippedTrailBytes(new Uint8Array(await file.arrayBuffer()), path);
     } catch (error) {
       if (error instanceof TrailFileDecodeError) {
@@ -96,6 +98,7 @@ export function addValidateCommand(program: Command, writeResult: ResultWriter):
       }),
     [
       "trail validate session.trail.jsonl",
+      "trail validate session.trail.jsonl.gz",
       "trail validate session.trail.jsonl --profile reader-tolerant",
     ],
   );

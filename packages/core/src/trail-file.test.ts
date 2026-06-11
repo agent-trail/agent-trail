@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { gzipSync } from "node:zlib";
 import {
+  assertGzippedTrailCompressedSize,
   decodeGzippedTrailBytes,
+  GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
   GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
   isGzippedTrailPath,
   TrailFileDecodeError,
@@ -42,6 +44,17 @@ test("decodeGzippedTrailBytes rejects payloads over the decompressed byte limit"
 
   await expect(decodeGzippedTrailBytes(oversized, "oversized.trail.jsonl.gz")).rejects.toThrow(
     `decompressed payload exceeds ${GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES} bytes`,
+  );
+});
+
+test("gzip helpers reject payloads over the compressed byte limit", async () => {
+  const oversized = Buffer.alloc(GZIPPED_TRAIL_MAX_COMPRESSED_BYTES + 1);
+
+  expect(() =>
+    assertGzippedTrailCompressedSize("oversized.trail.jsonl.gz", oversized.byteLength),
+  ).toThrow(TrailFileDecodeError);
+  await expect(decodeGzippedTrailBytes(oversized, "oversized.trail.jsonl.gz")).rejects.toThrow(
+    `compressed payload exceeds ${GZIPPED_TRAIL_MAX_COMPRESSED_BYTES} bytes`,
   );
 });
 

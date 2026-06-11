@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { Diagnostic } from "@agent-trail/core";
 import {
+  assertGzippedTrailCompressedSize,
   canonicalizeRecords,
   createDiagnostic,
   decodeGzippedTrailBytes,
@@ -141,6 +142,8 @@ async function readTrailFileText(
   }
 
   try {
+    const fileInfo = await stat(filePath);
+    assertGzippedTrailCompressedSize(filePath, fileInfo.size);
     return { text: await decodeGzippedTrailBytes(await readFile(filePath), filePath) };
   } catch (error) {
     if (error instanceof TrailFileDecodeError) {

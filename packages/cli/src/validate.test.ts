@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES } from "@agent-trail/core";
+import {
+  GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
+  GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
+} from "@agent-trail/core";
 import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
@@ -156,6 +159,26 @@ test("oversized gzipped trail exits 1 with decode diagnostic before validation",
       severity: "error",
       code: "gzip_decode_failed",
       message: expect.stringContaining("decompressed payload exceeds"),
+    }),
+  ]);
+});
+
+test("compressed-oversized gzipped trail exits 1 before reading the body", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "oversized-compressed.trail.jsonl.gz");
+  await Bun.write(path, Buffer.alloc(GZIPPED_TRAIL_MAX_COMPRESSED_BYTES + 1));
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+      message: expect.stringContaining("compressed payload exceeds"),
     }),
   ]);
 });
