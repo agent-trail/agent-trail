@@ -12,27 +12,6 @@ function agentTrailId(value: unknown): string | undefined {
     : undefined;
 }
 
-function prefixLines(text: string, prefix: string): string[] {
-  if (text.length === 0) return [];
-  return text.split("\n").map((line) => `${prefix}${line}`);
-}
-
-function lineCount(text: string): number {
-  return text.length === 0 ? 0 : text.split("\n").length;
-}
-
-function buildDiff(path: string, hunks: Array<{ oldText: string; newText: string }>): string {
-  return [
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    ...hunks.flatMap((hunk) => [
-      `@@ -1,${lineCount(hunk.oldText)} +1,${lineCount(hunk.newText)} @@`,
-      ...prefixLines(hunk.oldText, "-"),
-      ...prefixLines(hunk.newText, "+"),
-    ]),
-  ].join("\n");
-}
-
 export function toolKindAndArgs(
   name: string | undefined,
   input: unknown,
@@ -87,11 +66,14 @@ export function toolKindAndArgs(
       const oldString = stringValue(args.old_string);
       const newString = stringValue(args.new_string);
       if (path !== undefined && (oldString !== undefined || newString !== undefined)) {
+        const replaceAll = typeof args.replace_all === "boolean" ? args.replace_all : undefined;
         return {
           tool: "file_edit",
           args: {
             path,
-            diff: buildDiff(path, [{ oldText: oldString ?? "", newText: newString ?? "" }]),
+            old: oldString ?? "",
+            new: newString ?? "",
+            ...(replaceAll !== undefined ? { replace_all: replaceAll } : {}),
           },
         };
       }
@@ -114,20 +96,12 @@ export function toolKindAndArgs(
       }
       if (byPath.size === 1) {
         for (const [path, hunks] of byPath.entries()) {
-          return { tool: "file_edit", args: { path, diff: buildDiff(path, hunks) } };
+          if (hunks.length === 1) {
+            const hunk = hunks[0]!;
+            return { tool: "file_edit", args: { path, old: hunk.oldText, new: hunk.newText } };
+          }
+          break;
         }
-      }
-      if (byPath.size > 1) {
-        return {
-          tool: "file_patch",
-          args: {
-            files: [...byPath.entries()].map(([path, hunks]) => ({
-              path,
-              diff: buildDiff(path, hunks),
-            })),
-            atomic: true,
-          },
-        };
       }
       break;
     }

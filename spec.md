@@ -608,7 +608,7 @@ A user-role message. By default this is text typed by the human user; `payload.o
 
 `origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
 
-Attachment `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
+Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers may use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
 
 #### `agent_message`
 
@@ -644,7 +644,7 @@ A text response from the agent.
 | `usage` | no | object | token usage for the source envelope; see below |
 | `attachments` | no | array | agent-side images or files by reference (e.g. a generated chart or vision output); same object shape as `user_message.payload.attachments` |
 
-`attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, `uri`, `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
+`attachments[]` entries share one object shape across `user_message`, `agent_message`, and `tool_result` (`kind` ∈ `image`/`file`/`other`, optional `media_type`, and at least one of `uri` or `name`). The same v0.1.0 `uri` reference policy applies: `https:`, local `file:`, or content-addressed `sha256:`; inline `data:` payloads are deferred.
 
 ##### `agent_message.payload.usage`
 
@@ -744,7 +744,10 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
   "ts": "...",
   "payload": {
     "tool": "file_read",
-    "args": { "path": "package.json" }
+    "args": { "path": "package.json" },
+    "truncated": false,
+    "args_size": 23,
+    "overflow_ref": null
   },
   "semantic": {
     "call_id": "toolu_01abc"
@@ -756,6 +759,9 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 |---|---|---|---|
 | `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
+| `truncated` | no | boolean | true when `args` is a bounded excerpt rather than complete tool arguments |
+| `args_size` | conditional | integer | original serialized argument byte size; required when `truncated: true` |
+| `overflow_ref` | no | string or null | optional content-addressed reference to full argument bytes when `args` is truncated; writer-strict values use `sha256:<64 lowercase hex>` |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
@@ -911,7 +917,7 @@ The agent asks the user one or more structured questions and yields control unti
 | `multi_select` | no | boolean | True when the user may select multiple options. Omitted means false. |
 | `is_secret` | no | boolean | True when answers should be hidden and stripped by redaction. Omitted means false. |
 | `allow_other` | no | boolean | True when free-form input beyond listed options is allowed. Omitted means false. |
-| `options` | no | array | Option objects with required `label` and optional `description`. |
+| `options` | no | array | Option objects with required `label`, optional stable `id`, and optional `description`. |
 
 #### `user_query_response`
 
@@ -941,7 +947,7 @@ The user's response to a `user_query`. `payload.for_id` links to the query entry
 
 | Answer field | Required | Type | Notes |
 |---|---|---|---|
-| `selected` | yes | string[] | Selected option labels. Use one value for single-select answers. |
+| `selected` | yes | string[] | Selected option ids when that question's options carry ids, otherwise selected option labels. Use one value for single-select answers. |
 | `other` | no | string | Free-form answer when `allow_other` was used. |
 
 Privacy: share-time redaction MUST strip answers for questions whose `is_secret` is true, regardless of pattern matching.
@@ -1404,17 +1410,17 @@ Writers should populate `semantic.call_id` on tool_call/tool_result pairs when t
 
 ### 9.5 Tool call terminal pairing
 
-`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
+`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` should reference the matching `tool_call`. Writers MUST populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
 
 When `tool_result.payload.for_id` is null, missing, or refers to a non-existent event, readers use these fallback rules in order:
 
 1. **Semantic match.** If both events have `semantic.call_id` and they're equal, pair them.
-2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call`.
+2. **Sequential match.** Pair the `tool_result` with the most recent prior unmatched `tool_call` in the same branch scope. Sequential fallback considers only calls in the same nearest `parent_id` ancestry as the result, so an inline subagent subtree cannot capture a parent timeline result and a parent timeline result cannot capture a child subtree call. Linear sessions without `parent_id` are unchanged.
 3. **Heuristic match.** Readers may use further heuristics (timestamp proximity, payload shape) but must flag the pairing as uncertain in rendered output.
 
 Writers should avoid relying on fallbacks. Populate `for_id` when reliable; use `semantic.call_id` when the source's native ID doesn't map cleanly to event `id`. Do not use semantic or sequential fallback pairing for `tool_call_aborted`; if a source cannot identify the call, emit `scope:"turn"` without `for_id`.
 
-Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
+Validators apply the deterministic pairing rules when computing the "unmatched `tool_call` at EOF" warning (§16.4): explicit `for_id` references from `tool_result` and call-scoped `tool_call_aborted` first, then fallback rules 1 and 2 above for `tool_result` only (semantic match, branch-scoped sequential match). The heuristic rule (3) is reader-only — it produces uncertain pairings that readers must flag in rendered output, so validators do not apply it. A `tool_call` is considered matched when one of these deterministic methods pairs it with a `tool_result` or call-scoped `tool_call_aborted`.
 
 ### 9.6 Unknown event types
 
@@ -1447,7 +1453,7 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 |---|---|
 | `file_read` | `{ path, range? }` |
 | `file_write` | `{ path, content }` |
-| `file_edit` | `{ path, diff }` (unified diff) |
+| `file_edit` | `{ path, diff }` (unified diff) or `{ path, old, new, replace_all? }` |
 | `file_patch` | `{ files: [{ path, diff }], atomic? }` |
 | `file_list` | `{ path, recursive?, glob? }` |
 | `file_search` | `{ query, path?, glob? }` |
@@ -1466,7 +1472,14 @@ Checklist and plan snapshots use `task_plan_update` ([§9.2](#9-2-mandatory-even
 
 ### 10.1 `file_edit`
 
-The `diff` is a unified diff:
+`file_edit` has two exclusive argument forms:
+
+- `{ path, diff }` where `diff` is a unified diff.
+- `{ path, old, new, replace_all? }` for sources that record only string replacement with no line context.
+
+Writers MUST prefer the diff form when a real unified diff is derivable from source data. Writers MUST NOT fabricate hunk headers to fake the diff form.
+
+The `diff` form uses a unified diff:
 
 ```diff
 --- a/src/main.ts
@@ -1597,9 +1610,19 @@ Writers MAY truncate large `tool_result` outputs to keep trails tractable. The w
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
 | `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
-| `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
+| `overflow_ref` | string or null | optional content-addressed reference to the full output (`sha256:<64 lowercase hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
+
+Tool call arguments use the same top-level marker on `tool_call.payload`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `truncated` | boolean | `true` when `args` was shortened from its original object |
+| `args_size` | integer ≥0 | UTF-8 byte length of the JCS-serialized original `args` object before truncation; required when `truncated` is true |
+| `overflow_ref` | string or null | optional content-addressed reference to the full args object (`sha256:<64 lowercase hex>`) |
+
+The marker applies to the `args` object as a whole. Individual arg strings keep their declared per-toolkind shape, just shortened. Specific thresholds and algorithms remain writer policy.
 
 `source.raw` is optional. Writers should omit or summarize very large or sensitive raw source objects when they would make trail files unwieldy or unsafe. Share tools must inspect `source.raw` during redaction before producing a shared artifact.
 
@@ -1687,6 +1710,8 @@ Warnings (non-fatal):
 - Writers should emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
   - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §9.3).
   - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
+- A `tool_result` paired by sequential fallback when two or more unmatched prior same-branch `tool_call` candidates existed emits `ambiguous_sequential_pairing` at `/payload`.
+- A `user_query` question with duplicate option labels among options that do not carry stable option ids emits `duplicate_option_labels` at the repeated option's `/payload/questions/<index>/options/<index>/label`.
 - `session_end.payload.final_message_id`, when present, should reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§14.1).
 - `source.raw` should not contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
@@ -1789,6 +1814,7 @@ Initial public draft. v0.1.0 defines:
 - Session headers may carry base `name`, `description`, and `tags`; `session_metadata_update` events replay on top of those base values. `vcs.type` allows reserved systems or `x-<vendor>/<name>` extensions, and envelope `fork_from.trail_id` uses the standard id shape.
 - Multi-segment session primitives (`session_uid`, `segment.seq`, `segment.prev_content_hash`) and reconciliation invariants (§8.5).
 - The optional header `stream` field, the `session_end` event, and the recommended `system_event` heartbeat convention (§8.4, §9.3).
+- Tool-surface fidelity for truncated tool-call args, string-replacement `file_edit`, branch-scoped pairing warnings, stable user-query option ids, stricter attachment identity, and tool-result meta key hygiene.
 - The `source.raw.envelope_ref` inline-first / ref-subsequent envelope dedup convention (§9.7), the `{ elided: true, size_bytes: N }` elide marker for `source.raw` (§14.1), and the writer-side redaction requirement for credential patterns in `source.raw`.
 - Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.

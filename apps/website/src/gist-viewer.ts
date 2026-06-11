@@ -24,6 +24,7 @@ export type ViewerEventKind =
 export type ViewerEvent = {
   id: string | null;
   line: number;
+  parentId?: string;
   ts: string | null;
   type: string;
   kind: ViewerEventKind;
@@ -811,11 +812,17 @@ function baseEvent(
   return {
     id: stringValue(record.value.id) ?? null,
     line: record.line,
+    ...optionalParentId(record),
     sessionIndex,
     ts: stringValue(record.value.ts) ?? null,
     type: stringValue(record.value.type) ?? "unknown",
     ...opts,
   };
+}
+
+function optionalParentId(record: TrailRecord): { parentId?: string } {
+  const parentId = stringValue(record.value.parent_id);
+  return parentId === undefined ? {} : { parentId };
 }
 
 function fallbackBody(payload: Record<string, unknown> | undefined): string | null {

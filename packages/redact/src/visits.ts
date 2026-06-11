@@ -103,6 +103,9 @@ function* visitAttachments(payload: Record<string, unknown>, index: number): Gen
     if (typeof obj.uri === "string") {
       yield keyVisit(obj, "uri", index, `records[${index}].payload.attachments[${i}].uri`);
     }
+    if (typeof obj.name === "string") {
+      yield keyVisit(obj, "name", index, `records[${index}].payload.attachments[${i}].name`);
+    }
   }
 }
 

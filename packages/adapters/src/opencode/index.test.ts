@@ -103,7 +103,7 @@ test("OpenCode source schema recognizes every upstream-known part type", () => {
   );
 });
 
-test("mapTool builds valid unified diff lines for multiline OpenCode edits", () => {
+test("mapTool preserves OpenCode replacement-form edits", () => {
   expect(
     mapTool("edit", {
       path: "a.md",
@@ -114,7 +114,8 @@ test("mapTool builds valid unified diff lines for multiline OpenCode edits", () 
     tool: "file_edit",
     args: {
       path: "a.md",
-      diff: "--- a/a.md\n+++ b/a.md\n@@ -1,2 +1,2 @@\n-foo\n-bar\n+baz\n+qux",
+      old: "foo\nbar",
+      new: "baz\nqux",
     },
   });
 });

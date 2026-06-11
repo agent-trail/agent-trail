@@ -320,18 +320,44 @@ function selectedFor(
       : answerText.length > 0
         ? [answerText]
         : [];
+  const options = (Array.isArray(question.options) ? question.options : []).filter(
+    (option): option is Record<string, unknown> => option !== null && typeof option === "object",
+  );
+  const optionIds = new Set(
+    options.map((option) => option.id).filter((id): id is string => typeof id === "string"),
+  );
   const optionLabels = new Set(
-    (Array.isArray(question.options) ? question.options : [])
-      .filter(
-        (option): option is Record<string, unknown> =>
-          option !== null && typeof option === "object",
-      )
+    options
       .map((option) => option.label)
       .filter((label): label is string => typeof label === "string"),
   );
-  if (question.allow_other !== true || optionLabels.size === 0) return { selected };
-  const known = selected.filter((value) => optionLabels.has(value));
-  const unknown = selected.filter((value) => !optionLabels.has(value));
+  const knownValues = new Set<string>();
+  const labelCounts = new Map<string, number>();
+  for (const option of options) {
+    const label = option.label;
+    const id = option.id;
+    if (typeof label === "string") labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    if (typeof id === "string") {
+      knownValues.add(id);
+    } else if (typeof label === "string") {
+      knownValues.add(label);
+    }
+  }
+  const labelToId = new Map<string, string>();
+  for (const option of options) {
+    const label = option.label;
+    const id = option.id;
+    if (typeof label === "string" && typeof id === "string" && labelCounts.get(label) === 1) {
+      labelToId.set(label, id);
+    }
+  }
+  const normalizedSelected = selected.map((value) => labelToId.get(value) ?? value);
+  const knownOptions = optionIds.size > 0 ? knownValues : optionLabels;
+  if (question.allow_other !== true || knownOptions.size === 0) {
+    return { selected: normalizedSelected };
+  }
+  const known = normalizedSelected.filter((value) => knownOptions.has(value));
+  const unknown = normalizedSelected.filter((value) => !knownOptions.has(value));
   return { selected: known, ...(unknown.length > 0 ? { other: unknown.join(", ") } : {}) };
 }
 

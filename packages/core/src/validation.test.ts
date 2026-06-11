@@ -772,7 +772,7 @@ test("reader-tolerant profile warns for unknown payload fields that strict rejec
 test("reader-tolerant profile warns for nested unknown payload fields", async () => {
   const text = [
     '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
-    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","future_field":true}]}}',
+    '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","name":"notes.txt","future_field":true}]}}',
   ].join("\n");
 
   const tolerantDiagnostics = await validateTrailString(text, { profile: "reader-tolerant" });
@@ -785,6 +785,212 @@ test("reader-tolerant profile warns for nested unknown payload fields", async ()
       message: 'Unknown payload field "future_field" preserved for reader-tolerant parsing',
     },
   ]);
+});
+
+test("tool_result payload meta keys must be toolkind-shaped or x-vendor", () => {
+  const invalidKey = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"meta":{"Shell-Command":{}}}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: { ok: true, meta: { "Shell-Command": {} } },
+    },
+  });
+  expect(invalidKey.some((d) => d.severity === "error")).toBe(true);
+
+  const futureToolkind = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"meta":{"shellcommand":{}}}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: { ok: true, meta: { shellcommand: {} } },
+    },
+  });
+  expect(futureToolkind).toEqual([]);
+});
+
+test("tool_call args truncation requires args_size when truncated is true", () => {
+  const missingSize = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"truncated":true}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        tool: "file_write",
+        args: { path: "big.txt", content: "x" },
+        truncated: true,
+      },
+    },
+  });
+  expect(missingSize).toContainEqual({
+    line: 2,
+    path: "/payload/args_size",
+    severity: "error",
+    code: "required",
+    message: "must have required property 'args_size'",
+  });
+
+  const valid = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"truncated":true,"args_size":42,"overflow_ref":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        tool: "file_write",
+        args: { path: "big.txt", content: "x" },
+        truncated: true,
+        args_size: 42,
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    },
+  });
+  expect(valid).toEqual([]);
+
+  const urlRef = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"overflow_ref":"https://blob.example/full-args?sig=secret"}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        tool: "file_write",
+        args: { path: "big.txt", content: "x" },
+        overflow_ref: "https://blob.example/full-args?sig=secret",
+      },
+    },
+  });
+  expect(urlRef).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/overflow_ref",
+      severity: "error",
+      code: "oneOf",
+    }),
+  );
+});
+
+test("tool_result overflow_ref must be a content hash reference", () => {
+  const valid = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"output":"truncated","output_size":42,"truncated":true,"overflow_ref":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: {
+        ok: true,
+        output: "truncated",
+        output_size: 42,
+        truncated: true,
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    },
+  });
+  expect(valid).toEqual([]);
+
+  const urlRef = validateWriterStrictRecord({
+    line: 3,
+    raw: '{"type":"tool_result","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"ok":true,"overflow_ref":"https://blob.example/full-output?sig=secret"}}',
+    value: {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-17T14:00:06.000Z",
+      payload: {
+        ok: true,
+        overflow_ref: "https://blob.example/full-output?sig=secret",
+      },
+    },
+  });
+  expect(urlRef).toContainEqual(
+    expect.objectContaining({
+      line: 3,
+      path: "/payload/overflow_ref",
+      severity: "error",
+      code: "oneOf",
+    }),
+  );
+});
+
+test("file_edit accepts diff or old/new replacement forms exclusively", () => {
+  const replacement = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_edit","args":{"path":"a.ts","old":"foo","new":"bar"}}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        tool: "file_edit",
+        args: { path: "a.ts", old: "foo", new: "bar" },
+      },
+    },
+  });
+  expect(replacement).toEqual([]);
+
+  const pathOnly = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_edit","args":{"path":"a.ts"}}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { tool: "file_edit", args: { path: "a.ts" } },
+    },
+  });
+  expect(pathOnly.some((d) => d.severity === "error")).toBe(true);
+
+  const bothForms = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_edit","args":{"path":"a.ts","diff":"---","old":"foo"}}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: { tool: "file_edit", args: { path: "a.ts", diff: "---", old: "foo" } },
+    },
+  });
+  expect(bothForms.some((d) => d.severity === "error")).toBe(true);
+});
+
+test("attachment requires at least one of uri or name", () => {
+  const kindOnly = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file"}]}}',
+    value: {
+      type: "user_message",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        text: "hello",
+        attachments: [{ kind: "file" }],
+      },
+    },
+  });
+  expect(kindOnly.some((d) => d.severity === "error")).toBe(true);
+
+  const withName = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"user_message","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"hello","attachments":[{"kind":"file","name":"notes.txt"}]}}',
+    value: {
+      type: "user_message",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        text: "hello",
+        attachments: [{ kind: "file", name: "notes.txt" }],
+      },
+    },
+  });
+  expect(withName).toEqual([]);
 });
 
 test("reader-tolerant profile warns for ill-formed strings that strict rejects", async () => {

@@ -419,12 +419,7 @@ test("parseSession() does not decode oversized inline base64 attachments", async
     },
   ]);
   const um = trail.groups[0]!.entries.find((e) => e.type === "user_message");
-  expect((um?.payload as { attachments?: unknown }).attachments).toEqual([
-    {
-      kind: "image",
-      media_type: "image/png",
-    },
-  ]);
+  expect((um?.payload as { attachments?: unknown }).attachments).toBeUndefined();
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
@@ -1864,7 +1859,7 @@ test("parseSession() does not decode oversized hook_additional_context inline me
       entry.source?.original_type === "attachment.hook_additional_context",
   );
   const payload = evt?.payload as { data?: Record<string, unknown> };
-  expect(payload.data?.attachments).toEqual([{ kind: "image", media_type: "image/png" }]);
+  expect(payload.data?.attachments).toBeUndefined();
   expect(JSON.stringify(payload)).not.toContain(oversizedBase64);
   expect(JSON.stringify(evt?.source?.raw)).not.toContain(oversizedBase64);
   const diagnostics = await validateAdapterTrail(trail);
@@ -2377,19 +2372,44 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     args: { path: "src" },
   });
   expect(
-    toolKindAndArgs("MultiEdit", {
+    toolKindAndArgs("Edit", {
       file_path: "src/app.ts",
-      edits: [
-        { old_string: "a", new_string: "b" },
-        { old_string: "c", new_string: "d" },
-      ],
+      old_string: "a",
+      new_string: "b",
+      replace_all: true,
     }),
   ).toEqual({
     tool: "file_edit",
     args: {
       path: "src/app.ts",
-      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,1 @@\n-a\n+b\n@@ -1,1 +1,1 @@\n-c\n+d",
+      old: "a",
+      new: "b",
+      replace_all: true,
     },
+  });
+  expect(
+    toolKindAndArgs("MultiEdit", {
+      file_path: "src/app.ts",
+      edits: [{ old_string: "a", new_string: "b" }],
+    }),
+  ).toEqual({
+    tool: "file_edit",
+    args: {
+      path: "src/app.ts",
+      old: "a",
+      new: "b",
+    },
+  });
+  const samePathMulti = {
+    file_path: "src/app.ts",
+    edits: [
+      { old_string: "a", new_string: "b" },
+      { old_string: "c", new_string: "d" },
+    ],
+  };
+  expect(toolKindAndArgs("MultiEdit", samePathMulti)).toEqual({
+    tool: "other",
+    args: { name: "MultiEdit", args: samePathMulti },
   });
   expect(
     toolKindAndArgs("MultiEdit", {
@@ -2400,25 +2420,19 @@ test("toolKindAndArgs promotes common Claude tools out of other", () => {
     tool: "file_edit",
     args: {
       path: "src/app.ts",
-      diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d",
+      old: "a\nb",
+      new: "c\nd",
     },
   });
-  expect(
-    toolKindAndArgs("MultiEdit", {
-      edits: [
-        { file_path: "src/a.ts", old_string: "a", new_string: "b" },
-        { file_path: "src/b.ts", old_string: "c", new_string: "d" },
-      ],
-    }),
-  ).toEqual({
-    tool: "file_patch",
-    args: {
-      files: [
-        { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b" },
-        { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,1 @@\n-c\n+d" },
-      ],
-      atomic: true,
-    },
+  const multiFile = {
+    edits: [
+      { file_path: "src/a.ts", old_string: "a", new_string: "b" },
+      { file_path: "src/b.ts", old_string: "c", new_string: "d" },
+    ],
+  };
+  expect(toolKindAndArgs("MultiEdit", multiFile)).toEqual({
+    tool: "other",
+    args: { name: "MultiEdit", args: multiFile },
   });
   expect(toolKindAndArgs("ToolSearch", { query: "auth flow" })).toEqual({
     tool: "tool_search",
@@ -2474,10 +2488,12 @@ test("AskUserQuestion emits structured user query and response events", async ()
                   {
                     question: "Ship it?",
                     header: "Ship",
-                    multiSelect: false,
+                    multiSelect: true,
+                    allowOther: true,
                     options: [
-                      { label: "yes", description: "Ship now" },
-                      { label: "no", description: "Hold" },
+                      { id: "yes-safe", label: "yes", description: "Ship now" },
+                      { id: "", label: "later", description: "Ship later" },
+                      { id: "no", label: "no", description: "Hold" },
                     ],
                   },
                 ],
@@ -2502,7 +2518,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
               type: "tool_result",
               tool_use_id: "tooluse-question",
               content:
-                'User has answered your questions: "Ship it?"="yes". You can now continue...',
+                'User has answered your questions: "Ship it?"="yes, later, custom". You can now continue...',
             },
           ],
         },
@@ -2538,10 +2554,12 @@ test("AskUserQuestion emits structured user query and response events", async ()
           id: question.id,
           header: "Ship",
           question: "Ship it?",
-          multi_select: false,
+          multi_select: true,
+          allow_other: true,
           options: [
-            { label: "yes", description: "Ship now" },
-            { label: "no", description: "Hold" },
+            { id: "yes-safe", label: "yes", description: "Ship now" },
+            { label: "later", description: "Ship later" },
+            { id: "no", label: "no", description: "Hold" },
           ],
         },
       ],
@@ -2549,7 +2567,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
     expect(query.semantic?.group_id).toBe("req-question-1");
     expect(response.payload).toEqual({
       for_id: query.id,
-      answers: { [question.id]: { selected: ["yes"] } },
+      answers: { [question.id]: { selected: ["yes-safe", "later"], other: "custom" } },
     });
     expect(
       trail.groups[0]!.entries.some(
