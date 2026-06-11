@@ -6,6 +6,13 @@ Agent Trail uses a dark mono product language for the website and viewer shell: 
 
 Public pages and app surfaces share the same visual vocabulary. The homepage stays mostly text: a brief format explanation, a short `.trail.jsonl` preview, spec/schema links, and reference implementation links. Spec pages prioritize readable long-form text and anchored headings. Viewer routes use denser product-mode layout for shared trail loading, validation diagnostics, and bounded JSONL previews.
 
+## Brand
+
+The Agent Trail mark is a terminal prompt, underscore wordmark, and trailing
+node. It should read as a format artifact first: prompt, record, trail. Use the
+mark sparingly in nav, favicon, social preview, and formal lockups. See
+[`BRAND.md`](./BRAND.md) for asset paths and usage rules.
+
 ## Color
 
 Use Tailwind v4 theme tokens in `apps/website/src/styles.css`.
@@ -53,7 +60,7 @@ Color rules:
 
 Navigation:
 
-- Text-only brand and links.
+- Minimal mark plus uppercase wordmark.
 - Persistent top bar with a single bottom rule.
 - Active and hover states use brighter text, not color accents.
 

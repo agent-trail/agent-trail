@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 160">
+  <rect width="360" height="160" fill="#000"/>
+  <text x="50%" y="82" fill="#fff" dominant-baseline="middle" font-family="Commit Mono, ui-monospace, monospace" font-size="86" font-weight="700" letter-spacing="14" text-anchor="middle">ATF</text>
+  <path d="M72 116H286" stroke="#fff" stroke-width="5"/>
+  <rect x="286" y="108" width="16" height="16" fill="none" stroke="#fff" stroke-width="5"/>
+  <text x="50%" y="146" fill="#fff" font-family="Commit Mono, ui-monospace, monospace" font-size="18" font-weight="700" letter-spacing="6" text-anchor="middle">AGENT TRAIL FORMAT</text>
+</svg>
