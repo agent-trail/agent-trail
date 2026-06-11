@@ -5,7 +5,11 @@ export { TrailArtifact } from "./components/trail-artifact.tsx";
 export {
   ArrowGlyph,
   BorderedActionLink,
+  BrandGlyph,
+  BrandInlineLockup,
+  BrandLockup,
   BrandMark,
+  BrandWordmark,
   cn,
   Eyebrow,
   FixedPageScroll,

@@ -1,6 +1,6 @@
 import type { ThemeName } from "../theme.tsx";
 import { useTheme } from "../theme.tsx";
-import { BrandMark, cn, FOCUS_RING, GitHubIcon, RouteLink } from "./ui.tsx";
+import { BrandLockup, BrandMark, cn, FOCUS_RING, GitHubIcon, RouteLink } from "./ui.tsx";
 
 type ChromeRoute = "home" | "spec" | "viewer";
 
@@ -16,7 +16,7 @@ function CompactHeader({ current }: { current?: ChromeRoute }) {
     { href: "/spec/latest", label: "Spec", key: "spec" },
     { href: "/schema/latest.json", label: "Schema", key: "schema" },
     { href: "/view/gist/example", label: "Viewer", key: "viewer" },
-    { href: "/spec/latest", label: "Documentation", key: "documentation" },
+    { href: "/spec/latest", label: "Docs", key: "documentation" },
   ];
 
   return (
@@ -48,7 +48,7 @@ function HomeHeader({ current }: { current?: ChromeRoute }) {
     { href: "/spec/latest", label: "Spec", key: "spec" },
     { href: "/schema/latest.json", label: "Schema", key: "schema" },
     { href: "/view/gist/example", label: "Viewer", key: "viewer" },
-    { href: "/spec/latest", label: "Documentation", key: "documentation" },
+    { href: "/spec/latest", label: "Docs", key: "documentation" },
   ];
 
   return (
@@ -157,17 +157,29 @@ export function SiteFooter({ variant }: { variant: "home" | "full" }) {
           variant === "home" ? "grid gap-8 md:grid-cols-[1fr_auto] md:items-center" : "contents"
         }
       >
-        <div className="grid gap-1">
-          <p className="m-0 font-bold tracking-widest text-fg uppercase">
-            Agent Trail Specification
-          </p>
-          <p className="m-0 uppercase">© 2026 Agent Trail / Apache-2.0</p>
-        </div>
+        <FooterBrand compact={variant === "full"} />
         <nav className="flex flex-wrap items-center gap-x-7 gap-y-2" aria-label="Theme">
           <ThemeSwitcher />
         </nav>
       </div>
     </footer>
+  );
+}
+
+function FooterBrand({ compact }: { compact: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <BrandLockup
+        className={cn(compact ? "text-[11px]" : "text-xs", "text-fg")}
+        showTrail={!compact}
+      />
+      <div className="grid gap-1 border-l-main pl-4">
+        <p className="m-0 text-[10px] tracking-[0.18em] text-muted uppercase">
+          Format spec / v0.1.0 draft
+        </p>
+        <p className="m-0 text-[10px] text-muted uppercase">Apache-2.0 / 2026</p>
+      </div>
+    </div>
   );
 }
 
