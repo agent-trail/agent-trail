@@ -157,9 +157,11 @@ function protectAllowedPiiLiterals(
 }
 
 function allowedPiiToken(index: number, text: string, protectedValues: readonly string[]): string {
-  let token = allowedPiiTokenAt(index);
+  let candidate = index;
+  let token = allowedPiiTokenAt(candidate);
   while (text.includes(token) || protectedValues.includes(token)) {
-    token = allowedPiiTokenAt(index + protectedValues.length + 1);
+    candidate += 1;
+    token = allowedPiiTokenAt(candidate);
   }
   return token;
 }

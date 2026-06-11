@@ -687,6 +687,30 @@ test("redactTrail preserves allowed secrets redacted by PII library rules", () =
   expect(summary.counts.credit_card_pii).toBeUndefined();
 });
 
+test("redactTrail allowed PII sentinels avoid existing text collisions", () => {
+  const ssn = "123-45-6789";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: `existing \u0000AGENT_TRAIL_ALLOWED_PII_0\u0000 and \u0000AGENT_TRAIL_ALLOWED_PII_1\u0000 keep ${ssn}`,
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { allowedSecrets: [ssn] });
+
+  const text = (out[1]?.value as { payload: { text: string } }).payload.text;
+  expect(text).toContain("\u0000AGENT_TRAIL_ALLOWED_PII_0\u0000");
+  expect(text).toContain("\u0000AGENT_TRAIL_ALLOWED_PII_1\u0000");
+  expect(text).toContain(ssn);
+  expect(summary.counts.allowlisted_skip).toBe(1);
+  expect(summary.counts.ssn_pii).toBeUndefined();
+});
+
 test("redactTrail does not preserve larger detector matches for allowed-secret substrings", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
