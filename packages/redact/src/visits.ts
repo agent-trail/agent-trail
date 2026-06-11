@@ -240,6 +240,9 @@ export function* visitStrings(records: JsonlRecord[], includeSourceRaw: boolean)
           `records[${index}].payload.args`,
         );
       }
+      if (typeof payload.overflow_ref === "string") {
+        yield keyVisit(payload, "overflow_ref", index, `records[${index}].payload.overflow_ref`);
+      }
     }
 
     if (payload && type === "tool_result") {

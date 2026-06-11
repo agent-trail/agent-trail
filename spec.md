@@ -740,7 +740,10 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
   "ts": "...",
   "payload": {
     "tool": "file_read",
-    "args": { "path": "package.json" }
+    "args": { "path": "package.json" },
+    "truncated": false,
+    "args_size": 23,
+    "overflow_ref": null
   },
   "semantic": {
     "call_id": "toolu_01abc"
@@ -752,6 +755,9 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 |---|---|---|---|
 | `tool` | yes | string | canonical tool kind ([§10](#10-canonical-tool-taxonomy)) |
 | `args` | yes | object | tool-specific args |
+| `truncated` | no | boolean | true when `args` is a bounded excerpt rather than complete tool arguments |
+| `args_size` | conditional | integer | original serialized argument byte size; required when `truncated: true` |
+| `overflow_ref` | no | string or null | optional reference to external/full argument bytes when `args` is truncated |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`

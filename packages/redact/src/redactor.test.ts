@@ -1045,6 +1045,33 @@ test("redactTrail redacts secrets across tool_call.args, tool_result.output, and
   expect(summary.counts.openai_api_key).toBeGreaterThanOrEqual(4);
 });
 
+test("redactTrail redacts secrets in tool_call overflow references", () => {
+  const secretRef = "https://blob.example/full-args?token=secret-overflow-token";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        tool: "shell_command",
+        args: { command: "curl example.com" },
+        truncated: true,
+        args_size: 42,
+        overflow_ref: secretRef,
+      },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records, {
+    userSecrets: ["secret-overflow-token"],
+  });
+
+  const call = out[1]?.value as { payload: { overflow_ref: string } };
+  expect(call.payload.overflow_ref).toContain("[USER_SECRET]");
+  expect(call.payload.overflow_ref).not.toContain("secret-overflow-token");
+});
+
 test("redactTrail redacts secrets in tool_result.payload.meta structured outputs", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
