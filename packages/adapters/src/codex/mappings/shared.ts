@@ -12,7 +12,7 @@ import { AGENT_NAME } from "../parser.ts";
 import { isObject, sanitizeSourceRaw, stringValue, timestampToIso } from "../source.ts";
 
 export type Raw = Record<string, unknown>;
-export type UserQueryOption = { label: string; description?: string };
+export type UserQueryOption = { id?: string; label: string; description?: string };
 
 export const RAW_TYPE = "dev.codex.raw_type";
 

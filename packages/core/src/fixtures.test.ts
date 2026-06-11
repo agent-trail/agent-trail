@@ -517,6 +517,38 @@ test("invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl does not pair
   expect(diagnostics.map((d) => d.code)).not.toContain("ambiguous_sequential_pairing");
 });
 
+test("invalid-graph/sequential-pairing-stays-in-sibling-branch.trail.jsonl does not pair across sibling branches", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/sequential-pairing-stays-in-sibling-branch.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message:
+      'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
+  });
+  expect(diagnostics.map((d) => d.code)).not.toContain("ambiguous_sequential_pairing");
+});
+
+test("invalid-graph/sequential-pairing-stays-in-subagent-sibling-branch.trail.jsonl does not pair across sibling branches inside subagents", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture(
+      "invalid-graph/sequential-pairing-stays-in-subagent-sibling-branch.trail.jsonl",
+    ),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 3,
+    path: "/id",
+    severity: "warning",
+    code: "unmatched_tool_call_at_eof",
+    message:
+      'tool_call "01HEVTA0000000000000000002" has no matching tool_result or call-scoped tool_call_aborted at EOF',
+  });
+  expect(diagnostics.map((d) => d.code)).not.toContain("ambiguous_sequential_pairing");
+});
+
 test("valid/tool-call-aborted-closes-call.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/tool-call-aborted-closes-call.trail.jsonl"),
@@ -1056,6 +1088,13 @@ test("invalid-graph/duplicate-option-labels.trail.jsonl warns for duplicate labe
     message:
       'user_query question "ship" has duplicate option label "yes" without stable option ids; user_query_response selected values may be ambiguous',
   });
+});
+
+test("valid/user-query-duplicate-labels-with-ids.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/user-query-duplicate-labels-with-ids.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
 });
 
 test("invalid-graph/header-has-parent-id.trail.jsonl reports additionalProperties + header_has_parent_id", async () => {

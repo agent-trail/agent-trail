@@ -2735,8 +2735,8 @@ test("request_user_input emits structured user query and response events", async
               is_secret: false,
               allowOther: true,
               options: [
-                { label: "yes", description: "Ship now" },
-                { label: "no", description: "Hold" },
+                { id: "yes-safe", label: "yes", description: "Ship now" },
+                { id: "no", label: "no", description: "Hold" },
               ],
             },
           ],
@@ -2777,15 +2777,15 @@ test("request_user_input emits structured user query and response events", async
         is_secret: false,
         allow_other: true,
         options: [
-          { label: "yes", description: "Ship now" },
-          { label: "no", description: "Hold" },
+          { id: "yes-safe", label: "yes", description: "Ship now" },
+          { id: "no", label: "no", description: "Hold" },
         ],
       },
     ],
   });
   expect(response?.payload).toEqual({
     for_id: query?.id,
-    answers: { ship: { selected: ["yes"], other: "with changelog" } },
+    answers: { ship: { selected: ["yes-safe"], other: "with changelog" } },
   });
   expect(
     trail.groups[0]!.entries.some(

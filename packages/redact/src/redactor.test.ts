@@ -1417,6 +1417,28 @@ test("redactTrail redacts secrets in agent_message.attachments and tool_result.a
   expect(summary.counts.openai_api_key).toBe(2);
 });
 
+test("redactTrail redacts secrets in name-only attachments", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: "see attachment",
+        attachments: [{ kind: "file", name: "secret-alpha.txt" }],
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { userSecrets: ["secret-alpha"] });
+
+  const name = (out[1]?.value as { payload: { attachments: Array<{ name: string }> } }).payload
+    .attachments[0]?.name;
+  expect(name).toBe("[USER_SECRET].txt");
+  expect(summary.counts.user_secret).toBe(1);
+});
+
 test("redactTrail redacts quarantined source drift while preserving raw shape", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

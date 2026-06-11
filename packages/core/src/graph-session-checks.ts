@@ -253,7 +253,6 @@ function branchScopeFor(
   childCounts: Map<string, number>,
 ): string {
   let current = entry;
-  let childOnPath: JsonlRecord | undefined;
   const seen = new Set<string>();
 
   while (true) {
@@ -263,13 +262,12 @@ function branchScopeFor(
 
     const parent = entryById.get(parentId);
     if (parent === undefined) return "root";
-    if (isSubagentInvoke(parent)) return `subagent:${parentId}`;
     if ((childCounts.get(parentId) ?? 0) > 1) {
-      const childId = childOnPath?.value.id;
+      const childId = current.value.id;
       return typeof childId === "string" ? `branch:${parentId}:${childId}` : `branch:${parentId}`;
     }
+    if (isSubagentInvoke(parent)) return `subagent:${parentId}`;
 
-    childOnPath = current;
     current = parent;
   }
 }

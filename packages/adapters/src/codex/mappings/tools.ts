@@ -33,8 +33,13 @@ function optionObjects(value: unknown): UserQueryOption[] | undefined {
       if (!isObject(option)) return undefined;
       const label = stringValue(option.label);
       if (label === undefined) return undefined;
+      const id = stringValue(option.id);
       const description = stringValue(option.description);
-      return { label, ...(description !== undefined ? { description } : {}) };
+      return {
+        ...(id !== undefined ? { id } : {}),
+        label,
+        ...(description !== undefined ? { description } : {}),
+      };
     })
     .filter((option): option is UserQueryOption => option !== undefined);
   return options.length === value.length ? options : undefined;

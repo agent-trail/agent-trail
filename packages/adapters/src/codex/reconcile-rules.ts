@@ -207,6 +207,37 @@ function queryQuestions(entry: Entry): Record<string, unknown>[] {
     : [];
 }
 
+function optionIdentity(question: Record<string, unknown>): {
+  ids: Set<string>;
+  labels: Set<string>;
+  labelToId: Map<string, string>;
+} {
+  const options = (Array.isArray(question.options) ? question.options : []).filter(
+    (option): option is Record<string, unknown> => option !== null && typeof option === "object",
+  );
+  const ids = new Set<string>();
+  const labels = new Set<string>();
+  const labelCounts = new Map<string, number>();
+  const labelToId = new Map<string, string>();
+  for (const option of options) {
+    const label = option.label;
+    const id = option.id;
+    if (typeof label === "string") {
+      labels.add(label);
+      labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+    }
+    if (typeof id === "string") ids.add(id);
+  }
+  for (const option of options) {
+    const label = option.label;
+    const id = option.id;
+    if (typeof label === "string" && typeof id === "string" && labelCounts.get(label) === 1) {
+      labelToId.set(label, id);
+    }
+  }
+  return { ids, labels, labelToId };
+}
+
 function normalizeAnswers(
   query: Entry,
   rawAnswers: Record<string, unknown>,
@@ -221,21 +252,22 @@ function normalizeAnswers(
     const question = byId.get(questionId);
     if (question === undefined) continue;
     const selected = selectedValues(rawAnswer);
-    const optionLabels = new Set(
-      (Array.isArray(question?.options) ? question.options : [])
-        .filter(
-          (option): option is Record<string, unknown> =>
-            option !== null && typeof option === "object",
-        )
-        .map((option) => option.label)
-        .filter((label): label is string => typeof label === "string"),
-    );
+    const options = optionIdentity(question);
+    const usesIds = options.ids.size > 0;
+    const normalizedSelected = usesIds
+      ? selected.map((value) => options.labelToId.get(value) ?? value)
+      : selected;
     const allowOther = question?.allow_other === true;
+    const knownOptions = usesIds ? options.ids : options.labels;
     const known =
-      optionLabels.size > 0 ? selected.filter((value) => optionLabels.has(value)) : selected;
+      knownOptions.size > 0
+        ? normalizedSelected.filter((value) => knownOptions.has(value))
+        : normalizedSelected;
     const unknown =
-      optionLabels.size > 0 ? selected.filter((value) => !optionLabels.has(value)) : [];
-    const answer: Record<string, unknown> = { selected: allowOther ? known : selected };
+      knownOptions.size > 0 ? normalizedSelected.filter((value) => !knownOptions.has(value)) : [];
+    const answer: Record<string, unknown> = {
+      selected: allowOther ? known : normalizedSelected,
+    };
     const other = otherValue(rawAnswer);
     if (allowOther) {
       const otherParts = [...(other !== undefined && other.length > 0 ? [other] : []), ...unknown];

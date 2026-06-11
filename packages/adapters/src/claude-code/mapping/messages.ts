@@ -23,7 +23,7 @@ import {
 import { toolKindAndArgs } from "../tools.ts";
 import { attributionMeta, gate, imageAttachments, meta, type Raw, src } from "./shared.ts";
 
-type UserQueryOption = { label: string; description?: string };
+type UserQueryOption = { id?: string; label: string; description?: string };
 
 function questionId(question: string, occurrence: number): string {
   const base = `q_${createHash("sha256").update(question).digest("hex").slice(0, 12)}`;
@@ -42,8 +42,13 @@ function optionObjects(value: unknown): UserQueryOption[] | undefined {
       if (option === null || typeof option !== "object") return undefined;
       const label = stringValue((option as { label?: unknown }).label);
       if (label === undefined) return undefined;
+      const id = stringValue((option as { id?: unknown }).id);
       const description = stringValue((option as { description?: unknown }).description);
-      return { label, ...(description !== undefined ? { description } : {}) };
+      return {
+        ...(id !== undefined ? { id } : {}),
+        label,
+        ...(description !== undefined ? { description } : {}),
+      };
     })
     .filter((option): option is UserQueryOption => option !== undefined);
   return options.length === value.length ? options : undefined;

@@ -2401,8 +2401,8 @@ test("AskUserQuestion emits structured user query and response events", async ()
                     header: "Ship",
                     multiSelect: false,
                     options: [
-                      { label: "yes", description: "Ship now" },
-                      { label: "no", description: "Hold" },
+                      { id: "yes-safe", label: "yes", description: "Ship now" },
+                      { id: "no", label: "no", description: "Hold" },
                     ],
                   },
                 ],
@@ -2465,8 +2465,8 @@ test("AskUserQuestion emits structured user query and response events", async ()
           question: "Ship it?",
           multi_select: false,
           options: [
-            { label: "yes", description: "Ship now" },
-            { label: "no", description: "Hold" },
+            { id: "yes-safe", label: "yes", description: "Ship now" },
+            { id: "no", label: "no", description: "Hold" },
           ],
         },
       ],
@@ -2474,7 +2474,7 @@ test("AskUserQuestion emits structured user query and response events", async ()
     expect(query.semantic?.group_id).toBe("req-question-1");
     expect(response.payload).toEqual({
       for_id: query.id,
-      answers: { [question.id]: { selected: ["yes"] } },
+      answers: { [question.id]: { selected: ["yes-safe"] } },
     });
     expect(
       trail.groups[0]!.entries.some(

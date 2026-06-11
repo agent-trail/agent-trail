@@ -131,11 +131,12 @@ kit path:
   prior parser. All three are schema-valid (`parent_id` is optional and nullable).
 
 `edit` has four observed Pi argument shapes:
-(a) single-replace `{path, oldText, newText}` → `file_edit` with a one-hunk unified diff;
-(b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with a
-multi-hunk diff;
-(c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with a
-multi-hunk diff;
+(a) single-replace `{path, oldText, newText}` → `file_edit` with replacement args
+`{path, old, new}`;
+(b) `{path, edits: [{oldText, newText}, ...]}` (current pi-mono schema) → `file_edit` with
+replacement args for one hunk or a multi-hunk diff when multiple edits share one file;
+(c) `{multi: [{path, oldText, newText}, ...]}` collapsing to a single file → `file_edit` with
+replacement args for one hunk or a multi-hunk diff when multiple edits share one file;
 (d) `{multi: [...]}` spanning multiple files → `file_patch`;
 (e) `{patch: "*** Begin Patch..."}` apply_patch strings → `file_edit` for single-file patches or
 `file_patch` for multi-file patches.
