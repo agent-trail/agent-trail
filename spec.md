@@ -108,7 +108,9 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 ### 5.1 File extension and MIME type
 
 - Recommended extension: `.trail.jsonl`
+- Native compressed extension: `.trail.jsonl.gz`
 - MIME type: `application/vnd.trail+jsonl`. The `vnd.` form is the intended canonical type and follows IANA conventions for vendor MIME types. IANA registration is deferred to v1.0; until then the type is documented here but not officially registered.
+- Native compressed MIME type: `application/vnd.trail+jsonl+gzip`.
 - Editors render as JSON via the `.jsonl` suffix. A dedicated language extension MAY provide richer highlighting later.
 
 ### 5.2 Encoding
@@ -119,6 +121,8 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Empty lines are not allowed.
 - A trailing newline at EOF is recommended but not REQUIRED.
 - Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
+- `.trail.jsonl.gz` files are a whole-file gzip wrapper around the UTF-8 trail JSONL bytes above. Writers MUST NOT gzip individual JSONL lines independently.
+- For `.trail.jsonl.gz`, `content_hash` is computed and verified over the decompressed canonical JSONL bytes defined in §7, not the physical compressed bytes.
 
 ### 5.3 File layout
 

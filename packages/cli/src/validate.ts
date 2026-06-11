@@ -1,9 +1,13 @@
 import {
+  decodeGzippedTrailBytes,
   formatDiagnosticsJsonValue,
   formatDiagnosticsText,
+  isGzippedTrailPath,
   resolveValidationProfile,
+  TrailFileDecodeError,
   type ValidationProfile,
   validateTrailStream,
+  validateTrailString,
 } from "@agent-trail/core";
 import type { Command } from "commander";
 import { addExamples, type ResultWriter } from "./command.ts";
@@ -36,8 +40,21 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
   }
 
   const diagnostics = [];
-  for await (const diagnostic of validateTrailStream(file.stream(), { profile })) {
-    diagnostics.push(diagnostic);
+  if (isGzippedTrailPath(path)) {
+    let text: string;
+    try {
+      text = decodeGzippedTrailBytes(new Uint8Array(await file.arrayBuffer()), path);
+    } catch (error) {
+      if (error instanceof TrailFileDecodeError) {
+        return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
+      }
+      throw error;
+    }
+    diagnostics.push(...(await validateTrailString(text, { profile })));
+  } else {
+    for await (const diagnostic of validateTrailStream(file.stream(), { profile })) {
+      diagnostics.push(diagnostic);
+    }
   }
 
   const hasError = diagnostics.some((d) => d.severity === "error");

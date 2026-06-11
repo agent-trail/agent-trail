@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import {
   canonicalizeRecords,
   computeContentHash,
@@ -63,6 +64,26 @@ test("stored object bytes are canonicalizeRecords(records) and verify back to st
 
   const verification = verifyContentHash(storedRecords);
   expect(verification.status).toBe("match");
+});
+
+test("registerTrail accepts a .trail.jsonl.gz file and stores canonical uncompressed bytes", async () => {
+  const inputDir = mkdtempSync(join(tmpdir(), "trail-store-input-"));
+  const gzPath = join(inputDir, "session.trail.jsonl.gz");
+  const sourceBytes = await readFile(FINALIZED_FIXTURE, "utf8");
+  await writeFile(gzPath, gzipSync(Buffer.from(sourceBytes, "utf8")));
+
+  const result = await registerTrail(gzPath, { storeRoot });
+
+  expect(result.status).toBe("finalized");
+  expect(result.contentHash).toBe(FINALIZED_HASH);
+  expect(result.objectPath).toBe(
+    join(storeRoot, "objects", "sha256", `${FINALIZED_HASH}.trail.jsonl`),
+  );
+  const storedBytes = await readFile(result.objectPath as string, "utf8");
+  const expectedCanonical = canonicalizeRecords(await parseJsonlString(sourceBytes));
+  expect(storedBytes).toBe(expectedCanonical);
+
+  rmSync(inputDir, { recursive: true, force: true });
 });
 
 test("second registerTrail on the same fixture returns 'already_present' and does not duplicate", async () => {

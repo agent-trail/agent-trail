@@ -142,8 +142,10 @@ Locked-in names across all surfaces:
 |---|---|---|
 | Format / project | **Agent Trail** | Capitalized in prose, titles, marketing |
 | URL / slug form | **agent-trail** | Lowercase, hyphenated |
-| File extension | **`.trail.jsonl`** | JSON highlighting via the `.jsonl` suffix |
+| File extension | **`.trail.jsonl`** | Canonical plain JSONL artifact; JSON highlighting via the `.jsonl` suffix |
+| Compressed file extension | **`.trail.jsonl.gz`** | Whole-file gzip wrapper around canonical trail JSONL bytes |
 | MIME type | **`application/vnd.trail+jsonl`** | IETF-conformant `vnd.` prefix |
+| Compressed MIME type | **`application/vnd.trail+jsonl+gzip`** | Native gzip-wrapped trail artifact |
 | CLI command | **`trail`** | What users type 100 times a day |
 | GitHub org | **`agent-trail`** | Registered; `github.com/agent-trail/<repo>` |
 | GitHub repo | **`agent-trail`** | Single OSS monorepo: `github.com/agent-trail/agent-trail` |
@@ -462,6 +464,7 @@ trail adapters status [--json]
 - All commands support `--json` for scripting.
 - Exit codes: 0 success, 1 user error, 2 system error, 3 redaction blocked.
 - `trail load <url>` fetches, verifies, and stores or writes a trail artifact. It does not summarize by default.
+- `trail validate` and `trail register` accept native `.trail.jsonl.gz` files by decompressing the whole-file gzip wrapper before validation and hashing. Local content-addressed store objects remain canonical plain `.trail.jsonl`.
 - `trail export <id>` writes the canonical bytes of a registered trail to stdout or `--out <path>`. Synthesis (summarisation, handoff primers, target-agent framing, token budgeting) is delegated to the `summarise` (#63) and `handoff` (#64) skills, which compose this command with model-side synthesis in the user's own agent.
 
 **Validation diagnostics:**
@@ -539,7 +542,7 @@ This is the URL referenced by the schema's `$id` field. Tools validating trail f
 
 #### 8.4.4 Web viewer (`/view/gist/<gist-id>`)
 
-Accepts a gist identifier or gist URL. Decodes embedded gzipped base64 trail content. The gist ID locates the artifact; `content_hash` verifies fetched bytes after load. Content-hash resolver URLs such as `/view/sha256/<hash>` are deferred until there is a backend or public index. Renders:
+Accepts a gist identifier or gist URL. Decodes embedded gzipped base64 trail content (`.trail.jsonl.gz.b64`, a transport wrapper rather than a native file extension). The gist ID locates the artifact; `content_hash` verifies the decompressed canonical JSONL bytes after load. Content-hash resolver URLs such as `/view/sha256/<hash>` are deferred until there is a backend or public index. Renders:
 
 - User messages (chat bubbles, markdown rendered).
 - Agent messages (markdown, code blocks syntax-highlighted).

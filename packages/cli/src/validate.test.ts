@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
@@ -38,6 +39,13 @@ async function writeFixture(content: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
   const path = join(dir, "trail.jsonl");
   await Bun.write(path, content);
+  return path;
+}
+
+async function writeGzipFixture(content: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "trail.trail.jsonl.gz");
+  await Bun.write(path, gzipSync(Buffer.from(content, "utf8")));
   return path;
 }
 
@@ -86,6 +94,27 @@ test("valid trail exits 0 with empty stdout", async () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
+});
+
+test("valid gzipped trail exits 0 with empty stdout", async () => {
+  const path = await writeGzipFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+test("corrupt gzipped trail exits 1 with decode diagnostic on stderr", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "broken.trail.jsonl.gz");
+  await Bun.write(path, "not gzip");
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("failed to decode gzip trail");
 });
 
 test("multiple positional file arguments exit 1 with usage on stderr", async () => {
