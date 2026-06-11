@@ -252,7 +252,7 @@ The trail envelope is an OPTIONAL record on line 1 that carries file-scope metad
     { "id": "<session-id>", "agent": "<canonical-name>" }
   ],
   "meta": {                                         // optional; see §8.0.3
-    "io.entire.checkpoint_id": "ckpt-7"
+    "x-entire/checkpoint_id": "ckpt-7"
   }
 }
 ```
@@ -280,7 +280,7 @@ The envelope MUST NOT carry a `parent_id`. It is not part of the event graph.
 
 ### 8.0.3 The `meta` extension convention
 
-The trail envelope (§8.0), the session header (§8), and every event entry (§9.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use a reverse-DNS or `x-<adapter>/` namespace to avoid collisions (`com.example.team`, `x-acme/build_id`, `io.entire.checkpoint_id`). The validator treats `meta` as opaque; it contributes to whichever `content_hash` tier covers its host record (§7.4): `meta` on the session header or any event entry feeds the session-level hash, and `meta` on the trail envelope feeds the file-level hash.
+The trail envelope (§8.0), the session header (§8), and every event entry (§9.1) accept an optional `meta` object for vendor extensions, modelled on OCI image annotations and Kubernetes `metadata.annotations`. Object-typed values are allowed so nested data fits naturally. Keys SHOULD use the `x-<vendor>/<name>` extension grammar (§11.1) to avoid collisions (`x-example/team`, `x-acme/build_id`, `x-entire/checkpoint_id`). The validator treats `meta` as opaque; it contributes to whichever `content_hash` tier covers its host record (§7.4): `meta` on the session header or any event entry feeds the session-level hash, and `meta` on the trail envelope feeds the file-level hash.
 
 For verbatim source-event preservation, use `source.raw` ([§9.1](#9-1-base-shape), [§9.7](#9-7-source-envelope-referencing), [§14.1](#14-1-source-raw-elision-and-redaction)) instead — `meta` is for cross-cutting annotations, not for capturing the source envelope.
 
@@ -348,7 +348,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
     "format_version": "<source-format-version>"
   },
   "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
-    "com.example.custom_field": "..."
+    "x-example/custom_field": "..."
   }
 }
 ```
@@ -388,7 +388,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `parse_fidelity.quarantined_count` | yes (if `parse_fidelity` present) | integer | number of `system_event` entries whose `payload.kind` is `x-*/unknown_record` in this session group |
 | `parse_fidelity.termination_reason` | no | enum | final `session_terminated.payload.reason`, when a `session_terminated` event is present |
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
-| `meta` | no | object | vendor extensions; recommended keys use the reverse-DNS / `x-<adapter>/` convention (§8.0.3 / §11) |
+| `meta` | no | object | vendor extensions; recommended keys use the `x-<vendor>/<name>` extension grammar (§8.0.3 / §11) |
 
 When `parse_fidelity` is present, validators MUST compare it against the session group's entries. `quarantined_count` MUST equal the count of quarantined unknown source records emitted as `system_event` entries with `payload.kind` matching `x-*/unknown_record`; see the §9.3 quarantine convention. `termination_reason`, when a `session_terminated` entry exists, MUST match the final `session_terminated.payload.reason`; if no `session_terminated` entry exists, writers MUST omit `termination_reason`. This field is denormalized for cheap listing/filtering only; the event stream remains authoritative. Quarantined records are suspect parse fidelity, not necessarily lossy, because the raw source record is preserved.
 
@@ -562,7 +562,7 @@ Every event entry has this base shape:
     "synthesized": false
   },
   "meta": {                                     // optional; vendor extensions (§8.0.3 / §11)
-    "com.example.field": "..."
+    "x-example/field": "..."
   }
 }
 ```
@@ -603,7 +603,7 @@ A user-role message. By default this is text typed by the human user; `payload.o
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
 | `text` | yes | string | the user's input |
-| `origin` | no | enum or extension | `user`, `injected`, `mixed`, or `x-<adapter>/<name>`. Absent means `user`. |
+| `origin` | no | enum or extension | `user`, `injected`, `mixed`, or `x-<vendor>/<name>`. Absent means `user`. |
 | `attachments` | no | array | images or files by reference |
 
 `origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
@@ -672,7 +672,7 @@ Model identification for downstream cost analysis uses `payload.model` first, fa
 
 When a single source envelope fans out to multiple entries (text blocks, tool calls, thinking blocks sharing one API response), `usage` accounts for the whole envelope. Writers MUST attach it to the first derived entry whose payload supports `usage`, skip non-usage-capable derived entries, and MUST NOT repeat it on later derived entries. In v0.1.0, `usage` is valid on `agent_message`, `agent_thinking`, and `tool_call` payloads; if an envelope emits none of those entries, canonical `usage` is omitted.
 
-Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under reverse-domain or `x-<adapter>/` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
+Monetary cost is intentionally not a canonical trail field or event. Analyzers compute cost from token usage, model identification, and their own pricing tables, and carry pricing provenance such as currency, pricing source, and effective date in analyzer output. If a source exposes a billing estimate, writers may preserve it as opaque source data under `x-<vendor>/<name>` keys on the entry's `meta` field (§8.0.3). Latency and wall-clock telemetry are deferred to a future minor version; sources rarely expose them consistently.
 
 #### `task_plan_update`
 
@@ -823,8 +823,8 @@ The agent attempted or began a tool invocation, but the invocation was cancelled
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `scope` | yes | enum or extension | `tool_call` when a specific call is known; `turn` when the source only proves a turn-level abort. Adapter extensions must use `x-<adapter>/<scope>`. |
-| `reason` | yes | enum or extension | One of `user_interrupt`, `hook_blocked`, `timeout`, `permission_denied`, `runtime_error`, or `x-<adapter>/<reason>`. |
+| `scope` | yes | enum or extension | `tool_call` when a specific call is known; `turn` when the source only proves a turn-level abort. Extensions must use `x-<vendor>/<name>`. |
+| `reason` | yes | enum or extension | One of `user_interrupt`, `hook_blocked`, `timeout`, `permission_denied`, `runtime_error`, or `x-<vendor>/<name>`. |
 | `for_id` | when `scope:"tool_call"` | string | id of the matching `tool_call`; omitted for `scope:"turn"` and other non-call-specific scopes. |
 | `blocked_by` | no | string | hook, policy, permission system, or runtime component that stopped the call. |
 
@@ -1001,7 +1001,7 @@ Post-creation update to logical session metadata. The session header carries the
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `field` | yes | enum or extension | One of `name`, `description`, `tags`, `agent.model_default`, `vcs.branch`, `vcs.worktree`, or an adapter extension `x-<adapter>/<key>`. |
+| `field` | yes | enum or extension | One of `name`, `description`, `tags`, `agent.model_default`, `vcs.branch`, `vcs.worktree`, or `x-<vendor>/<name>`. |
 | `value` | yes | field-specific | Replacement value. Must match the field type: string for `name`/`description`/`agent.model_default`/`vcs.branch`, string array for `tags`, and the §8.2 worktree shape for `vcs.worktree`. Extension fields may carry any JSON value. |
 | `previous_value` | no | field-specific | Prior value when the adapter knows it. Same type as `value`. |
 | `reason` | yes | enum | `ai_generated`, `user_set`, `runtime_inferred`, or `external`. |
@@ -1025,7 +1025,7 @@ A meaningful source timeline record that is not a user message, agent message, t
 }
 ```
 
-`kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name). Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
+`kind` is required and writer-strict. It must be either one of the reserved cross-agent values below, or a vendor-namespaced extension of the form `x-<vendor>/<name>`. Bare unknown strings are rejected by writer-strict validation. Readers are tolerant of unknown `x-*` kinds and pass them through. `data` is curated structured metadata for rendering and search, not a replacement for `source.raw`.
 
 `context_compact`, `user_interrupt`, `model_change`, `mode_change`, `thinking_level_change`, and `session_end` are first-class record types ([§9.3](#93-optional-event-types)). Do not duplicate them under `system_event.kind`.
 
@@ -1093,10 +1093,10 @@ Cross-agent diagnostic signals. Adapters MAY emit these to surface non-fatal err
 ##### Extension policy and promotion
 
 - Reserved values above are the only bare strings allowed by writer-strict validation.
-- Anything else must use `x-<adapter>/<name>` form, e.g. `x-claudecode/notification`.
+- Anything else must use `x-<vendor>/<name>` form, e.g. `x-claudecode/notification`.
 - Readers are tolerant of unknown `x-*` kinds — they pass through with no diagnostic.
 - Bare unknown strings (no `x-` prefix, not in the reserved set) are rejected by writer-strict validation.
-- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<adapter>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§8.2).
+- Adapters quarantining an unparseable source record MUST emit `system_event` with `kind:"x-<vendor>/unknown_record"` and preserve the record in `source.raw`; `parse_fidelity.quarantined_count` counts this pattern (§8.2).
 - If an `x-*` kind proves cross-agent, promote it to the reserved enum in a minor format version bump. Document emitted kinds per adapter in `docs/parser-source-matrix.md`.
 
 #### `capability_change`
@@ -1156,7 +1156,7 @@ A named capability invoked with optional arguments: a user-typed slash command, 
 | `via` | yes | string enum | `user_typed` \| `auto_trigger` \| `agent_invoked`. How the invocation reached the agent. |
 | `args` | no | object | Free-form invocation arguments. |
 | `expansion_text` | no | string | Post-expansion prompt text the agent saw (for prompt-template commands). |
-| `result_action` | no | string \| null | What the runtime did with it. Reserved value, `x-<adapter>/<name>` extension, or null. |
+| `result_action` | no | string \| null | What the runtime did with it. Reserved value, `x-<vendor>/<name>` extension, or null. |
 
 `kind` discriminates the capability: skill activation → `skill`, built-in command → `builtin`, user-defined prompt template → `custom_prompt`, generic slash command → `slash`, extension/plugin command → `plugin`.
 
@@ -1172,7 +1172,7 @@ A named capability invoked with optional arguments: a user-typed slash command, 
 | `load_skill` | A skill was loaded into context. |
 | `noop` | Runtime accepted the command with no observable state change. |
 
-Beyond these, `result_action` accepts an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name), or `null`. Bare unknown strings are rejected by writer-strict validation; readers are tolerant of unknown `x-*` values.
+Beyond these, `result_action` accepts a vendor-namespaced extension of the form `x-<vendor>/<name>`, or `null`. Bare unknown strings are rejected by writer-strict validation; readers are tolerant of unknown `x-*` values.
 
 Out of scope: skill *contents* (static config, not session history); MCP server tools (covered by `tool_call.tool=mcp_call`); permission gates (covered by `system_event.kind=permission_request/decision`).
 
@@ -1293,7 +1293,7 @@ Active model changed mid-session.
 | `from_provider` | no | string | previous model provider when known |
 | `to_provider` | no | string | new model provider when known |
 | `reason` | no | string | source-provided or adapter-inferred reason |
-| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `trigger` | no | enum or extension | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or `x-<vendor>/<name>` |
 | `turn_id` | no | string | source turn id associated with the observation |
 
 #### `mode_change`
@@ -1317,11 +1317,11 @@ Active runtime mode changed or was first observed. Use this for common mode axes
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `scope` | yes | enum or `x-*` | `collaboration`, `permission`, `execution`, `ui`, or adapter extension |
+| `scope` | yes | enum or extension | `collaboration`, `permission`, `execution`, `ui`, or `x-<vendor>/<name>` |
 | `from_mode` | no | string | previous mode token |
 | `to_mode` | yes | string | new or initially observed mode token |
 | `reason` | no | string | source-provided or adapter-inferred reason |
-| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `trigger` | no | enum or extension | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or `x-<vendor>/<name>` |
 | `turn_id` | no | string | source turn id associated with the observation |
 | `data` | no | object | curated adapter metadata for this mode axis |
 
@@ -1348,7 +1348,7 @@ Active reasoning/thinking level changed or was first observed. This records the 
 | `from_level` | no | string | previous thinking-level token |
 | `to_level` | yes | string | new or initially observed thinking-level token |
 | `reason` | no | string | source-provided or adapter-inferred reason |
-| `trigger` | no | enum or `x-*` | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or adapter extension |
+| `trigger` | no | enum or extension | `initial`, `user_set`, `agent_set`, `runtime_inferred`, `auto_reroute`, `external`, or `x-<vendor>/<name>` |
 | `turn_id` | no | string | source turn id associated with the observation |
 | `data` | no | object | curated adapter metadata for this level axis |
 
@@ -1537,13 +1537,13 @@ For tools not covered above, use `tool: "other"` with `args: { name, args }`. Re
 
 ## 11. Vendor extensions
 
-Implementations and vendors can add custom data via the `meta` field on the trail envelope, session header, or any event entry. Use reverse-domain notation for keys to avoid collisions:
+Implementations and vendors can add custom data via the `meta` field on the trail envelope, session header, or any event entry. Use the `x-<vendor>/<name>` extension grammar (§11.1) for keys to avoid collisions:
 
 ```jsonc
 "meta": {
-  "com.cursor.workspace_id": "ws-abc123",
-  "dev.example.custom_flag": true,
-  "io.anthropic.usage": { "input_tokens": 1234, "output_tokens": 567 }
+  "x-cursor/workspace_id": "ws-abc123",
+  "x-example/custom_flag": true,
+  "x-anthropic/usage": { "input_tokens": 1234, "output_tokens": 567 }
 }
 ```
 
@@ -1552,6 +1552,23 @@ Readers may preserve, ignore, or render `meta` fields. They must not abort on un
 `entry.meta.redaction_count` is a standard optional non-negative integer convention for redacted artifacts. It counts how many redactor mutations were applied to that entry; see §15.
 
 The `meta` field is for fields outside the canonical vocabulary. For verbatim source-event preservation, use `source.raw` ([§14.1](#14-1-source-raw-elision-and-redaction)) instead. See [§8.0.3](#8-0-3-the-meta-extension-convention) for the full convention.
+
+### 11.1 Extension grammar
+
+One extension grammar is used across extension surfaces: `x-<vendor>/<name>`.
+
+- `vendor`: lowercase alphanumeric with optional hyphen-separated segments, e.g. `acme` or `acme-labs`.
+- `name`: starts with lowercase alphanumeric and may contain lowercase alphanumeric, `_`, or `-`.
+
+| Surface | Applies to | Example |
+| --- | --- | --- |
+| Envelope `meta` keys | Trail-level vendor annotations | `x-acme/build_id` |
+| Header `meta` keys | Session-level vendor annotations | `x-acme/team` |
+| Entry `meta` keys | Event-level vendor annotations | `x-acme/run_id` |
+| `system_event.kind` | Non-reserved source signals | `x-claudecode/notification` |
+| Enum extensions | `scope`, `reason`, `trigger`, `result_action`, `session_metadata_update.field`, `vcs.type`, `user_message.origin` | `x-acme/custom_scope` |
+| `tool_result.payload.meta` vendor keys | Sibling keys under registered tool-kind output objects | `meta.mcp_call.x-acme/cache_hit` |
+| Custom `agent.name` | Unregistered source agents | `x-example/myagent` |
 
 ---
 
@@ -1581,7 +1598,7 @@ Lowercase, hyphenated:
 
 The registry reserves canonical names. It does not imply adapter support.
 
-New agents may be added by amending this spec. Until registered, adapters may use a custom reverse-domain name prefixed `x-` (e.g., `x-com-example-myagent`) to reduce collisions.
+New agents may be added by amending this spec. Until registered, adapters may use a custom `x-<vendor>/<name>` agent name (e.g., `x-example/myagent`) to reduce collisions while keeping the vendor and agent name parseable.
 
 ---
 
@@ -1742,7 +1759,7 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 ### 18.1 Session with tool calls and semantic pairing
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-agent"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
 {"type":"user_message","id":"01HEVTB0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
 {"type":"tool_call","id":"01HEVTB0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
 {"type":"tool_result","id":"01HEVTB0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"01HEVTB0000000000000000002","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
@@ -1752,7 +1769,7 @@ This spec intentionally does not duplicate the full schema inline. Implementatio
 ### 18.2 Tool result with missing for_id (fallback pairing)
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000002B","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-agent"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS000000000000000002B","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
 {"type":"user_message","id":"01HEVTX0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Read package.json"}}
 {"type":"tool_call","id":"01HEVTX0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_xyz"}}
 {"type":"tool_result","id":"01HEVTX0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_xyz"}}
@@ -1763,7 +1780,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 ### 18.3 Tree with abandoned branch
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000003","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-tree"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000003","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/tree"}}
 {"type":"user_message","id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Try approach A"}}
 {"type":"agent_message","id":"01HEVTC0000000000000000002","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Approach A: ..."}}
 {"type":"user_message","id":"01HEVTC0000000000000000003","parent_id":"01HEVTC0000000000000000001","ts":"2026-05-17T14:01:00.000Z","payload":{"text":"Actually, try approach B"}}
@@ -1774,16 +1791,16 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 ### 18.4 Synthesized event
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-agent"},"vcs":{"type":"git","revision":"a1b2c3d4"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"},"vcs":{"type":"git","revision":"a1b2c3d4"}}
 {"type":"user_message","id":"01HEVTD0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
 {"type":"agent_message","id":"01HEVTD0000000000000000002","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
-{"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"x-com-example-agent","original_type":"git_commit_diff","synthesized":true}}
+{"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"x-example/agent","original_type":"git_commit_diff","synthesized":true}}
 ```
 
 ### 18.5 Incomplete session
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000006","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-agent"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000006","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
 {"type":"user_message","id":"01HEVTF0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Run the test suite"}}
 {"type":"tool_call","id":"01HEVTF0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"shell_command","args":{"command":"npm test"}}}
 {"type":"session_terminated","id":"01HEVTF0000000000000000003","ts":"2026-05-17T14:01:30.000Z","payload":{"reason":"eof_with_open_tool_calls","open_call_ids":["01HEVTF0000000000000000002"]},"source":{"synthesized":true}}
@@ -1792,7 +1809,7 @@ The reader pairs `01HEVTX0000000000000000003` to `01HEVTX0000000000000000002` vi
 ### 18.6 MCP call
 
 ```jsonl
-{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000005","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com-example-agent"}}
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000005","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/agent"}}
 {"type":"user_message","id":"01HEVTE0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Find my open Linear issues"}}
 {"type":"tool_call","id":"01HEVTE0000000000000000002","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"mcp_call","args":{"server":"linear","tool":"list_issues","args":{"status":"open","assignee":"me"},"headers":{"Authorization":"[REDACTED]"}}}}
 {"type":"tool_result","id":"01HEVTE0000000000000000003","ts":"2026-05-17T14:00:02.000Z","payload":{"for_id":"01HEVTE0000000000000000002","ok":true,"output":"[{\"id\":\"ABC-123\",\"title\":\"Fix auth\"}]"}}
@@ -1818,6 +1835,7 @@ Initial public draft. v0.1.0 defines:
 - Envelope-level `payload.usage` on the first entry derived from a source envelope, including `agent_message`, `agent_thinking`, and `tool_call` (§9.2).
 - During the v0.1.0 draft cycle, planning snapshots moved from the legacy `tool_call.payload.tool:"task_plan"` shape to the canonical `task_plan_update` event. Final v0.1.0 writer-strict output MUST use `task_plan_update`; legacy `task_plan` tool calls are invalid.
 - During the v0.1.0 draft cycle, duplicate `system_event` kinds for `session_end` and `permission_mode_change` were removed, thinking levels became source-defined strings, `user_message.origin` was added, and related vocabulary clarifications landed.
+- During the v0.1.0 draft cycle, vendor extensions converged on one `x-<vendor>/<name>` grammar across `meta`, enum extensions, `system_event.kind`, `tool_result.payload.meta`, and custom `agent.name`.
 - During the v0.1.0 draft cycle, writer-strict identity and encoding were hardened: ULIDs are uppercase, UUIDs are lowercase, timestamps carry schema `format:"date-time"` annotation, and strings with unpaired surrogates are invalid (`ill_formed_string`).
 
 ---

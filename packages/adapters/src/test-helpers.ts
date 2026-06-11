@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { Entry } from "@agent-trail/types";
+import type { AgentName, Entry } from "@agent-trail/types";
 import type { SessionRef, TrailAdapter, TrailFile } from "./index.ts";
 import { validateAdapterTrail } from "./index.ts";
 
@@ -29,7 +29,7 @@ type FeatureType = (typeof FEATURE_TYPES)[number];
 type RealSessionSmokeOptions = {
   adapter: TrailAdapter;
   envVar: string;
-  expectedAgentName: string;
+  expectedAgentName: AgentName;
   testName: string;
   fallbackSessionId: string;
   defaultSessionPath?: () => string | undefined;

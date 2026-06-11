@@ -204,7 +204,7 @@ Cross-cutting hardenings on the Pi adapter:
   `assistant_redacted_thinking_block`, `assistant_toolcall_block`, `assistant_string_content`,
   `user_message_envelope`, `tool_result_envelope`, `branch_summary_envelope`,
   `compaction_envelope`, `model_change_envelope`, `aborted_assistant_synthetic`). Schema's
-  `sourceMetadata` is `additionalProperties: false`, so the tag lives under reverse-DNS entry
+  `sourceMetadata` is `additionalProperties: false`, so the tag lives under a vendor `meta` entry
   metadata per spec §11.
 - Numeric tool-id coercion: pi-ai types `ToolCall.id` and `ToolResultMessage.toolCallId` as
   `string`, but a non-conforming source emitting a numeric id is coerced to a string at the adapter
@@ -371,7 +371,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   "agent_reasoning_raw_content"` both → `agent_thinking` (canonical text is `payload.text`, no
   `message` fallback). Within a turn (`turn_context.payload.turn_id`), normalised-text duplicates
   collapse to a single entry; origin is recorded under `metadata["dev.codex.raw_type"]` (schema's
-  `sourceMetadata` is `additionalProperties: false`, so the audit tag lives under reverse-DNS
+  `sourceMetadata` is `additionalProperties: false`, so the audit tag lives under vendor
   entry metadata per spec §11 — same precedent as Pi). The per-section dedupe pool spans both the
   streaming `event_msg` reasoning and the persisted `response_item.reasoning.summary[]` sections,
   folding exact duplicates while letting divergent sections through.
@@ -407,7 +407,7 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   (sibling of the flattened SessionMeta fields) populates `header.vcs` and is authoritative —
   live `readGitVcs(cwd)` runs only as a fallback when no recorded `git` block exists (correct for
   archived / replayed / shared trails). `repository_url` routes through `normalizeRemoteUrl`.
-- SessionMeta extras → `header.meta` (reverse-DNS `dev.codex.*`): `model_provider` →
+- SessionMeta extras → `header.meta` (existing opaque Codex keys): `model_provider` →
   `dev.codex.model_provider`; `memory_mode` → `dev.codex.memory_mode`; `base_instructions.text`
   (the system prompt, kept verbatim under `source.raw`) → a `dev.codex.base_instructions`
   fingerprint `{sha256, bytes}` that survives share-time elision and flags customization without

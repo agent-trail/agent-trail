@@ -4,6 +4,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseJsonlString, stampTrail, validateTrailString } from "@agent-trail/core";
+import type { AgentName } from "@agent-trail/types";
 import {
   claudeCodeAdapter,
   codexAdapter,
@@ -140,7 +141,7 @@ const SAFE_METADATA_KEYS_IN_SENSITIVE_CONTEXT = new Set([
 type Fixture = {
   key: string;
   adapter: TrailAdapter;
-  expectedAgentName: string;
+  expectedAgentName: AgentName;
   expectedSourceVersion?: string;
   expectedFeatureTypes: string[];
 };

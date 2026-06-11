@@ -282,7 +282,7 @@ function appendHeaderMetadataReplayCorrections(
           ts: latestTimestamp(header, events.slice(0, correctionIndex)),
           payload,
           source: {
-            agent: "x-agent-trail-reconciler",
+            agent: "x-agent-trail/reconciler",
             original_type: "reconcile.header_metadata_late_bind",
             synthesized: true,
           },

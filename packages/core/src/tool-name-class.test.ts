@@ -184,5 +184,5 @@ test("classifies the remaining initial cross-agent corpus", () => {
 test("accepts agent context without changing current classifications", () => {
   expect(classifyToolName("edit_file", "cursor")).toBe("edit");
   expect(classifyToolName("edit_file", "copilot-chat")).toBe("edit");
-  expect(classifyToolName("edit_file", "x-com-example-agent")).toBe("edit");
+  expect(classifyToolName("edit_file", "x-example/agent")).toBe("edit");
 });

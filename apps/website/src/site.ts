@@ -1051,8 +1051,8 @@ function vendorExtensionsSampleLines(): string[] {
     trailLine("session", "01HSESSVENDOR000000000001", {
       schema_version: CURRENT_SPEC_VERSION,
       ts: "2026-05-18T08:00:00.000Z",
-      agent: { name: "x-com-example-agent" },
-      meta: { "com.example/build_id": "build-2026-05-18.1" },
+      agent: { name: "x-example/agent" },
+      meta: { "x-example/build_id": "build-2026-05-18.1" },
     }),
     trailLine("system_event", "01HEVTVENDOR000000000001", {
       ts: "2026-05-18T08:00:02.000Z",
@@ -1062,7 +1062,7 @@ function vendorExtensionsSampleLines(): string[] {
     trailLine("agent_message", "01HEVTVENDOR000000000002", {
       ts: "2026-05-18T08:00:05.000Z",
       payload: { text: "Vendor metadata is namespaced and opaque to the validator." },
-      meta: { "io.agent-trail.demo/render_hint": "timeline-note" },
+      meta: { "x-agent-trail-demo/render_hint": "timeline-note" },
     }),
     trailLine("tool_call", "01HEVTVENDOR000000000003", {
       ts: "2026-05-18T08:00:08.000Z",
@@ -1070,7 +1070,7 @@ function vendorExtensionsSampleLines(): string[] {
         tool: "shell_command",
         args: { command: "trail inspect vendor-demo.trail.jsonl" },
       },
-      meta: { "com.example/run_id": "run-42" },
+      meta: { "x-example/run_id": "run-42" },
     }),
     trailLine("tool_result", "01HEVTVENDOR000000000004", {
       ts: "2026-05-18T08:00:09.000Z",
@@ -1079,7 +1079,7 @@ function vendorExtensionsSampleLines(): string[] {
         ok: true,
         output: "ignored unknown namespaced metadata",
       },
-      meta: { "com.example/result_kind": "inspection" },
+      meta: { "x-example/result_kind": "inspection" },
     }),
     trailLine("session_summary", "01HEVTVENDOR000000000005", {
       ts: "2026-05-18T08:00:11.000Z",

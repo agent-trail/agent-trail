@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Entry } from "@agent-trail/types";
 import { reconcile } from "./index.ts";
 
-const ctx = { agent: "codex" as const };
+const ctx = { agent: "codex-cli" as const };
 
 function entry(id: string, extra: Partial<Entry> = {}): Entry {
   return {

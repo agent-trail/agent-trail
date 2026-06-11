@@ -5,7 +5,7 @@ type Env = { id: string };
 type Block = { type: string; text: string };
 
 const sourceFor = createSourceFor<Env, Block>({
-  agent: "claude_code",
+  agent: "claude-code",
   resolveSchemaVersion: () => undefined,
 });
 

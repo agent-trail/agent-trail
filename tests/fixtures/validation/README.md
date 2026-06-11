@@ -102,7 +102,7 @@ Expected: no diagnostics under either profile.
 
 #### `valid/tool-call-aborted-extension-scope-reason.trail.jsonl`
 
-Vendor extension `tool_call_aborted.payload.scope` and `payload.reason` values using the `x-<vendor>/<value>` pattern.
+Vendor extension `tool_call_aborted.payload.scope` and `payload.reason` values using the `x-<vendor>/<name>` pattern.
 
 Expected: no diagnostics under either profile.
 
@@ -252,7 +252,7 @@ Expected (strict, subset): `error not /payload line 2`.
 
 #### `invalid-schema/tool-call-aborted-bad-reason.trail.jsonl`
 
-`tool_call_aborted.payload.reason` is a bare unknown value instead of a reserved reason or `x-<adapter>/<reason>` extension.
+`tool_call_aborted.payload.reason` is a bare unknown value instead of a reserved reason or `x-<vendor>/<name>` extension.
 
 Expected (strict, subset): `error anyOf /payload/reason line 2`.
 

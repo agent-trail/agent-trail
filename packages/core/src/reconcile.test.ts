@@ -321,7 +321,7 @@ test("header metadata replay corrections preserve latest merged base values", as
 
   for (const correction of metadataUpdates.slice(3)) {
     expect(correction.source).toEqual({
-      agent: "x-agent-trail-reconciler",
+      agent: "x-agent-trail/reconciler",
       original_type: "reconcile.header_metadata_late_bind",
       synthesized: true,
     });

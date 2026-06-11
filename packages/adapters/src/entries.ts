@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { canonicalizeIdentityString } from "@agent-trail/adapter-kit";
-import type { Entry } from "@agent-trail/types";
+import type { AgentName, Entry } from "@agent-trail/types";
 import { enforceSourceRawSize, redactValue } from "./source-raw.ts";
 
 export type SourceForOptions = {
@@ -10,7 +10,7 @@ export type SourceForOptions = {
 };
 
 export type CreateSourceForConfig<Env> = {
-  agent: string;
+  agent: AgentName;
   resolveSchemaVersion: (envelope: Env, options?: SourceForOptions) => string | undefined;
 };
 

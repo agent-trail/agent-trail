@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Entry } from "@agent-trail/types";
 import { reconcile } from "./index.ts";
 
-const ctx = { agent: "codex" as const };
+const ctx = { agent: "codex-cli" as const };
 
 describe("meta.linker stripping", () => {
   test("removes meta.linker and drops meta entirely when it becomes empty", () => {

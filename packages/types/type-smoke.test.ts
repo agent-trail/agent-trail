@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type {
   AgentMessageUsage,
+  AgentName,
   AgentTrailV010,
   CapabilityChange,
   Header,
@@ -34,6 +35,25 @@ test("@agent-trail/types exposes generated schema types", () => {
   expect(header.name).toBe("Initial title");
   expect(header.description).toBe("Initial description");
   expect(header.tags).toEqual(["release", "docs"]);
+});
+
+test("AgentName accepts registry names and slashed custom names", () => {
+  const registered = "codex-cli" satisfies AgentName;
+  const extension = "x-example/myagent" satisfies AgentName;
+  const extensionWithUnderscore = "x-example/my_agent" satisfies AgentName;
+  // @ts-expect-error legacy hyphenated custom agent names must not satisfy AgentName.
+  const invalidLegacy = "x-com-example-myagent" satisfies AgentName;
+  // @ts-expect-error custom agent vendor segment must be lowercase.
+  const invalidUppercaseVendor = "x-Example/myagent" satisfies AgentName;
+  // @ts-expect-error custom agent name segment must be lowercase.
+  const invalidUppercaseName = "x-example/Myagent" satisfies AgentName;
+
+  expect(registered).toBe("codex-cli");
+  expect(extension).toBe("x-example/myagent");
+  expect(extensionWithUnderscore).toBe("x-example/my_agent");
+  expect(invalidLegacy).toBe("x-com-example-myagent");
+  expect(invalidUppercaseVendor).toBe("x-Example/myagent");
+  expect(invalidUppercaseName).toBe("x-example/Myagent");
 });
 
 test("Vcs.type accepts reserved and extension values", () => {
@@ -82,10 +102,10 @@ test("AgentMessageUsage requires input/output coverage and rejects extra fields"
 });
 
 // Regression: SystemEvent.payload.kind must accept both reserved values and
-// adapter-namespaced `x-<adapter>/<name>` extensions. The pre-fix generator
+// vendor-namespaced `x-<vendor>/<name>` extensions. The pre-fix generator
 // output (`(reserved | { [k: string]: unknown }) & string`) silently rejected
 // extension kinds because the index-signature branch collapsed to `never`.
-test("SystemEvent.payload.kind accepts reserved + x-<adapter>/<name> extensions", () => {
+test("SystemEvent.payload.kind accepts reserved + x-<vendor>/<name> extensions", () => {
   const reserved = {
     type: "system_event",
     payload: { kind: "heartbeat" },
@@ -103,7 +123,7 @@ test("SystemEvent.payload.kind accepts reserved + x-<adapter>/<name> extensions"
   expect(another.payload?.kind).toBe("x-pi/custom_message");
 });
 
-test("UserMessage.payload.origin accepts reserved + x-<adapter>/<name> extensions", () => {
+test("UserMessage.payload.origin accepts reserved + x-<vendor>/<name> extensions", () => {
   const reserved = {
     type: "user_message",
     payload: { text: "hello", origin: "injected" },
@@ -158,7 +178,7 @@ test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
   expect((extraPayloadKey as Record<string, unknown>).unexpected).toBe(true);
 });
 
-test("setting change types accept reserved + x-<adapter>/<name> extensions", () => {
+test("setting change types accept reserved + x-<vendor>/<name> extensions", () => {
   const model = {
     type: "model_change",
     payload: { to_model: "gpt-5", trigger: "x-codex/model_picker" },
@@ -181,7 +201,7 @@ test("setting change types accept reserved + x-<adapter>/<name> extensions", () 
   expect(thinking.payload?.trigger).toBe("x-codex/reasoning_effort");
 });
 
-test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes", () => {
+test("SessionMetadataUpdate exposes reserved and x-<vendor>/<name> field shapes", () => {
   const name = {
     type: "session_metadata_update",
     payload: { field: "name", value: "Release notes", reason: "ai_generated" },
@@ -213,7 +233,7 @@ test("SessionMetadataUpdate exposes reserved and x-<adapter>/<name> field shapes
   expect(vendor.payload?.field).toBe("x-codex/thread_goal");
 });
 
-test("ToolCallAborted exposes reserved and x-<adapter>/<name> reason/scope shapes", () => {
+test("ToolCallAborted exposes reserved and x-<vendor>/<name> reason/scope shapes", () => {
   const reserved = {
     type: "tool_call_aborted",
     payload: {

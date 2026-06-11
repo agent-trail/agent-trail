@@ -19,6 +19,8 @@ type SeedOpts = {
   firstText?: string;
 };
 
+type HeaderAgentName = TrailFile["groups"][number]["header"]["agent"]["name"];
+
 async function seedTrail(opts: SeedOpts = {}): Promise<{ filePath: string; contentHash: string }> {
   const agentName = opts.agentName ?? "codex-cli";
   const cwd = opts.cwd ?? "/work/proj-a";
@@ -123,6 +125,7 @@ function stubAdapter(name: string, refs: SessionRef[]): TrailAdapter {
 }
 
 function parseableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  const agentName = (name === "codex" ? "codex-cli" : name) as HeaderAgentName;
   return {
     ...stubAdapter(name, refs),
     async parseSession(ref): Promise<TrailFile> {
@@ -134,7 +137,7 @@ function parseableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
               schema_version: "0.1.0",
               id: "01HSESS0000000000000000001",
               ts: "2026-05-17T14:00:00.000Z",
-              agent: { name: name === "codex" ? "codex-cli" : name },
+              agent: { name: agentName },
               cwd: ref.cwd,
             },
             entries: [
