@@ -3,7 +3,7 @@ import type { Entry } from "@agent-trail/types";
 import type { ReconcilerRule } from "../types.ts";
 import { reconcile } from "./index.ts";
 
-const ctx = { agent: "codex" as const };
+const ctx = { agent: "codex-cli" as const };
 
 function entry(id: string, extra: Partial<Entry> = {}): Entry {
   return {

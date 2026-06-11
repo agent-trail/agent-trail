@@ -29,6 +29,40 @@ test("accepts the minimal writer-strict session header", () => {
   expect(diagnostics).toEqual([]);
 });
 
+test("writer-strict accepts a slashed custom agent name", () => {
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-example/myagent"}}',
+    value: {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "x-example/myagent" },
+    },
+  });
+
+  expect(diagnostics).toEqual([]);
+});
+
+test("writer-strict rejects the legacy hyphenated custom agent name", () => {
+  const legacyName = ["x-com", "example-myagent"].join("-");
+  const value = {
+    type: "session",
+    schema_version: "0.1.0",
+    id: "01HSESS0000000000000000001",
+    ts: "2026-05-17T14:00:00.000Z",
+    agent: { name: legacyName },
+  };
+  const diagnostics = validateWriterStrictRecord({
+    line: 1,
+    raw: JSON.stringify(value),
+    value,
+  });
+
+  expect(diagnostics.some((d) => d.severity === "error" && d.path === "/agent/name")).toBe(true);
+});
+
 test("validateWriterStrictRecord rejects calendar-invalid timestamps", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 1,
@@ -1323,7 +1357,7 @@ test("writer-strict rejects a system_event with a bare unknown kind", () => {
   expect(diagnostics.some((d) => d.severity === "error" && d.path === "/payload/kind")).toBe(true);
 });
 
-test("writer-strict accepts a system_event with an x-<adapter>/<name> extension kind", () => {
+test("writer-strict accepts a system_event with an x-<vendor>/<name> extension kind", () => {
   const diagnostics = validateWriterStrictRecord({
     line: 2,
     raw: '{"type":"system_event","id":"01HEVTSE000000000000000002","ts":"2026-05-17T14:00:30.000Z","payload":{"kind":"x-claudecode/notification"}}',
@@ -2164,8 +2198,8 @@ test("rejects graph facts on envelope.sessions manifest entries", async () => {
 test("accepts envelope and session meta blocks", async () => {
   const diagnostics = await validateTrailString(
     [
-      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","meta":{"x-acme/team":"platform","io.entire.checkpoint_id":"ckpt-7"}}',
-      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"meta":{"com.example.ticket":"OAUTH-42"}}',
+      '{"type":"trail","schema_version":"0.1.0","id":"01HTRACE000000000000000001","ts":"2026-05-17T14:00:00.000Z","producer":"trail-cli/0.3.0","meta":{"x-acme/team":"platform","x-entire/checkpoint_id":"ckpt-7"}}',
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"},"meta":{"x-example/ticket":"OAUTH-42"}}',
     ].join("\n"),
   );
 

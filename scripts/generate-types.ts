@@ -23,7 +23,7 @@ const compiled = await compile(schema, "AgentTrailRecord", {
 });
 
 // json-schema-to-typescript lowers the `system_event.payload.kind` anyOf
-// (reserved enum + adapter-namespaced pattern `^x-...$`) into
+// (reserved enum + vendor-namespaced pattern `^x-...$`) into
 // `(reserved | { [k: string]: unknown }) & string`. The intersection erases
 // the index-signature branch (`{ [k: string]: unknown } & string` is `never`),
 // so TypeScript rejects valid extension kinds like `x-claudecode/diag`.
@@ -65,6 +65,33 @@ const flatUnion = [
   "      | `x-$" + "{string}/$" + "{string}`",
 ].join("\n");
 let generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
+
+// json-schema-to-typescript collapses the custom `agentName` pattern branch
+// into bare `string`, which would allow legacy custom names at compile time.
+// Keep the generated public type aligned with writer-strict validation by
+// exposing registered names plus the shared slashed extension grammar.
+const agentNameEnum = (
+  schema as {
+    $defs?: {
+      agentName?: { oneOf?: Array<{ enum?: string[] }> };
+    };
+  }
+).$defs?.agentName?.oneOf?.find((branch) => Array.isArray(branch.enum))?.enum;
+if (agentNameEnum === undefined || agentNameEnum.length === 0) {
+  throw new Error("generate-types: could not read registered agentName enum from schema.");
+}
+const AGENT_NAME_RE =
+  /export type AgentName =\n {2}\| \(\n(?: {6}\| "[^"]+"\n)+ {4}\)\n {2}\| string;/;
+if (!AGENT_NAME_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the AgentName union to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const agentNameUnion = [
+  ...agentNameEnum.map((value) => `  | ${JSON.stringify(value)}`),
+  "  | `x-$" + "{string}/$" + "{string}`",
+].join("\n");
+generated = generated.replace(AGENT_NAME_RE, `export type AgentName =\n${agentNameUnion};`);
 
 const vcsTypeEnum = (
   schema as {

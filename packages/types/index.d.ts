@@ -16,27 +16,25 @@ export type Iso8601 = string;
  */
 export type Sha256Hex = string;
 export type AgentName =
-  | (
-      | "claude-code"
-      | "pi"
-      | "openclaw"
-      | "codex-cli"
-      | "cursor"
-      | "opencode"
-      | "aider"
-      | "amp"
-      | "cline"
-      | "crush"
-      | "kimi-code"
-      | "qwen-code"
-      | "factory"
-      | "vibe"
-      | "copilot-cli"
-      | "copilot-chat"
-      | "chatgpt"
-      | "clawdbot"
-    )
-  | string;
+  | "claude-code"
+  | "pi"
+  | "openclaw"
+  | "codex-cli"
+  | "cursor"
+  | "opencode"
+  | "aider"
+  | "amp"
+  | "cline"
+  | "crush"
+  | "kimi-code"
+  | "qwen-code"
+  | "factory"
+  | "vibe"
+  | "copilot-cli"
+  | "copilot-chat"
+  | "chatgpt"
+  | "clawdbot"
+  | `x-${string}/${string}`;
 /**
  * Session header. The first session header is required at line 1, or at line 2 when a trail envelope occupies line 1. Multi-session files (spec §8.6) carry additional session headers later in the file; each opens a new (header, events*) group. Not part of the event graph.
  */
@@ -94,7 +92,7 @@ export type Header = {
     format_version?: string;
   };
   /**
-   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace (spec §8.0.3).
+   * Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar (spec §8.0.3).
    */
   meta?: {
     [k: string]: unknown;
@@ -255,7 +253,7 @@ export interface TrailEnvelope {
     agent: AgentName;
   }[];
   /**
-   * Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace.
+   * Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar.
    */
   meta?: {
     [k: string]: unknown;
@@ -434,7 +432,7 @@ export interface ToolResult {
     error?: string | null;
     attachments?: Attachment[];
     /**
-     * Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/ pattern keys.
+     * Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/<name> pattern keys.
      */
     meta?: {
       mcp_call?: {
@@ -581,7 +579,7 @@ export interface SystemEvent {
   type?: "system_event";
   payload?: {
     /**
-     * Lifecycle/hook signal category. Either one of the reserved cross-agent values, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name).
+     * Lifecycle/hook signal category. Either one of the reserved cross-agent values, or a vendor-namespaced extension of the form `x-<vendor>/<name>`.
      */
     kind:
       | "session_start"
@@ -777,7 +775,7 @@ export interface CommandInvoke {
     };
     expansion_text?: string;
     /**
-     * What the runtime did with the invocation. Either one of the reserved values, an adapter-namespaced extension of the form `x-<adapter>/<name>`, or null.
+     * What the runtime did with the invocation. Either one of the reserved values, a vendor-namespaced extension of the form `x-<vendor>/<name>`, or null.
      */
     result_action?:
       | "compact"

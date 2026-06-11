@@ -98,8 +98,8 @@
         },
         {
           "type": "string",
-          "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9][a-z0-9-]*$",
-          "description": "Custom unregistered agent using a reverse-domain style x- prefix, e.g. x-com-example-myagent"
+          "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$",
+          "description": "Custom unregistered agent using the x-<vendor>/<name> extension grammar, e.g. x-example/myagent"
         }
       ]
     },
@@ -423,7 +423,7 @@
         },
         "meta": {
           "type": "object",
-          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace."
+          "description": "Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar."
         }
       },
       "additionalProperties": false
@@ -512,7 +512,7 @@
         },
         "meta": {
           "type": "object",
-          "description": "Free-form vendor extensions. Recommended keys use a reverse-domain or x-<adapter>/ namespace (spec §8.0.3)."
+          "description": "Free-form vendor extensions. Recommended keys use the x-<vendor>/<name> extension grammar (spec §8.0.3)."
         }
       },
       "additionalProperties": false,
@@ -1012,7 +1012,7 @@
               },
               "meta": {
                 "type": "object",
-                "description": "Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/ pattern keys.",
+                "description": "Structured per-toolkind outputs, keyed by the originating tool_call.tool. Optional; consumers fall back to payload.output when the relevant key is absent. Registered keys are writer-strict; unregistered/future toolkinds are opaque objects. Vendors extend a registered key via x-<vendor>/<name> pattern keys.",
                 "properties": {
                   "mcp_call": {
                     "type": "object",
@@ -1277,7 +1277,7 @@
             "properties": {
               "kind": {
                 "type": "string",
-                "description": "Lifecycle/hook signal category. Either one of the reserved cross-agent values, or an adapter-namespaced extension of the form `x-<adapter>/<name>` (lowercase, kebab-case adapter, snake/kebab name).",
+                "description": "Lifecycle/hook signal category. Either one of the reserved cross-agent values, or a vendor-namespaced extension of the form `x-<vendor>/<name>`.",
                 "anyOf": [
                   {
                     "enum": [
@@ -1589,7 +1589,7 @@
               "args": { "type": "object" },
               "expansion_text": { "type": "string" },
               "result_action": {
-                "description": "What the runtime did with the invocation. Either one of the reserved values, an adapter-namespaced extension of the form `x-<adapter>/<name>`, or null.",
+                "description": "What the runtime did with the invocation. Either one of the reserved values, a vendor-namespaced extension of the form `x-<vendor>/<name>`, or null.",
                 "oneOf": [
                   {
                     "type": "string",

@@ -1461,22 +1461,22 @@ test("redactTrail redacts quarantined source drift while preserving raw shape", 
 test("redactTrail walks record.value.meta on both header and entries", () => {
   const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [
-    header({ meta: { "com.example.token": key } }),
+    header({ meta: { "x-example/token": key } }),
     record(2, {
       type: "agent_message",
       id: "evt1",
       ts: "2026-05-22T00:00:01.000Z",
       payload: { text: "hi" },
-      meta: { "com.example.nested": { token: key } },
+      meta: { "x-example/nested": { token: key } },
     }),
   ];
 
   const { records: out, summary } = redactTrail(records);
 
-  const headerValue = out[0]?.value as { meta: { "com.example.token": string } };
-  expect(headerValue.meta["com.example.token"]).toBe("[OPENAI_KEY]");
-  const entryValue = out[1]?.value as { meta: { "com.example.nested": { token: string } } };
-  expect(entryValue.meta["com.example.nested"].token).toBe("[OPENAI_KEY]");
+  const headerValue = out[0]?.value as { meta: { "x-example/token": string } };
+  expect(headerValue.meta["x-example/token"]).toBe("[OPENAI_KEY]");
+  const entryValue = out[1]?.value as { meta: { "x-example/nested": { token: string } } };
+  expect(entryValue.meta["x-example/nested"].token).toBe("[OPENAI_KEY]");
   expect(summary.counts.openai_api_key).toBe(2);
 });
 

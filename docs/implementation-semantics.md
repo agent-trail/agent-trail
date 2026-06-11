@@ -52,7 +52,7 @@ The authoritative event-type list is `schema.json` JSON Pointer
 registry.
 
 Use vendor `system_event.payload.kind` values for weak-fit source events, for
-example `x-<adapter>/<event>`. Preserve source details in `source.raw` or
+example `x-<vendor>/<name>`. Preserve source details in `source.raw` or
 vendor `meta` rather than extending the top-level event vocabulary.
 
 ### Parent Topology And Branching
