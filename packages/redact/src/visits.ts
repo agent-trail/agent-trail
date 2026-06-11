@@ -3,6 +3,7 @@ import type { JsonlRecord } from "@agent-trail/core";
 export type Visit = {
   recordIndex: number;
   location: string;
+  key?: string;
   get: () => string;
   set: (next: string) => void;
 };
@@ -32,6 +33,7 @@ export function keyVisit(
   return {
     recordIndex,
     location,
+    key,
     get: () => container[key] as string,
     set: (next) => {
       container[key] = next;

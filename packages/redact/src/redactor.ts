@@ -68,6 +68,7 @@ export function redactTrail(
     rawSummary,
     maxSamples,
     redactionCounts,
+    options.enableEntropyRedaction === true,
   );
 
   truncateOutputs(
