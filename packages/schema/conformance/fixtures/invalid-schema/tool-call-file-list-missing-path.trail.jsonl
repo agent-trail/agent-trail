@@ -1,0 +1,2 @@
+{"type":"session","schema_version":"0.1.0","id":"00000000-0000-4000-8000-000000000501","session_uid":"00000000-0000-4000-8000-0000000005aa","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}
+{"type":"tool_call","id":"00000000-0000-4000-8000-000000000502","ts":"2026-05-17T14:00:01.000Z","payload":{"tool":"file_list","args":{"recursive":true}}}

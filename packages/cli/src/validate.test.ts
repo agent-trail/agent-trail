@@ -3,11 +3,31 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
 
 const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url);
 const fixturePath = (rel: string) => fileURLToPath(new URL(rel, FIXTURES));
+
+type DiagnosticAssertion = {
+  line: number;
+  path?: string;
+  severity?: "error" | "warning";
+  code?: string;
+};
+
+type ManifestFixture = {
+  path: string;
+  strict: {
+    valid: boolean;
+    diagnostics: DiagnosticAssertion[];
+  };
+  tolerant: {
+    clean: boolean;
+    diagnostics: DiagnosticAssertion[];
+  };
+};
 
 const VALID_HEADER =
   '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}';
@@ -19,6 +39,44 @@ async function writeFixture(content: string): Promise<string> {
   const path = join(dir, "trail.jsonl");
   await Bun.write(path, content);
   return path;
+}
+
+const PORTABLE_CODES = new Set(
+  (manifest as { fixtures: ManifestFixture[] }).fixtures.flatMap((fixture) =>
+    [...fixture.strict.diagnostics, ...fixture.tolerant.diagnostics]
+      .map((diagnostic) => diagnostic.code)
+      .filter((code): code is string => code !== undefined),
+  ),
+);
+
+function simplifyDiagnostics(diagnostics: DiagnosticAssertion[]): DiagnosticAssertion[] {
+  const assertions = diagnostics.map((diagnostic) =>
+    diagnostic.code !== undefined && PORTABLE_CODES.has(diagnostic.code)
+      ? {
+          line: diagnostic.line,
+          path: diagnostic.path,
+          severity: diagnostic.severity,
+          code: diagnostic.code,
+        }
+      : { line: diagnostic.line },
+  );
+  const seen = new Set<string>();
+  return assertions
+    .filter((assertion) => {
+      const key = JSON.stringify(assertion);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort(compareDiagnosticAssertions);
+}
+
+function compareDiagnosticAssertions(a: DiagnosticAssertion, b: DiagnosticAssertion): number {
+  return (
+    a.line - b.line ||
+    (a.path ?? "").localeCompare(b.path ?? "") ||
+    (a.code ?? "").localeCompare(b.code ?? "")
+  );
 }
 
 test("valid trail exits 0 with empty stdout", async () => {
@@ -173,55 +231,29 @@ test("patch-compatible schema_version fails strict but warns under reader-tolera
   ]);
 });
 
-test("committed valid fixture passes via trail validate", async () => {
-  const result = await runValidate({
-    file: fixturePath("valid/minimal-with-content-hash.trail.jsonl"),
+for (const fixture of (manifest as { fixtures: ManifestFixture[] }).fixtures) {
+  test(`committed fixture ${fixture.path} matches strict trail validate expectation`, async () => {
+    const result = await runValidate({
+      file: fixturePath(fixture.path),
+      json: true,
+    });
+    expect(result.exitCode).toBe(fixture.strict.valid ? 0 : 1);
+    expect(simplifyDiagnostics(JSON.parse(result.stdout))).toEqual(fixture.strict.diagnostics);
   });
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout).toBe("");
-});
 
-test("committed invalid-schema fixture fails via trail validate with a /schema_version diagnostic", async () => {
-  const result = await runValidate({
-    file: fixturePath("invalid-schema/header-wrong-schema-version.trail.jsonl"),
+  test(`committed fixture ${fixture.path} matches reader-tolerant trail validate expectation`, async () => {
+    const result = await runValidate({
+      file: fixturePath(fixture.path),
+      json: true,
+      profile: "reader-tolerant",
+    });
+    const diagnostics = simplifyDiagnostics(JSON.parse(result.stdout));
+    expect(diagnostics).toEqual(fixture.tolerant.diagnostics);
+    if (fixture.tolerant.clean) {
+      expect(result.exitCode).toBe(0);
+    }
   });
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toContain("error const line 1 /schema_version:");
-});
-
-test("unmatched tool_call at EOF fixture surfaces warning via trail validate --json", async () => {
-  const result = await runValidate({
-    file: fixturePath("invalid-graph/unmatched-tool-call-at-eof.trail.jsonl"),
-    json: true,
-  });
-  expect(result.exitCode).toBe(0);
-  const diagnostics = JSON.parse(result.stdout);
-  expect(diagnostics).toContainEqual({
-    line: 2,
-    path: "/id",
-    severity: "warning",
-    code: "unmatched_tool_call_at_eof",
-    message:
-      'tool_call "01HEVTA0000000000000000001" has no matching tool_result or call-scoped tool_call_aborted at EOF',
-  });
-});
-
-test("unknown final_message_id fixture surfaces warning via trail validate --json", async () => {
-  const result = await runValidate({
-    file: fixturePath("invalid-graph/session-end-unknown-final-message-id.trail.jsonl"),
-    json: true,
-  });
-  expect(result.exitCode).toBe(0);
-  const diagnostics = JSON.parse(result.stdout);
-  expect(diagnostics).toContainEqual({
-    line: 3,
-    path: "/payload/final_message_id",
-    severity: "warning",
-    code: "unknown_final_message_id",
-    message:
-      'session_end final_message_id "01HGH0ST000000000000000001" does not reference the session header or a prior event in this file',
-  });
-});
+}
 
 test("--json under reader-tolerant serializes warnings with full diagnostic shape", async () => {
   const messageWithExtra =

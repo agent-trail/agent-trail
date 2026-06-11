@@ -1,0 +1,5 @@
+{"content_hash":"1ead799274fc3b9e80a1a9c26539a906303b9a56332d5c2058f61142df4fea30","id":"01HTRA0X00000000000000A001","producer":"trail-cli/0.3.0","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"trail"}
+{"agent":{"name":"codex-cli"},"content_hash":"8abae38e97120ce1b6df571e7bb34895b50f9ad8000bdc40f296b292adb25128","id":"01HSESS0000000000000000B01","schema_version":"0.1.0","ts":"2026-05-17T14:00:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000B01","payload":{"text":"msg1"},"ts":"2026-05-17T14:00:05.000Z","type":"user_message"}
+{"agent":{"name":"claude-code"},"content_hash":"158803f33d7a1bca6ba219d503df6549deedede039ad2fc890611338d9f794ec","id":"01HSESS0000000000000000B02","schema_version":"0.1.0","ts":"2026-05-17T14:05:00.000Z","type":"session"}
+{"id":"01HEVTA0000000000000000B02","payload":{"text":"msg2"},"ts":"2026-05-17T14:05:05.000Z","type":"user_message"}

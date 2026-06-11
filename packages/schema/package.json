@@ -5,6 +5,7 @@
   "type": "module",
   "license": "Apache-2.0",
   "files": [
+    "conformance",
     "schema.json"
   ],
   "exports": {
@@ -17,6 +18,9 @@
     "./v0.1.0": {
       "default": "./schema.json"
     },
+    "./conformance/manifest.json": "./conformance/manifest.json",
+    "./conformance/manifest.schema.json": "./conformance/manifest.schema.json",
+    "./conformance/fixtures/*": "./conformance/fixtures/*",
     "./schema.json": "./schema.json",
     "./package.json": "./package.json"
   },

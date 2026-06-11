@@ -1,0 +1,5 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000002","session_uid":"00000000-0000-4000-8000-000000000182","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com/example-agent"}}
+{"type":"user_message","id":"01HEVTB0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Read package.json"}}
+{"type":"tool_call","id":"01HEVTB0000000000000000002","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_read","args":{"path":"package.json"}},"semantic":{"call_id":"toolu_01abc"}}
+{"type":"tool_result","id":"01HEVTB0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"for_id":"01HEVTB0000000000000000002","ok":true,"output":"{\"name\":\"trail\"}"},"semantic":{"call_id":"toolu_01abc","tool_kind":"file_read"}}
+{"type":"agent_message","id":"01HEVTB0000000000000000004","ts":"2026-05-17T14:00:08.000Z","payload":{"text":"Your package is called trail."}}

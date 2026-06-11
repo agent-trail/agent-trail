@@ -30,7 +30,7 @@ Workspace packages:
 - [`packages/schema`](./packages/schema) — published JSON Schema package.
 - [`packages/types`](./packages/types) — generated TypeScript types.
 - [`packages/core`](./packages/core) — streaming JSONL parser, layered validation, hashing/canonicalization, multi-segment reconciler.
-- [`packages/adapters`](./packages/adapters) — source-agent parsers; Pi and Claude Code verified, Codex CLI / Cursor / OpenCode / Aider pending.
+- [`packages/adapters`](./packages/adapters) — source-agent parsers; Pi, Claude Code, Codex CLI, and OpenCode verified; Cursor and Aider pending.
 - [`packages/redact`](./packages/redact) — share-time redaction pipeline.
 - [`packages/store`](./packages/store) — content-addressed local object store and index; multi-segment reconciliation via `reconcileIncomingSegment`.
 - [`packages/cli`](./packages/cli) — the `trail` binary: `validate`, `discover`, `list`, `share`, `load`, `export`.

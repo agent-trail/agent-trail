@@ -17,14 +17,16 @@
     "semver": "^7.6.0"
   },
   "scripts": {
-    "check": "bun run check:schema && bun run check:types && bun run check:source-types && bun run typecheck && bun run lint && bun run test && bun pm ls --all >/dev/null && bun run --workspaces --sequential check",
+    "check": "bun run check:schema && bun run check:types && bun run check:source-types && bun run check:conformance && bun run typecheck && bun run lint && bun run test && bun pm ls --all >/dev/null && bun run --workspaces --sequential check",
     "check:schema": "bun run scripts/check-schema-sync.ts --check",
+    "check:conformance": "bun run scripts/check-conformance.ts --check",
     "check:types": "bun run scripts/generate-types.ts --check",
     "check:source-types": "bun run scripts/generate-source-types.ts --check",
     "format": "biome format --write",
     "generate:types": "bun run scripts/generate-types.ts",
     "generate:source-types": "bun run scripts/generate-source-types.ts",
     "sync:schema": "bun run scripts/check-schema-sync.ts",
+    "sync:conformance": "bun run scripts/check-conformance.ts",
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "prepare": "bun run worktree:setup",
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@types/bun": "^1.3.14",
+    "ajv": "catalog:",
     "bun-types": "1.3.14",
     "h3-v2": "npm:h3@2.0.1-rc.20",
     "json-schema-to-typescript": "^15.0.4",

@@ -1,0 +1,5 @@
+{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000004","session_uid":"00000000-0000-4000-8000-000000000185","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"x-com/example-agent"},"vcs":{"type":"git","revision":"a1b2c3d4"}}
+{"type":"user_message","id":"01HEVTD0000000000000000001","ts":"2026-05-17T14:00:00.000Z","payload":{"text":"Add a logger"}}
+{"type":"agent_message","id":"01HEVTD0000000000000000002","ts":"2026-05-17T14:00:05.000Z","payload":{"text":"Adding logger..."}}
+{"type":"tool_call","id":"01HEVTD0000000000000000003","ts":"2026-05-17T14:00:06.000Z","payload":{"tool":"file_edit","args":{"path":"src/main.ts","diff":"--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,5 @@\n+import { logger } from './logger';\n+\n const main = () => {"}},"source":{"agent":"x-com/example-agent","original_type":"git_commit_diff","synthesized":true}}
+{"type":"session_end","id":"01HEVTD0000000000000000004","ts":"2026-05-17T14:00:09.000Z","payload":{"reason":"complete"}}
