@@ -179,7 +179,11 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
     let usageEmitted = false;
     const consumeUsage = (part?: Raw): ReturnType<typeof usageFrom> => {
       if (usageEmitted) return undefined;
-      const usage = messageUsage ?? (part !== undefined ? usageFrom(part) : undefined);
+      const partUsage = part !== undefined ? usageFrom(part) : undefined;
+      const usage =
+        messageUsage !== undefined && partUsage !== undefined
+          ? { ...partUsage, ...messageUsage }
+          : (messageUsage ?? partUsage);
       if (usage === undefined) return undefined;
       usageEmitted = true;
       return usage;

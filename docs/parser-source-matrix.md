@@ -188,11 +188,12 @@ compactions and is preserved under `metadata["dev.pi.compaction"]`). `model_chan
 assistant `message.model` (or earlier `model_change.modelId`) observed in source order.
 
 Pi usage telemetry: assistant `message.usage` maps `input` → `input_tokens`, `output` →
-`output_tokens`, `cacheRead` → `cache_read_tokens`, `cacheWrite` → `cache_creation_tokens`, and
-`context_input_tokens = input + cacheRead + cacheWrite`. The mapped usage is attached once to the
-first usage-capable entry derived from that assistant envelope (`agent_message`, `agent_thinking`,
-or `tool_call`) and is not repeated on later entries. `totalTokens` is intentionally not mapped to
-`context_input_tokens` because it includes output tokens; `cost` remains source-only under
+`output_tokens`, `totalTokens` → `total_tokens`, `cacheRead` → `cache_read_tokens`,
+`cacheWrite` → `cache_creation_tokens`, and `context_input_tokens = input + cacheRead + cacheWrite`.
+The mapped usage is attached once to the first usage-capable entry derived from that assistant
+envelope (`agent_message`, `agent_thinking`, or `tool_call`) and is not repeated on later entries.
+`totalTokens` is intentionally not mapped to `context_input_tokens` because it includes output
+tokens; it is preserved separately as `total_tokens`. `cost` remains source-only under
 `source.raw`. Tool-result `message.details.toolMetadata.contextAtCompletion` is preserved exactly at
 `meta["dev.pi.context_at_completion"]` and is not promoted to assistant `context_window_tokens`.
 

@@ -174,9 +174,14 @@ export const codexModelReplay: ReconcilerRule = (entries) => {
     if (entry.type !== "agent_message" || currentModel === undefined) return entry;
     const payload = entry.payload as Record<string, unknown>;
     if (payload.model !== undefined) return entry;
+    const { usage, ...payloadBeforeUsage } = payload;
     return {
       ...entry,
-      payload: { ...payload, model: currentModel },
+      payload: {
+        ...payloadBeforeUsage,
+        model: currentModel,
+        ...(usage !== undefined ? { usage } : {}),
+      },
     } as Entry;
   });
 };

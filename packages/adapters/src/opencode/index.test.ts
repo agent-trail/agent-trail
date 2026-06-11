@@ -1157,6 +1157,7 @@ test("parseSession() preserves OpenCode total-only token usage", async () => {
     messageID: "msg_total_only",
     type: "text",
     text: "Done.",
+    tokens: { input: 5, output: 3 },
   });
 
   const trail = await opencodeAdapter.parseSession({
@@ -1167,7 +1168,7 @@ test("parseSession() preserves OpenCode total-only token usage", async () => {
   const agent = trail.groups[0]!.entries.find((entry) => entry.type === "agent_message");
   expect(agent?.payload).toEqual({
     text: "Done.",
-    usage: { total_tokens: 42 },
+    usage: { input_tokens: 5, output_tokens: 3, total_tokens: 42 },
   });
   const diagnostics = await validateAdapterTrail(trail);
   expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
