@@ -86,3 +86,38 @@ for (const fixture of (manifest as { fixtures: ManifestFixture[] }).fixtures) {
     expect(simplifyDiagnostics(diagnostics)).toEqual(fixture.tolerant.diagnostics);
   });
 }
+
+const usageTrail = (usage: object) =>
+  `${[
+    {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-05-17T14:00:00.000Z",
+      agent: { name: "codex-cli" },
+    },
+    {
+      type: "agent_message",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:01.000Z",
+      payload: { text: "hi", usage },
+    },
+  ]
+    .map((record) => JSON.stringify(record))
+    .join("\n")}\n`;
+
+test("agent_message usage accepts total-only coverage", async () => {
+  const diagnostics = await validateTrailString(usageTrail({ total_tokens: 42 }));
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("agent_message usage accepts cumulative-total-only coverage", async () => {
+  const diagnostics = await validateTrailString(usageTrail({ total_tokens_cumulative: 420 }));
+  expect(diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+});
+
+test("agent_message usage still rejects empty usage", async () => {
+  const diagnostics = await validateTrailString(usageTrail({}));
+  expect(diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(true);
+});

@@ -27,8 +27,8 @@ test("mapAgentMessageUsage: accepts camelCase aliases", () => {
 
 test("mapAgentMessageUsage: maps Pi's bare input/output/cacheRead/cacheWrite names", () => {
   // Real Pi `message.usage` uses these keys (verified against local sessions);
-  // cacheWrite is Pi's cache-creation counter. totalTokens/cost have no spec
-  // usage field and are intentionally dropped here.
+  // cacheWrite is Pi's cache-creation counter. totalTokens is canonical; cost
+  // remains source-only.
   expect(
     mapAgentMessageUsage({
       input: 1234,
@@ -41,9 +41,34 @@ test("mapAgentMessageUsage: maps Pi's bare input/output/cacheRead/cacheWrite nam
   ).toEqual({
     input_tokens: 1234,
     output_tokens: 567,
+    total_tokens: 1801,
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
     context_input_tokens: 1384,
+  });
+});
+
+test("mapAgentMessageUsage: accepts total-only usage", () => {
+  expect(mapAgentMessageUsage({ totalTokens: 1801, cost: 0.012 })).toEqual({
+    total_tokens: 1801,
+  });
+});
+
+test("mapAgentMessageUsage: maps total aliases", () => {
+  expect(mapAgentMessageUsage({ total_tokens: 10 })).toEqual({ total_tokens: 10 });
+  expect(mapAgentMessageUsage({ total: 11 })).toEqual({ total_tokens: 11 });
+  expect(mapAgentMessageUsage({ totalTokenCount: 12 })).toEqual({ total_tokens: 12 });
+});
+
+test("mapAgentMessageUsage: maps cumulative total aliases", () => {
+  expect(mapAgentMessageUsage({ total_tokens_cumulative: 100 })).toEqual({
+    total_tokens_cumulative: 100,
+  });
+  expect(mapAgentMessageUsage({ totalTokensCumulative: 101 })).toEqual({
+    total_tokens_cumulative: 101,
+  });
+  expect(mapAgentMessageUsage({ cumulativeTotalTokens: 102 })).toEqual({
+    total_tokens_cumulative: 102,
   });
 });
 
@@ -117,11 +142,13 @@ test("mapAgentMessageUsage: maps cumulative + reasoning tokens", () => {
     mapAgentMessageUsage({
       input_tokens_cumulative: 100,
       output_tokens_cumulative: 200,
+      totalTokensCumulative: 300,
       reasoning_tokens: 5,
     }),
   ).toEqual({
     input_tokens_cumulative: 100,
     output_tokens_cumulative: 200,
+    total_tokens_cumulative: 300,
     reasoning_tokens: 5,
   });
 });

@@ -4,7 +4,12 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { Entry } from "@agent-trail/types";
 import { opencodeAdapter } from "../index.ts";
-import { firstJsonFile, ID_PATTERN, runRealSessionSmoke } from "../test-helpers.ts";
+import {
+  assertEmbeddedSourceUsageCaptured,
+  firstJsonFile,
+  ID_PATTERN,
+  runRealSessionSmoke,
+} from "../test-helpers.ts";
 import { opencodeDbPath, opencodeStorageDir } from "./paths.ts";
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
@@ -220,6 +225,7 @@ runRealSessionSmoke({
     );
     const toolCallIds = new Set<string>();
     for (const entry of group.entries) assertOpenCodeEntry(entry, toolCallIds, summary);
+    assertEmbeddedSourceUsageCaptured(trail, summary);
   },
 });
 
@@ -251,5 +257,6 @@ runRealSessionSmoke({
     );
     const toolCallIds = new Set<string>();
     for (const entry of group.entries) assertOpenCodeEntry(entry, toolCallIds, summary);
+    assertEmbeddedSourceUsageCaptured(trail, summary);
   },
 });

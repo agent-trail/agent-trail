@@ -292,12 +292,12 @@ test("parseSession() populates agent_message.payload.usage from message.usage on
   const agentMsg = trail.groups[0]!.entries.find((e) => e.type === "agent_message");
   expect(agentMsg?.type).toBe("agent_message");
   // Real Pi `message.usage` keys (input/output/cacheRead/cacheWrite) map to the
-  // spec usage fields. Pi has no cumulative/reasoning counters; `totalTokens` and
-  // `cost` have no spec usage field (preserved under source.raw, surfaced as a
-  // canonical field only once #116 lands).
+  // spec usage fields. Pi has no cumulative/reasoning counters; `totalTokens`
+  // maps to canonical source-reported total, while `cost` stays source-only.
   expect((agentMsg?.payload as Record<string, unknown>)?.usage).toEqual({
     input_tokens: 1234,
     output_tokens: 567,
+    total_tokens: 1801,
     cache_read_tokens: 100,
     cache_creation_tokens: 50,
     context_input_tokens: 1384,

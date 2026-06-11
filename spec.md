@@ -667,13 +667,17 @@ Captures token accounting emitted by the source agent for a model-response envel
 | `output_tokens` | conditional | integer ≥0 | delta for this envelope |
 | `input_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
 | `output_tokens_cumulative` | conditional | integer ≥0 | running total through this envelope |
+| `total_tokens` | conditional | integer ≥0 | source-reported inclusive total for this envelope |
+| `total_tokens_cumulative` | conditional | integer ≥0 | source-reported inclusive running total through this envelope |
 | `cache_read_tokens` | no | integer ≥0 | input tokens served from prompt cache; billed separately from `input_tokens` |
 | `cache_creation_tokens` | no | integer ≥0 | input tokens written to prompt cache; billed separately from `input_tokens` |
 | `reasoning_tokens` | no | integer ≥0 | output reasoning portion (Anthropic thinking, OpenAI reasoning) |
 | `context_input_tokens` | no | integer ≥0 | prompt/context tokens submitted to the model for this request; cache-inclusive when the source exposes enough detail |
 | `context_window_tokens` | no | integer ≥1 | model context-window size for this request, only when the source exposes it |
 
-When `usage` is present, writers MUST emit at least one of (`input_tokens`, `input_tokens_cumulative`) AND at least one of (`output_tokens`, `output_tokens_cumulative`). Both shapes are supported because sources differ. Readers SHOULD prefer the delta form and fall back to subtracting consecutive cumulative values.
+When `usage` is present, writers MUST emit either input/output coverage or total-token coverage. Input/output coverage means at least one of (`input_tokens`, `input_tokens_cumulative`) AND at least one of (`output_tokens`, `output_tokens_cumulative`). Total-token coverage means at least one of (`total_tokens`, `total_tokens_cumulative`). These shapes are supported because sources differ. Readers SHOULD prefer delta fields and fall back to subtracting consecutive cumulative values.
+
+Total token semantics: `total_tokens` and `total_tokens_cumulative` are source-reported inclusive totals for exact total-token analytics. Writers MUST NOT fabricate total-token fields by summing buckets. Readers that need exact total counts SHOULD prefer `total_tokens`, fall back to deriving a delta from consecutive `total_tokens_cumulative` values, and only then fall back to summing known bucket fields.
 
 Cache token semantics: `input_tokens` counts non-cached input only; `cache_read_tokens` and `cache_creation_tokens` are independent billing categories. Total billed input = `input_tokens + cache_read_tokens + cache_creation_tokens`. They are additive, not a subset of `input_tokens`.
 

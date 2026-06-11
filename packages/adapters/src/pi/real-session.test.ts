@@ -1,5 +1,9 @@
 import { piAdapter } from "../index.ts";
-import { firstJsonlFile, runRealSessionSmoke } from "../test-helpers.ts";
+import {
+  assertEmbeddedSourceUsageCaptured,
+  firstJsonlFile,
+  runRealSessionSmoke,
+} from "../test-helpers.ts";
 import { piSessionsDir } from "./paths.ts";
 
 // Opt-in real-session test. Hard-skipped in CI and skipped locally unless
@@ -15,4 +19,5 @@ runRealSessionSmoke({
   defaultSessionPath: () => firstJsonlFile(piSessionsDir()),
   testName:
     "real Pi session (AGENT_TRAIL_REAL_PI_SESSION) parses, validates, and exposes feature coverage",
+  assertTrail: assertEmbeddedSourceUsageCaptured,
 });

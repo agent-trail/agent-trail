@@ -3,6 +3,8 @@ export type AgentMessageUsage = {
   output_tokens?: number;
   input_tokens_cumulative?: number;
   output_tokens_cumulative?: number;
+  total_tokens?: number;
+  total_tokens_cumulative?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   reasoning_tokens?: number;
@@ -32,8 +34,8 @@ export function pick(record: Record<string, unknown>, keys: readonly string[]): 
 // Maps a source-agent usage envelope to spec §10.2 payload.usage. Accepts both
 // snake_case (Anthropic API, claude-code) and camelCase (Pi internal) field
 // names. Renames cache_*_input_tokens to cache_*_tokens (spec name) and drops
-// vendor extras (service_tier, etc.). Returns undefined when the source emits
-// no usable usage data — decision #4 forbids fabricating zeros.
+// vendor extras (cost, service_tier, etc.). Returns undefined when the source
+// emits no usable usage data — decision #4 forbids fabricating zeros.
 export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const src = raw as Record<string, unknown>;
@@ -54,6 +56,14 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
     "cumulativeOutputTokens",
   ]);
   if (outputCumulative !== undefined) usage.output_tokens_cumulative = outputCumulative;
+  const totalTokens = pick(src, ["total_tokens", "totalTokens", "total", "totalTokenCount"]);
+  if (totalTokens !== undefined) usage.total_tokens = totalTokens;
+  const totalCumulative = pick(src, [
+    "total_tokens_cumulative",
+    "totalTokensCumulative",
+    "cumulativeTotalTokens",
+  ]);
+  if (totalCumulative !== undefined) usage.total_tokens_cumulative = totalCumulative;
   // Anthropic source: cache_read_input_tokens → spec: cache_read_tokens.
   // Pi uses the bare `cacheRead`; camelCase variants accepted defensively.
   const cacheRead = pick(src, [
@@ -92,5 +102,6 @@ export function mapAgentMessageUsage(raw: unknown): AgentMessageUsage | undefine
   const hasInput = usage.input_tokens !== undefined || usage.input_tokens_cumulative !== undefined;
   const hasOutput =
     usage.output_tokens !== undefined || usage.output_tokens_cumulative !== undefined;
-  return hasInput && hasOutput ? (usage as AgentMessageUsage) : undefined;
+  const hasTotal = usage.total_tokens !== undefined || usage.total_tokens_cumulative !== undefined;
+  return (hasInput && hasOutput) || hasTotal ? (usage as AgentMessageUsage) : undefined;
 }

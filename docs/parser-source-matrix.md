@@ -400,10 +400,12 @@ Observed top-level `type` values: `session_meta`, `response_item`, `event_msg`, 
   `payload.info.total_token_usage` (cumulative); the adapter translates Codex field names to
   spec slots: `cached_input_tokens` → `cache_read_tokens` (delta only — spec has no cumulative
   slot), `reasoning_output_tokens` → `reasoning_tokens` (delta only), `last_token_usage`
-  `{input,output}_tokens` → `{input,output}_tokens`, `last_token_usage.input_tokens` →
-  `context_input_tokens`, `total_token_usage` `{input,output}_tokens` →
-  `{input,output}_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when
-  present. Codex's `total_tokens` field is dropped (recoverable from input+output). `payload.info: null` rate-limit-only snapshots emit no usage; multiple
+  `input_tokens` → non-cached `input_tokens` plus cache-inclusive `context_input_tokens`,
+  `last_token_usage.output_tokens` → `output_tokens`, `last_token_usage.total_tokens` →
+  `total_tokens`, `total_token_usage.{input,output}_tokens` →
+  `{input,output}_tokens_cumulative`, `total_token_usage.total_tokens` →
+  `total_tokens_cumulative`, and `model_context_window` → `context_window_tokens` when present.
+  `payload.info: null` rate-limit-only snapshots emit no usage; multiple
   `token_count` records targeting the same `agent_message` follow last-wins (cumulative totals
   are monotonic). The `payload.rate_limits` slot is intentionally not rolled up — see deferred
   shapes below.

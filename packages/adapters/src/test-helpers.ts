@@ -34,7 +34,7 @@ type RealSessionSmokeOptions = {
   fallbackSessionId: string;
   defaultSessionPath?: () => string | undefined;
   resolveSessionPath?: (path: string) => string | undefined;
-  assertTrail?: (trail: TrailFile, summary: string) => void | Promise<void>;
+  assertTrail?: (trail: TrailFile, summary: string, ref: SessionRef) => void | Promise<void>;
 };
 
 type DirectoryEntry = {
@@ -255,6 +255,150 @@ export function runRealSessionSmoke(options: RealSessionSmokeOptions): void {
         `real-session smoke validation errors:\n${JSON.stringify(errors, null, 2)}\n${summary}`,
       );
     }
-    await options.assertTrail?.(trail, summary);
+    await options.assertTrail?.(trail, summary, ref);
   });
+}
+
+type RawObject = Record<string, unknown>;
+
+function objectValue(value: unknown): RawObject | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawObject)
+    : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0
+    ? value
+    : undefined;
+}
+
+function pickNumber(record: RawObject | undefined, keys: readonly string[]): number | undefined {
+  if (record === undefined) return undefined;
+  for (const key of keys) {
+    const value = numberValue(record[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function embeddedUsageSource(raw: unknown): RawObject | undefined {
+  const obj = objectValue(raw);
+  if (obj === undefined) return undefined;
+  const envelope = objectValue(obj.envelope);
+  const envelopeMessage = objectValue(envelope?.message);
+  const directMessage = objectValue(obj.message);
+  const tokens = objectValue(obj.tokens);
+  return (
+    objectValue(envelopeMessage?.usage) ??
+    objectValue(directMessage?.usage) ??
+    objectValue(obj.usage) ??
+    (tokens !== undefined ? { tokens } : undefined) ??
+    (pickNumber(obj, ["tokens_input", "tokens_output", "tokens_total"]) !== undefined
+      ? obj
+      : undefined)
+  );
+}
+
+function sourceTotal(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, [
+      "total_tokens",
+      "totalTokens",
+      "total",
+      "totalTokenCount",
+      "tokens_total",
+    ]) ?? pickNumber(objectValue(source.tokens), ["total"])
+  );
+}
+
+function sourceInput(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, ["input_tokens", "inputTokens", "input", "tokens_input"]) ??
+    pickNumber(objectValue(source.tokens), ["input"])
+  );
+}
+
+function sourceOutput(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, ["output_tokens", "outputTokens", "output", "tokens_output"]) ??
+    pickNumber(objectValue(source.tokens), ["output"])
+  );
+}
+
+function sourceCacheRead(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, [
+      "cache_read_input_tokens",
+      "cache_read_tokens",
+      "cacheReadInputTokens",
+      "cacheReadTokens",
+      "cacheRead",
+      "tokens_cache_read",
+    ]) ?? pickNumber(objectValue(objectValue(source.tokens)?.cache), ["read"])
+  );
+}
+
+function sourceCacheCreate(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, [
+      "cache_creation_input_tokens",
+      "cache_creation_tokens",
+      "cacheCreationInputTokens",
+      "cacheCreationTokens",
+      "cacheWrite",
+      "tokens_cache_write",
+    ]) ?? pickNumber(objectValue(objectValue(source.tokens)?.cache), ["write"])
+  );
+}
+
+function sourceReasoning(source: RawObject): number | undefined {
+  return (
+    pickNumber(source, ["reasoning_tokens", "reasoningTokens", "tokens_reasoning"]) ??
+    pickNumber(objectValue(source.tokens), ["reasoning"])
+  );
+}
+
+export function assertEmbeddedSourceUsageCaptured(trail: TrailFile, summary: string): void {
+  let checked = 0;
+  let checkedTotal = 0;
+  for (const group of trail.groups) {
+    for (const entry of group.entries) {
+      const payload = objectValue(entry.payload);
+      const usage = objectValue(payload?.usage);
+      if (usage === undefined) continue;
+      const source = embeddedUsageSource(entry.source?.raw);
+      if (source === undefined) continue;
+      checked += 1;
+
+      const total = sourceTotal(source);
+      if (total !== undefined) {
+        checkedTotal += 1;
+        expect(usage.total_tokens).toBe(total);
+      }
+      const input = sourceInput(source);
+      if (input !== undefined) expect(usage.input_tokens).toBe(input);
+      const output = sourceOutput(source);
+      if (output !== undefined) expect(usage.output_tokens).toBe(output);
+      const cacheRead = sourceCacheRead(source);
+      if (cacheRead !== undefined) expect(usage.cache_read_tokens).toBe(cacheRead);
+      const cacheCreate = sourceCacheCreate(source);
+      if (cacheCreate !== undefined) expect(usage.cache_creation_tokens).toBe(cacheCreate);
+      const reasoning = sourceReasoning(source);
+      if (reasoning !== undefined) expect(usage.reasoning_tokens).toBe(reasoning);
+    }
+  }
+  if (checked === 0 && trail.groups[0]?.header.agent.name !== "opencode") {
+    throw new Error(`real-session smoke found no embedded source usage\n${summary}`);
+  }
+  if (
+    trail.groups[0]?.header.agent.name !== "claude-code" &&
+    trail.groups[0]?.header.agent.name !== "opencode" &&
+    checkedTotal === 0
+  ) {
+    throw new Error(`real-session smoke found no source total token usage\n${summary}`);
+  }
 }

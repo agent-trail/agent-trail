@@ -169,34 +169,50 @@ export type Attachment = {
     }
 );
 /**
- * Token usage for this source agent envelope. May appear on agent_message, agent_thinking, or tool_call when that entry is the first entry derived from the envelope. input_tokens/output_tokens are deltas for this envelope; *_cumulative variants are running totals through this point. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include at least one input counter and at least one output counter.
+ * Token usage for this source agent envelope. May appear on agent_message, agent_thinking, or tool_call when that entry is the first entry derived from the envelope. input_tokens/output_tokens are deltas for this envelope; *_cumulative variants are running totals through this point. total_tokens/total_tokens_cumulative are source-reported inclusive totals for exact total-token analytics. cache_read_tokens and cache_creation_tokens are independent billing categories. context_input_tokens captures source-reported prompt/context pressure for this request, cache-inclusive when the source exposes enough detail; context_window_tokens captures the model context-window size when exposed. When present, usage must include either input/output coverage or total-token coverage.
  */
 export type AgentMessageUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_cumulative?: number;
+  output_tokens_cumulative?: number;
+  total_tokens?: number;
+  total_tokens_cumulative?: number;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
   reasoning_tokens?: number;
   context_input_tokens?: number;
   context_window_tokens?: number;
 } & (
+  | ((
+      | {
+          input_tokens: number;
+          input_tokens_cumulative?: number;
+        }
+      | {
+          input_tokens?: number;
+          input_tokens_cumulative: number;
+        }
+    ) &
+      (
+        | {
+            output_tokens: number;
+            output_tokens_cumulative?: number;
+          }
+        | {
+            output_tokens?: number;
+            output_tokens_cumulative: number;
+          }
+      ))
   | {
-      input_tokens: number;
-      input_tokens_cumulative?: number;
+      total_tokens: number;
+      total_tokens_cumulative?: number;
     }
   | {
-      input_tokens?: number;
-      input_tokens_cumulative: number;
+      total_tokens?: number;
+      total_tokens_cumulative: number;
     }
-) &
-  (
-    | {
-        output_tokens: number;
-        output_tokens_cumulative?: number;
-      }
-    | {
-        output_tokens?: number;
-        output_tokens_cumulative: number;
-      }
-  );
+);
 export type TaskPlanStatus = "pending" | "in_progress" | "completed" | "cancelled" | "blocked";
 export type TaskPlanDelta =
   | {

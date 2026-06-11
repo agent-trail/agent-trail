@@ -3,11 +3,16 @@ import type { AgentMessageUsage, Attachment, Entry, ToolKind } from "@agent-trai
 import { CODEX_ENTRY_ID_NAMESPACE } from "../session-uid.ts";
 import { dropTaskPlanAckResults, withTaskPlanDeltas } from "../task-plan.ts";
 import { synthesizeVcsCommitEvents } from "../vcs-commit.ts";
-import { IMAGE_CARRIER, USAGE_CARRIER } from "./mappings.ts";
+import { IMAGE_CARRIER, TOKEN_MODEL_CARRIER, USAGE_CARRIER } from "./mappings.ts";
 
 function usageCarrier(entry: Entry): AgentMessageUsage | undefined {
   const value = (entry.meta as Record<string, unknown> | undefined)?.[USAGE_CARRIER];
   return value as AgentMessageUsage | undefined;
+}
+
+function tokenModelCarrier(entry: Entry): string | undefined {
+  const value = (entry.meta as Record<string, unknown> | undefined)?.[TOKEN_MODEL_CARRIER];
+  return typeof value === "string" ? value : undefined;
 }
 
 type CarriedImages = { role?: string; text: string; attachments: Attachment[] };
@@ -131,13 +136,21 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
   const out: Entry[] = [];
   for (const entry of entries) {
     const usage = usageCarrier(entry);
-    if (usage !== undefined) {
+    const tokenModel = tokenModelCarrier(entry);
+    if (usage !== undefined || tokenModel !== undefined) {
       if (lastAgentMessageIndex !== undefined) {
         const target = out[lastAgentMessageIndex];
         if (target !== undefined) {
+          const payload = target.payload as Record<string, unknown>;
           out[lastAgentMessageIndex] = {
             ...target,
-            payload: { ...target.payload, usage },
+            payload: {
+              ...payload,
+              ...(tokenModel !== undefined && payload.model === undefined
+                ? { model: tokenModel }
+                : {}),
+              ...(usage !== undefined ? { usage } : {}),
+            },
           } as Entry;
         }
       }
@@ -148,6 +161,24 @@ export const codexTokenRollup: ReconcilerRule = (entries) => {
     out.push(entry);
   }
   return out;
+};
+
+export const codexModelReplay: ReconcilerRule = (entries) => {
+  let currentModel: string | undefined;
+  return entries.map((entry) => {
+    if (entry.type === "model_change") {
+      const toModel = (entry.payload as { to_model?: unknown }).to_model;
+      if (typeof toModel === "string") currentModel = toModel;
+      return entry;
+    }
+    if (entry.type !== "agent_message" || currentModel === undefined) return entry;
+    const payload = entry.payload as Record<string, unknown>;
+    if (payload.model !== undefined) return entry;
+    return {
+      ...entry,
+      payload: { ...payload, model: currentModel },
+    } as Entry;
+  });
 };
 
 export const codexTaskPlanDeltas: ReconcilerRule = (entries) => withTaskPlanDeltas(entries);

@@ -45,17 +45,19 @@ function usageFrom(
   const cache = objectValue(tokens?.cache);
   const input = numberValue(tokens?.input) ?? numberValue(raw.tokens_input);
   const output = numberValue(tokens?.output) ?? numberValue(raw.tokens_output);
+  const total = numberValue(tokens?.total) ?? numberValue(raw.tokens_total);
   const reasoning = numberValue(tokens?.reasoning) ?? numberValue(raw.tokens_reasoning);
   const cacheRead = numberValue(cache?.read) ?? numberValue(raw.tokens_cache_read);
   const cacheWrite = numberValue(cache?.write) ?? numberValue(raw.tokens_cache_write);
-  if (input === undefined || output === undefined) return undefined;
+  if ((input === undefined || output === undefined) && total === undefined) return undefined;
   return {
-    input_tokens: input,
-    output_tokens: output,
+    ...(input !== undefined ? { input_tokens: input } : {}),
+    ...(output !== undefined ? { output_tokens: output } : {}),
+    ...(total !== undefined ? { total_tokens: total } : {}),
     ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
     ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
     ...(cacheWrite !== undefined ? { cache_creation_tokens: cacheWrite } : {}),
-  };
+  } as NonNullable<Extract<Entry, { type?: "agent_message" }>["payload"]>["usage"];
 }
 
 export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[] {
@@ -232,6 +234,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
             ? "[encrypted reasoning]"
             : undefined);
         if (text === undefined) continue;
+        const model = stringValue(message.modelID) ?? sessionModel;
         const usage = consumeUsage(part);
         push(
           {
@@ -239,7 +242,7 @@ export function entriesFromLoaded(loaded: LoadedSession, header: Header): Entry[
             type: "agent_thinking",
             payload: {
               text,
-              ...(sessionModel !== undefined ? { model: sessionModel } : {}),
+              ...(model !== undefined ? { model } : {}),
               ...(usage !== undefined ? { usage } : {}),
             },
           },
