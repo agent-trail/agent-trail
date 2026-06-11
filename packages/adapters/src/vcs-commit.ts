@@ -75,6 +75,13 @@ function shellCommandShape(command: string): ShellCommandShape {
       quote = char;
       continue;
     }
+    if (char === "\n" || char === "\r") {
+      endSegment();
+      if (char === "\r" && next === "\n") {
+        index += 1;
+      }
+      continue;
+    }
     if (/\s/.test(char)) {
       pushToken();
       continue;
@@ -137,12 +144,19 @@ function gitSubcommand(segment: string[]): string | undefined {
   return subcommandIndex !== undefined ? segment[subcommandIndex] : undefined;
 }
 
+function isSafeWrapperSegment(segment: string[]): boolean {
+  let commandIndex = 0;
+  while (ENV_ASSIGNMENT_PATTERN.test(segment[commandIndex] ?? "")) commandIndex += 1;
+  return segment[commandIndex] === "cd";
+}
+
 function eligibleGitCommitInvocationCount(command: string): number {
   const shape = shellCommandShape(command);
   if (shape.hasUnsafeSeparator) return 0;
   let count = 0;
   for (const segment of shape.segments) {
     const subcommand = gitSubcommand(segment);
+    if (subcommand === undefined && isSafeWrapperSegment(segment)) continue;
     if (subcommand !== "add" && subcommand !== "commit") return 0;
     if (subcommand === "commit") count += 1;
   }
@@ -154,7 +168,6 @@ export function extractGitCommitEvents(input: ExtractGitCommitEventsInput): GitC
   if (invocationCount === 0) return [];
   const commits: GitCommitEventData[] = [];
   for (const line of input.output.split(/\r?\n/)) {
-    if (commits.length >= invocationCount) break;
     const match = GIT_COMMIT_SUMMARY_PATTERN.exec(line.trimEnd());
     if (match === null) continue;
     const { ref, sha, message } = match.groups ?? {};
@@ -167,7 +180,7 @@ export function extractGitCommitEvents(input: ExtractGitCommitEventsInput): GitC
       ...(input.repo !== undefined ? { repo: input.repo } : {}),
     });
   }
-  return commits;
+  return commits.length === invocationCount ? commits : [];
 }
 
 function objectPayload(entry: Entry): Record<string, unknown> {

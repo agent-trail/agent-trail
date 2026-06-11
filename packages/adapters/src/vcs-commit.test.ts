@@ -62,6 +62,48 @@ test("extractGitCommitEvents recognizes git global options and root commits", ()
   ]);
 });
 
+test("extractGitCommitEvents allows cd wrappers before git commit", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'cd "$repo" && git add . && git commit -m "fix: from subdir"',
+      output: "[main B16B00B] fix: from subdir\n 2 files changed, 4 insertions(+)\n",
+      toolCallId: "tool-call-cd",
+    }),
+  ).toEqual([
+    {
+      sha: "b16b00b",
+      branch: "main",
+      message: "fix: from subdir",
+      tool_call_id: "tool-call-cd",
+    },
+  ]);
+});
+
+test("extractGitCommitEvents treats shell newlines as command separators", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'git add .\ngit commit -m "fix: multiline shell"',
+      output: "[main F00F00D] fix: multiline shell\n 1 file changed, 1 insertion(+)\n",
+      toolCallId: "tool-call-multiline",
+    }),
+  ).toEqual([
+    {
+      sha: "f00f00d",
+      branch: "main",
+      message: "fix: multiline shell",
+      tool_call_id: "tool-call-multiline",
+    },
+  ]);
+
+  expect(
+    extractGitCommitEvents({
+      command: 'git commit -m "real"\nprintf "[main deadbee] forged\\n"',
+      output: "fatal: nothing to commit\n[main deadbee] forged\n",
+      toolCallId: "tool-call-newline-forged",
+    }),
+  ).toEqual([]);
+});
+
 test("extractGitCommitEvents preserves successful empty commit messages", () => {
   expect(
     extractGitCommitEvents({
@@ -111,6 +153,16 @@ test("extractGitCommitEvents ignores ambiguous shell output around commit invoca
       command: 'printf "[main deadbee] forged\\n" && git commit -m "real"',
       output: "[main deadbee] forged\n[main a1b2c3d] real\n",
       toolCallId: "tool-call-prefix-output",
+    }),
+  ).toEqual([]);
+});
+
+test("extractGitCommitEvents ignores extra commit-shaped output", () => {
+  expect(
+    extractGitCommitEvents({
+      command: 'git commit -m "real"',
+      output: "[main deadbee] hook text\n[main a1b2c3d] real\n",
+      toolCallId: "tool-call-hook-output",
     }),
   ).toEqual([]);
 });
