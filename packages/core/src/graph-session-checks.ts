@@ -63,6 +63,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     id: string;
     line: number;
     semanticCallId?: string;
+    parentId?: string;
     branchScope: string;
     matched: boolean;
   };
@@ -70,6 +71,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
     line: number;
     forId?: string;
     semanticCallId?: string;
+    parentId?: string;
     branchScope: string;
     callIndex: number;
     matched: boolean;
@@ -106,6 +108,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
         id,
         line: entry.line,
         semanticCallId: readSemanticCallId(entry.value),
+        parentId: readParentId(entry),
         branchScope: branchScopeFor(entry, entryById, childCounts),
         matched: false,
       };
@@ -125,6 +128,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
         line: entry.line,
         forId: typeof forIdRaw === "string" ? forIdRaw : undefined,
         semanticCallId: type === "tool_result" ? readSemanticCallId(entry.value) : undefined,
+        parentId: readParentId(entry),
         branchScope: branchScopeFor(entry, entryById, childCounts),
         callIndex: calls.length, // for sequential pairing: results pair only with calls prior to this entry
         matched: false,
@@ -211,7 +215,7 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
       // i is bounded by calls.length (callIndex was captured as calls.length at
       // result-emit time, and calls is append-only thereafter).
       const call = calls[i] as Call;
-      if (!call.matched && call.branchScope === result.branchScope) candidates.push(call);
+      if (!call.matched && isSequentialCandidate(call, result)) candidates.push(call);
     }
     const call = candidates[0];
     if (call !== undefined) {
@@ -245,6 +249,21 @@ export function unmatchedToolCallWarnings(entries: JsonlRecord[]): Diagnostic[] 
       ),
   );
   return diagnostics;
+}
+
+function isSequentialCandidate(
+  call: { branchScope: string; parentId?: string },
+  result: { branchScope: string; parentId?: string },
+): boolean {
+  return (
+    call.branchScope === result.branchScope ||
+    (call.parentId !== undefined && call.parentId === result.parentId)
+  );
+}
+
+function readParentId(entry: JsonlRecord): string | undefined {
+  const parentId = entry.value.parent_id;
+  return typeof parentId === "string" ? parentId : undefined;
 }
 
 function branchScopeFor(

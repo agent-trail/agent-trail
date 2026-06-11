@@ -2736,7 +2736,7 @@ test("request_user_input emits structured user query and response events", async
               allowOther: true,
               options: [
                 { id: "yes-safe", label: "yes", description: "Ship now" },
-                { label: "later", description: "Ship later" },
+                { id: "", label: "later", description: "Ship later" },
                 { id: "no", label: "no", description: "Hold" },
               ],
             },

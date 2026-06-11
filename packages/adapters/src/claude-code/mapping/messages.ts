@@ -45,7 +45,7 @@ function optionObjects(value: unknown): UserQueryOption[] | undefined {
       const id = stringValue((option as { id?: unknown }).id);
       const description = stringValue((option as { description?: unknown }).description);
       return {
-        ...(id !== undefined ? { id } : {}),
+        ...(id !== undefined && isNonEmptyString(id) ? { id } : {}),
         label,
         ...(description !== undefined ? { description } : {}),
       };

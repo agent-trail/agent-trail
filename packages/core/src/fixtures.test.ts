@@ -488,6 +488,13 @@ test("valid/tool-call-matched-by-for-id.trail.jsonl validates clean", async () =
   expect(diagnostics).toEqual([]);
 });
 
+test("valid/tool-call-matched-same-parent-siblings.trail.jsonl validates clean", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("valid/tool-call-matched-same-parent-siblings.trail.jsonl"),
+  );
+  expect(diagnostics).toEqual([]);
+});
+
 test("invalid-graph/ambiguous-sequential-pairing.trail.jsonl warns on ambiguous fallback", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("invalid-graph/ambiguous-sequential-pairing.trail.jsonl"),
