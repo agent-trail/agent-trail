@@ -337,7 +337,7 @@ test("parseSession sanitizes session_index source raw", async () => {
       value: "Safe session title",
       reason: "external",
     });
-    expect(raw?.env?.SESSION_SECRET).toBe("TEST_SECRET=[ENV_SECRET]");
+    expect(raw?.env?.SESSION_SECRET).toBe("[CREDENTIAL_VALUE]");
     expect(raw?.debug).toEqual({ elided: true, size_bytes: hugeDebug.length });
     const diagnostics = await validateAdapterTrail(trail);
     expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);

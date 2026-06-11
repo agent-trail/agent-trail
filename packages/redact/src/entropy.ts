@@ -16,25 +16,22 @@ export function applyEntropyRedaction(
 ): number {
   const current = visit.get();
   TOKEN_PATTERN.lastIndex = 0;
-  const matches = Array.from(current.matchAll(TOKEN_PATTERN)).filter((match) =>
-    isHighEntropyCandidate(current, match),
-  );
+  const matches: string[] = [];
+  const redacted = current.replace(TOKEN_PATTERN, (candidate: string, offset: number) => {
+    const match = { 0: candidate, index: offset } as RegExpMatchArray;
+    if (!isHighEntropyCandidate(current, match)) return candidate;
+    matches.push(candidate);
+    return "[HIGH_ENTROPY_SECRET]";
+  });
   if (matches.length === 0) return 0;
 
-  TOKEN_PATTERN.lastIndex = 0;
-  visit.set(
-    current.replace(TOKEN_PATTERN, (candidate, offset: number) =>
-      isHighEntropyCandidate(current, { 0: candidate, index: offset } as RegExpMatchArray)
-        ? "[HIGH_ENTROPY_SECRET]"
-        : candidate,
-    ),
-  );
+  visit.set(redacted);
   summary.counts.high_entropy_token = (summary.counts.high_entropy_token ?? 0) + matches.length;
   if (summary.samples.length < maxSamples) {
     summary.samples.push({
       patternId: "high_entropy_token",
       location: visit.location,
-      before: maskSample(matches[0]?.[0] ?? ""),
+      before: maskSample(matches[0] as string),
       after: "[HIGH_ENTROPY_SECRET]",
     });
   }
@@ -42,7 +39,7 @@ export function applyEntropyRedaction(
 }
 
 function isHighEntropyCandidate(text: string, match: RegExpMatchArray): boolean {
-  const candidate = match[0] ?? "";
+  const candidate = match[0] as string;
   if (candidate.length < MIN_TOKEN_LENGTH) return false;
   if (PLACEHOLDER_PATTERN.test(candidate)) return false;
   if (UUID_PATTERN.test(candidate) || SHA256_HEX_PATTERN.test(candidate)) return false;

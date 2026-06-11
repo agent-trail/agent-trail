@@ -1,5 +1,8 @@
 import {
+  CREDENTIAL_CONTEXT_PLACEHOLDER,
   CREDENTIAL_PATTERNS,
+  isCredentialKey,
+  isSafeCredentialContextValue,
   type RedactionPattern,
   SOURCE_RAW_HARD_CAP_BYTES,
 } from "@agent-trail/core";
@@ -169,8 +172,15 @@ export function redactValue(
 
   const seen = new WeakMap<object, unknown>();
   const stack: Array<{ input: object; output: unknown }> = [];
-  const clonePrimitive = (item: unknown): unknown => {
-    if (typeof item === "string") return applyPatterns(sanitizeJsonString(item), patterns);
+  const clonePrimitive = (item: unknown, key?: string): unknown => {
+    if (typeof item === "string") {
+      const sanitized = sanitizeJsonString(item);
+      const redacted = applyPatterns(sanitized, patterns);
+      if (isCredentialKey(key) && !isSafeCredentialContextValue(redacted)) {
+        return CREDENTIAL_CONTEXT_PLACEHOLDER;
+      }
+      return redacted;
+    }
     if (item === null || typeof item !== "object") return item;
     const existing = seen.get(item);
     if (existing !== undefined) return existing;
@@ -196,7 +206,8 @@ export function redactValue(
 
     const out = output as Record<string, unknown>;
     for (const key of Object.keys(input as Record<string, unknown>)) {
-      out[sanitizeJsonString(key)] = clonePrimitive((input as Record<string, unknown>)[key]);
+      const sanitizedKey = sanitizeJsonString(key);
+      out[sanitizedKey] = clonePrimitive((input as Record<string, unknown>)[key], sanitizedKey);
     }
   }
 

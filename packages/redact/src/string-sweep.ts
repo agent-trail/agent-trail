@@ -16,7 +16,6 @@ export function redactVisitedStrings(
   enableEntropyRedaction: boolean,
 ): void {
   for (const visit of visits) {
-    const beforePatterns = visit.get();
     for (const pattern of userPatterns) {
       addMutationCount(
         redactionCounts,
@@ -31,13 +30,11 @@ export function redactVisitedStrings(
         applyPattern(visit, pattern, summary, maxSamples),
       );
     }
-    if (visit.get() === beforePatterns) {
-      addMutationCount(
-        redactionCounts,
-        visit.recordIndex,
-        applyCredentialContext(visit, summary, maxSamples),
-      );
-    }
+    addMutationCount(
+      redactionCounts,
+      visit.recordIndex,
+      applyCredentialContext(visit, summary, maxSamples),
+    );
     if (isOpaqueTokenVisit(visit)) continue;
     if (enableEntropyRedaction) {
       addMutationCount(

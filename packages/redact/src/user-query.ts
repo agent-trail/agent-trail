@@ -102,6 +102,7 @@ export function redactUserQueryQuestionIds(
   patterns: readonly RedactionPattern[],
   summary: RedactionSummary,
   maxSamples: number,
+  enableEntropyRedaction: boolean,
 ): Map<string, Map<string, string>> {
   const idMaps = new Map<string, Map<string, string>>();
 
@@ -126,6 +127,7 @@ export function redactUserQueryQuestionIds(
         patterns,
         summary,
         maxSamples,
+        enableEntropyRedaction,
       );
       const after = uniqueKey(redacted, used);
       questionObject.id = after;
@@ -145,6 +147,7 @@ export function redactUserQueryAnswerKeys(
   patterns: readonly RedactionPattern[],
   summary: RedactionSummary,
   maxSamples: number,
+  enableEntropyRedaction: boolean,
 ): void {
   for (const [index, record] of records.entries()) {
     const value = record.value as Record<string, unknown>;
@@ -166,6 +169,7 @@ export function redactUserQueryAnswerKeys(
         patterns,
         summary,
         maxSamples,
+        enableEntropyRedaction,
       );
       const mapped = idMap?.get(before) ?? redacted;
       const after = uniqueKey(mapped, used);

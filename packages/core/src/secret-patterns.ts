@@ -5,6 +5,41 @@ export type RedactionPattern = {
   placeholder: string;
 };
 
+export const CREDENTIAL_CONTEXT_PLACEHOLDER = "[CREDENTIAL_VALUE]";
+
+const CREDENTIAL_KEY_PATTERN =
+  /^(?:password|secret|token|(?:.*_)?(?:api_)?key|.*_token|.*_secret|.*_password|.*_credential|.*_auth|.*_(?:pass|pwd))$/i;
+
+const CAMEL_CREDENTIAL_KEY_PATTERN =
+  /^(?:(?:api|access|auth|bearer|refresh|client|private|secret|session|database|db|mongo|mongodb|postgres|postgresql|mysql|redis)(?:[A-Z][A-Za-z0-9]*)?(?:Key|Token|Secret|Password|Credential|Auth|Pass|Pwd)|[A-Z][A-Za-z0-9]*(?:Key|Token|Secret|Password|Credential|Auth|Pass|Pwd))$/;
+
+const DB_CREDENTIAL_KEY_PATTERN =
+  /^(?:db|database|pg|postgres|postgresql|mysql|mariadb|redis|mongo|mongodb|sqlserver|mssql|jdbc)(?:_.*)?_(?:url|uri|dsn|password|pass|pwd|secret|token|key|credential|auth)$/i;
+
+const PLACEHOLDER_PATTERN = /^\[[A-Z0-9_]+\]$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256_REF_PATTERN = /^sha256:[0-9a-f]{64}$/i;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
+
+export function isCredentialKey(key: string | undefined): boolean {
+  if (key === undefined) return false;
+  return (
+    CREDENTIAL_KEY_PATTERN.test(key) ||
+    CAMEL_CREDENTIAL_KEY_PATTERN.test(key) ||
+    DB_CREDENTIAL_KEY_PATTERN.test(key)
+  );
+}
+
+export function isSafeCredentialContextValue(value: string): boolean {
+  return value.length === 0 || PLACEHOLDER_PATTERN.test(value) || value === "<pending>";
+}
+
+export function isOpaqueTokenValue(value: string): boolean {
+  return (
+    UUID_PATTERN.test(value) || SHA256_REF_PATTERN.test(value) || SHA256_HEX_PATTERN.test(value)
+  );
+}
+
 export const OPENAI_API_KEY: RedactionPattern = {
   id: "openai_api_key",
   description: "OpenAI API key",
