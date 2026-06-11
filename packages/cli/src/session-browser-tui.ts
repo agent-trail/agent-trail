@@ -620,7 +620,7 @@ async function toggleScope(state: BrowserState, update: () => void): Promise<voi
     state.onShare = input.onShare ?? state.onShare;
     state.onExport = input.onExport ?? state.onExport;
     state.onCopyUrl = input.onCopyUrl ?? state.onCopyUrl;
-    state.onResume = input.onResume ?? state.onResume;
+    state.onResume = input.onResume;
     state.query = "";
     state.searchMode = false;
     state.trailFilter = "all";
@@ -822,7 +822,7 @@ async function runResumeAction(
     resolveExit(result);
   } catch (error) {
     state.loading = false;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = sanitizeTerminalText(error instanceof Error ? error.message : String(error));
     if (handoffStarted) {
       resolveExit({ exitCode: 1, stdout: "", stderr: `Resume failed: ${message}\n` });
       return;

@@ -994,6 +994,65 @@ test("runListBrowser resume action spawns adapter command for source rows", asyn
   }
 });
 
+test("runListBrowser resume action rejects empty argv before handoff", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "trail-resume-empty-argv-cwd-"));
+  const refs: SessionRef[] = [
+    {
+      id: "sess-empty-argv",
+      adapter: "codex",
+      cwd,
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-empty-argv.jsonl",
+    },
+  ];
+  let beforeSpawnCount = 0;
+  let spawnCount = 0;
+
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [
+          {
+            ...resumableAdapter("codex", refs),
+            async resumeSession() {
+              return {
+                supported: true,
+                command: { label: "Empty argv", argv: [], cwd },
+              };
+            },
+          },
+        ],
+        storeRoot,
+        defaultCwd: cwd,
+        terminal: { isTTY: true },
+        resumeRunner: async () => {
+          spawnCount += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          await expect(
+            input.onResume?.(row!, {
+              beforeSpawn: () => {
+                beforeSpawnCount += 1;
+              },
+            }),
+          ).rejects.toThrow("missing command argv");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(beforeSpawnCount).toBe(0);
+    expect(spawnCount).toBe(0);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("runListBrowser resume action rejects registered-only rows", async () => {
   const { filePath } = await seedTrail({ cwd: "/work/actions" });
   await registerTrail(filePath, { storeRoot });

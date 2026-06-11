@@ -253,6 +253,24 @@ test("browser scope reload clears agent filter", async () => {
   expect(renderBrowserFrame(state, { width: 120 })).toContain("Next scope row");
 });
 
+test("browser scope reload clears stale resume handler", async () => {
+  const state = browserStateFromInput({
+    rows,
+    warnings: [],
+    scope: { mode: "cwd", label: "agent-trail" },
+    onResume: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    onToggleScope: async () => ({
+      rows,
+      warnings: [],
+      scope: { mode: "all", label: "all projects" },
+    }),
+  });
+
+  await toggleScopeSafely(state, () => {});
+
+  expect(state.onResume).toBeUndefined();
+});
+
 test("browser resume key shows disabled reason when handler is absent", async () => {
   const setup = await createTestRenderer({ width: 120, height: 24 });
   try {
@@ -296,7 +314,7 @@ test("browser resume key returns clear error when handoff fails", async () => {
       warnings: [],
       onResume: async (_row, context) => {
         context?.beforeSpawn();
-        throw new Error("spawn failed");
+        throw new Error("\x1b[31mspawn\x1b[0m\nfailed");
       },
     });
     await setup.renderOnce();

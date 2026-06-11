@@ -438,9 +438,6 @@ async function runResumeCommand(
 }
 
 export async function spawnResumeCommand(command: ResumeCommand): Promise<RunListResult> {
-  if (command.argv.length === 0) {
-    return { exitCode: 1, stdout: "", stderr: "Resume failed: missing command argv\n" };
-  }
   try {
     await assertResumeCommandReady(command);
   } catch (error) {
@@ -466,6 +463,9 @@ export async function spawnResumeCommand(command: ResumeCommand): Promise<RunLis
 }
 
 async function assertResumeCommandReady(command: ResumeCommand): Promise<void> {
+  if (command.argv.length === 0 || command.argv[0]?.trim() === "") {
+    throw new Error("missing command argv");
+  }
   if (command.cwd === undefined) return;
   const cwdStat = await stat(command.cwd).catch((error: unknown) => {
     const code = error instanceof Error && "code" in error ? error.code : undefined;
