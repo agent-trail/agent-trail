@@ -1047,20 +1047,29 @@ test("redactTrail redacts secrets across tool_call.args, tool_result.output, and
   expect(summary.counts.openai_api_key).toBeGreaterThanOrEqual(4);
 });
 
-test("redactTrail redacts secrets in tool_call overflow references", () => {
-  const secretRef = "https://blob.example/full-args?token=secret-overflow-token";
+test("redactTrail preserves schema-valid tool_call overflow references", async () => {
+  const overflowRef = `sha256:${"a".repeat(64)}`;
   const records: JsonlRecord[] = [
-    header(),
+    header({ id: "01HSESS0000000000000000001" }),
     record(2, {
       type: "tool_call",
-      id: "evt1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-22T00:00:01.000Z",
       payload: {
         tool: "shell_command",
         args: { command: "curl example.com" },
         truncated: true,
         args_size: 42,
-        overflow_ref: secretRef,
+        overflow_ref: overflowRef,
+      },
+    }),
+    record(3, {
+      type: "tool_result",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "01HEVTA0000000000000000001",
+        ok: true,
       },
     }),
   ];
@@ -1070,23 +1079,23 @@ test("redactTrail redacts secrets in tool_call overflow references", () => {
   });
 
   const call = out[1]?.value as { payload: { overflow_ref: string } };
-  expect(call.payload.overflow_ref).toContain("[USER_SECRET]");
-  expect(call.payload.overflow_ref).not.toContain("secret-overflow-token");
+  expect(call.payload.overflow_ref).toBe(overflowRef);
+  expect(await validateTrailString(out.map((item) => item.raw).join("\n"))).toEqual([]);
 });
 
-test("redactTrail redacts secrets in tool_result overflow references", () => {
-  const secretRef = "https://blob.example/full-output?token=secret-overflow-token";
+test("redactTrail preserves schema-valid tool_result overflow references", async () => {
+  const overflowRef = `sha256:${"b".repeat(64)}`;
   const records: JsonlRecord[] = [
-    header(),
+    header({ id: "01HSESS0000000000000000001" }),
     record(2, {
       type: "tool_result",
-      id: "evt1",
+      id: "01HEVTA0000000000000000001",
       ts: "2026-05-22T00:00:01.000Z",
       payload: {
         ok: true,
         truncated: true,
         output_size: 42,
-        overflow_ref: secretRef,
+        overflow_ref: overflowRef,
       },
     }),
   ];
@@ -1096,8 +1105,8 @@ test("redactTrail redacts secrets in tool_result overflow references", () => {
   });
 
   const result = out[1]?.value as { payload: { overflow_ref: string } };
-  expect(result.payload.overflow_ref).toContain("[USER_SECRET]");
-  expect(result.payload.overflow_ref).not.toContain("secret-overflow-token");
+  expect(result.payload.overflow_ref).toBe(overflowRef);
+  expect(await validateTrailString(out.map((item) => item.raw).join("\n"))).toEqual([]);
 });
 
 test("redactTrail redacts secrets in tool_result.payload.meta structured outputs", () => {

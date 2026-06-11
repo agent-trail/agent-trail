@@ -1112,6 +1112,20 @@ test("invalid-graph/duplicate-option-labels.trail.jsonl warns for duplicate labe
   });
 });
 
+test("invalid-graph/duplicate-option-labels-mixed-ids.trail.jsonl warns when only some duplicates have ids", async () => {
+  const diagnostics = await validateTrailString(
+    await loadFixture("invalid-graph/duplicate-option-labels-mixed-ids.trail.jsonl"),
+  );
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/questions/0/options/1/label",
+    severity: "warning",
+    code: "duplicate_option_labels",
+    message:
+      'user_query question "ship" has duplicate option label "yes" without stable option ids; user_query_response selected values may be ambiguous',
+  });
+});
+
 test("valid/user-query-duplicate-labels-with-ids.trail.jsonl validates clean", async () => {
   const diagnostics = await validateTrailString(
     await loadFixture("valid/user-query-duplicate-labels-with-ids.trail.jsonl"),

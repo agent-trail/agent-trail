@@ -415,15 +415,20 @@ export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] 
         }
         const options = (question as { options?: unknown }).options;
         if (Array.isArray(options)) {
-          const labelsWithoutIds = new Map<string, number>();
+          const labels = new Map<string, { allHaveStableIds: boolean; warned: boolean }>();
           for (const [optionIndex, option] of options.entries()) {
             if (typeof option !== "object" || option === null) continue;
             const optionId = (option as { id?: unknown }).id;
-            if (typeof optionId === "string") continue;
             const label = (option as { label?: unknown }).label;
             if (typeof label !== "string") continue;
-            const priorIndex = labelsWithoutIds.get(label);
-            if (priorIndex !== undefined) {
+            const hasStableId = typeof optionId === "string" && optionId.length > 0;
+            const prior = labels.get(label);
+            if (!prior) {
+              labels.set(label, { allHaveStableIds: hasStableId, warned: false });
+              continue;
+            }
+            prior.allHaveStableIds = prior.allHaveStableIds && hasStableId;
+            if (!prior.allHaveStableIds && !prior.warned) {
               diagnostics.push(
                 createDiagnostic({
                   line: entry.line,
@@ -435,9 +440,8 @@ export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] 
                   }" has duplicate option label "${label}" without stable option ids; user_query_response selected values may be ambiguous`,
                 }),
               );
-              continue;
+              prior.warned = true;
             }
-            labelsWithoutIds.set(label, optionIndex);
           }
         }
       }
