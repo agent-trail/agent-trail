@@ -71,6 +71,127 @@
       }
     },
     {
+      "path": "hash-vectors/envelope-two-tier.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "44b16ddea9fd914442eaf8f21c90b6f0eeb913ab499eb668a9c0c6e06b988522"
+        ],
+        "file_hash": "a55a96d3a19b624aa8f2e38337521046facf5a6f2a04c3f3c3f7a14880774443"
+      }
+    },
+    {
+      "path": "hash-vectors/jcs-stress.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "24b3a1d99f3e725092cd0126c7d9fb84246e467ec5d2d1fd416f462ae8a58e14"
+        ]
+      }
+    },
+    {
+      "path": "hash-vectors/minimal-pending-roundtrip.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "f215ed334d3928e1abde804f2c4a870431b18d4fa7d755ec94d94be2a6ddd06e"
+        ]
+      }
+    },
+    {
+      "path": "hash-vectors/multi-session-slice.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "0805ade157038a1cbb2895c55383b39b5a42aaa7d6ccc164174c0b3346d8fc14",
+          "f7fe8ccdeaeddf70b868838614730c0a613d937bafeac48a42bb585e6df3ead7"
+        ]
+      }
+    },
+    {
+      "path": "hash-vectors/replacement-char.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "594a06fa452fc097bce145be95dd614ddb81b6adf8fe2baf80cbe6e13fcaf4f2"
+        ]
+      }
+    },
+    {
+      "path": "hash-vectors/segment-chain-seq1.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "b12c68969624665898a4e3ec4dc5c0d06f7a7f305f8f7b16e347e18ccd2f6e67"
+        ]
+      }
+    },
+    {
+      "path": "hash-vectors/segment-chain-seq2.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "3a676114740d09c2620c1c5e106ea8066bfc3926e478faf5cabd0cedfff398ec"
+        ]
+      }
+    },
+    {
       "path": "invalid-graph/ambiguous-sequential-pairing-with-session-end.trail.jsonl",
       "strict": {
         "valid": true,

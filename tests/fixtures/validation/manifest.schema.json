@@ -26,6 +26,9 @@
           "type": "string",
           "pattern": "^[a-z0-9-]+/[a-z0-9.-]+\\.trail\\.jsonl$"
         },
+        "comment": {
+          "type": "string"
+        },
         "strict": {
           "$ref": "#/$defs/strictExpectation"
         },
