@@ -106,6 +106,27 @@ describe("codex v2 stateful behaviors", () => {
     expect(agent?.payload).toEqual({ text: "hello", model: "gpt-5-codex" });
   });
 
+  test("model replay: initial turn_context model stamps later agent_thinking", async () => {
+    const all = await parseCodexSnapshotEntries(
+      [
+        baseSession,
+        {
+          timestamp: "2026-05-28T00:00:01.000Z",
+          type: "turn_context",
+          payload: { turn_id: "turn-1", model: "gpt-5-codex" },
+        },
+        {
+          timestamp: "2026-05-28T00:00:02.000Z",
+          type: "event_msg",
+          payload: { type: "agent_reasoning", text: "thinking" },
+        },
+      ],
+      "unit-test",
+    );
+    const thinking = all.find((entry) => entry.type === "agent_thinking");
+    expect(thinking?.payload).toEqual({ text: "thinking", model: "gpt-5-codex" });
+  });
+
   test("model replay: model switch stamps subsequent agent_messages", async () => {
     const all = await parseCodexSnapshotEntries(
       [
