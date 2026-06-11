@@ -94,8 +94,10 @@ export function streamConsistencyWarnings(
 function eventTimestampMillis(record: JsonlRecord): number | undefined {
   const ts = record.value.ts;
   if (typeof ts !== "string") return undefined;
-  const millis = Date.parse(ts);
-  return Number.isFinite(millis) ? millis : undefined;
+  const parsed = new Date(ts);
+  const millis = parsed.getTime();
+  if (!Number.isFinite(millis) || parsed.toISOString() !== ts) return undefined;
+  return millis;
 }
 
 // Spec §18.4: writers should emit `session_terminated` if any `tool_call`

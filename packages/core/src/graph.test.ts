@@ -501,6 +501,30 @@ test("does not emit non_monotonic_event_ts for duplicate ids excluded from paren
   expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
 });
 
+test("does not emit non_monotonic_event_ts from calendar-invalid timestamps", () => {
+  const diagnostics = validateTrailGraph(
+    [
+      header(),
+      record(2, {
+        type: "user_message",
+        id: "01HEVTA0000000000000000001",
+        ts: "2026-02-30T00:00:00.000Z",
+        payload: { text: "invalid date" },
+      }),
+      record(3, {
+        type: "agent_message",
+        id: "01HEVTA0000000000000000002",
+        parent_id: "01HEVTA0000000000000000001",
+        ts: "2026-03-01T00:00:00.000Z",
+        payload: { text: "child" },
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics.filter((d) => d.code === "non_monotonic_event_ts")).toEqual([]);
+});
+
 test("accepts a minimal valid linear trail with no parent_ids", () => {
   const diagnostics = validateTrailGraph([
     record(1, {
