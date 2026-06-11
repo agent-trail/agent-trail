@@ -11,6 +11,7 @@ import type {
   TrailFile,
 } from "../index.ts";
 import { applyParseFidelity } from "../parse-fidelity.ts";
+import { resumeCommand } from "../resume.ts";
 import { sanitizeTrailFile } from "../trail-sanitizer.ts";
 import { readGitVcs } from "../vcs.ts";
 import { headerFromLoaded } from "./header.ts";
@@ -80,6 +81,14 @@ export const opencodeAdapter: TrailAdapter = {
       }),
       groups: [group],
     });
+  },
+
+  async resumeSession(ref: SessionRef) {
+    return resumeCommand(ref, `Resume OpenCode session ${ref.id}`, [
+      "opencode",
+      "--session",
+      ref.id,
+    ]);
   },
 
   async isAvailable(): Promise<boolean> {

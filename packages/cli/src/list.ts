@@ -1,9 +1,10 @@
-import { open } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   type DetectOptions,
   DISCOVERY_CONCURRENCY_LIMIT,
   mapConcurrent,
+  type ResumeCommand,
   type SessionRef,
 } from "@agent-trail/adapters";
 import {
@@ -62,10 +63,13 @@ export type RunListContext = {
   defaultCwd?: string;
   terminal?: TerminalIo;
   runSessionBrowser?: (input: SessionBrowserInput) => Promise<RunListResult>;
+  resumeRunner?: ResumeRunner;
   confirmShare?: (message: string) => Promise<boolean>;
   gistUpload?: GistUpload;
   exportDir?: string;
 };
+
+export type ResumeRunner = (command: ResumeCommand) => Promise<RunListResult>;
 
 type SourceRow = {
   source_id: string;
@@ -324,6 +328,12 @@ async function collectBrowserInput(
         rows: "stdout" in next ? undefined : next.rows,
       };
     },
+    onResume: async (row, actionContext) => {
+      const command = await resolveBrowserResumeCommand(row, context);
+      await assertResumeCommandReady(command);
+      actionContext?.beforeSpawn();
+      return runResumeCommand(command, context.resumeRunner);
+    },
     onCopyUrl: async (url) => {
       if (context.terminal?.stdout === undefined) return { message: "Copy unsupported" };
       writeOsc52(context.terminal.stdout, url);
@@ -376,6 +386,98 @@ async function ensureBrowserRowRegistered(
     throw new Error(`register failed: ${reg.status}`);
   }
   return { contentHash: reg.contentHash };
+}
+
+async function resolveBrowserResumeCommand(
+  row: Row,
+  context: RunListContext,
+): Promise<ResumeCommand> {
+  const adapters = context.adapters ?? cliDefaultAdapters();
+  const adapterName = row.source_agent ?? row.agent;
+  if (adapterName === null) {
+    throw new Error("Resume requires a source session");
+  }
+  const adapter = adapters.find((candidate) => adapterMatchesAgent(candidate.name, adapterName));
+  if (adapter === undefined) {
+    throw new Error(`no adapter available for ${adapterName}`);
+  }
+  if (adapter.resumeSession === undefined) {
+    throw new Error(`${adapter.name} does not support resume`);
+  }
+  const ref = resolveBrowserResumeRef(row);
+  const result = await adapter.resumeSession(ref);
+  if (!result.supported) {
+    throw new Error(result.reason);
+  }
+  return result.command;
+}
+
+function resolveBrowserResumeRef(row: Row): SessionRef {
+  if (row.source_id !== null && row.source_agent !== null) {
+    return {
+      id: row.source_id,
+      adapter: row.source_agent,
+      cwd: row.source_cwd ?? undefined,
+      modifiedAt: row.source_modified_at ?? undefined,
+      path: row.source_path ?? undefined,
+    };
+  }
+  throw new Error("Resume requires a source session");
+}
+
+async function runResumeCommand(
+  command: ResumeCommand,
+  runner: ResumeRunner = spawnResumeCommand,
+): Promise<RunListResult> {
+  try {
+    return await runner(command);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `Resume failed: ${message}\n` };
+  }
+}
+
+export async function spawnResumeCommand(command: ResumeCommand): Promise<RunListResult> {
+  try {
+    await assertResumeCommandReady(command);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `Resume failed: ${message}\n` };
+  }
+  const [cmd, ...args] = command.argv;
+  try {
+    const proc = Bun.spawn({
+      cmd: [cmd as string, ...args],
+      cwd: command.cwd,
+      env: command.env === undefined ? undefined : { ...process.env, ...command.env },
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const exitCode = await proc.exited;
+    return { exitCode, stdout: "", stderr: "" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { exitCode: 1, stdout: "", stderr: `Resume failed: ${message}\n` };
+  }
+}
+
+async function assertResumeCommandReady(command: ResumeCommand): Promise<void> {
+  if (command.argv.length === 0 || command.argv[0]?.trim() === "") {
+    throw new Error("missing command argv");
+  }
+  if (command.cwd === undefined) return;
+  const cwdStat = await stat(command.cwd).catch((error: unknown) => {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") return null;
+    throw error;
+  });
+  if (cwdStat === null) {
+    throw new Error(`cwd does not exist: ${command.cwd}`);
+  }
+  if (!cwdStat.isDirectory()) {
+    throw new Error(`cwd is not a directory: ${command.cwd}`);
+  }
 }
 
 function canReuseRegisteredHash(row: Row): row is Row & { content_hash: string } {

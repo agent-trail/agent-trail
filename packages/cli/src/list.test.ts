@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,7 +9,7 @@ import { canonicalizeRecords, computeContentHash, parseJsonlString } from "@agen
 import { objectPath, registerTrail } from "@agent-trail/store";
 import { runCli } from "./cli-runtime.ts";
 import type { ResolvedConfig } from "./config.ts";
-import { parseShareJson, runList, runListBrowser } from "./list.ts";
+import { parseShareJson, runList, runListBrowser, spawnResumeCommand } from "./list.ts";
 
 type SeedOpts = {
   agentName?: string;
@@ -151,6 +151,34 @@ function parseableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
           },
         ],
       };
+    },
+  };
+}
+
+function resumableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    ...parseableAdapter(name, refs),
+    async resumeSession(ref) {
+      return {
+        supported: true,
+        command: {
+          label: `Resume ${name} ${ref.id}`,
+          argv: [name, "--session", ref.id],
+          cwd: ref.cwd,
+          env: { AGENT_TRAIL_TEST: "1" },
+        },
+      };
+    },
+  };
+}
+
+function cwdFilteringResumableAdapter(name: string, refs: SessionRef[]): TrailAdapter {
+  return {
+    ...resumableAdapter(name, refs),
+    async detectSessions(opts?: DetectOptions) {
+      if (opts?.allCwds === true) return refs;
+      const cwd = opts?.cwd ?? process.cwd();
+      return refs.filter((ref) => ref.cwd === undefined || ref.cwd === cwd);
     },
   };
 }
@@ -912,6 +940,293 @@ test("runListBrowser share action registers source row before sharing", async ()
   expect(launched).toBe(true);
   expect(uploaded).toHaveLength(1);
   expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser resume action spawns adapter command for source rows", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "trail-resume-cwd-"));
+  const refs: SessionRef[] = [
+    {
+      id: "sess-resume-source",
+      adapter: "codex",
+      cwd,
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-action.jsonl",
+    },
+  ];
+  let launched = false;
+  const spawned: unknown[] = [];
+
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [resumableAdapter("codex", refs)],
+        storeRoot,
+        defaultCwd: cwd,
+        terminal: { isTTY: true },
+        resumeRunner: async (command) => {
+          spawned.push(command);
+          return { exitCode: 42, stdout: "", stderr: "child exited 42\n" };
+        },
+        runSessionBrowser: async (input) => {
+          launched = true;
+          const row = input.rows[0];
+          const resumed = await input.onResume?.(row!);
+          expect(resumed).toEqual({ exitCode: 42, stdout: "", stderr: "child exited 42\n" });
+          return resumed!;
+        },
+      },
+    );
+
+    expect(launched).toBe(true);
+    expect(spawned).toEqual([
+      {
+        label: "Resume codex sess-resume-source",
+        argv: ["codex", "--session", "sess-resume-source"],
+        cwd,
+        env: { AGENT_TRAIL_TEST: "1" },
+      },
+    ]);
+    expect(result).toEqual({ exitCode: 42, stdout: "", stderr: "child exited 42\n" });
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser resume action rejects empty argv before handoff", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "trail-resume-empty-argv-cwd-"));
+  const refs: SessionRef[] = [
+    {
+      id: "sess-empty-argv",
+      adapter: "codex",
+      cwd,
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-empty-argv.jsonl",
+    },
+  ];
+  let beforeSpawnCount = 0;
+  let spawnCount = 0;
+
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [
+          {
+            ...resumableAdapter("codex", refs),
+            async resumeSession() {
+              return {
+                supported: true,
+                command: { label: "Empty argv", argv: [], cwd },
+              };
+            },
+          },
+        ],
+        storeRoot,
+        defaultCwd: cwd,
+        terminal: { isTTY: true },
+        resumeRunner: async () => {
+          spawnCount += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          await expect(
+            input.onResume?.(row!, {
+              beforeSpawn: () => {
+                beforeSpawnCount += 1;
+              },
+            }),
+          ).rejects.toThrow("missing command argv");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(beforeSpawnCount).toBe(0);
+    expect(spawnCount).toBe(0);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser resume action rejects registered-only rows", async () => {
+  const { filePath } = await seedTrail({ cwd: "/work/actions" });
+  await registerTrail(filePath, { storeRoot });
+  let launched = false;
+  let spawnCount = 0;
+
+  const result = await runListBrowser(
+    {},
+    {
+      config: resolvedConfig(null),
+      adapters: [],
+      storeRoot,
+      defaultCwd: "/work/actions",
+      terminal: { isTTY: true },
+      resumeRunner: async () => {
+        spawnCount += 1;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      runSessionBrowser: async (input) => {
+        launched = true;
+        const row = input.rows[0];
+        await expect(input.onResume?.(row!)).rejects.toThrow("no adapter available for codex-cli");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  expect(launched).toBe(true);
+  expect(spawnCount).toBe(0);
+  expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("runListBrowser resume action rejects registered rows with only source path", async () => {
+  const sourceCwd = mkdtempSync(join(tmpdir(), "trail-resume-source-cwd-"));
+  const browserCwd = mkdtempSync(join(tmpdir(), "trail-resume-browser-cwd-"));
+  const { filePath } = await seedTrail({
+    agentName: "codex-cli",
+    cwd: browserCwd,
+  });
+  await registerTrail(filePath, { storeRoot, sourcePath: filePath });
+  const refs: SessionRef[] = [
+    {
+      id: "sess-resume-outside-cwd",
+      adapter: "codex",
+      cwd: sourceCwd,
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: filePath,
+    },
+  ];
+  let spawnCount = 0;
+
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [cwdFilteringResumableAdapter("codex", refs)],
+        storeRoot,
+        defaultCwd: browserCwd,
+        terminal: { isTTY: true },
+        resumeRunner: async () => {
+          spawnCount += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          expect(row?.state).toBe("registered");
+          expect(row?.registered_source_path).toBe(filePath);
+          await expect(input.onResume?.(row!)).rejects.toThrow("Resume requires a source session");
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(spawnCount).toBe(0);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(sourceCwd, { recursive: true, force: true });
+    rmSync(browserCwd, { recursive: true, force: true });
+  }
+});
+
+test("spawnResumeCommand applies cwd and merged env to the child process", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "trail-resume-child-cwd-"));
+  const outputDir = mkdtempSync(join(tmpdir(), "trail-resume-child-output-"));
+  const outputPath = join(outputDir, "observed.json");
+  const script = `const { writeFileSync } = require("node:fs"); writeFileSync(${JSON.stringify(
+    outputPath,
+  )}, JSON.stringify({ cwd: process.cwd(), env: process.env.AGENT_TRAIL_TEST_CHILD ?? null }));`;
+  try {
+    const result = await spawnResumeCommand({
+      label: "Resume child probe",
+      argv: [process.execPath, "-e", script],
+      cwd,
+      env: { AGENT_TRAIL_TEST_CHILD: "seen" },
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    await expect(readFile(outputPath, "utf8")).resolves.toBe(
+      JSON.stringify({ cwd: realpathSync(cwd), env: "seen" }),
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test("spawnResumeCommand fails before spawn when cwd is missing", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "trail-missing-resume-cwd-"));
+  const missingCwd = join(parent, "gone");
+  try {
+    const result = await spawnResumeCommand({
+      label: "Resume missing cwd",
+      argv: ["definitely-not-run"],
+      cwd: missingCwd,
+    });
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: `Resume failed: cwd does not exist: ${missingCwd}\n`,
+    });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("runListBrowser resume action reports missing cwd without handoff", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "trail-missing-browser-resume-cwd-"));
+  const missingCwd = join(parent, "gone");
+  const refs: SessionRef[] = [
+    {
+      id: "sess-missing-cwd",
+      adapter: "codex",
+      cwd: missingCwd,
+      modifiedAt: "2026-05-17T14:00:00.000Z",
+      path: "/tmp/source-action.jsonl",
+    },
+  ];
+  let handoffStarted = false;
+  let spawnCount = 0;
+  try {
+    const result = await runListBrowser(
+      {},
+      {
+        config: resolvedConfig(null),
+        adapters: [resumableAdapter("codex", refs)],
+        storeRoot,
+        defaultCwd: missingCwd,
+        terminal: { isTTY: true },
+        resumeRunner: async () => {
+          spawnCount += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        runSessionBrowser: async (input) => {
+          const row = input.rows[0];
+          await expect(
+            input.onResume?.(row!, {
+              beforeSpawn: () => {
+                handoffStarted = true;
+              },
+            }),
+          ).rejects.toThrow(`cwd does not exist: ${missingCwd}`);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    expect(handoffStarted).toBe(false);
+    expect(spawnCount).toBe(0);
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test("runListBrowser share action reuses registered hash", async () => {

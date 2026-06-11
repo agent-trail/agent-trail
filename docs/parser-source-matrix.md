@@ -41,6 +41,15 @@ Adapter rows below reflect each adapter's current envelope-emission state once i
 
 Columns map directly to PRD §7.2. Cells use `—` when not yet determined. Source status (`open` / `closed`) reflects whether the source agent's session writer code is publicly available; it does not imply licensing of the trail format itself.
 
+## Resume command verification
+
+Adapter-owned resume support for the TUI session browser was verified on 2026-06-11:
+
+- Codex CLI: local `codex resume --help` verifies `codex resume [SESSION_ID]`; adapter emits `codex resume <id>`.
+- Claude Code: local `claude --help` verifies `--resume [value]`; adapter emits `claude --resume <id>`.
+- OpenCode: local `opencode --help` verifies `--session`; adapter emits `opencode --session <id>`.
+- Pi: user-provided local verification confirms `pi --session <id>`; adapter emits `pi --session <id>`.
+
 Pi fixture coverage currently includes the linear-flow scenario only: session header (integer
 `version` stringified for `header.agent.version` and `header.source.format_version`), user message,
 assistant `toolCall(read)` mapped to canonical `file_read`, `toolResult` paired via `toolCallId`,

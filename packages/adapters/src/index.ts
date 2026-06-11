@@ -23,6 +23,17 @@ export type SessionRef = {
   headerStatus?: "header" | "filename-fallback";
 };
 
+export type ResumeCommand = {
+  label: string;
+  argv: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+};
+
+export type ResumeSessionResult =
+  | { supported: true; command: ResumeCommand }
+  | { supported: false; reason: string };
+
 export type DetectOptions = {
   cwd?: string;
   since?: string;
@@ -43,6 +54,7 @@ export interface TrailAdapter {
   readonly name: string;
   detectSessions(opts?: DetectOptions): Promise<SessionRef[]>;
   parseSession(ref: SessionRef): Promise<TrailFile>;
+  resumeSession?(ref: SessionRef): Promise<ResumeSessionResult>;
   isAvailable(): Promise<boolean>;
   sourceVersion(): Promise<string | null>;
   sourceHealth(): Promise<AdapterSourceHealth>;

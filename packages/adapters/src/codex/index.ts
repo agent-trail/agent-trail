@@ -1,5 +1,6 @@
 import pkg from "../../package.json" with { type: "json" };
 import type { DetectOptions, SessionRef, TrailAdapter, TrailFile } from "../index.ts";
+import { resumeCommand } from "../resume.ts";
 import { parseCodexTrailFile } from "./assembly.ts";
 import { detectCodexSessions, dirExists, newestCodexSourceVersion } from "./discovery.ts";
 import { inspectSourceHealth } from "./health.ts";
@@ -19,6 +20,10 @@ export const codexAdapter: TrailAdapter = {
       throw new Error("Codex adapter requires SessionRef.path");
     }
     return parseCodexTrailFile(ref.path, PRODUCER);
+  },
+
+  async resumeSession(ref: SessionRef) {
+    return resumeCommand(ref, `Resume Codex session ${ref.id}`, ["codex", "resume", ref.id]);
   },
 
   async isAvailable(): Promise<boolean> {
