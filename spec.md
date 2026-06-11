@@ -757,7 +757,7 @@ The agent invoked a tool. Tool kinds use the taxonomy in [§10](#10-canonical-to
 | `args` | yes | object | tool-specific args |
 | `truncated` | no | boolean | true when `args` is a bounded excerpt rather than complete tool arguments |
 | `args_size` | conditional | integer | original serialized argument byte size; required when `truncated: true` |
-| `overflow_ref` | no | string or null | optional reference to external/full argument bytes when `args` is truncated |
+| `overflow_ref` | no | string or null | optional content-addressed reference to full argument bytes when `args` is truncated; writer-strict values use `sha256:<64 lowercase hex>` |
 | `usage` | no | object | token usage when this is the first entry derived from a source envelope; see [`payload.usage`](#agent_messagepayloadusage) |
 
 #### `tool_result`
@@ -1584,7 +1584,7 @@ Writers MAY truncate large `tool_result` outputs to keep trails tractable. The w
 |---|---|---|
 | `truncated` | boolean | `true` when `output` was shortened from its original length |
 | `output_size` | integer ≥0 | UTF-8 byte length of the original output before truncation; required when `truncated` is true |
-| `overflow_ref` | string | optional content-addressed reference to the full output (e.g., `sha256:<hex>`); colocated blob storage is implementation-defined |
+| `overflow_ref` | string or null | optional content-addressed reference to the full output (`sha256:<64 lowercase hex>`); colocated blob storage is implementation-defined |
 
 Specific inline-size thresholds, the truncation algorithm (e.g., head-only, head-and-tail, line-aligned), and the choice of overflow storage are writer policy and belong in writer documentation, not the format.
 
@@ -1594,7 +1594,7 @@ Tool call arguments use the same top-level marker on `tool_call.payload`:
 |---|---|---|
 | `truncated` | boolean | `true` when `args` was shortened from its original object |
 | `args_size` | integer ≥0 | UTF-8 byte length of the JCS-serialized original `args` object before truncation; required when `truncated` is true |
-| `overflow_ref` | string | optional content-addressed reference to the full args object |
+| `overflow_ref` | string or null | optional content-addressed reference to the full args object (`sha256:<64 lowercase hex>`) |
 
 The marker applies to the `args` object as a whole. Individual arg strings keep their declared per-toolkind shape, just shortened. Specific thresholds and algorithms remain writer policy.
 

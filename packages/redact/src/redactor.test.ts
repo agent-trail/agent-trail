@@ -541,7 +541,7 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
         for_id: "evtcall",
         ok: true,
         output: big,
-        overflow_ref: "sha256:abc",
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     }),
   ];
@@ -556,7 +556,9 @@ test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets
   expect(value.payload.output.length).toBeLessThan(big.length);
   expect(value.payload.truncated).toBe(true);
   expect(value.payload.output_size).toBe(new TextEncoder().encode(big).byteLength);
-  expect(value.payload.overflow_ref).toBe("sha256:abc");
+  expect(value.payload.overflow_ref).toBe(
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
   expect(value.meta?.redaction_count).toBe(1);
   expect(summary.counts.output_truncated).toBe(1);
 });

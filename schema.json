@@ -700,7 +700,10 @@
                 "description": "UTF-8 byte length of the original args object before truncation. Required when truncated is true."
               },
               "overflow_ref": {
-                "oneOf": [{ "type": "string" }, { "type": "null" }]
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
               }
             },
             "additionalProperties": false,
@@ -1044,7 +1047,10 @@
                 "description": "UTF-8 byte length of the original output before truncation. Required when truncated is true."
               },
               "overflow_ref": {
-                "oneOf": [{ "type": "string" }, { "type": "null" }]
+                "oneOf": [
+                  { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  { "type": "null" }
+                ]
               },
               "error": {
                 "oneOf": [{ "type": "string" }, { "type": "null" }]

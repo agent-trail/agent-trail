@@ -804,7 +804,7 @@ test("tool_call args truncation requires args_size when truncated is true", () =
 
   const valid = validateWriterStrictRecord({
     line: 2,
-    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"truncated":true,"args_size":42,"overflow_ref":"sha256:abc"}}',
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"truncated":true,"args_size":42,"overflow_ref":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}',
     value: {
       type: "tool_call",
       id: "01HEVTA0000000000000000001",
@@ -814,11 +814,34 @@ test("tool_call args truncation requires args_size when truncated is true", () =
         args: { path: "big.txt", content: "x" },
         truncated: true,
         args_size: 42,
-        overflow_ref: "sha256:abc",
+        overflow_ref: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     },
   });
   expect(valid).toEqual([]);
+
+  const urlRef = validateWriterStrictRecord({
+    line: 2,
+    raw: '{"type":"tool_call","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:05.000Z","payload":{"tool":"file_write","args":{"path":"big.txt","content":"x"},"overflow_ref":"https://blob.example/full-args?sig=secret"}}',
+    value: {
+      type: "tool_call",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-17T14:00:05.000Z",
+      payload: {
+        tool: "file_write",
+        args: { path: "big.txt", content: "x" },
+        overflow_ref: "https://blob.example/full-args?sig=secret",
+      },
+    },
+  });
+  expect(urlRef).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/payload/overflow_ref",
+      severity: "error",
+      code: "oneOf",
+    }),
+  );
 });
 
 test("file_edit accepts diff or old/new replacement forms exclusively", () => {
