@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
 import type { Diagnostic } from "@agent-trail/core";
-import { canonicalizeRecords } from "@agent-trail/core";
+import {
+  assertGzippedTrailCompressedSize,
+  canonicalizeRecords,
+  createDiagnostic,
+  decodeGzippedTrailBytes,
+  isGzippedTrailPath,
+  TrailFileDecodeError,
+} from "@agent-trail/core";
 import { type IndexEntry, upsertIndexEntry } from "./index-file.ts";
 import { writerStrictObjectIndexPolicy } from "./object-index-policy.ts";
 import { objectPath as computeObjectPath, resolveStoreRoot } from "./paths.ts";
@@ -34,7 +41,16 @@ export async function registerTrail(
 ): Promise<RegisterResult> {
   const storeRoot = resolveStoreRoot(opts.storeRoot);
 
-  const raw = await readFile(filePath, "utf8");
+  const rawResult = await readTrailFileText(filePath);
+  if ("diagnostics" in rawResult) {
+    return {
+      status: "invalid",
+      contentHash: null,
+      objectPath: null,
+      diagnostics: rawResult.diagnostics,
+    };
+  }
+  const raw = rawResult.text;
   const eligible = await writerStrictObjectIndexPolicy(raw);
   if (eligible.status === "invalid") {
     return {
@@ -116,6 +132,35 @@ export async function registerTrail(
     objectPath: primaryTarget,
     diagnostics: [],
   };
+}
+
+async function readTrailFileText(
+  filePath: string,
+): Promise<{ text: string } | { diagnostics: Diagnostic[] }> {
+  if (!isGzippedTrailPath(filePath)) {
+    return { text: await readFile(filePath, "utf8") };
+  }
+
+  try {
+    const fileInfo = await stat(filePath);
+    assertGzippedTrailCompressedSize(filePath, fileInfo.size);
+    return { text: await decodeGzippedTrailBytes(await readFile(filePath), filePath) };
+  } catch (error) {
+    if (error instanceof TrailFileDecodeError) {
+      return {
+        diagnostics: [
+          createDiagnostic({
+            line: 0,
+            path: "",
+            severity: "error",
+            code: "gzip_decode_failed",
+            message: error.message,
+          }),
+        ],
+      };
+    }
+    throw error;
+  }
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {

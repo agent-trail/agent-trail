@@ -3,6 +3,11 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
+import {
+  GZIPPED_TRAIL_MAX_COMPRESSED_BYTES,
+  GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES,
+} from "@agent-trail/core";
 import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import { runCli } from "./cli-runtime.ts";
 import { runValidate } from "./validate.ts";
@@ -38,6 +43,16 @@ async function writeFixture(content: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
   const path = join(dir, "trail.jsonl");
   await Bun.write(path, content);
+  return path;
+}
+
+async function writeGzipFixture(
+  content: string,
+  filename = "trail.trail.jsonl.gz",
+): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, filename);
+  await Bun.write(path, gzipSync(Buffer.from(content, "utf8")));
   return path;
 }
 
@@ -86,6 +101,101 @@ test("valid trail exits 0 with empty stdout", async () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toBe("");
+});
+
+test("valid gzipped trail exits 0 with empty stdout", async () => {
+  const path = await writeGzipFixture(`${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`);
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+test("valid gzipped trail with mixed-case extension exits 0", async () => {
+  const path = await writeGzipFixture(
+    `${VALID_HEADER}\n${VALID_USER_MESSAGE}\n`,
+    "trail.Trail.Jsonl.Gz",
+  );
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toBe("");
+});
+
+test("corrupt gzipped trail exits 1 with decode diagnostic on stderr", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "broken.trail.jsonl.gz");
+  await Bun.write(path, "not gzip");
+
+  const result = await runValidate({ file: path });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("failed to decode gzip trail");
+});
+
+test("--json on corrupt gzipped trail returns a JSON decode diagnostic", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "broken.trail.jsonl.gz");
+  await Bun.write(path, "not gzip");
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+    }),
+  ]);
+});
+
+test("oversized gzipped trail exits 1 with decode diagnostic before validation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "oversized.trail.jsonl.gz");
+  await Bun.write(
+    path,
+    gzipSync(Buffer.from("a".repeat(GZIPPED_TRAIL_MAX_DECOMPRESSED_BYTES + 1))),
+  );
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+      message: expect.stringContaining("decompressed payload exceeds"),
+    }),
+  ]);
+});
+
+test("compressed-oversized gzipped trail exits 1 before reading the body", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "trail-cli-"));
+  const path = join(dir, "oversized-compressed.trail.jsonl.gz");
+  await Bun.write(path, Buffer.alloc(GZIPPED_TRAIL_MAX_COMPRESSED_BYTES + 1));
+
+  const result = await runValidate({ file: path, json: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual([
+    expect.objectContaining({
+      line: 0,
+      path: "",
+      severity: "error",
+      code: "gzip_decode_failed",
+      message: expect.stringContaining("compressed payload exceeds"),
+    }),
+  ]);
 });
 
 test("multiple positional file arguments exit 1 with usage on stderr", async () => {

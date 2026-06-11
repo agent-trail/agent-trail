@@ -1,7 +1,13 @@
 import {
+  assertGzippedTrailCompressedSize,
+  createDiagnostic,
+  type Diagnostic,
+  decodeGzippedTrailStream,
   formatDiagnosticsJsonValue,
   formatDiagnosticsText,
+  isGzippedTrailPath,
   resolveValidationProfile,
+  TrailFileDecodeError,
   type ValidationProfile,
   validateTrailStream,
 } from "@agent-trail/core";
@@ -35,9 +41,40 @@ export async function runValidate(options: RunValidateOptions): Promise<RunValid
     return { exitCode: 1, stdout: "", stderr: `file not found: ${path}\n` };
   }
 
-  const diagnostics = [];
-  for await (const diagnostic of validateTrailStream(file.stream(), { profile })) {
-    diagnostics.push(diagnostic);
+  const diagnostics: Diagnostic[] = [];
+  if (isGzippedTrailPath(path)) {
+    try {
+      assertGzippedTrailCompressedSize(path, file.size);
+      for await (const diagnostic of validateTrailStream(
+        decodeGzippedTrailStream(file.stream(), path),
+        { profile },
+      )) {
+        diagnostics.push(diagnostic);
+      }
+    } catch (error) {
+      if (error instanceof TrailFileDecodeError) {
+        if (options.json) {
+          const diagnostic = createDiagnostic({
+            line: 0,
+            path: "",
+            severity: "error",
+            code: "gzip_decode_failed",
+            message: error.message,
+          });
+          return {
+            exitCode: 1,
+            stdout: `${JSON.stringify(formatDiagnosticsJsonValue([diagnostic]))}\n`,
+            stderr: "",
+          };
+        }
+        return { exitCode: 1, stdout: "", stderr: `${error.message}\n` };
+      }
+      throw error;
+    }
+  } else {
+    for await (const diagnostic of validateTrailStream(file.stream(), { profile })) {
+      diagnostics.push(diagnostic);
+    }
   }
 
   const hasError = diagnostics.some((d) => d.severity === "error");
@@ -63,6 +100,7 @@ export function addValidateCommand(program: Command, writeResult: ResultWriter):
       }),
     [
       "trail validate session.trail.jsonl",
+      "trail validate session.trail.jsonl.gz",
       "trail validate session.trail.jsonl --profile reader-tolerant",
     ],
   );
