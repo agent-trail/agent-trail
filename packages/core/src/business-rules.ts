@@ -1,6 +1,11 @@
 import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
-import { CREDENTIAL_PATTERNS, type RedactionPattern } from "./secret-patterns.ts";
+import {
+  CREDENTIAL_PATTERNS,
+  isCredentialKey,
+  isSafeCredentialContextValue,
+  type RedactionPattern,
+} from "./secret-patterns.ts";
 import { SOURCE_RAW_HARD_CAP_BYTES, SOURCE_RAW_SOFT_CAP_BYTES } from "./source-raw.ts";
 import { isHeaderLikeRecord } from "./validation-utils.ts";
 
@@ -15,9 +20,8 @@ import { isHeaderLikeRecord } from "./validation-utils.ts";
  *     to elide oversized raw payloads.
  *   - `sourceRawSecretDiagnostics` — walks `source.raw` string leaves and
  *     warns on credential pattern matches (Bearer tokens, API keys, etc.).
- *   - `toolArgsSecretDiagnostics` — walks privacy-sensitive tool args
- *     (`mcp_call` / `web_fetch` headers and `shell_command` command) and warns
- *     on the same credential pattern matches.
+ *   - `toolArgsSecretDiagnostics` — walks tool args and warns on the same
+ *     credential pattern and credential-key matches.
  *   - `vcsRemoteUrlDiagnostics` — flags `vcs.remote_url` values containing
  *     `user:pass@` credentials; promotes to error when the password appears
  *     to be URL-encoded (writer leaked deliberately-encoded credentials).
@@ -86,21 +90,14 @@ export function sourceRawSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  walkStringLeaves(raw, "/source/raw", (text, path) => {
-    for (const pattern of CREDENTIAL_PATTERNS) {
-      if (matchesPattern(text, pattern)) {
-        diagnostics.push(
-          createDiagnostic({
-            line: record.line,
-            path,
-            severity: "warning",
-            code: "source_raw_unredacted_secret",
-            message: `source.raw contains unredacted ${pattern.description} (${pattern.id})`,
-          }),
-        );
-      }
-    }
-  });
+  appendCredentialDiagnostics(
+    diagnostics,
+    record.line,
+    raw,
+    "/source/raw",
+    "source_raw_unredacted_secret",
+    "source.raw",
+  );
   return diagnostics;
 }
 
@@ -112,31 +109,14 @@ export function toolArgsSecretDiagnostics(record: JsonlRecord): Diagnostic[] {
   if (args === undefined || args === null || typeof args !== "object") return [];
 
   const diagnostics: Diagnostic[] = [];
-  const tool = payload?.tool;
-  if (tool === "mcp_call" || tool === "web_fetch") {
-    const headers = args.headers;
-    if (headers !== undefined) {
-      appendCredentialDiagnostics(
-        diagnostics,
-        record.line,
-        headers,
-        "/payload/args/headers",
-        "tool_args_unredacted_secret",
-        "tool_call args",
-      );
-    }
-  }
-  if (tool === "shell_command" && typeof args.command === "string") {
-    appendCredentialDiagnostics(
-      diagnostics,
-      record.line,
-      args.command,
-      "/payload/args/command",
-      "tool_args_unredacted_secret",
-      "tool_call args",
-    );
-  }
-
+  appendCredentialDiagnostics(
+    diagnostics,
+    record.line,
+    args,
+    "/payload/args",
+    "tool_args_unredacted_secret",
+    "tool_call args",
+  );
   return diagnostics;
 }
 
@@ -231,7 +211,7 @@ function appendCredentialDiagnostics(
   code: "source_raw_unredacted_secret" | "tool_args_unredacted_secret",
   label: string,
 ): void {
-  walkStringLeaves(root, rootPath, (text, path) => {
+  walkStringLeaves(root, rootPath, (text, path, key) => {
     for (const pattern of CREDENTIAL_PATTERNS) {
       if (matchesPattern(text, pattern)) {
         diagnostics.push(
@@ -245,6 +225,17 @@ function appendCredentialDiagnostics(
         );
       }
     }
+    if (isCredentialKey(key) && !isSafeCredentialContextValue(text)) {
+      diagnostics.push(
+        createDiagnostic({
+          line,
+          path,
+          severity: "warning",
+          code,
+          message: `${label} contain unredacted credential-looking field (${key})`,
+        }),
+      );
+    }
   });
 }
 
@@ -254,13 +245,15 @@ function appendCredentialDiagnostics(
 function walkStringLeaves(
   root: unknown,
   rootPath: string,
-  visit: (text: string, path: string) => void,
+  visit: (text: string, path: string, key: string | undefined) => void,
 ): void {
-  const stack: Array<{ value: unknown; path: string }> = [{ value: root, path: rootPath }];
+  const stack: Array<{ value: unknown; path: string; key?: string }> = [
+    { value: root, path: rootPath },
+  ];
   while (stack.length > 0) {
-    const { value, path } = stack.pop()!;
+    const { value, path, key } = stack.pop()!;
     if (typeof value === "string") {
-      visit(value, path);
+      visit(value, path, key);
       continue;
     }
     if (Array.isArray(value)) {
@@ -275,6 +268,7 @@ function walkStringLeaves(
         stack.push({
           value: (value as Record<string, unknown>)[key],
           path: `${path}/${escapeJsonPointerSegment(key)}`,
+          key,
         });
       }
     }

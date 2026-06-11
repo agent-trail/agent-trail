@@ -31,6 +31,7 @@ export function redactTrail(
   const outputMaxBytes = options.outputMaxBytes ?? 10_240;
   const maxSamples = options.maxSamples ?? 20;
   const keepRemoteUrl = options.keepRemoteUrl ?? false;
+  const enableEntropyRedaction = options.enableEntropyRedaction === true;
   const out = records.map((record) => structuredClone(record));
   const originalToolResultOutputSizes = snapshotToolResultOutputSizes(out);
   const rawSummary: RedactionSummary = { counts: {}, samples: [] };
@@ -56,8 +57,17 @@ export function redactTrail(
     patterns,
     rawSummary,
     maxSamples,
+    enableEntropyRedaction,
   );
-  redactUserQueryAnswerKeys(out, queryIdMaps, userPatterns, patterns, rawSummary, maxSamples);
+  redactUserQueryAnswerKeys(
+    out,
+    queryIdMaps,
+    userPatterns,
+    patterns,
+    rawSummary,
+    maxSamples,
+    enableEntropyRedaction,
+  );
 
   stripSecretUserQueryAnswers(out, rawSummary, maxSamples, redactionCounts);
 
@@ -68,6 +78,7 @@ export function redactTrail(
     rawSummary,
     maxSamples,
     redactionCounts,
+    enableEntropyRedaction,
   );
 
   truncateOutputs(

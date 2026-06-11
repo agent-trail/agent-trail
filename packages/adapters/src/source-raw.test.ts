@@ -22,6 +22,48 @@ test("redactValue replaces a Bearer token nested in an object", () => {
   expect(input.headers.authorization).toBe("Bearer abcdefABCDEF0123456789xyzXYZ");
 });
 
+test("redactValue replaces credential-keyed source raw strings", () => {
+  const input = {
+    password: "novel internal password",
+    token: "bare-token-internal-secret",
+    API_KEY: "uppercase-api-key-secret",
+    AUTH_TOKEN: "uppercase-auth-token-secret",
+    api_token: "opaque-internal-token-value",
+    database_url: "internal-db-credential",
+    apiKey: "camel-case-internal-secret",
+    accessToken: "01234567-89ab-cdef-0123-456789abcdef",
+    privateKey: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    id: "01HEVTA0000000000000000001",
+    checksum: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  };
+
+  const out = redactValue(input) as Record<string, unknown>;
+
+  expect(out.password).toBe("[CREDENTIAL_VALUE]");
+  expect(out.token).toBe("[CREDENTIAL_VALUE]");
+  expect(out.API_KEY).toBe("[CREDENTIAL_VALUE]");
+  expect(out.AUTH_TOKEN).toBe("[CREDENTIAL_VALUE]");
+  expect(out.api_token).toBe("[CREDENTIAL_VALUE]");
+  expect(out.database_url).toBe("[CREDENTIAL_VALUE]");
+  expect(out.apiKey).toBe("[CREDENTIAL_VALUE]");
+  expect(out.accessToken).toBe("[CREDENTIAL_VALUE]");
+  expect(out.privateKey).toBe("[CREDENTIAL_VALUE]");
+  expect(out.id).toBe(input.id);
+  expect(out.checksum).toBe(input.checksum);
+});
+
+test("redactValue replaces whole credential-keyed values after partial pattern redaction", () => {
+  const out = redactValue({
+    api_token: "Bearer abcdefABCDEF0123456789xyzXYZ",
+    authorization: "Bearer abcdefABCDEF0123456789xyzXYZ",
+    password: "Bearer abcdefABCDEF0123456789xyzXYZ extra-tail-secret",
+  }) as Record<string, unknown>;
+
+  expect(out.api_token).toBe("[CREDENTIAL_VALUE]");
+  expect(out.authorization).toBe("Bearer [TOKEN]");
+  expect(out.password).toBe("[CREDENTIAL_VALUE]");
+});
+
 test("redactValue walks arrays and replaces inside elements", () => {
   const input = ["safe", { token: "sk-ant-AbCdEfGhIjKlMnOpQrStUv0123456789" }];
   const out = redactValue(input) as unknown[];

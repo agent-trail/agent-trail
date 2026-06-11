@@ -529,6 +529,233 @@ test("redactTrail redacts PII (email, phone, ssn) via @redactpii/node", () => {
   expect(summary.counts.ssn_pii).toBeGreaterThanOrEqual(1);
 });
 
+test("redactTrail redacts only the password segment in credentialed URIs", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        tool: "shell",
+        args: {
+          command: "psql postgres://app_user:s3cr3t-pa55@db.internal:5432/app?sslmode=require",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as { payload: { args: { command: string } } };
+  expect(value.payload.args.command).toBe(
+    "psql postgres://app_user:[URI_PASSWORD]@db.internal:5432/app?sslmode=require",
+  );
+  expect(summary.counts.credentialed_uri).toBe(1);
+});
+
+test("redactTrail redacts password segments in DSNs and connection strings", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        tool: "shell",
+        args: {
+          command: [
+            "java -Ddb=jdbc:postgresql://db.internal/app?user=app&password=jdbcSecret123&ssl=true",
+            "sqlcmd Server=db.internal;UID=sa;PWD=sqlSecret123;",
+            "odbc Driver=Postgres;Server=db.internal;Password=keywordSecret123;User=app;",
+            "DATABASE_URL=postgres://app:databaseSecret123@db.internal/app",
+          ].join(" "),
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as { payload: { args: { command: string } } };
+  expect(value.payload.args.command).toContain("password=[DSN_PASSWORD]");
+  expect(value.payload.args.command).toContain("PWD=[DSN_PASSWORD]");
+  expect(value.payload.args.command).toContain("Password=[DSN_PASSWORD]");
+  expect(value.payload.args.command).toContain(
+    "DATABASE_URL=postgres://app:[DATABASE_URL_PASSWORD]@db.internal/app",
+  );
+  expect(summary.counts.dsn_password).toBe(3);
+  expect(summary.counts.database_url).toBe(1);
+});
+
+test("redactTrail redacts lowercase env and JSON credential fields in text", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        text: [
+          "db_password=lowercase.secret.12345",
+          "pg_url=postgres://app:pgSecret123@db.internal/app",
+          '{"password":"json.secret.12345","db_url":"postgres://app:jsonSecret123@db.internal/app"}',
+        ].join(" "),
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as { payload: { text: string } };
+  expect(value.payload.text).toContain("db_password=[ENV_SECRET]");
+  expect(value.payload.text).toContain("pg_url=[ENV_SECRET]");
+  expect(value.payload.text).toContain('"password":"[JSON_SECRET]"');
+  expect(value.payload.text).toContain('"db_url":"[JSON_SECRET]"');
+  expect(summary.counts.env_assignment).toBe(2);
+  expect(summary.counts.json_credential_field).toBe(2);
+});
+
+test("redactTrail redacts credential-keyed object values without mutating opaque IDs", () => {
+  const uuid = "00000000-0000-0000-0000-00000000abcd";
+  const hash = `sha256:${"a".repeat(64)}`;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "call1",
+        ok: true,
+        output: "done",
+        meta: {
+          password: "novel internal password",
+          token: "bare-token-internal-secret",
+          API_KEY: "uppercase-api-key-secret",
+          AUTH_TOKEN: "uppercase-auth-token-secret",
+          api_token: "opaque-internal-token-value",
+          apiKey: "camel-case-internal-secret",
+          accessToken: uuid,
+          privateKey: hash,
+          id: uuid,
+          content_hash: hash,
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+
+  const value = out[1]?.value as {
+    payload: {
+      meta: {
+        password: string;
+        token: string;
+        API_KEY: string;
+        AUTH_TOKEN: string;
+        api_token: string;
+        apiKey: string;
+        accessToken: string;
+        privateKey: string;
+        id: string;
+        content_hash: string;
+      };
+    };
+  };
+  expect(value.payload.meta.password).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.token).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.API_KEY).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.AUTH_TOKEN).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.api_token).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.apiKey).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.accessToken).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.privateKey).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.meta.id).toBe(uuid);
+  expect(value.payload.meta.content_hash).toBe(hash);
+  expect(summary.counts.credential_context).toBe(8);
+});
+
+test("redactTrail replaces whole credential-keyed values after partial pattern redaction", () => {
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_call",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        tool: "shell_command",
+        args: {
+          password: "Bearer abcdefABCDEF0123456789xyzXYZ extra-tail-secret",
+          authorization: "Bearer abcdefABCDEF0123456789xyzXYZ extra-tail-secret",
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records);
+  const value = out[1]?.value as {
+    payload: { args: { password: string; authorization: string } };
+  };
+
+  expect(value.payload.args.password).toBe("[CREDENTIAL_VALUE]");
+  expect(value.payload.args.authorization).toBe("Bearer [TOKEN] extra-tail-secret");
+  expect(summary.counts.bearer_token).toBe(2);
+  expect(summary.counts.credential_context).toBe(1);
+});
+
+test("redactTrail only applies entropy redaction when explicitly enabled", () => {
+  const token = "zQ9mK2pL8vR4sT7xY1aB3cD5eF6gH7jK";
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "user_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `novel token ${token}` },
+    }),
+  ];
+
+  const disabled = redactTrail(records);
+  const disabledValue = disabled.records[1]?.value as { payload: { text: string } };
+  expect(disabledValue.payload.text).toContain(token);
+  expect(disabled.summary.counts.high_entropy_token).toBeUndefined();
+
+  const enabled = redactTrail(records, { enableEntropyRedaction: true });
+  const enabledValue = enabled.records[1]?.value as { payload: { text: string } };
+  expect(enabledValue.payload.text).toBe("novel token [HIGH_ENTROPY_SECRET]");
+  expect(enabled.summary.counts.high_entropy_token).toBe(1);
+});
+
+test("redactTrail entropy redaction skips opaque hash and UUID fields", () => {
+  const uuid = "00000000-0000-0000-0000-00000000abcd";
+  const hash = `sha256:${"b".repeat(64)}`;
+  const records: JsonlRecord[] = [
+    header(),
+    record(2, {
+      type: "tool_result",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        for_id: "call1",
+        ok: true,
+        output: "done",
+        meta: {
+          id: uuid,
+          content_hash: hash,
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { enableEntropyRedaction: true });
+
+  const value = out[1]?.value as { payload: { meta: { id: string; content_hash: string } } };
+  expect(value.payload.meta.id).toBe(uuid);
+  expect(value.payload.meta.content_hash).toBe(hash);
+  expect(summary.counts.high_entropy_token).toBeUndefined();
+});
+
 test("redactTrail truncates tool_result.output exceeding outputMaxBytes and sets truncated=true", () => {
   const big = "X".repeat(20_000);
   const overflowRef = `sha256:${"a".repeat(64)}`;
@@ -1134,6 +1361,54 @@ test("redactTrail keeps redacted user_query question ids unique", () => {
   expect(response.payload.answers["[EMAIL]"]).toEqual({ selected: ["yes"] });
   expect(response.payload.answers["[EMAIL]_2"]).toEqual({ selected: ["[EMAIL]"] });
   expect(response.payload.answers).not.toHaveProperty("alice@example.com");
+});
+
+test("redactTrail keeps entropy-redacted user_query ids aligned with answer keys", async () => {
+  const tokenId = "zQ9mK2pL8vR4sT7xY1aB3cD5eF6gH7jK";
+  const records: JsonlRecord[] = [
+    record(1, {
+      type: "session",
+      schema_version: "0.1.0",
+      id: "01HSESS0000000000000000001",
+      session_uid: "01HZZZZZZZZZZZZZZZZZZZZZ01",
+      ts: "2026-05-22T00:00:00.000Z",
+      agent: { name: "codex-cli" },
+    }),
+    record(2, {
+      type: "user_query",
+      id: "01HEVTA0000000000000000001",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: {
+        questions: [{ id: tokenId, question: "Pick one?" }],
+      },
+    }),
+    record(3, {
+      type: "user_query_response",
+      id: "01HEVTA0000000000000000002",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: {
+        for_id: "01HEVTA0000000000000000001",
+        answers: {
+          [tokenId]: { selected: ["yes"] },
+        },
+      },
+    }),
+  ];
+
+  const { records: out, summary } = redactTrail(records, { enableEntropyRedaction: true });
+  const query = out[1]?.value as { payload: { questions: Array<{ id: string }> } };
+  const response = out[2]?.value as {
+    payload: { answers: Record<string, { selected: string[] }> };
+  };
+
+  expect(query.payload.questions[0]?.id).toBe("[HIGH_ENTROPY_SECRET]");
+  expect(response.payload.answers["[HIGH_ENTROPY_SECRET]"]).toEqual({ selected: ["yes"] });
+  expect(response.payload.answers).not.toHaveProperty(tokenId);
+  expect(summary.counts.high_entropy_token).toBe(2);
+
+  const jsonl = `${out.map((r) => JSON.stringify(r.value)).join("\n")}\n`;
+  const diagnostics = await validateTrailString(jsonl);
+  expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
 test("redactTrail output_size uses original output bytes before secret redaction", () => {

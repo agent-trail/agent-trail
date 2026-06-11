@@ -1,3 +1,4 @@
+import { applyEntropyRedaction } from "./entropy.ts";
 import { applyPii } from "./pii.ts";
 import type { RedactionPattern, RedactionSummary } from "./types.ts";
 import { keyVisit, type Visit } from "./visits.ts";
@@ -56,12 +57,16 @@ function redactVisit(
   patterns: readonly RedactionPattern[],
   summary: RedactionSummary,
   maxSamples: number,
+  enableEntropyRedaction: boolean,
 ): void {
   for (const pattern of userPatterns) {
     applyPattern(visit, pattern, summary, maxSamples);
   }
   for (const pattern of patterns) {
     applyPattern(visit, pattern, summary, maxSamples);
+  }
+  if (enableEntropyRedaction) {
+    applyEntropyRedaction(visit, summary, maxSamples);
   }
   const current = visit.get();
   const pii = applyPii(current, visit.location, summary, maxSamples);
@@ -81,6 +86,7 @@ export function redactString(
   patterns: readonly RedactionPattern[],
   summary: RedactionSummary,
   maxSamples: number,
+  enableEntropyRedaction = false,
 ): string {
   const container: Record<string, unknown> = { value };
   redactVisit(
@@ -89,6 +95,7 @@ export function redactString(
     patterns,
     summary,
     maxSamples,
+    enableEntropyRedaction,
   );
   return container.value as string;
 }
