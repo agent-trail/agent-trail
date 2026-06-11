@@ -4,6 +4,7 @@ import {
   crossGroupForkFromWarnings,
   envelopeRefWarnings,
   finalMessageIdWarnings,
+  nonMonotonicEventTsWarnings,
   outOfOrderSessionHeadersWarnings,
   parseFidelityConsistencyWarnings,
   streamConsistencyWarnings,
@@ -45,9 +46,12 @@ export function validateTrailGraph(
   for (let i = 0; i < split.groups.length; i += 1) {
     if (!headerValidByGroup[i]) continue;
     const group = split.groups[i] as SessionGroup;
+    const groupIdLines = topology.groupIdLines[i] as Map<string, number>;
+    const groupParentIds = topology.groupParentIds[i] as Map<string, string>;
+    const groupCyclicIds = topology.groupCyclicIds[i] as Set<string>;
+    diagnostics.push(...nonMonotonicEventTsWarnings(group.entries, groupParentIds, groupCyclicIds));
     diagnostics.push(...streamConsistencyWarnings(group.header, group.entries));
     diagnostics.push(...unmatchedToolCallWarnings(group.entries));
-    const groupIdLines = topology.groupIdLines[i] as Map<string, number>;
     const groupHeaderId =
       typeof group.header.value.id === "string" ? group.header.value.id : undefined;
     diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));

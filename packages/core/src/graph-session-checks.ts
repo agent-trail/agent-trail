@@ -2,6 +2,45 @@ import { createDiagnostic, type Diagnostic } from "./diagnostics.ts";
 import type { JsonlRecord } from "./jsonl.ts";
 import { finalSessionTerminatedReason, isQuarantinedUnknownRecord } from "./parse-fidelity.ts";
 
+export function nonMonotonicEventTsWarnings(
+  entries: JsonlRecord[],
+  parentIds: Map<string, string>,
+  cyclicIds: Set<string>,
+): Diagnostic[] {
+  const entryById = new Map<string, JsonlRecord>();
+  for (const entry of entries) {
+    const id = entry.value.id;
+    if (typeof id === "string" && !entryById.has(id)) {
+      entryById.set(id, entry);
+    }
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  for (const [id, parentId] of parentIds) {
+    if (cyclicIds.has(id) || cyclicIds.has(parentId)) continue;
+    const entry = entryById.get(id);
+    if (entry === undefined) continue;
+    const parent = entryById.get(parentId);
+    if (parent === undefined) continue;
+
+    const childTs = eventTimestampMillis(entry);
+    const parentTs = eventTimestampMillis(parent);
+    if (childTs === undefined || parentTs === undefined || childTs >= parentTs) continue;
+
+    diagnostics.push(
+      createDiagnostic({
+        line: entry.line,
+        path: "/ts",
+        severity: "warning",
+        code: "non_monotonic_event_ts",
+        message: `event "${id}" has ts earlier than parent_id "${parentId}"`,
+      }),
+    );
+  }
+
+  return diagnostics;
+}
+
 // Checks header stream state against file content (spec §18.4 rule 9): a live
 // header (stream.state == "open") must not carry a populated content_hash and
 // must not coexist with terminal events. Both checks are conditional on the
@@ -50,6 +89,15 @@ export function streamConsistencyWarnings(
   }
 
   return diagnostics;
+}
+
+function eventTimestampMillis(record: JsonlRecord): number | undefined {
+  const ts = record.value.ts;
+  if (typeof ts !== "string") return undefined;
+  const parsed = new Date(ts);
+  const millis = parsed.getTime();
+  if (!Number.isFinite(millis) || parsed.toISOString() !== ts) return undefined;
+  return millis;
 }
 
 // Spec §18.4: writers should emit `session_terminated` if any `tool_call`

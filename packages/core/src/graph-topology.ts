@@ -7,6 +7,8 @@ type CycleStatus = "safe" | "cyclic";
 export type GraphTopologyResult = {
   diagnostics: Diagnostic[];
   groupIdLines: Map<string, number>[];
+  groupParentIds: Map<string, string>[];
+  groupCyclicIds: Set<string>[];
 };
 
 /**
@@ -33,13 +35,17 @@ export function validateGraphTopology(
   }
 
   const groupIdLines = groups.map(collectGroupIds);
+  const groupParentIds: Map<string, string>[] = [];
+  const groupCyclicIds: Set<string>[] = [];
   for (let i = 0; i < groups.length; i += 1) {
     const group = groups[i] as SessionGroup;
     const ids = groupIdLines[i] as Map<string, number>;
-    runParentChecks(group.entries, ids, diagnostics);
+    const result = runParentChecks(group.entries, ids, diagnostics);
+    groupParentIds.push(result.parentOf);
+    groupCyclicIds.push(result.cyclic);
   }
 
-  return { diagnostics, groupIdLines };
+  return { diagnostics, groupIdLines, groupParentIds, groupCyclicIds };
 }
 
 function pushUnique(
@@ -96,7 +102,7 @@ function runParentChecks(
   entries: JsonlRecord[],
   groupIds: Map<string, number>,
   diagnostics: Diagnostic[],
-): void {
+): { parentOf: Map<string, string>; cyclic: Set<string> } {
   const parentOf = new Map<string, string>();
   for (const entry of entries) {
     const id = entry.value.id;
@@ -138,6 +144,7 @@ function runParentChecks(
       }),
     );
   }
+  return { parentOf, cyclic };
 }
 
 function findCyclicIds(parentOf: Map<string, string>): Set<string> {

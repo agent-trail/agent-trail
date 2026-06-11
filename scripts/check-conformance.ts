@@ -64,6 +64,7 @@ const PORTABLE_CODES = new Set([
   "missing_header",
   "missing_header_after_envelope",
   "multiple_envelopes",
+  "non_monotonic_event_ts",
   "parent_cycle",
   "reader_tolerant_schema_version",
   "reader_tolerant_unknown_payload_field",
