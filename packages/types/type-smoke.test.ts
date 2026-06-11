@@ -10,6 +10,7 @@ import type {
   SystemEvent,
   ThinkingLevelChange,
   ToolCallAborted,
+  UserMessage,
   Vcs,
 } from "@agent-trail/types";
 
@@ -102,6 +103,26 @@ test("SystemEvent.payload.kind accepts reserved + x-<adapter>/<name> extensions"
   expect(another.payload?.kind).toBe("x-pi/custom_message");
 });
 
+test("UserMessage.payload.origin accepts reserved + x-<adapter>/<name> extensions", () => {
+  const reserved = {
+    type: "user_message",
+    payload: { text: "hello", origin: "injected" },
+  } satisfies UserMessage;
+  const extension = {
+    type: "user_message",
+    payload: { text: "pasted context", origin: "x-acme/paste" },
+  } satisfies UserMessage;
+  const bareUnknownPayload: NonNullable<UserMessage["payload"]> = {
+    text: "bot text",
+    // @ts-expect-error writer schema rejects bare unknown origins.
+    origin: "bot",
+  };
+
+  expect(reserved.payload?.origin).toBe("injected");
+  expect(extension.payload?.origin).toBe("x-acme/paste");
+  expect(String(bareUnknownPayload.origin)).toBe("bot");
+});
+
 test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
   const change = {
     type: "capability_change",
@@ -117,10 +138,24 @@ test("CapabilityChange exposes scope, reason, and typed item shapes", () => {
       changed: [{ name: "search_web", field: "description", to: "Search" }],
     },
   } satisfies CapabilityChange;
+  // @ts-expect-error writer schema requires at least one change array.
+  const missingChangeArrayPayload: NonNullable<CapabilityChange["payload"]> = {
+    scope: "tool",
+    reason: "registered",
+  };
+  const extraPayloadKey: NonNullable<CapabilityChange["payload"]> = {
+    scope: "tool",
+    reason: "registered",
+    added: [{ name: "search_web" }],
+    // @ts-expect-error writer schema rejects extra capability_change payload keys.
+    unexpected: true,
+  };
 
   expect(change.payload.scope).toBe("tool");
   expect(change.payload.snapshot[0]?.metadata?.namespace).toBe("web");
   expect(change.payload.changed[0]?.field).toBe("description");
+  expect(missingChangeArrayPayload.scope).toBe("tool");
+  expect((extraPayloadKey as Record<string, unknown>).unexpected).toBe(true);
 });
 
 test("setting change types accept reserved + x-<adapter>/<name> extensions", () => {

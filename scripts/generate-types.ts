@@ -95,6 +95,41 @@ generated = generated.replace(
   `export interface Vcs {\n  type: ${vcsTypeReplacement};`,
 );
 
+const userMessageOriginEnum = (
+  schema as {
+    $defs?: {
+      events?: {
+        user_message?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                origin?: { anyOf?: Array<{ enum?: string[] }> };
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.user_message?.properties?.payload?.properties?.origin?.anyOf?.find((branch) =>
+  Array.isArray(branch.enum),
+)?.enum;
+if (userMessageOriginEnum === undefined || userMessageOriginEnum.length === 0) {
+  throw new Error("generate-types: could not read user_message.payload.origin enum from schema.");
+}
+const USER_MESSAGE_ORIGIN_RE =
+  / {4}origin\?: \(\n {6}\| \("[^"]+"(?: \| "[^"]+")+\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+if (!USER_MESSAGE_ORIGIN_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the UserMessage.payload.origin anyOf block to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const userMessageOriginUnion = [
+  ...userMessageOriginEnum.map((value) => JSON.stringify(value)),
+  "`x-$" + "{string}/$" + "{string}`",
+].join(" | ");
+generated = generated.replace(USER_MESSAGE_ORIGIN_RE, `    origin?: ${userMessageOriginUnion};`);
+
 // json-schema-to-typescript collapses the `command_invoke.payload.result_action`
 // oneOf pattern branch (`^x-...$`) into a bare `string`, widening the type so it
 // accepts any string. Read the reserved enum from the schema and rewrite the
@@ -395,6 +430,108 @@ generated = generated.replace(
     "        output_tokens_cumulative: number;",
     "      }",
     "  );",
+  ].join("\n"),
+);
+
+// capability_change uses a shared object schema plus presence-only anyOf
+// clauses. json-schema-to-typescript widens that shape to optional arrays plus
+// `[k:string]: unknown`, accepting payloads writer-strict validation rejects.
+const CAPABILITY_CHANGE_RE =
+  /export interface CapabilityChange \{\n {2}type\?: "capability_change";\n {2}payload\?: \{[\s\S]*?\n {2}\} & \{\n {4}\[k: string\]: unknown;\n {2}\};\n {2}\[k: string\]: unknown;\n\}/;
+if (!CAPABILITY_CHANGE_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the CapabilityChange.payload allOf block to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const capabilityPayloadSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        capability_change?: {
+          properties?: {
+            payload?: {
+              allOf?: Array<{
+                properties?: {
+                  scope?: { enum?: string[] };
+                  reason?: { enum?: string[] };
+                };
+              }>;
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.capability_change?.properties?.payload?.allOf?.find(
+  (branch) =>
+    Array.isArray(branch.properties?.scope?.enum) && Array.isArray(branch.properties?.reason?.enum),
+)?.properties;
+const capabilityScopeEnum = capabilityPayloadSchema?.scope?.enum;
+const capabilityReasonEnum = capabilityPayloadSchema?.reason?.enum;
+if (
+  capabilityScopeEnum === undefined ||
+  capabilityScopeEnum.length === 0 ||
+  capabilityReasonEnum === undefined ||
+  capabilityReasonEnum.length === 0
+) {
+  throw new Error(
+    "generate-types: could not read capability_change.payload scope/reason enums from schema.",
+  );
+}
+const capabilityScope = capabilityScopeEnum.map((value) => JSON.stringify(value)).join(" | ");
+const capabilityReason = `${[
+  "        reason:",
+  ...capabilityReasonEnum.map((value) => `          | ${JSON.stringify(value)}`),
+].join("\n")};`;
+const capabilityCommon = [`        scope: ${capabilityScope};`, capabilityReason].join("\n");
+generated = generated.replace(
+  CAPABILITY_CHANGE_RE,
+  [
+    "export interface CapabilityChange {",
+    '  type?: "capability_change";',
+    "  payload?:",
+    "    | {",
+    `${capabilityCommon}`,
+    "        /**",
+    "         * @minItems 1",
+    "         */",
+    "        added: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];",
+    "        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];",
+    "        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "      }",
+    "    | {",
+    `${capabilityCommon}`,
+    "        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "        /**",
+    "         * @minItems 1",
+    "         */",
+    "        removed: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];",
+    "        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];",
+    "        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "      }",
+    "    | {",
+    `${capabilityCommon}`,
+    "        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];",
+    "        /**",
+    "         * @minItems 1",
+    "         */",
+    "        changed: [CapabilityChangedItem, ...CapabilityChangedItem[]];",
+    "        snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "      }",
+    "    | {",
+    `${capabilityCommon}`,
+    "        added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "        removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];",
+    "        changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];",
+    "        /**",
+    "         * @minItems 1",
+    "         */",
+    "        snapshot: [CapabilityAddedItem, ...CapabilityAddedItem[]];",
+    "      };",
+    "  [k: string]: unknown;",
+    "}",
   ].join("\n"),
 );
 

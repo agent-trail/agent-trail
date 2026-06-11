@@ -1,7 +1,7 @@
 import type { MappingDef, TrailEntryDraft } from "@agent-trail/adapter-kit";
 import { defineMapping } from "@agent-trail/adapter-kit";
 import { isNonEmptyString } from "../../task-plan.ts";
-import { hookEventToKind } from "../envelope-mappers.ts";
+import { hookEventToKind, isSessionEndHookEvent } from "../envelope-mappers.ts";
 import { type CcEnvelope, isObject, jsonString, stringValue } from "../source.ts";
 import {
   gate,
@@ -261,6 +261,20 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     const hookEvent = stringValue(attachment.hook_event) ?? stringValue(attachment.hookEvent);
     const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
     const toolCallId = hookToolCallId(attachment);
+    const source = src(
+      hookSuccessSourceRecord(record, attachment, isLegacyAttachment),
+      originalType,
+    );
+    if (isSessionEndHookEvent(hookEvent)) {
+      return [
+        {
+          type: "session_end",
+          payload: { reason: "complete" },
+          source,
+          meta: meta(record),
+        },
+      ];
+    }
     return [
       {
         type: "system_event",
@@ -270,7 +284,7 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
           data: hookSuccessData(attachment),
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
-        source: src(hookSuccessSourceRecord(record, attachment, isLegacyAttachment), originalType),
+        source,
         meta: meta(record, { callId: toolCallId }),
       },
     ];
@@ -308,9 +322,12 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
     const hookName = stringValue(attachment.hook_name) ?? stringValue(attachment.hookName);
     const toolCallId = hookToolCallId(attachment);
     const content = attachment.content;
-    const data: Record<string, unknown> = {};
+    const data: Record<string, unknown> = { source_kind: "hook" };
     if (hookEvent !== undefined) data.hook_event = hookEvent;
-    if (hookName !== undefined) data.hook_name = hookName;
+    if (hookName !== undefined) {
+      data.name = hookName;
+      data.hook_name = hookName;
+    }
     if (toolCallId !== undefined) data.tool_call_id = toolCallId;
     const safeContent = hookAdditionalContextContent(content);
     if (safeContent.content !== undefined) data.content = safeContent.content;
@@ -319,11 +336,11 @@ function emitCapabilityAttachment(record: CcEnvelope): TrailEntryDraft[] {
       {
         type: "system_event",
         payload: {
-          kind: "x-claudecode/hook_additional_context",
+          kind: "context_injected",
           ...(safeContent.text !== undefined && safeContent.text.length > 0
             ? { text: safeContent.text }
             : {}),
-          ...(Object.keys(data).length > 0 ? { data } : {}),
+          data,
         },
         ...(toolCallId !== undefined ? { semantic: { call_id: toolCallId } } : {}),
         source: src(record, originalType),

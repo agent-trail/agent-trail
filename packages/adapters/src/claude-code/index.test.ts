@@ -1513,6 +1513,75 @@ test("parseSession() maps hook_success attachments to hook lifecycle markers", a
   expect(diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 });
 
+test("parseSession() maps SessionEnd progress to first-class session_end", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      type: "progress",
+      uuid: "00000000-0000-0000-0000-ccccc0014501",
+      timestamp: "2026-05-17T14:00:30.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0014500",
+      version: "1.0.0-synthetic",
+      data: {
+        type: "hook_progress",
+        hookEvent: "SessionEnd",
+        hookName: "SessionEnd",
+      },
+    },
+  ]);
+
+  const evt = trail.groups[0]!.entries.find((entry) => entry.source?.original_type === "progress");
+
+  expect(evt?.type).toBe("session_end");
+  expect(evt?.payload).toEqual({ reason: "complete" });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics).toEqual([]);
+});
+
+test("parseSession() maps SessionEnd hook_success attachments to first-class session_end", async () => {
+  const trail = await parseClaudeCodeJsonl([
+    {
+      parentUuid: null,
+      isSidechain: false,
+      promptId: "prompt-session-end",
+      type: "user",
+      message: { role: "user", content: "finish" },
+      uuid: "00000000-0000-0000-0000-ccccc0014510",
+      timestamp: "2026-05-17T14:00:30.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0014510",
+      version: "1.0.0-synthetic",
+      cwd: "/tmp/synthetic-project",
+      userType: "external",
+      entrypoint: "sdk-cli",
+    },
+    {
+      parentUuid: "00000000-0000-0000-0000-ccccc0014510",
+      isSidechain: false,
+      attachment: {
+        type: "hook_success",
+        hookName: "SessionEnd",
+        hookEvent: "SessionEnd",
+        content: "",
+        exitCode: 0,
+        durationMs: 8,
+      },
+      type: "attachment",
+      uuid: "00000000-0000-0000-0000-ccccc0014511",
+      timestamp: "2026-05-17T14:00:31.000Z",
+      sessionId: "00000000-0000-0000-0000-ccccc0014510",
+      version: "1.0.0-synthetic",
+    },
+  ]);
+
+  const evt = trail.groups[0]!.entries.find(
+    (entry) => entry.source?.original_type === "attachment.hook_success",
+  );
+
+  expect(evt?.type).toBe("session_end");
+  expect(evt?.payload).toEqual({ reason: "complete" });
+  const diagnostics = await validateAdapterTrail(trail);
+  expect(diagnostics).toEqual([]);
+});
+
 test("parseSession() truncates hook_success stdout and stderr excerpts", async () => {
   const stdout = "o".repeat(3000);
   const stderr = "e".repeat(3000);
@@ -1678,9 +1747,11 @@ test("parseSession() maps hook_additional_context attachments to a system_event"
   );
 
   expect(evt).toBeDefined();
-  expect((evt?.payload as { kind?: string }).kind).toBe("x-claudecode/hook_additional_context");
+  expect((evt?.payload as { kind?: string }).kind).toBe("context_injected");
   const payload = evt?.payload as { text?: string; data?: Record<string, unknown> };
   expect(payload.text).toContain("CAVEMAN MODE ACTIVE");
+  expect(payload.data?.source_kind).toBe("hook");
+  expect(payload.data?.name).toBe("inject-context");
   expect(payload.data?.hook_event).toBe("UserPromptSubmit");
   expect(payload.data?.hook_name).toBe("inject-context");
   expect(payload.data?.tool_call_id).toBe("tooluse-ctx");
