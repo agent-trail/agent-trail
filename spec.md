@@ -336,7 +336,8 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "cwd": "<absolute-path-or-normalized>",       // optional
   "vcs": {                                      // optional
     "type": "git" | "jj" | "hg" | "svn" | "x-<vendor>/<name>",
-    "revision": "<sha-or-change-id>",
+    "revision": "<sha-or-change-id>" | null,
+    "branch": "<branch-name>",                  // required when revision is null
     "remote_url": "<canonical-remote-url>"      // optional; see §9.2
   },
   "fork_from": {                                // optional
@@ -381,7 +382,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `cwd` | no | string | working directory; MAY be normalized for privacy |
 | `vcs` | no | object | version control context at session time |
 | `vcs.type` | yes (if `vcs` present) | enum or extension | `git`, `jj`, `hg`, `svn`, or `x-<vendor>/<name>` for non-reserved systems |
-| `vcs.revision` | yes (if `vcs` present) | string | commit SHA, change-id, or revision identifier |
+| `vcs.revision` | yes (if `vcs` present) | string \| null | commit SHA, change-id, revision identifier, or `null` for unborn HEAD repositories when `vcs.branch` is present |
 | `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
 | `vcs.branch` | no | string | active branch / bookmark / topic name the session is running on (e.g., `feature/x`). Detached-HEAD sessions MAY omit. |
 | `vcs.head_commit` | no | string | commit hash at session start (lowercase hex, 7–64 chars). For git, typically equals `vcs.revision`; the explicit field exists as a vcs-neutral alias. |
@@ -395,7 +396,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `redacted_from` | no | object | provenance link from a redacted artifact to the raw artifact hash |
 | `parse_fidelity` | no | object | at-a-glance parse fidelity summary; absence means the writer did not provide a summary |
 | `parse_fidelity.quarantined_count` | yes (if `parse_fidelity` present) | integer | number of `system_event` entries whose `payload.kind` is `x-*/unknown_record` in this session group |
-| `parse_fidelity.termination_reason` | no | enum | final `session_terminated.payload.reason`, when a `session_terminated` event is present |
+| `parse_fidelity.termination_reason` | no | enum or extension | final `session_terminated.payload.reason`, when a `session_terminated` event is present |
 | `source` | no | object | source-file metadata block (agent, path, format_version) |
 | `meta` | no | object | vendor extensions; recommended keys use the `x-<vendor>/<name>` extension grammar (§8.3 / §12) |
 
@@ -408,6 +409,8 @@ When `parse_fidelity` is present, validators MUST compare it against the session
 - SHOULD populate when the source agent records repository location or when `cwd` is detectably a versioned working directory. When the source declares multiple remotes (e.g., git `origin` plus `upstream`), prefer `origin`.
 - MUST omit the field when no remote is configured — do not fabricate one.
 - For submodules and worktrees, emit the remote of the outermost working tree's toplevel; `cwd` and `vcs.revision` disambiguate within.
+
+Fresh repositories with an unborn HEAD MAY emit `vcs.revision:null` when a branch is known. A `vcs` block with `revision:null` MUST include `vcs.branch`; writers MUST NOT emit an information-free VCS block.
 
 Privacy: `remote_url` reveals repository identity and MAY identify a private repo. Redacted artifacts MAY strip or normalize it (§16).
 
@@ -1019,7 +1022,7 @@ Post-creation update to logical session metadata. The session header carries the
 | `field` | yes | enum or extension | One of `name`, `description`, `tags`, `agent.model_default`, `vcs.branch`, `vcs.worktree`, or `x-<vendor>/<name>`. |
 | `value` | yes | field-specific | Replacement value. Must match the field type: string for `name`/`description`/`agent.model_default`/`vcs.branch`, string array for `tags`, and the §9.2 worktree shape for `vcs.worktree`. Extension fields MAY carry any JSON value. |
 | `previous_value` | no | field-specific | Prior value when the adapter knows it. Same type as `value`. |
-| `reason` | yes | enum | `ai_generated`, `user_set`, `runtime_inferred`, or `external`. |
+| `reason` | yes | enum or extension | `ai_generated`, `user_set`, `runtime_inferred`, `external`, or `x-<vendor>/<name>`. |
 
 Writers MUST NOT use this event for immutable identity or cryptographic fields such as `id`, `session_uid`, `content_hash`, `redacted_from`, `vcs.revision`, or `vcs.head_commit`. Working-directory changes remain `system_event.kind:"cwd_change"`.
 
@@ -1134,8 +1137,8 @@ A change in the set of capabilities available to the agent at a point in the ses
 
 | Payload field | Required | Type | Notes |
 | --- | --- | --- | --- |
-| `scope` | yes | string enum | `tool` \| `skill` \| `mcp_server` \| `mcp_tool` \| `plugin` |
-| `reason` | yes | string enum | `registered` \| `deregistered` \| `connected` \| `disconnected` \| `loaded` \| `unloaded` \| `error` \| `instructions_updated` |
+| `scope` | yes | enum or extension | `tool` \| `skill` \| `mcp_server` \| `mcp_tool` \| `plugin` \| `x-<vendor>/<name>` |
+| `reason` | yes | enum or extension | `initial` \| `registered` \| `deregistered` \| `connected` \| `disconnected` \| `loaded` \| `unloaded` \| `error` \| `instructions_updated` \| `x-<vendor>/<name>` |
 | `added` | no | array | Non-empty array of `{ name, metadata? }`. |
 | `removed` | no | array | Non-empty array of `{ name }`. |
 | `changed` | no | array | Non-empty array of `{ name, field, from?, to? }`. |
@@ -1168,8 +1171,8 @@ A named capability invoked with optional arguments: a user-typed slash command, 
 | Payload field | Required | Type | Notes |
 | --- | --- | --- | --- |
 | `name` | yes | string | User-visible identifier. Leading slash for slash/builtin/custom_prompt (`/clear`); bare name for skills (`webapp-testing`). |
-| `kind` | yes | string enum | `slash` \| `builtin` \| `skill` \| `custom_prompt` \| `plugin`. What kind of capability was invoked. |
-| `via` | yes | string enum | `user_typed` \| `auto_trigger` \| `agent_invoked`. How the invocation reached the agent. |
+| `kind` | yes | enum or extension | `slash` \| `builtin` \| `skill` \| `custom_prompt` \| `plugin` \| `x-<vendor>/<name>`. What kind of capability was invoked. |
+| `via` | yes | enum or extension | `user_typed` \| `auto_trigger` \| `agent_invoked` \| `x-<vendor>/<name>`. How the invocation reached the agent. |
 | `args` | no | object | Free-form invocation arguments. |
 | `expansion_text` | no | string | Post-expansion prompt text the agent saw (for prompt-template commands). |
 | `result_action` | no | string \| null | What the runtime did with it. Reserved value, `x-<vendor>/<name>` extension, or null. |
@@ -1244,7 +1247,7 @@ Session was compacted to free context window.
 }
 ```
 
-`trigger`: `manual` | `auto`.
+`trigger`: `manual` | `auto` | `x-<vendor>/<name>`.
 
 `replaced_message_ids`: optional Agent Trail entry IDs folded or replaced by this
 compaction summary, in source order. These IDs are provenance-only; readers MUST
@@ -1387,7 +1390,7 @@ Marks an incomplete session ending. Adapters MAY emit this synthetically at EOF 
 }
 ```
 
-`reason`: `eof_with_open_tool_calls` | `process_terminated` | `truncated` | `user_abort`.
+`reason`: `eof_with_open_tool_calls` | `process_terminated` | `truncated` | `user_abort` | `x-<vendor>/<name>`.
 
 Synthesized instances MUST set `source.synthesized: true`.
 
@@ -1409,7 +1412,7 @@ Clean terminal marker. Distinct from `session_terminated` (abnormal). Optional; 
 
 | Payload field | Required | Type | Notes |
 |---|---|---|---|
-| `reason` | yes | enum | `complete` \| `user_quit` \| `agent_idle` |
+| `reason` | yes | enum or extension | `complete` \| `user_quit` \| `agent_idle` \| `x-<vendor>/<name>` |
 | `final_message_id` | no | string | optional reference to the last meaningful event |
 
 ### 10.4 Semantic linking
@@ -1582,9 +1585,11 @@ One extension grammar is used across extension surfaces: `x-<vendor>/<name>`.
 | Header `meta` keys | Session-level vendor annotations | `x-acme/team` |
 | Entry `meta` keys | Event-level vendor annotations | `x-acme/run_id` |
 | `system_event.kind` | Non-reserved source signals | `x-claudecode/notification` |
-| Enum extensions | `scope`, `reason`, `trigger`, `result_action`, `session_metadata_update.field`, `vcs.type`, `user_message.origin` | `x-acme/custom_scope` |
+| Enum extensions | Descriptive state vocabulary: `scope`, `reason`, `trigger`, `result_action`, `command_invoke.kind`, `command_invoke.via`, `session_metadata_update.field`, `vcs.type`, `user_message.origin` | `x-acme/custom_scope` |
 | `tool_result.payload.meta` vendor keys | Sibling keys under registered tool-kind output objects | `meta.mcp_call.x-acme/cache_hit` |
 | Custom `agent.name` | Unregistered source agents | `x-example/myagent` |
+
+Structural discriminators, including event `type`, delta `kind`, attachment `kind`, and `taskPlanStatus`, stay closed. Descriptive state vocabulary is extensible through the grammar above.
 
 ---
 

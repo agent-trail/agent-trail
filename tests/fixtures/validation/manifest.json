@@ -2212,6 +2212,30 @@
       ]
     },
     {
+      "path": "invalid-schema/vcs-null-revision-without-branch.trail.jsonl",
+      "strict": {
+        "valid": false,
+        "diagnostics": [
+          {
+            "line": 1
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 1
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "reader-tolerant/capability-change-unknown-payload-field.trail.jsonl",
       "strict": {
         "valid": false,
@@ -2501,7 +2525,39 @@
       ]
     },
     {
+      "path": "valid/capability-change-initial-snapshot.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "valid/capability-change.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "path": "valid/command-invoke-extension-kind.trail.jsonl",
       "strict": {
         "valid": true,
         "diagnostics": []
@@ -3430,6 +3486,22 @@
     },
     {
       "path": "valid/user-query-duplicate-labels-with-ids.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "path": "valid/vcs-unborn-head.trail.jsonl",
       "strict": {
         "valid": true,
         "diagnostics": []

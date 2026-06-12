@@ -100,37 +100,56 @@ export type WorktreeInfo = {
   original_head_commit?: string;
 };
 
-export type HeaderVcs = {
+type HeaderVcsBase = {
   type: "git";
-  revision: string;
   remote_url?: string;
-  branch?: string;
-  head_commit?: string;
   worktree?: WorktreeInfo;
 };
 
+export type HeaderVcs =
+  | (HeaderVcsBase & {
+      revision: string;
+      branch?: string;
+      head_commit?: string;
+    })
+  | (HeaderVcsBase & {
+      revision: null;
+      branch: string;
+      head_commit?: never;
+    });
+
 // Resolves a git working tree's vcs header block. Runs git binaries against
 // the supplied cwd. Returns undefined if cwd is not a git working tree or git
-// is unavailable. When the source agent stores its own revision/remote, the
-// adapter should prefer that and skip this helper.
+// is unavailable. Unborn HEAD repositories emit revision:null when their branch
+// is knowable. When the source agent stores its own revision/remote, the adapter
+// should prefer that and skip this helper.
 export async function readGitVcs(cwd: string): Promise<HeaderVcs | undefined> {
   const revision = await runGit(["rev-parse", "HEAD"], cwd);
-  if (revision === undefined) return undefined;
-  const remoteRaw = await runGit(["config", "--get", "remote.origin.url"], cwd);
   // `symbolic-ref --short` exits non-zero on detached HEAD; treat that as
   // "no branch" rather than failing the whole vcs block.
   const branchRaw = await runGit(["symbolic-ref", "--short", "HEAD"], cwd);
-  const trimmedRevision = revision.trim();
+  if (revision === undefined && branchRaw === undefined) return undefined;
+  const remoteRaw = await runGit(["config", "--get", "remote.origin.url"], cwd);
+  const trimmedRevision = revision?.trim();
+  const remoteUrl = normalizeRemoteUrl(remoteRaw);
+  if (trimmedRevision === undefined) {
+    if (branchRaw === undefined) return undefined;
+    return {
+      type: "git",
+      revision: null,
+      branch: branchRaw,
+      ...(remoteUrl !== undefined ? { remote_url: remoteUrl } : {}),
+    };
+  }
   const vcs: HeaderVcs = { type: "git", revision: trimmedRevision };
   if (remoteRaw !== undefined) {
-    const normalized = normalizeRemoteUrl(remoteRaw);
-    if (normalized !== undefined) vcs.remote_url = normalized;
+    if (remoteUrl !== undefined) vcs.remote_url = remoteUrl;
   }
   // runGit already trims output and returns undefined for empty strings.
   if (branchRaw !== undefined) vcs.branch = branchRaw;
   // head_commit is a vcs-neutral alias for revision. For git they're the same
   // hash; the explicit field survives across vcs-type migrations.
-  vcs.head_commit = trimmedRevision;
+  if (trimmedRevision !== undefined) vcs.head_commit = trimmedRevision;
   return vcs;
 }
 
