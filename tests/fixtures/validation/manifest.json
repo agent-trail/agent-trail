@@ -8,6 +8,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/content_hash",
+            "severity": "error",
+            "code": "content_hash_invalid"
           }
         ]
       },
@@ -16,6 +22,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/content_hash",
+            "severity": "error",
+            "code": "content_hash_invalid"
           }
         ]
       },
@@ -661,6 +673,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/parent_id",
+            "severity": "error",
+            "code": "header_has_parent_id"
           }
         ]
       },
@@ -669,6 +687,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/parent_id",
+            "severity": "error",
+            "code": "header_has_parent_id"
           }
         ]
       },
@@ -715,6 +739,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/type",
+            "severity": "error",
+            "code": "events_before_first_session_header"
           }
         ]
       },
@@ -723,6 +753,12 @@
         "diagnostics": [
           {
             "line": 1
+          },
+          {
+            "line": 1,
+            "path": "/type",
+            "severity": "error",
+            "code": "events_before_first_session_header"
           }
         ]
       },
@@ -738,7 +774,10 @@
         "valid": false,
         "diagnostics": [
           {
-            "line": 2
+            "line": 2,
+            "path": "/type",
+            "severity": "error",
+            "code": "events_before_first_session_header"
           },
           {
             "line": 2,
@@ -752,7 +791,10 @@
         "clean": false,
         "diagnostics": [
           {
-            "line": 2
+            "line": 2,
+            "path": "/type",
+            "severity": "error",
+            "code": "events_before_first_session_header"
           },
           {
             "line": 2,

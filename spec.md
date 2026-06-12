@@ -1562,7 +1562,7 @@ When the external child appears in the same file, the child header SHOULD set `f
 
 ### 11.7 The `other` escape hatch
 
-For tools not covered above, use `tool: "other"` with `args: { name, args }`. Readers render generically. These don't participate in cross-agent comparison.
+For tools not covered above, use `tool: "other"` with `args: { name, args? }`. Readers render generically. These don't participate in cross-agent comparison.
 
 ---
 
