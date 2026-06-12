@@ -180,10 +180,10 @@ export function nonInteroperableNumberDiagnostics(record: JsonlRecord): Diagnost
       continue;
     }
     if (value !== null && typeof value === "object") {
-      const keys = Object.keys(value as Record<string, unknown>).reverse();
-      for (const key of keys) {
+      const entries = Object.entries(value).reverse();
+      for (const [key, child] of entries) {
         stack.push({
-          value: (value as Record<string, unknown>)[key],
+          value: child,
           path: `${path}/${escapeJsonPointerSegment(key)}`,
         });
       }
