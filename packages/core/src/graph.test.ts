@@ -87,6 +87,62 @@ test("accepts a multi-session trail with two well-formed session groups (spec §
   expect(diagnostics).toEqual([]);
 });
 
+test("emits duplicate_segment_seq when two groups share session_uid and segment seq", () => {
+  const sessionUid = "00000000-0000-4000-8000-000000000288";
+  const diagnostics = validateTrailGraph(
+    [
+      header(1, {
+        id: "01HSESS0000000000000000001",
+        session_uid: sessionUid,
+        segment: { seq: 1 },
+      }),
+      header(2, {
+        id: "01HSESS0000000000000000002",
+        session_uid: sessionUid,
+        segment: { seq: 1 },
+        ts: "2026-05-17T14:05:00.000Z",
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/segment/seq",
+    severity: "warning",
+    code: "duplicate_segment_seq",
+    message: `segment seq 1 duplicates an earlier group for session_uid "${sessionUid}"`,
+  });
+});
+
+test("emits out_of_order_segment_seq when same-uid groups descend by segment seq", () => {
+  const sessionUid = "00000000-0000-4000-8000-000000000289";
+  const diagnostics = validateTrailGraph(
+    [
+      header(1, {
+        id: "01HSESS0000000000000000001",
+        session_uid: sessionUid,
+        segment: { seq: 2, prev_content_hash: "a".repeat(64) },
+      }),
+      header(2, {
+        id: "01HSESS0000000000000000002",
+        session_uid: sessionUid,
+        segment: { seq: 1 },
+        ts: "2026-05-17T14:05:00.000Z",
+      }),
+    ],
+    { canonicalBytesComplete: false },
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/segment/seq",
+    severity: "warning",
+    code: "out_of_order_segment_seq",
+    message: `segment seq 1 appears after seq 2 for session_uid "${sessionUid}"`,
+  });
+});
+
 test("emits events_before_first_session_header for orphan prelude entries (spec §9.6)", () => {
   const diagnostics = validateTrailGraph(
     [

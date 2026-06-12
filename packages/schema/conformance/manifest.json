@@ -83,6 +83,27 @@
       ]
     },
     {
+      "path": "hash-vectors/absent-content-hash.trail.jsonl",
+      "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
+      "strict": {
+        "valid": true,
+        "diagnostics": []
+      },
+      "tolerant": {
+        "clean": true,
+        "diagnostics": []
+      },
+      "expected": {
+        "session_hashes": [
+          "b69b9cafe47e606415d4f23868297bbe8a3e3efca32363b676a9eff8cdc5819f"
+        ]
+      },
+      "classes": [
+        "W",
+        "R2"
+      ]
+    },
+    {
       "path": "hash-vectors/envelope-two-tier.trail.jsonl",
       "comment": "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256",
       "strict": {
@@ -394,6 +415,36 @@
       ]
     },
     {
+      "path": "invalid-graph/duplicate-segment-seq.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/segment/seq",
+            "severity": "warning",
+            "code": "duplicate_segment_seq"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/segment/seq",
+            "severity": "warning",
+            "code": "duplicate_segment_seq"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-graph/duplicate-tool-result-for-id.trail.jsonl",
       "strict": {
         "valid": true,
@@ -658,6 +709,36 @@
       ]
     },
     {
+      "path": "invalid-graph/non-interoperable-number.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/source/raw/snowflake",
+            "severity": "warning",
+            "code": "non_interoperable_number"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/source/raw/snowflake",
+            "severity": "warning",
+            "code": "non_interoperable_number"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-graph/non-monotonic-event-ts.trail.jsonl",
       "strict": {
         "valid": true,
@@ -678,6 +759,36 @@
             "path": "/ts",
             "severity": "warning",
             "code": "non_monotonic_event_ts"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "path": "invalid-graph/out-of-order-segment-seq.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/segment/seq",
+            "severity": "warning",
+            "code": "out_of_order_segment_seq"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/segment/seq",
+            "severity": "warning",
+            "code": "out_of_order_segment_seq"
           }
         ]
       },

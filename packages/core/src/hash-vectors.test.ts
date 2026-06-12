@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import manifest from "../../../tests/fixtures/validation/manifest.json" with { type: "json" };
 import {
   canonicalizeRecords,
+  computeContentHash,
   parseJsonlString,
   splitSessionGroups,
   verifyAllSessionContentHashes,
@@ -23,6 +24,7 @@ const FIXTURES = new URL("../../../tests/fixtures/validation/", import.meta.url)
 const ORACLE_COMMENT =
   "Oracle: Go github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 + crypto/sha256";
 const HASH_VECTOR_PATHS = [
+  "hash-vectors/absent-content-hash.trail.jsonl",
   "hash-vectors/envelope-two-tier.trail.jsonl",
   "hash-vectors/jcs-stress.trail.jsonl",
   "hash-vectors/minimal-pending-roundtrip.trail.jsonl",
@@ -53,11 +55,13 @@ for (const fixture of hashVectorFixtures) {
 
     if (expected.session_hashes !== undefined) {
       const results = verifyAllSessionContentHashes(records);
-      expect(results.map((result) => result.status)).toEqual(
-        expected.session_hashes.map(() => "match"),
-      );
-      expect(results.map((result) => result.expected)).toEqual(expected.session_hashes);
-      expect(results.map((result) => result.actual)).toEqual(expected.session_hashes);
+      expect(
+        results.map((result, index) =>
+          result.status === "missing"
+            ? computeContentHash(records, { groupIndex: index })
+            : result.actual,
+        ),
+      ).toEqual(expected.session_hashes);
     }
 
     if (expected.file_hash !== undefined) {
@@ -115,6 +119,10 @@ test("one-byte hash vector corruption is detected", async () => {
     const envelopeResult = verifyTrailEnvelopeContentHash(records);
     const statuses = [...sessionResults.map((result) => result.status), envelopeResult.status];
 
-    expect(statuses).toContain("mismatch");
+    if (fixture.path === "hash-vectors/absent-content-hash.trail.jsonl") {
+      expect(computeContentHash(records)).not.toBe(fixture.expected?.session_hashes?.[0]);
+    } else {
+      expect(statuses).toContain("mismatch");
+    }
   }
 });

@@ -25,6 +25,8 @@ import { isHeaderLikeRecord } from "./validation-utils.ts";
  *   - `vcsRemoteUrlDiagnostics` — flags `vcs.remote_url` values containing
  *     `user:pass@` credentials; promotes to error when the password appears
  *     to be URL-encoded (writer leaked deliberately-encoded credentials).
+ *   - `nonInteroperableNumberDiagnostics` — warns when any JSON number is an
+ *     integer outside the IEEE-754 exact-integer range used by JCS tooling.
  *   - `timestampDiagnostics` — enforces the spec §18.4 calendar-valid UTC
  *     millisecond timestamp rule that JSON Schema regex alone cannot express.
  */
@@ -149,6 +151,45 @@ export function vcsRemoteUrlDiagnostics(record: JsonlRecord): Diagnostic[] {
       }`,
     }),
   ];
+}
+
+export function nonInteroperableNumberDiagnostics(record: JsonlRecord): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const stack: Array<{ value: unknown; path: string }> = [{ value: record.value, path: "" }];
+  while (stack.length > 0) {
+    const { value, path } = stack.pop()!;
+    if (typeof value === "number") {
+      if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+        diagnostics.push(
+          createDiagnostic({
+            line: record.line,
+            path,
+            severity: "warning",
+            code: "non_interoperable_number",
+            message:
+              "JSON integer is outside the IEEE-754 exact-integer range; emit it as a string for portable JCS hashing",
+          }),
+        );
+      }
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[i], path: `${path}/${i}` });
+      }
+      continue;
+    }
+    if (value !== null && typeof value === "object") {
+      const entries = Object.entries(value).reverse();
+      for (const [key, child] of entries) {
+        stack.push({
+          value: child,
+          path: `${path}/${escapeJsonPointerSegment(key)}`,
+        });
+      }
+    }
+  }
+  return diagnostics;
 }
 
 const WRITER_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;

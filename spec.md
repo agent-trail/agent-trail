@@ -121,6 +121,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Empty lines are not allowed.
 - A trailing newline at EOF is recommended but not REQUIRED.
 - Writers MUST replace invalid UTF-8 bytes and unpaired surrogate escapes with U+FFFD at emission time. Emitted JSON strings MUST NOT contain unpaired surrogates.
+- Writers MUST NOT emit JSON integer numbers outside the IEEE-754 exact-integer range (`-(2^53-1)` through `2^53-1`) anywhere in a trail file. Adapters that receive oversized source integers, such as snowflake ids or nanosecond timestamps in `source.raw`, MUST emit them as strings instead. Validator warnings use code `non_interoperable_number` at the offending JSON Pointer.
 - `.trail.jsonl.gz` files are a whole-file gzip wrapper around the UTF-8 trail JSONL bytes above. Writers MUST NOT gzip individual JSONL lines independently. Readers MUST decompress `.trail.jsonl.gz` files before validation and processing.
 - For `.trail.jsonl.gz`, `content_hash` is computed and verified by first decompressing the file to produce plain UTF-8 JSONL, then applying the canonical bytes procedure defined in §7.3 to the decompressed JSONL. The compressed bytes themselves are never hashed.
 
@@ -198,7 +199,7 @@ Canonical bytes are defined as:
 
 Because the hash depends on the file content that includes the hash field, we use a two-pass approach:
 
-1. Serialize the file with the header's `content_hash` field set to the literal `"<pending>"`.
+1. Serialize the file with the header's `content_hash` field set to the literal `"<pending>"`. If the field is absent, insert `content_hash:"<pending>"` into the header before canonicalization; this gives stamped and unstamped forms one digest for the same logical content.
 2. Canonicalize per the rules above.
 3. Compute SHA-256 of the canonicalized bytes.
 4. Replace only the header's `content_hash` field with the resulting hex digest.
@@ -480,6 +481,8 @@ Whole-file graph rules (§18) apply **within** a segment, not across. Cross-segm
 
 `session_uid` and `segment.*` sit at the **session-header** grain, not the file grain. A multi-session trail file (§9.6) MAY contain N session headers, each independently multi-segmentable. The trail envelope (§8) is unaffected.
 
+Within one file, two groups with the same `session_uid` SHOULD NOT claim the same normalized `segment.seq` value; a missing `segment` is equivalent to `seq: 1`. Duplicate pairs emit `duplicate_segment_seq` warnings. Groups for the same `session_uid` SHOULD appear in non-descending `segment.seq` order in file order; a descending sequence emits `out_of_order_segment_seq`.
+
 ---
 
 ### 9.6 Multi-session trail files
@@ -540,7 +543,9 @@ The only sanctioned cross-group reference primitive is the session header's `for
 
 #### 9.6.7 Redaction of multi-session files
 
-Redacting a multi-session trail produces a multi-session redacted trail with the same group count in the same order, redacted in place. The redactor resets `content_hash` to `<pending>` on every session header (and on the envelope when present) before share/transport tooling re-stamps via the two-pass §7.4 procedure. Header-level `redacted_from.content_hash` links the redacted session to its raw counterpart; envelope-level `redacted_from.content_hash` links the redacted file to its raw counterpart.
+Redacting a multi-session trail produces a multi-session redacted trail with the same group count in the same order, redacted in place. The redactor resets `content_hash` to `<pending>` on every session header (and on the envelope when present) before share/transport tooling re-stamps via the two-pass §7.4 procedure.
+
+When redaction changes bytes, lineage hashes that point to artifacts in the same redacted file MUST be rewritten to the target's redacted content hash, using the §7.4.1 hash tier. Header-level `fork_from.content_hash` is rewritten when `fork_from.session_id` names an in-file sibling. `segment.prev_content_hash` is rewritten when the previous `segment.seq` for the same `session_uid` is in the file. When the lineage target is not in the redacted file, redactors MUST drop `fork_from.content_hash` while keeping id references, and MUST set `segment.prev_content_hash` to `null` for an unverifiable previous segment. `redacted_from.content_hash` remains raw-artifact provenance: header-level `redacted_from.content_hash` links the redacted session to its raw counterpart; envelope-level `redacted_from.content_hash` links the redacted file to its raw counterpart.
 
 #### 9.6.8 No hard cap
 
@@ -1698,6 +1703,8 @@ If a resolved response contains answer keys that do not appear on the referenced
 
 Share-time redactors SHOULD populate `entry.meta.redaction_count` on each changed event entry. The count is a non-negative integer equal to the number of redactor mutations applied to that entry. Existing numeric `redaction_count` values are additive when a redacted trail is redacted again; unchanged entries keep their existing value.
 
+When redaction changes bytes, lineage hashes are updated as described in §9.6.7. This prevents redacted session bundles and redacted segment chains from retaining raw-artifact hashes that can no longer verify against the shared redacted bytes.
+
 Specific secret patterns, exact PII detectors, path-normalization strings, image preview behavior, token-usage policy, blob upload mechanics, and share workflow remain implementation semantics.
 
 ---
@@ -1814,6 +1821,7 @@ If `content_hash` is present:
 - An event's `ts` SHOULD NOT be earlier than its parent event's `ts` inside the same parent chain. Equal timestamps are allowed; sibling branches may interleave in wall-clock time. A strictly earlier child timestamp emits `non_monotonic_event_ts` (warning) at `/ts`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§15.1).
 - `source.raw` SHOULD NOT contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
+- JSON integer numbers outside the IEEE-754 exact-integer range SHOULD be emitted as strings. Unsafe integer numbers emit `non_interoperable_number` (warning) at the offending JSON Pointer.
 - Privacy-sensitive tool arguments SHOULD NOT contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.
 - `source.raw.envelope_ref`, when set, MUST reference the `id` of an earlier entry in the same file (§10.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
 - Trail envelope position and uniqueness (§8):
@@ -1821,6 +1829,9 @@ If `content_hash` is present:
   - `multiple_envelopes` (error): more than one envelope appears in the file.
   - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
   - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent.name`.
+- Multi-segment consistency within one file (§9.5):
+  - `duplicate_segment_seq` (warning): two groups share the same `(session_uid, segment.seq)` pair, treating missing `segment` as `seq: 1`.
+  - `out_of_order_segment_seq` (warning): groups with the same `session_uid` appear with descending `segment.seq` in file order.
 
 #### 18.4.3 Streaming-state rules
 

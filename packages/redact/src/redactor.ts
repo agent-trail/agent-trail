@@ -2,6 +2,7 @@ import type { JsonlRecord } from "@agent-trail/core";
 import { applyRedactionCounts, snapshotToolResultOutputSizes } from "./mutation-accounting.ts";
 import { DEFAULT_PATTERNS } from "./patterns.ts";
 import {
+  normalizeLineageHashes,
   resetContentHashes,
   stripVcsCommitRepo,
   stripVcsRemoteUrl,
@@ -125,6 +126,7 @@ export function redactTrail(
   const changed = Object.keys(rawSummary.counts).some((key) => key !== "allowlisted_skip");
   if (changed) {
     resetContentHashes(out);
+    normalizeLineageHashes(out);
   }
 
   // Resynchronize JsonlRecord.raw with mutated value so downstream consumers
