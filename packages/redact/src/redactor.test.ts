@@ -2724,6 +2724,108 @@ test("redactTrail rewrites in-file fork_from and segment lineage hashes to redac
   expect(child.segment.prev_content_hash).toBe(parentHash);
 });
 
+test("redactTrail uses final redacted hashes across chained segment lineage", () => {
+  const secret = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const sessionUid = "00000000-0000-4000-8000-000000000290";
+  const records: JsonlRecord[] = [
+    header({
+      id: "sess1",
+      session_uid: sessionUid,
+      segment: { seq: 1 },
+      content_hash: "a".repeat(64),
+    }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `parent ${secret}` },
+    }),
+    header({
+      id: "sess2",
+      session_uid: sessionUid,
+      segment: { seq: 2, prev_content_hash: "b".repeat(64) },
+      content_hash: "c".repeat(64),
+    }),
+    record(4, {
+      type: "user_message",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: { text: "middle" },
+    }),
+    header({
+      id: "sess3",
+      session_uid: sessionUid,
+      segment: { seq: 3, prev_content_hash: "d".repeat(64) },
+      fork_from: { session_id: "sess2", content_hash: "e".repeat(64), entry_id: "evt2" },
+      content_hash: "f".repeat(64),
+    }),
+    record(6, {
+      type: "user_message",
+      id: "evt3",
+      ts: "2026-05-22T00:00:03.000Z",
+      payload: { text: "child" },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+  const middleHash = computeContentHash(out, { groupIndex: 1 });
+  const child = out[4]?.value as {
+    fork_from: { content_hash?: string };
+    segment: { prev_content_hash?: string | null };
+  };
+
+  expect(child.fork_from.content_hash).toBe(middleHash);
+  expect(child.segment.prev_content_hash).toBe(middleHash);
+});
+
+test("redactTrail does not rewrite segment lineage through duplicate previous seq", () => {
+  const secret = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const sessionUid = "00000000-0000-4000-8000-000000000291";
+  const records: JsonlRecord[] = [
+    header({
+      id: "sess1a",
+      session_uid: sessionUid,
+      segment: { seq: 1 },
+      content_hash: "a".repeat(64),
+    }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1a",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `first ${secret}` },
+    }),
+    header({
+      id: "sess1b",
+      session_uid: sessionUid,
+      segment: { seq: 1 },
+      content_hash: "b".repeat(64),
+    }),
+    record(4, {
+      type: "user_message",
+      id: "evt1b",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: { text: "second" },
+    }),
+    header({
+      id: "sess2",
+      session_uid: sessionUid,
+      segment: { seq: 2, prev_content_hash: "c".repeat(64) },
+      content_hash: "d".repeat(64),
+    }),
+    record(6, {
+      type: "user_message",
+      id: "evt2",
+      ts: "2026-05-22T00:00:03.000Z",
+      payload: { text: "child" },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+  const child = out[4]?.value as { segment: { prev_content_hash?: string | null } };
+
+  expect(child.segment.prev_content_hash).toBeNull();
+});
+
 test("redactTrail drops external fork_from hashes and marks missing previous segment chains null", () => {
   const secret = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
   const records: JsonlRecord[] = [

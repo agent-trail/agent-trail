@@ -73,46 +73,86 @@ export function resetContentHashes(records: JsonlRecord[]): void {
 
 export function normalizeLineageHashes(records: JsonlRecord[]): void {
   const split = splitSessionGroups(records);
-  const sessionHashById = new Map<string, string>();
-  const segmentHashByUidSeq = new Map<string, string>();
+  const groups = split.groups.map((group, index) => ({
+    group,
+    index,
+    value: group.header.value,
+  }));
+  const groupById = uniqueGroupsById(groups);
+  const groupBySegmentKey = uniqueGroupsBySegmentKey(groups);
+  const hashByGroupIndex = new Map<number, string>();
+  const visiting = new Set<number>();
 
-  for (let i = 0; i < split.groups.length; i += 1) {
-    const group = split.groups[i];
-    if (group === undefined) continue;
-    const digest = computeContentHash(records, { groupIndex: i });
-    const id = group.header.value.id;
-    if (typeof id === "string") {
-      sessionHashById.set(id, digest);
-    }
-    const sessionUid = group.header.value.session_uid;
-    if (typeof sessionUid === "string") {
-      segmentHashByUidSeq.set(
-        segmentKey(sessionUid, segmentSeq(group.header.value.segment)),
-        digest,
-      );
-    }
-  }
+  const hashForGroup = (groupIndex: number): string | undefined => {
+    if (hashByGroupIndex.has(groupIndex)) return hashByGroupIndex.get(groupIndex);
+    if (visiting.has(groupIndex)) return undefined;
+    const entry = groups[groupIndex];
+    if (entry === undefined) return undefined;
 
-  for (const group of split.groups) {
-    rewriteForkFrom(group.header.value, sessionHashById);
-    rewriteSegmentPrevHash(group.header.value, segmentHashByUidSeq);
+    visiting.add(groupIndex);
+    rewriteForkFrom(entry.value, groupById, hashForGroup);
+    rewriteSegmentPrevHash(entry.value, groupBySegmentKey, hashForGroup);
+    visiting.delete(groupIndex);
+
+    const digest = computeContentHash(records, { groupIndex });
+    hashByGroupIndex.set(groupIndex, digest);
+    return digest;
+  };
+
+  for (const entry of groups) {
+    hashForGroup(entry.index);
   }
 
   if (split.envelope !== null) {
-    rewriteForkFrom(split.envelope.value, new Map());
+    rewriteForkFrom(split.envelope.value, groupById, hashForGroup);
   }
+}
+
+type LineageGroup = {
+  index: number;
+  value: Record<string, unknown>;
+};
+
+function uniqueGroupsById(groups: LineageGroup[]): Map<string, LineageGroup> {
+  const counts = new Map<string, number>();
+  for (const { value } of groups) {
+    const id = value.id;
+    if (typeof id === "string") counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const out = new Map<string, LineageGroup>();
+  for (const group of groups) {
+    const id = group.value.id;
+    if (typeof id === "string" && counts.get(id) === 1) out.set(id, group);
+  }
+  return out;
+}
+
+function uniqueGroupsBySegmentKey(groups: LineageGroup[]): Map<string, LineageGroup> {
+  const counts = new Map<string, number>();
+  for (const { value } of groups) {
+    const key = segmentKeyForValue(value);
+    if (key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const out = new Map<string, LineageGroup>();
+  for (const group of groups) {
+    const key = segmentKeyForValue(group.value);
+    if (key !== undefined && counts.get(key) === 1) out.set(key, group);
+  }
+  return out;
 }
 
 function rewriteForkFrom(
   value: Record<string, unknown>,
-  sessionHashById: Map<string, string>,
+  groupById: Map<string, LineageGroup>,
+  hashForGroup: (groupIndex: number) => string | undefined,
 ): void {
   const forkFrom = value.fork_from;
   if (typeof forkFrom !== "object" || forkFrom === null) return;
   const forkFromRecord = forkFrom as Record<string, unknown>;
   const sessionId = forkFromRecord.session_id;
   if (typeof sessionId === "string") {
-    const targetHash = sessionHashById.get(sessionId);
+    const targetGroup = groupById.get(sessionId);
+    const targetHash = targetGroup === undefined ? undefined : hashForGroup(targetGroup.index);
     if (targetHash !== undefined) {
       forkFromRecord.content_hash = targetHash;
       return;
@@ -123,7 +163,8 @@ function rewriteForkFrom(
 
 function rewriteSegmentPrevHash(
   value: Record<string, unknown>,
-  segmentHashByUidSeq: Map<string, string>,
+  groupBySegmentKey: Map<string, LineageGroup>,
+  hashForGroup: (groupIndex: number) => string | undefined,
 ): void {
   const sessionUid = value.session_uid;
   if (typeof sessionUid !== "string") return;
@@ -132,8 +173,15 @@ function rewriteSegmentPrevHash(
   const segmentRecord = segment as Record<string, unknown>;
   const seq = segmentSeq(segmentRecord);
   if (seq < 2) return;
-  const prevHash = segmentHashByUidSeq.get(segmentKey(sessionUid, seq - 1));
+  const prevGroup = groupBySegmentKey.get(segmentKey(sessionUid, seq - 1));
+  const prevHash = prevGroup === undefined ? undefined : hashForGroup(prevGroup.index);
   segmentRecord.prev_content_hash = prevHash ?? null;
+}
+
+function segmentKeyForValue(value: Record<string, unknown>): string | undefined {
+  const sessionUid = value.session_uid;
+  if (typeof sessionUid !== "string") return undefined;
+  return segmentKey(sessionUid, segmentSeq(value.segment));
 }
 
 function segmentSeq(segment: unknown): number {
