@@ -2212,6 +2212,42 @@
       ]
     },
     {
+      "path": "invalid-schema/vcs-null-revision-with-head-commit.trail.jsonl",
+      "strict": {
+        "valid": false,
+        "diagnostics": [
+          {
+            "line": 1
+          },
+          {
+            "line": 1,
+            "path": "",
+            "severity": "error",
+            "code": "missing_header"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 1
+          },
+          {
+            "line": 1,
+            "path": "",
+            "severity": "error",
+            "code": "missing_header"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-schema/vcs-null-revision-without-branch.trail.jsonl",
       "strict": {
         "valid": false,

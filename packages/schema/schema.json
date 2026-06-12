@@ -203,7 +203,8 @@
         },
         {
           "required": ["branch"],
-          "properties": { "revision": { "type": "null" }, "branch": { "type": "string" } }
+          "properties": { "revision": { "type": "null" }, "branch": { "type": "string" } },
+          "not": { "properties": { "head_commit": {} }, "required": ["head_commit"] }
         }
       ],
       "properties": {

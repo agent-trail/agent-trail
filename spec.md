@@ -385,7 +385,7 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `vcs.revision` | yes (if `vcs` present) | string \| null | commit SHA, change-id, revision identifier, or `null` for unborn HEAD repositories when `vcs.branch` is present |
 | `vcs.remote_url` | no | string | canonical remote URL identifying the project across users, machines, and clones; see normalization rules below |
 | `vcs.branch` | no | string | active branch / bookmark / topic name the session is running on (e.g., `feature/x`). Detached-HEAD sessions MAY omit. |
-| `vcs.head_commit` | no | string | commit hash at session start (lowercase hex, 7–64 chars). For git, typically equals `vcs.revision`; the explicit field exists as a vcs-neutral alias. |
+| `vcs.head_commit` | no (`vcs.revision` non-null only) | string | commit hash at session start (lowercase hex, 7–64 chars). For git with a committed HEAD, typically equals `vcs.revision`; the explicit field exists as a vcs-neutral alias. |
 | `vcs.worktree` | no | object | worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.) |
 | `vcs.worktree.name` | yes (if `vcs.worktree` present) | string | worktree short name |
 | `vcs.worktree.path` | yes (if `vcs.worktree` present) | string | absolute path to the worktree |
@@ -410,7 +410,7 @@ When `parse_fidelity` is present, validators MUST compare it against the session
 - MUST omit the field when no remote is configured — do not fabricate one.
 - For submodules and worktrees, emit the remote of the outermost working tree's toplevel; `cwd` and `vcs.revision` disambiguate within.
 
-Fresh repositories with an unborn HEAD MAY emit `vcs.revision:null` when a branch is known. A `vcs` block with `revision:null` MUST include `vcs.branch`; writers MUST NOT emit an information-free VCS block.
+Fresh repositories with an unborn HEAD MAY emit `vcs.revision:null` when a branch is known. A `vcs` block with `vcs.revision:null` MUST include `vcs.branch`, MUST omit `vcs.head_commit`, and writers MUST NOT emit an information-free VCS block. When `vcs.revision` is non-null for git, `vcs.head_commit` typically equals `vcs.revision`.
 
 Privacy: `remote_url` reveals repository identity and MAY identify a private repo. Redacted artifacts MAY strip or normalize it (§16).
 
