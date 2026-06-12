@@ -325,6 +325,66 @@
       ]
     },
     {
+      "path": "invalid-graph/branch-point-unknown-from-id.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/from_id",
+            "severity": "warning",
+            "code": "unknown_branch_point_from_id"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/from_id",
+            "severity": "warning",
+            "code": "unknown_branch_point_from_id"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "path": "invalid-graph/branch-summary-unknown-abandoned-branch-id.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/abandoned_branch_id",
+            "severity": "warning",
+            "code": "unknown_abandoned_branch_id"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/abandoned_branch_id",
+            "severity": "warning",
+            "code": "unknown_abandoned_branch_id"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-graph/duplicate-id.trail.jsonl",
       "strict": {
         "valid": false,
@@ -841,6 +901,36 @@
       ]
     },
     {
+      "path": "invalid-graph/parse-fidelity-drift.trail.jsonl",
+      "strict": {
+        "valid": false,
+        "diagnostics": [
+          {
+            "line": 1,
+            "path": "/parse_fidelity/quarantined_count",
+            "severity": "error",
+            "code": "parse_fidelity_drift"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 1,
+            "path": "/parse_fidelity/quarantined_count",
+            "severity": "error",
+            "code": "parse_fidelity_drift"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl",
       "strict": {
         "valid": true,
@@ -1257,6 +1347,36 @@
             "path": "/id",
             "severity": "warning",
             "code": "unmatched_tool_call_at_eof"
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "path": "invalid-graph/user-query-response-unknown-for-id.trail.jsonl",
+      "strict": {
+        "valid": true,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/for_id",
+            "severity": "warning",
+            "code": "unknown_user_query_for_id"
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 2,
+            "path": "/payload/for_id",
+            "severity": "warning",
+            "code": "unknown_user_query_for_id"
           }
         ]
       },

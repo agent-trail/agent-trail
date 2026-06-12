@@ -386,6 +386,67 @@ export function finalMessageIdWarnings(
   return diagnostics;
 }
 
+type PriorEventReferenceRule = {
+  type: string;
+  field: string;
+  path: string;
+  code: string;
+  label: string;
+};
+
+const BRANCH_REFERENCE_RULES: PriorEventReferenceRule[] = [
+  {
+    type: "branch_point",
+    field: "from_id",
+    path: "/payload/from_id",
+    code: "unknown_branch_point_from_id",
+    label: "branch_point from_id",
+  },
+  {
+    type: "branch_summary",
+    field: "abandoned_branch_id",
+    path: "/payload/abandoned_branch_id",
+    code: "unknown_abandoned_branch_id",
+    label: "branch_summary abandoned_branch_id",
+  },
+];
+
+export function branchReferenceWarnings(
+  entries: JsonlRecord[],
+  idLines: Map<string, number>,
+): Diagnostic[] {
+  return priorEventReferenceWarnings(entries, idLines, BRANCH_REFERENCE_RULES);
+}
+
+function priorEventReferenceWarnings(
+  entries: JsonlRecord[],
+  idLines: Map<string, number>,
+  rules: PriorEventReferenceRule[],
+): Diagnostic[] {
+  const rulesByType = new Map(rules.map((rule) => [rule.type, rule]));
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of entries) {
+    const rule = rulesByType.get(String(entry.value.type));
+    if (rule === undefined) continue;
+    const payload = entry.value.payload;
+    if (typeof payload !== "object" || payload === null) continue;
+    const ref = (payload as Record<string, unknown>)[rule.field];
+    if (typeof ref !== "string") continue;
+    const targetLine = idLines.get(ref);
+    if (targetLine !== undefined && targetLine < entry.line) continue;
+    diagnostics.push(
+      createDiagnostic({
+        line: entry.line,
+        path: rule.path,
+        severity: "warning",
+        code: rule.code,
+        message: `${rule.label} "${ref}" does not reference a prior event in this session`,
+      }),
+    );
+  }
+  return diagnostics;
+}
+
 // Inline-first / ref-subsequent envelope dedup (spec §10): an entry whose
 // source.raw.envelope_ref is set MUST reference an earlier entry's id. The
 // referenced entry inlined the source envelope; the current entry rides on
@@ -509,8 +570,8 @@ export function userQueryResponseWarnings(entries: JsonlRecord[]): Diagnostic[] 
         createDiagnostic({
           line: entry.line,
           path: "/payload/for_id",
-          severity: "error",
-          code: "unknown_user_query_response_for_id",
+          severity: "warning",
+          code: "unknown_user_query_for_id",
           message: `user_query_response for_id "${forId}" does not reference a user_query in this session`,
         }),
       );
@@ -560,7 +621,7 @@ export function parseFidelityConsistencyWarnings(
         line: headerRecord.line,
         path: "/parse_fidelity/quarantined_count",
         severity: "error",
-        code: "parse_fidelity_mismatch",
+        code: "parse_fidelity_drift",
         message: `parse_fidelity.quarantined_count is ${claimedQuarantinedCount} but session contains ${actualQuarantinedCount} quarantined unknown_record event(s)`,
       }),
     );
@@ -574,7 +635,7 @@ export function parseFidelityConsistencyWarnings(
           line: headerRecord.line,
           path: "/parse_fidelity/termination_reason",
           severity: "error",
-          code: "parse_fidelity_mismatch",
+          code: "parse_fidelity_drift",
           message: `parse_fidelity.termination_reason is "${String(claimedTerminationReason)}" but session contains no session_terminated event`,
         }),
       );
@@ -585,7 +646,7 @@ export function parseFidelityConsistencyWarnings(
         line: headerRecord.line,
         path: "/parse_fidelity/termination_reason",
         severity: "error",
-        code: "parse_fidelity_mismatch",
+        code: "parse_fidelity_drift",
         message: `parse_fidelity.termination_reason is absent but final session_terminated reason is "${actualTerminationReason}"`,
       }),
     );
@@ -595,7 +656,7 @@ export function parseFidelityConsistencyWarnings(
         line: headerRecord.line,
         path: "/parse_fidelity/termination_reason",
         severity: "error",
-        code: "parse_fidelity_mismatch",
+        code: "parse_fidelity_drift",
         message: `parse_fidelity.termination_reason is "${String(claimedTerminationReason)}" but final session_terminated reason is "${actualTerminationReason}"`,
       }),
     );
