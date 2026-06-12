@@ -197,6 +197,19 @@
     "vcs": {
       "type": "object",
       "required": ["type", "revision"],
+      "anyOf": [
+        {
+          "properties": { "revision": { "type": "string" } }
+        },
+        {
+          "required": ["branch"],
+          "properties": {
+            "revision": { "type": "null" },
+            "branch": { "type": "string", "minLength": 1 }
+          },
+          "not": { "properties": { "head_commit": {} }, "required": ["head_commit"] }
+        }
+      ],
       "properties": {
         "type": {
           "anyOf": [
@@ -210,7 +223,7 @@
             }
           ]
         },
-        "revision": { "type": "string" },
+        "revision": { "type": ["string", "null"] },
         "remote_url": {
           "type": "string",
           "description": "Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path)."
@@ -371,7 +384,10 @@
 
     "sessionTerminationReason": {
       "type": "string",
-      "enum": ["eof_with_open_tool_calls", "process_terminated", "truncated", "user_abort"]
+      "anyOf": [
+        { "enum": ["eof_with_open_tool_calls", "process_terminated", "truncated", "user_abort"] },
+        { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+      ]
     },
 
     "parseFidelity": {
@@ -1442,7 +1458,13 @@
             "required": ["summary"],
             "properties": {
               "summary": { "type": "string" },
-              "trigger": { "type": "string", "enum": ["manual", "auto"] },
+              "trigger": {
+                "type": "string",
+                "anyOf": [
+                  { "enum": ["manual", "auto"] },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
+              },
               "tokens_before": { "type": "integer", "minimum": 0 },
               "tokens_after": { "type": "integer", "minimum": 0 },
               "replaced_message_ids": {
@@ -1633,7 +1655,10 @@
             "properties": {
               "reason": {
                 "type": "string",
-                "enum": ["complete", "user_quit", "agent_idle"]
+                "anyOf": [
+                  { "enum": ["complete", "user_quit", "agent_idle"] },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
               },
               "final_message_id": { "$ref": "#/$defs/id" }
             },
@@ -1657,12 +1682,18 @@
               "kind": {
                 "type": "string",
                 "description": "What kind of capability was invoked.",
-                "enum": ["slash", "builtin", "skill", "custom_prompt", "plugin"]
+                "anyOf": [
+                  { "enum": ["slash", "builtin", "skill", "custom_prompt", "plugin"] },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
               },
               "via": {
                 "type": "string",
                 "description": "How the invocation reached the agent. `auto_trigger` covers description-matched skill activation with no user action; adapters MAY synthesize it (set source.synthesized=true).",
-                "enum": ["user_typed", "auto_trigger", "agent_invoked"]
+                "anyOf": [
+                  { "enum": ["user_typed", "auto_trigger", "agent_invoked"] },
+                  { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                ]
               },
               "args": { "type": "object" },
               "expansion_text": { "type": "string" },
@@ -1698,19 +1729,28 @@
                 "properties": {
                   "scope": {
                     "type": "string",
-                    "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"]
+                    "anyOf": [
+                      { "enum": ["tool", "skill", "mcp_server", "mcp_tool", "plugin"] },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                    ]
                   },
                   "reason": {
                     "type": "string",
-                    "enum": [
-                      "registered",
-                      "deregistered",
-                      "connected",
-                      "disconnected",
-                      "loaded",
-                      "unloaded",
-                      "error",
-                      "instructions_updated"
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "initial",
+                          "registered",
+                          "deregistered",
+                          "connected",
+                          "disconnected",
+                          "loaded",
+                          "unloaded",
+                          "error",
+                          "instructions_updated"
+                        ]
+                      },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
                     ]
                   },
                   "added": {
@@ -1767,7 +1807,10 @@
                   "previous_value": { "type": "string" },
                   "reason": {
                     "type": "string",
-                    "enum": ["ai_generated", "user_set", "runtime_inferred", "external"]
+                    "anyOf": [
+                      { "enum": ["ai_generated", "user_set", "runtime_inferred", "external"] },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -1787,7 +1830,10 @@
                   },
                   "reason": {
                     "type": "string",
-                    "enum": ["ai_generated", "user_set", "runtime_inferred", "external"]
+                    "anyOf": [
+                      { "enum": ["ai_generated", "user_set", "runtime_inferred", "external"] },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -1801,7 +1847,10 @@
                   "previous_value": { "$ref": "#/$defs/worktree" },
                   "reason": {
                     "type": "string",
-                    "enum": ["ai_generated", "user_set", "runtime_inferred", "external"]
+                    "anyOf": [
+                      { "enum": ["ai_generated", "user_set", "runtime_inferred", "external"] },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -1818,7 +1867,10 @@
                   "previous_value": {},
                   "reason": {
                     "type": "string",
-                    "enum": ["ai_generated", "user_set", "runtime_inferred", "external"]
+                    "anyOf": [
+                      { "enum": ["ai_generated", "user_set", "runtime_inferred", "external"] },
+                      { "pattern": "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$" }
+                    ]
                   }
                 },
                 "additionalProperties": false

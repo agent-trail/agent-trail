@@ -220,6 +220,18 @@ describe("readGitVcs", () => {
     expect(vcs?.remote_url).toBeUndefined();
   });
 
+  test("returns branch with null revision for an unborn git HEAD", async () => {
+    await git(["init", "-q", "--initial-branch", "main"]);
+    await git(["remote", "add", "origin", "git@github.com:agent-trail/agent-trail.git"]);
+    const vcs = await readGitVcs(tmp);
+    expect(vcs).toEqual({
+      type: "git",
+      revision: null,
+      branch: "main",
+      remote_url: "https://github.com/agent-trail/agent-trail",
+    });
+  });
+
   test("returns a normalized remote_url when origin remote is set", async () => {
     await git(["init", "-q"]);
     await git([

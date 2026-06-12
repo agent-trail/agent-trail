@@ -15,6 +15,33 @@ export type Iso8601 = string;
  * SHA-256 hash as lowercase hex (64 chars)
  */
 export type Sha256Hex = string;
+export type Vcs =
+  | (Vcs1 & {
+      type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
+      remote_url?: string;
+      worktree?: Worktree;
+      revision: string;
+      branch?: string;
+      head_commit?: string;
+    })
+  | (Vcs1 & {
+      type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
+      remote_url?: string;
+      worktree?: Worktree;
+      revision: null;
+      branch: string;
+      head_commit?: never;
+    });
+export type Vcs1 =
+  | {
+      revision?: string;
+      [k: string]: unknown;
+    }
+  | {
+      revision?: null;
+      branch: string;
+      [k: string]: unknown;
+    };
 export type AgentName =
   | "claude-code"
   | "pi"
@@ -245,7 +272,9 @@ export type SessionTerminationReason =
   | "eof_with_open_tool_calls"
   | "process_terminated"
   | "truncated"
-  | "user_abort";
+  | "user_abort"
+  | `x-${string}/${string}`;
+export type SessionTerminationReason1 = string;
 
 /**
  * Optional trail envelope record (line 1). File-level metadata; not part of the event graph. When present, MUST appear at line 1 and the first session header MUST follow on line 2. At most one per file. Multi-session files (spec §9.6) carry one envelope followed by N session groups in file order.
@@ -291,23 +320,6 @@ export interface TrailEnvelope {
     [k: string]: unknown;
   };
 }
-export interface Vcs {
-  type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
-  revision: string;
-  /**
-   * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
-   */
-  remote_url?: string;
-  /**
-   * Active branch / bookmark / topic name the session is running on. For git, the short branch name (e.g., `feature/x`). Detached-HEAD sessions MAY omit this field.
-   */
-  branch?: string;
-  /**
-   * Commit hash at session start (lowercase hex, 7-64 chars). For git this is typically the same value as `revision`; the field exists as an explicit, version-control-neutral alias and survives across VCS migrations.
-   */
-  head_commit?: string;
-  worktree?: Worktree;
-}
 /**
  * Worktree context when the session ran inside a working-tree clone or worktree (git worktree, jj workspace, etc.).
  */
@@ -338,11 +350,7 @@ export interface ParseFidelity {
   /**
    * Final abnormal session termination reason, when a session_terminated event is present.
    */
-  termination_reason?:
-    | "eof_with_open_tool_calls"
-    | "process_terminated"
-    | "truncated"
-    | "user_abort";
+  termination_reason?: SessionTerminationReason;
 }
 export interface EntryBase {
   type: string;
@@ -669,7 +677,7 @@ export interface ContextCompact {
   type?: "context_compact";
   payload?: {
     summary: string;
-    trigger?: "manual" | "auto";
+    trigger?: "manual" | "auto" | `x-${string}/${string}`;
     tokens_before?: number;
     tokens_after?: number;
     /**
@@ -768,7 +776,7 @@ export interface ThinkingLevelChange {
 export interface SessionTerminated {
   type?: "session_terminated";
   payload?: {
-    reason: SessionTerminationReason;
+    reason: SessionTerminationReason & SessionTerminationReason1;
     open_call_ids?: string[];
   };
   [k: string]: unknown;
@@ -776,7 +784,7 @@ export interface SessionTerminated {
 export interface SessionEnd {
   type?: "session_end";
   payload?: {
-    reason: "complete" | "user_quit" | "agent_idle";
+    reason: "complete" | "user_quit" | "agent_idle" | `x-${string}/${string}`;
     /**
      * Globally-unique identifier shape: canonical uppercase ULID (26 Crockford base32 chars), lowercase hyphenated UUID (36 chars), or lowercase unhyphenated UUID (32 hex chars). Header ids, event ids, and envelope ids share this shape so cross-segment reconciliation can dedup by exact string equality (spec §9.5).
      */
@@ -794,11 +802,11 @@ export interface CommandInvoke {
     /**
      * What kind of capability was invoked.
      */
-    kind: "slash" | "builtin" | "skill" | "custom_prompt" | "plugin";
+    kind: "slash" | "builtin" | "skill" | "custom_prompt" | "plugin" | `x-${string}/${string}`;
     /**
      * How the invocation reached the agent. `auto_trigger` covers description-matched skill activation with no user action; adapters MAY synthesize it (set source.synthesized=true).
      */
-    via: "user_typed" | "auto_trigger" | "agent_invoked";
+    via: "user_typed" | "auto_trigger" | "agent_invoked" | `x-${string}/${string}`;
     args?: {
       [k: string]: unknown;
     };
@@ -821,8 +829,9 @@ export interface CapabilityChange {
   type?: "capability_change";
   payload?:
     | {
-        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin" | `x-${string}/${string}`;
         reason:
+          | "initial"
           | "registered"
           | "deregistered"
           | "connected"
@@ -830,7 +839,8 @@ export interface CapabilityChange {
           | "loaded"
           | "unloaded"
           | "error"
-          | "instructions_updated";
+          | "instructions_updated"
+          | `x-${string}/${string}`;
         /**
          * @minItems 1
          */
@@ -840,8 +850,9 @@ export interface CapabilityChange {
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
-        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin" | `x-${string}/${string}`;
         reason:
+          | "initial"
           | "registered"
           | "deregistered"
           | "connected"
@@ -849,7 +860,8 @@ export interface CapabilityChange {
           | "loaded"
           | "unloaded"
           | "error"
-          | "instructions_updated";
+          | "instructions_updated"
+          | `x-${string}/${string}`;
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
         /**
          * @minItems 1
@@ -859,8 +871,9 @@ export interface CapabilityChange {
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
-        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin" | `x-${string}/${string}`;
         reason:
+          | "initial"
           | "registered"
           | "deregistered"
           | "connected"
@@ -868,7 +881,8 @@ export interface CapabilityChange {
           | "loaded"
           | "unloaded"
           | "error"
-          | "instructions_updated";
+          | "instructions_updated"
+          | `x-${string}/${string}`;
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
         /**
@@ -878,8 +892,9 @@ export interface CapabilityChange {
         snapshot?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
       }
     | {
-        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin";
+        scope: "tool" | "skill" | "mcp_server" | "mcp_tool" | "plugin" | `x-${string}/${string}`;
         reason:
+          | "initial"
           | "registered"
           | "deregistered"
           | "connected"
@@ -887,7 +902,8 @@ export interface CapabilityChange {
           | "loaded"
           | "unloaded"
           | "error"
-          | "instructions_updated";
+          | "instructions_updated"
+          | `x-${string}/${string}`;
         added?: [CapabilityAddedItem, ...CapabilityAddedItem[]];
         removed?: [CapabilityRemovedItem, ...CapabilityRemovedItem[]];
         changed?: [CapabilityChangedItem, ...CapabilityChangedItem[]];
@@ -920,25 +936,45 @@ export interface SessionMetadataUpdate {
         field: "name" | "description" | "agent.model_default" | "vcs.branch";
         value: string;
         previous_value?: string;
-        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+        reason:
+          | "ai_generated"
+          | "user_set"
+          | "runtime_inferred"
+          | "external"
+          | `x-${string}/${string}`;
       }
     | {
         field: "tags";
         value: string[];
         previous_value?: string[];
-        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+        reason:
+          | "ai_generated"
+          | "user_set"
+          | "runtime_inferred"
+          | "external"
+          | `x-${string}/${string}`;
       }
     | {
         field: "vcs.worktree";
         value: Worktree;
         previous_value?: Worktree;
-        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+        reason:
+          | "ai_generated"
+          | "user_set"
+          | "runtime_inferred"
+          | "external"
+          | `x-${string}/${string}`;
       }
     | {
         field: `x-${string}/${string}`;
         value: unknown;
         previous_value?: unknown;
-        reason: "ai_generated" | "user_set" | "runtime_inferred" | "external";
+        reason:
+          | "ai_generated"
+          | "user_set"
+          | "runtime_inferred"
+          | "external"
+          | `x-${string}/${string}`;
       };
   [k: string]: unknown;
 }

@@ -66,6 +66,40 @@ const flatUnion = [
 ].join("\n");
 let generated = compiled.replace(KIND_BLOCK_RE, `    kind:\n${flatUnion};`);
 
+type EnumOrExtensionSchema = {
+  enum?: string[];
+  pattern?: string;
+  anyOf?: EnumOrExtensionSchema[];
+};
+const EXTENSION_PATTERN = "^x-[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9][a-z0-9_-]*$";
+const EXTENSION_TYPE = "`x-$" + "{string}/$" + "{string}`";
+
+function enumValuesFrom(schema: EnumOrExtensionSchema | undefined): string[] {
+  if (schema === undefined) return [];
+  if (Array.isArray(schema.enum)) return schema.enum;
+  return schema.anyOf?.flatMap(enumValuesFrom) ?? [];
+}
+
+function acceptsExtensionPattern(schema: EnumOrExtensionSchema | undefined): boolean {
+  if (schema === undefined) return false;
+  return (
+    schema.pattern === EXTENSION_PATTERN ||
+    schema.anyOf?.some((branch) => acceptsExtensionPattern(branch)) === true
+  );
+}
+
+function unionTypeFor(schema: EnumOrExtensionSchema | undefined): string {
+  const parts = enumValuesFrom(schema).map((value) => JSON.stringify(value));
+  if (acceptsExtensionPattern(schema)) parts.push(EXTENSION_TYPE);
+  return parts.join(" | ");
+}
+
+function unionLinesFor(schema: EnumOrExtensionSchema | undefined, indent: string): string[] {
+  const parts = enumValuesFrom(schema).map((value) => `${indent}| ${JSON.stringify(value)}`);
+  if (acceptsExtensionPattern(schema)) parts.push(`${indent}| ${EXTENSION_TYPE}`);
+  return parts;
+}
+
 // json-schema-to-typescript collapses the custom `agentName` pattern branch
 // into bare `string`, which would allow legacy custom names at compile time.
 // Keep the generated public type aligned with writer-strict validation by
@@ -107,7 +141,8 @@ const vcsTypeEnum = (
 if (vcsTypeEnum === undefined || vcsTypeEnum.length === 0) {
   throw new Error("generate-types: could not read reserved vcs.type enum from schema.");
 }
-const VCS_TYPE_RE = /export interface Vcs \{\n {2}type: \((?:"[^"]+"(?: \| )?)+\) \| string;/;
+const VCS_TYPE_RE =
+  /(export (?:interface Vcs|type Vcs = Vcs1 &) \{\n {2}type: )\((?:"[^"]+"(?: \| )?)+\) \| string;/;
 if (!VCS_TYPE_RE.test(generated)) {
   throw new Error(
     "generate-types: failed to locate the Vcs.type anyOf line to post-process; check json-schema-to-typescript output shape.",
@@ -117,9 +152,61 @@ const vcsTypeReplacement = [
   ...vcsTypeEnum.map((value) => JSON.stringify(value)),
   "`x-$" + "{string}/$" + "{string}`",
 ].join(" | ");
+generated = generated.replace(VCS_TYPE_RE, `$1${vcsTypeReplacement};`);
+const VCS_REVISION_GUARD_RE =
+  /export type Vcs1 =\n {2}\| \{\n {6}revision\?: string;\n {6}\[k: string\]: unknown;\n {4}\}\n {2}\| \{\n {6}revision\?: null;\n {6}\[k: string\]: unknown;\n {4}\};/;
+const VCS_REVISION_GUARD_WITH_BRANCH_RE =
+  /export type Vcs1 =\n {2}\| \{\n {6}revision\?: string;\n {6}\[k: string\]: unknown;\n {4}\}\n {2}\| \{\n {6}revision\?: null;\n {6}branch: string;\n {6}\[k: string\]: unknown;\n {4}\};/;
+if (VCS_REVISION_GUARD_RE.test(generated)) {
+  generated = generated.replace(
+    VCS_REVISION_GUARD_RE,
+    [
+      "export type Vcs1 =",
+      "  | {",
+      "      revision?: string;",
+      "      [k: string]: unknown;",
+      "    }",
+      "  | {",
+      "      revision?: null;",
+      "      branch: string;",
+      "      [k: string]: unknown;",
+      "    };",
+    ].join("\n"),
+  );
+} else if (!VCS_REVISION_GUARD_WITH_BRANCH_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the Vcs revision guard to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const VCS_FULL_RE = /export type Vcs = Vcs1 & \{\n[\s\S]*?\n\};\nexport type Vcs1 =/;
+if (!VCS_FULL_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the full Vcs type to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const vcsCommon = [
+  `      type: ${vcsTypeReplacement};`,
+  "      remote_url?: string;",
+  "      worktree?: Worktree;",
+].join("\n");
 generated = generated.replace(
-  VCS_TYPE_RE,
-  `export interface Vcs {\n  type: ${vcsTypeReplacement};`,
+  VCS_FULL_RE,
+  [
+    "export type Vcs =",
+    "  | (Vcs1 & {",
+    vcsCommon,
+    "      revision: string;",
+    "      branch?: string;",
+    "      head_commit?: string;",
+    "    })",
+    "  | (Vcs1 & {",
+    vcsCommon,
+    "      revision: null;",
+    "      branch: string;",
+    "      head_commit?: never;",
+    "    });",
+    "export type Vcs1 =",
+  ].join("\n"),
 );
 
 const userMessageOriginEnum = (
@@ -198,6 +285,170 @@ const resultActionUnion = [
   "      | null",
 ].join("\n");
 generated = generated.replace(RESULT_ACTION_RE, `    result_action?:\n${resultActionUnion};`);
+
+const commandInvokePayloadSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        command_invoke?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                kind?: EnumOrExtensionSchema;
+                via?: EnumOrExtensionSchema;
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.command_invoke?.properties?.payload?.properties;
+const COMMAND_INVOKE_KIND_RE =
+  /( {4}kind: )\(\n {6}\| \("[^"]+"(?: \| "[^"]+")+\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+const COMMAND_INVOKE_VIA_RE =
+  /( {4}via: )\(\n {6}\| \("[^"]+"(?: \| "[^"]+")+\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+if (
+  commandInvokePayloadSchema?.kind === undefined ||
+  commandInvokePayloadSchema.via === undefined ||
+  !COMMAND_INVOKE_KIND_RE.test(generated) ||
+  !COMMAND_INVOKE_VIA_RE.test(generated)
+) {
+  throw new Error(
+    "generate-types: could not post-process command_invoke kind/via enum extensions.",
+  );
+}
+generated = generated.replace(
+  COMMAND_INVOKE_KIND_RE,
+  `    kind: ${unionTypeFor(commandInvokePayloadSchema.kind)};`,
+);
+generated = generated.replace(
+  COMMAND_INVOKE_VIA_RE,
+  `    via: ${unionTypeFor(commandInvokePayloadSchema.via)};`,
+);
+
+const sessionTerminationReasonSchema = (
+  schema as {
+    $defs?: {
+      sessionTerminationReason?: EnumOrExtensionSchema;
+    };
+  }
+).$defs?.sessionTerminationReason;
+const SESSION_TERMINATION_REASON_RE =
+  /export type SessionTerminationReason =\n {2}\| \("[^"]+"(?: \| "[^"]+")+\)\n {2}\| \{\n {6}\[k: string\]: unknown;\n {4}\};/;
+if (
+  sessionTerminationReasonSchema === undefined ||
+  !SESSION_TERMINATION_REASON_RE.test(generated)
+) {
+  throw new Error("generate-types: could not post-process session termination reasons.");
+}
+generated = generated.replace(
+  SESSION_TERMINATION_REASON_RE,
+  `export type SessionTerminationReason =\n${unionLinesFor(
+    sessionTerminationReasonSchema,
+    "  ",
+  ).join("\n")};`,
+);
+const PARSE_FIDELITY_TERMINATION_REASON_RE =
+  / {2}termination_reason\?: \(\n {4}\| \("[^"]+"(?: \| "[^"]+")+\)\n {4}\| \{\n {8}\[k: string\]: unknown;\n {6}\}\n {2}\) &\n {4}string;/;
+if (!PARSE_FIDELITY_TERMINATION_REASON_RE.test(generated)) {
+  throw new Error("generate-types: could not post-process parse_fidelity termination_reason.");
+}
+generated = generated.replace(
+  PARSE_FIDELITY_TERMINATION_REASON_RE,
+  "  termination_reason?: SessionTerminationReason;",
+);
+
+const sessionEndReasonSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        session_end?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                reason?: EnumOrExtensionSchema;
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.session_end?.properties?.payload?.properties?.reason;
+const SESSION_END_REASON_RE =
+  /( {4}reason: )\(\n {6}\| \("complete" \| "user_quit" \| "agent_idle"\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+if (sessionEndReasonSchema === undefined || !SESSION_END_REASON_RE.test(generated)) {
+  throw new Error("generate-types: could not post-process session_end reason.");
+}
+generated = generated.replace(
+  SESSION_END_REASON_RE,
+  `    reason: ${unionTypeFor(sessionEndReasonSchema)};`,
+);
+
+const sessionMetadataReasonSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        session_metadata_update?: {
+          properties?: {
+            payload?: {
+              oneOf?: Array<{
+                properties?: {
+                  reason?: EnumOrExtensionSchema;
+                };
+              }>;
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.session_metadata_update?.properties?.payload?.oneOf?.find(
+  (branch) => branch.properties?.reason !== undefined,
+)?.properties?.reason;
+const SESSION_METADATA_REASON_RE =
+  / {8}reason: \(\n {10}\| \("ai_generated" \| "user_set" \| "runtime_inferred" \| "external"\)\n {10}\| \{\n {14}\[k: string\]: unknown;\n {12}\}\n {8}\) &\n {10}string;/g;
+const sessionMetadataReasonMatchCount = generated.match(SESSION_METADATA_REASON_RE)?.length ?? 0;
+if (sessionMetadataReasonSchema === undefined || sessionMetadataReasonMatchCount !== 4) {
+  throw new Error(
+    `generate-types: expected 4 session_metadata_update reason blocks, found ${sessionMetadataReasonMatchCount}.`,
+  );
+}
+generated = generated.replace(
+  SESSION_METADATA_REASON_RE,
+  `        reason:\n${unionLinesFor(sessionMetadataReasonSchema, "          ").join("\n")};`,
+);
+
+const contextCompactTriggerSchema = (
+  schema as {
+    $defs?: {
+      events?: {
+        context_compact?: {
+          properties?: {
+            payload?: {
+              properties?: {
+                trigger?: EnumOrExtensionSchema;
+              };
+            };
+          };
+        };
+      };
+    };
+  }
+).$defs?.events?.context_compact?.properties?.payload?.properties?.trigger;
+const CONTEXT_COMPACT_TRIGGER_BLOCK_RE =
+  / {4}trigger\?: \(\n {6}\| \("manual" \| "auto"\)\n {6}\| \{\n {10}\[k: string\]: unknown;\n {8}\}\n {4}\) &\n {6}string;/;
+if (
+  contextCompactTriggerSchema === undefined ||
+  !CONTEXT_COMPACT_TRIGGER_BLOCK_RE.test(generated)
+) {
+  throw new Error("generate-types: could not post-process context_compact trigger.");
+}
+generated = generated.replace(
+  CONTEXT_COMPACT_TRIGGER_BLOCK_RE,
+  `    trigger?: ${unionTypeFor(contextCompactTriggerSchema)};`,
+);
 
 const settingTriggerEnum = (
   schema as {
@@ -527,8 +778,8 @@ const capabilityPayloadSchema = (
             payload?: {
               allOf?: Array<{
                 properties?: {
-                  scope?: { enum?: string[] };
-                  reason?: { enum?: string[] };
+                  scope?: EnumOrExtensionSchema;
+                  reason?: EnumOrExtensionSchema;
                 };
               }>;
             };
@@ -538,26 +789,22 @@ const capabilityPayloadSchema = (
     };
   }
 ).$defs?.events?.capability_change?.properties?.payload?.allOf?.find(
-  (branch) =>
-    Array.isArray(branch.properties?.scope?.enum) && Array.isArray(branch.properties?.reason?.enum),
+  (branch) => branch.properties?.scope !== undefined && branch.properties?.reason !== undefined,
 )?.properties;
-const capabilityScopeEnum = capabilityPayloadSchema?.scope?.enum;
-const capabilityReasonEnum = capabilityPayloadSchema?.reason?.enum;
-if (
-  capabilityScopeEnum === undefined ||
-  capabilityScopeEnum.length === 0 ||
-  capabilityReasonEnum === undefined ||
-  capabilityReasonEnum.length === 0
-) {
+
+const capabilityScope = unionTypeFor(capabilityPayloadSchema?.scope);
+const capabilityReasonParts = enumValuesFrom(capabilityPayloadSchema?.reason).map(
+  (value) => `          | ${JSON.stringify(value)}`,
+);
+if (acceptsExtensionPattern(capabilityPayloadSchema?.reason)) {
+  capabilityReasonParts.push(`          | ${EXTENSION_TYPE}`);
+}
+if (capabilityScope.length === 0 || capabilityReasonParts.length === 0) {
   throw new Error(
     "generate-types: could not read capability_change.payload scope/reason enums from schema.",
   );
 }
-const capabilityScope = capabilityScopeEnum.map((value) => JSON.stringify(value)).join(" | ");
-const capabilityReason = `${[
-  "        reason:",
-  ...capabilityReasonEnum.map((value) => `          | ${JSON.stringify(value)}`),
-].join("\n")};`;
+const capabilityReason = `${["        reason:", ...capabilityReasonParts].join("\n")};`;
 const capabilityCommon = [`        scope: ${capabilityScope};`, capabilityReason].join("\n");
 generated = generated.replace(
   CAPABILITY_CHANGE_RE,

@@ -127,6 +127,9 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-schema/user-message-missing-text.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-schema/user-message-non-string-text.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
+- `invalid-schema/vcs-null-revision-with-empty-branch.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
+- `invalid-schema/vcs-null-revision-with-head-commit.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
+- `invalid-schema/vcs-null-revision-without-branch.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 
 ### reader-tolerant/
 
@@ -145,7 +148,9 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `valid/agent-message-attachments.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/agent-message-usage.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/agent-thinking-usage.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
+- `valid/capability-change-initial-snapshot.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/capability-change.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
+- `valid/command-invoke-extension-kind.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/command-invoke-full.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/command-invoke-minimal.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/command-invoke-plugin.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
@@ -204,6 +209,7 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `valid/unmatched-tool-call-suppressed-by-session-terminated.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/user-message-origin-injected.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/user-query-duplicate-labels-with-ids.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
+- `valid/vcs-unborn-head.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/with-trail-envelope-all-fields.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/with-trail-envelope-and-hash.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
 - `valid/with-trail-envelope.trail.jsonl` — classes: W, R1, R2, strict: valid, tolerant: clean
