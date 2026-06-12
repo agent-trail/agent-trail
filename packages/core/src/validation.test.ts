@@ -2130,6 +2130,24 @@ test("emits source_raw_unredacted_secret warning when source.raw contains a Bear
   );
 });
 
+test("emits non_interoperable_number warning for unsafe integers in source.raw", async () => {
+  const text = [
+    '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+    '{"type":"agent_message","id":"00000000-0000-4000-8000-000000002136","ts":"2026-05-17T14:00:01.000Z","payload":{"text":"captured source id"},"source":{"agent":"codex-cli","raw":{"snowflake":9007199254740993}}}',
+  ].join("\n");
+
+  const diagnostics = await validateTrailString(`${text}\n`);
+
+  expect(diagnostics).toContainEqual(
+    expect.objectContaining({
+      line: 2,
+      path: "/source/raw/snowflake",
+      severity: "warning",
+      code: "non_interoperable_number",
+    }),
+  );
+});
+
 test("emits source_raw_unredacted_secret warning for credential-keyed source.raw strings", async () => {
   const diagnostics = await validateTrailString(
     [

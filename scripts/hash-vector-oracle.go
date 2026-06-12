@@ -178,7 +178,7 @@ func computeVector(path string, lines []string, write bool) (vectorResult, error
 			return vectorResult{}, fmt.Errorf("%s: session group %d: %w", path, i, err)
 		}
 		sessionHashes[i] = hash
-		if write {
+		if write && hasTopLevelField(out[group.Start], "content_hash") {
 			out[group.Start] = replaceContentHash(out[group.Start], hash)
 		}
 	}
@@ -253,7 +253,7 @@ func digestCanonicalLines(lines []string, pinIndex int) (string, error) {
 }
 
 func replaceContentHash(line string, value string) string {
-	return replaceTopLevelString(line, "content_hash", value)
+	return setTopLevelString(line, "content_hash", value)
 }
 
 func replacePrevContentHash(line string, value string) string {
@@ -298,6 +298,18 @@ func replaceTopLevelString(line string, field string, value string) string {
 	}
 	object[field] = value
 	return encodeObject(object, field+" replacement")
+}
+
+func setTopLevelString(line string, field string, value string) string {
+	object := decodeObject(line, field+" replacement")
+	object[field] = value
+	return encodeObject(object, field+" replacement")
+}
+
+func hasTopLevelField(line string, field string) bool {
+	object := decodeObject(line, field+" presence check")
+	_, ok := object[field]
+	return ok
 }
 
 func decodeObject(line string, context string) map[string]any {

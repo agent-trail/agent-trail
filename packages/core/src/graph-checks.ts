@@ -2,6 +2,7 @@ export {
   childSessionLinkWarnings,
   crossGroupForkFromWarnings,
   outOfOrderSessionHeadersWarnings,
+  segmentSequenceWarnings,
   vcsRevisionDivergenceWarnings,
 } from "./graph-cross-session-checks.ts";
 export { envelopeSessionsManifestWarnings } from "./graph-envelope-checks.ts";

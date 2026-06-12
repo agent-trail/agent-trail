@@ -40,6 +40,7 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 
 ### hash-vectors/
 
+- `hash-vectors/absent-content-hash.trail.jsonl` — classes: W, R2, strict: valid, tolerant: clean
 - `hash-vectors/envelope-two-tier.trail.jsonl` — classes: W, R2, strict: valid, tolerant: clean
 - `hash-vectors/jcs-stress.trail.jsonl` — classes: W, R2, strict: valid, tolerant: clean
 - `hash-vectors/minimal-pending-roundtrip.trail.jsonl` — classes: W, R2, strict: valid, tolerant: clean
@@ -55,6 +56,7 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `invalid-graph/duplicate-id.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/duplicate-option-labels-mixed-ids.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/duplicate-option-labels.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
+- `invalid-graph/duplicate-segment-seq.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/duplicate-tool-result-for-id.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/envelope-not-at-line-1.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/envelope-sessions-manifest-empty.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
@@ -64,7 +66,9 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `invalid-graph/multi-session-cross-group-parent.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/multi-session-orphan-prelude.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/multiple-envelopes.trail.jsonl` — classes: W, R1, R2, strict: invalid with 2 assertion(s), tolerant: 2 diagnostic(s)
+- `invalid-graph/non-interoperable-number.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/non-monotonic-event-ts.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
+- `invalid-graph/out-of-order-segment-seq.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/parent-cycle.trail.jsonl` — classes: W, R1, R2, strict: invalid with 2 assertion(s), tolerant: 2 diagnostic(s)
 - `invalid-graph/sequential-pairing-stays-in-branch.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)
 - `invalid-graph/sequential-pairing-stays-in-sibling-branch.trail.jsonl` — classes: W, R1, R2, strict: valid with 1 diagnostic(s), tolerant: 1 diagnostic(s)

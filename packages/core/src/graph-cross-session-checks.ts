@@ -59,6 +59,58 @@ export function vcsRevisionDivergenceWarnings(groups: SessionGroup[]): Diagnosti
   return diagnostics;
 }
 
+export function segmentSequenceWarnings(groups: SessionGroup[]): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const seen = new Map<string, { seq: number; line: number }>();
+  const maxSeqByUid = new Map<string, number>();
+
+  for (const group of groups) {
+    const sessionUid = group.header.value.session_uid;
+    if (typeof sessionUid !== "string") continue;
+    const seq = segmentSeq(group.header.value.segment);
+    const key = `${sessionUid}\0${seq}`;
+    if (seen.has(key)) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/segment/seq",
+          severity: "warning",
+          code: "duplicate_segment_seq",
+          message: `segment seq ${seq} duplicates an earlier group for session_uid "${sessionUid}"`,
+        }),
+      );
+    } else {
+      seen.set(key, { seq, line: group.header.line });
+    }
+
+    const maxSeq = maxSeqByUid.get(sessionUid);
+    if (maxSeq !== undefined && seq < maxSeq) {
+      diagnostics.push(
+        createDiagnostic({
+          line: group.header.line,
+          path: "/segment/seq",
+          severity: "warning",
+          code: "out_of_order_segment_seq",
+          message: `segment seq ${seq} appears after seq ${maxSeq} for session_uid "${sessionUid}"`,
+        }),
+      );
+    }
+    if (maxSeq === undefined || seq > maxSeq) {
+      maxSeqByUid.set(sessionUid, seq);
+    }
+  }
+
+  return diagnostics;
+}
+
+function segmentSeq(segment: unknown): number {
+  if (typeof segment !== "object" || segment === null) {
+    return 1;
+  }
+  const seq = (segment as { seq?: unknown }).seq;
+  return typeof seq === "number" && Number.isInteger(seq) ? seq : 1;
+}
+
 // Spec §9.6: `fork_from.session_id` MAY reference a sibling session in the
 // same trail file. When it does and `fork_from.content_hash` is also present,
 // the hash MUST match the sibling's session-level `content_hash`. Mismatch is
