@@ -29,8 +29,8 @@ reserved enum in a minor format bump. This follows the convention already stated
 for `system_event.kind` in spec section 10.3.
 
 `parse_fidelity.termination_reason` and `session_terminated.reason` both refer
-to `$defs.sessionTerminationReason`. They open or close together by construction;
-keep the shared definition rather than duplicating the enum.
+to `#/$defs/sessionTerminationReason`. They open or close together by
+construction; keep the shared definition rather than duplicating the enum.
 
 ## Rationale
 
@@ -57,6 +57,6 @@ normalization.
 - Readers should not fail only because an otherwise valid descriptive enum uses
   an unknown `x-*` value.
 - Future schema edits should keep shared definitions shared when two fields are
-  intentionally coupled, as with `$defs.sessionTerminationReason`.
+  intentionally coupled, as with `#/$defs/sessionTerminationReason`.
 
 Tracks #289.
