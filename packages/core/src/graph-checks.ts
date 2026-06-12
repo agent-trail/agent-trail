@@ -7,6 +7,7 @@ export {
 } from "./graph-cross-session-checks.ts";
 export { envelopeSessionsManifestWarnings } from "./graph-envelope-checks.ts";
 export {
+  branchReferenceWarnings,
   envelopeRefWarnings,
   finalMessageIdWarnings,
   nonMonotonicEventTsWarnings,

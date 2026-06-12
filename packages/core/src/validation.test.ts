@@ -400,7 +400,7 @@ test("reports parse_fidelity quarantined_count drift", async () => {
     line: 1,
     path: "/parse_fidelity/quarantined_count",
     severity: "error",
-    code: "parse_fidelity_mismatch",
+    code: "parse_fidelity_drift",
     message:
       "parse_fidelity.quarantined_count is 0 but session contains 1 quarantined unknown_record event(s)",
   });
@@ -418,7 +418,7 @@ test("reports parse_fidelity terminal reason drift", async () => {
     line: 1,
     path: "/parse_fidelity/termination_reason",
     severity: "error",
-    code: "parse_fidelity_mismatch",
+    code: "parse_fidelity_drift",
     message:
       'parse_fidelity.termination_reason is "truncated" but final session_terminated reason is "process_terminated"',
   });
@@ -436,7 +436,7 @@ test("reports missing parse_fidelity terminal reason when session terminated", a
     line: 1,
     path: "/parse_fidelity/termination_reason",
     severity: "error",
-    code: "parse_fidelity_mismatch",
+    code: "parse_fidelity_drift",
     message:
       'parse_fidelity.termination_reason is absent but final session_terminated reason is "user_abort"',
   });
@@ -590,7 +590,7 @@ test("rejects extra answer fields in user query responses", async () => {
   });
 });
 
-test("rejects user query responses whose for_id does not reference a user_query", async () => {
+test("warns when user query responses for_id does not reference a user_query", async () => {
   const diagnostics = await validateTrailString(
     [
       '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
@@ -601,8 +601,8 @@ test("rejects user query responses whose for_id does not reference a user_query"
   expect(diagnostics).toContainEqual({
     line: 2,
     path: "/payload/for_id",
-    severity: "error",
-    code: "unknown_user_query_response_for_id",
+    severity: "warning",
+    code: "unknown_user_query_for_id",
     message:
       'user_query_response for_id "01HEVTA0000000000000000001" does not reference a user_query in this session',
   });
@@ -642,6 +642,44 @@ test("rejects duplicate question ids within a user query", async () => {
     severity: "error",
     code: "duplicate_user_query_question_id",
     message: 'user_query question id "same" is duplicated within this query',
+  });
+});
+
+test("warns when branch_point from_id does not reference a prior event", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"branch_point","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"from_id":"01HEVTA0000000000000000002"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"text":"later"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/from_id",
+    severity: "warning",
+    code: "unknown_branch_point_from_id",
+    message:
+      'branch_point from_id "01HEVTA0000000000000000002" does not reference a prior event in this session',
+  });
+});
+
+test("warns when branch_summary abandoned_branch_id does not reference a prior event", async () => {
+  const diagnostics = await validateTrailString(
+    [
+      '{"type":"session","schema_version":"0.1.0","id":"01HSESS0000000000000000001","session_uid":"01HZZZZZZZZZZZZZZZZZZZZZ01","ts":"2026-05-17T14:00:00.000Z","agent":{"name":"codex-cli"}}',
+      '{"type":"branch_summary","id":"01HEVTA0000000000000000001","ts":"2026-05-17T14:00:01.000Z","payload":{"abandoned_branch_id":"01HEVTA0000000000000000002","summary":"abandoned path"}}',
+      '{"type":"user_message","id":"01HEVTA0000000000000000002","ts":"2026-05-17T14:00:02.000Z","payload":{"text":"later"}}',
+    ].join("\n"),
+  );
+
+  expect(diagnostics).toContainEqual({
+    line: 2,
+    path: "/payload/abandoned_branch_id",
+    severity: "warning",
+    code: "unknown_abandoned_branch_id",
+    message:
+      'branch_summary abandoned_branch_id "01HEVTA0000000000000000002" does not reference a prior event in this session',
   });
 });
 

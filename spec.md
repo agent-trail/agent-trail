@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0
 **Status:** Draft
-**Date:** May 2026
+**Date:** June 12, 2026
 **License:** Apache-2.0
 **Schema URL:** `https://agent-trail.dev/schema/v0.1.0.json` *(release snapshot; local source: `schema.json`)*
 
@@ -111,6 +111,7 @@ Line 1 is the header. Lines 2 and on are events. Everything else is optional str
 - Native compressed extension: `.trail.jsonl.gz`
 - MIME type: `application/vnd.trail+jsonl`. The `vnd.` form is the intended canonical type and follows IANA conventions for vendor MIME types. IANA registration is deferred to v1.0; until then the type is documented here but not officially registered.
 - Native compressed MIME type: `application/vnd.trail+jsonl+gzip`.
+- The `+jsonl` suffix is provisional rather than an IANA-registered structured syntax suffix, and `+jsonl+gzip` is a nonstandard double suffix; these media types may be revised during registration.
 - Editors render as JSON via the `.jsonl` suffix. A dedicated language extension MAY provide richer highlighting later.
 
 ### 5.2 Encoding
@@ -320,6 +321,8 @@ When no envelope is written, file-level identity defaults derive from the sessio
   "type": "session",
   "schema_version": "0.1.0",
   "id": "<session-uuid-or-ulid>",
+  "session_uid": "<source-session-uuid-or-ulid>",  // optional; stable across segments
+  "segment": { "seq": 1 },                         // optional; multi-segment marker
   "name": "<session-title>",                       // optional
   "description": "<free-text-description>",        // optional
   "tags": ["feature", "debug"],                    // optional
@@ -371,6 +374,10 @@ When no envelope is written, file-level identity defaults derive from the sessio
 | `type` | yes | literal `"session"` | discriminator |
 | `schema_version` | yes | string | currently `"0.1.0"` |
 | `id` | yes | string | UUID or ULID per §7.1/§19 |
+| `session_uid` | no | string | stable source-session identifier shared by all segments of one logical source session |
+| `segment` | no | object | multi-segment marker; absent is equivalent to a single segment with `seq: 1` |
+| `segment.seq` | yes (if `segment` present) | integer | 1-based segment sequence number |
+| `segment.prev_content_hash` | yes when `segment.seq >= 2` | string \| null | previous segment's session-level `content_hash`; `null` marks an unverifiable chain break |
 | `name` | no | string | human session label |
 | `description` | no | string | free-text session description |
 | `tags` | no | string[] | free-form session labels |
@@ -625,7 +632,7 @@ A user-role message. By default this is text typed by the human user; `payload.o
 
 `origin:"user"` means the text was typed by the human. `origin:"injected"` means runtime-injected content (system reminders, attached-file blobs, hook output) carried as a user-role message. `origin:"mixed"` means both human-authored and injected content appear in one body. Structured part-level decomposition is deferred.
 
-Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers MAY use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Inline `data:` payloads are deferred.
+Attachment entries require `kind` plus at least one of `uri` or `name`. `uri` values in v0.1.0 are references, not inline binary payloads. Writers MAY use `https:`, local `file:` references for private/local trails, or content-addressed references such as `sha256:<hex>`. Plain `http:` is deliberately excluded to avoid unauthenticated network fetches in shared trails. Inline `data:` payloads are deferred.
 
 #### `agent_message`
 
@@ -1434,7 +1441,7 @@ Writers SHOULD populate `semantic.call_id` on tool_call/tool_result pairs when t
 
 ### 10.5 Tool call terminal pairing
 
-`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` SHOULD reference the matching `tool_call`. Writers MUST populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
+`tool_result.payload.for_id` and `tool_call_aborted.payload.for_id` SHOULD reference the matching `tool_call`. Writers SHOULD populate `tool_result.payload.for_id` or `semantic.call_id` when the source records concurrent (overlapping) tool calls, and SHOULD populate one of them for every result. A `tool_call_aborted` only closes a call when `payload.scope == "tool_call"` and `payload.for_id` resolves to a `tool_call`; turn-level aborts do not close any specific call.
 
 When `tool_result.payload.for_id` is null, missing, or refers to a non-existent event, readers use these fallback rules in order:
 
@@ -1484,13 +1491,13 @@ The `tool_call.payload.tool` field uses these values. Each defines the expected 
 | `shell_command` | `{ command, cwd?, timeout? }` |
 | `shell_output` | `{ command_id? }` |
 | `shell_input` | `{ input, session_id?, command_id? }` |
-| `mcp_call` | `{ server, tool, args, headers? }` |
+| `mcp_call` | `{ server, tool, args?, headers? }` |
 | `web_fetch` | `{ url, method?, headers? }` |
 | `web_search` | `{ query }` |
 | `tool_search` | `{ query, limit? }` |
 | `notebook_edit` | `{ path, cell_id?, diff?, content? }` |
 | `subagent_invoke` | `{ task, agent_type?, session_id? }` |
-| `other` | `{ name, args }` |
+| `other` | `{ name, args? }` |
 
 Checklist and plan snapshots use `task_plan_update` ([§10.2](#10-2-mandatory-event-types)) rather than `tool_call`.
 
@@ -1555,7 +1562,7 @@ When the external child appears in the same file, the child header SHOULD set `f
 
 ### 11.7 The `other` escape hatch
 
-For tools not covered above, use `tool: "other"` with `args: { name, args }`. Readers render generically. These don't participate in cross-agent comparison.
+For tools not covered above, use `tool: "other"` with `args: { name, args? }`. Readers render generically. These don't participate in cross-agent comparison.
 
 ---
 
@@ -1776,6 +1783,56 @@ define a certification registry or badge authority.
 
 Validators SHOULD report normalized diagnostics with `line`, `path` (JSON Pointer), `severity`, `code`, and `message`. Implementations MAY include extra fields, but these five fields are the portable diagnostic surface.
 
+Portable diagnostic code registry:
+
+| Code | Severity | Defining section |
+|---|---|---|
+| `ambiguous_sequential_pairing` | warning | §10.5 / §18.4.2 |
+| `child_session_fork_from_mismatch` | warning | §18.4.2 |
+| `child_session_parent_link_mismatch` | warning | §18.4.2 |
+| `content_hash_invalid` | error | §7.3 / §18.4.1 |
+| `content_hash_mismatch` | error (strict), warning (reader-tolerant) | §7.3 / §18.4.1 |
+| `cross_group_fork_from_hash_mismatch` | warning | §9.6.5 |
+| `duplicate_id` | error | §18.4.1 |
+| `duplicate_option_labels` | warning | §10.2 / §18.4.2 |
+| `duplicate_segment_seq` | warning | §9.5 / §18.4.2 |
+| `duplicate_tool_result` | warning | §10.5 / §18.4.2 |
+| `duplicate_user_query_question_id` | error | §10.2 |
+| `envelope_has_parent_id` | error | §8 / §18.4.1 |
+| `envelope_not_at_line_1` | error | §8 / §18.4.1 |
+| `envelope_sessions_manifest_drift` | warning | §8.4 / §18.4.2 |
+| `events_before_first_session_header` | error | §9.6 / §18.4.1 |
+| `header_has_parent_id` | error | §9 / §18.4.1 |
+| `ill_formed_string` | error (strict), warning (reader-tolerant) | §5.2 / §18.4.1 |
+| `missing_header` | error | §9 / §18.4.1 |
+| `missing_header_after_envelope` | error | §8 / §18.4.1 |
+| `multiple_envelopes` | error | §8 / §18.4.1 |
+| `non_interoperable_number` | warning | §5.2 / §18.4.2 |
+| `non_monotonic_event_ts` | warning | §18.4.2 |
+| `out_of_order_segment_seq` | warning | §9.5 / §18.4.2 |
+| `out_of_order_session_headers` | warning | §9.6.6 |
+| `parent_cycle` | error | §13.2 / §18.4.1 |
+| `parse_fidelity_drift` | error | §9.2 / §18.4.1 |
+| `reader_tolerant_schema_version` | warning | §6 / §18.2 |
+| `reader_tolerant_unknown_payload_field` | warning | §18.2 |
+| `reader_tolerant_unknown_record` | warning | §18.2 |
+| `segment_chain_break` | warning | §9.5 |
+| `source_raw_envelope_ref_unresolved` | error | §10.7 / §18.4.1 |
+| `source_raw_unredacted_secret` | warning | §15.1 / §18.4.2 |
+| `stream_open_with_content_hash` | warning | §18.4.3 |
+| `stream_open_with_terminal_event` | warning | §18.4.3 |
+| `tool_args_unredacted_secret` | warning | §16 / §18.4.2 |
+| `tool_result_semantic_conflict` | warning | §10.5 / §18.4.2 |
+| `unknown_abandoned_branch_id` | warning | §10.3 / §18.4.2 |
+| `unknown_branch_point_from_id` | warning | §10.3 / §18.4.2 |
+| `unknown_final_message_id` | warning | §10.3 / §18.4.2 |
+| `unknown_parent_id` | error | §10.1 / §18.4.1 |
+| `unknown_user_query_answer_key` | error | §10.2 |
+| `unknown_user_query_for_id` | warning | §10.2 / §18.4.2 |
+| `unmatched_tool_call_at_eof` | warning | §10.5 / §18.4.2 |
+| `vcs_remote_url_with_credentials` | warning or error | §9.2 / §18.4 |
+| `vcs_revision_divergence` | warning | §9.6.6 |
+
 #### Conformance suite (non-normative)
 
 The repository publishes a versioned validation conformance suite with the schema package. The canonical corpus lives under `tests/fixtures/validation/` and is mirrored into the `@agent-trail/schema` package under `conformance/`.
@@ -1803,32 +1860,41 @@ A v0.1.0-compliant trail file MUST also pass whole-file checks.
 
 If `content_hash` is present:
 
-8. The value is 64 hex characters (SHA-256).
-9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails. Reader-tolerant parsers MAY warn but MUST NOT abort.
+1. The value is 64 hex characters (SHA-256). Invalid hash shape emits `content_hash_invalid` at `/content_hash`.
+2. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails with `content_hash_mismatch` at `/content_hash`. Reader-tolerant parsers MAY warn but MUST NOT abort.
+
+Additional whole-file errors:
+
+- `parse_fidelity`, when present, MUST match the session group's entries (§9.2). Drift emits `parse_fidelity_drift` at the mismatched `parse_fidelity` field.
+- A `user_query` question id MUST be unique within that query. Duplicate ids emit `duplicate_user_query_question_id` at the repeated question id.
+- A `user_query_response.payload.answers` key not present in the resolved `user_query.payload.questions[].id` set emits `unknown_user_query_answer_key` at that answer key.
+- `source.raw.envelope_ref`, when set, MUST reference the `id` of an earlier entry in the same file (§10.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
+- Trail envelope position and uniqueness (§8):
+  - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
+  - `multiple_envelopes` (error): more than one envelope appears in the file.
+  - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
+  - `envelope_has_parent_id` (error): the trail envelope carries a `parent_id`.
 
 #### 18.4.2 Warnings
 
 - Each `tool_call.id` SHOULD be referenced by exactly one `tool_result.payload.for_id` (or paired via §10.5).
 - Inline `subagent_invoke` events SHOULD have descendants in the same group, or external child invocations SHOULD set `args.session_id` to the child header `id` when known.
 - When an in-file child session is present, the parent `subagent_invoke.args.session_id` and child `header.fork_from.{session_id,entry_id}` SHOULD agree. Mismatches are warnings, not errors, so partial bundles and external-only references remain readable.
-- `branch_summary.payload.abandoned_branch_id` SHOULD reference a real branch root.
+- `branch_point.payload.from_id` SHOULD reference a prior event in the same session group. A dangling or forward reference emits `unknown_branch_point_from_id` at `/payload/from_id`.
+- `branch_summary.payload.abandoned_branch_id` SHOULD reference a prior event in the same session group. A dangling or forward reference emits `unknown_abandoned_branch_id` at `/payload/abandoned_branch_id`.
 - Writers SHOULD emit `session_terminated` if any `tool_call` remains unmatched at EOF. The warning code is `unmatched_tool_call_at_eof`. Suppression:
   - A `session_end` event anywhere in the file suppresses this warning for every unmatched `tool_call` (clean conclusion, §10.3).
   - A `session_terminated` event whose `payload.open_call_ids` lists a given `tool_call.id` suppresses the warning for that id only (explicit acknowledgement). A `session_terminated` event without `open_call_ids` does not suppress the warning.
 - A `tool_result` paired by sequential fallback when two or more unmatched prior same-branch `tool_call` candidates existed emits `ambiguous_sequential_pairing` at `/payload`.
 - A `user_query` question with duplicate option labels among options that do not carry stable option ids emits `duplicate_option_labels` at the repeated option's `/payload/questions/<index>/options/<index>/label`.
+- `user_query_response.payload.for_id` SHOULD reference a `user_query` in the same session group. An unresolved reference emits `unknown_user_query_for_id` at `/payload/for_id`.
 - `session_end.payload.final_message_id`, when present, SHOULD reference an `id` that appears in the same file (the session header or a prior event). A dangling reference is a warning with code `unknown_final_message_id` at `/payload/final_message_id`.
 - An event's `ts` SHOULD NOT be earlier than its parent event's `ts` inside the same parent chain. Equal timestamps are allowed; sibling branches may interleave in wall-clock time. A strictly earlier child timestamp emits `non_monotonic_event_ts` (warning) at `/ts`.
 - Validators MAY report implementation-defined size budgets for `source.raw`; specific numbers are writer policy (§15.1).
 - `source.raw` SHOULD NOT contain unredacted credentials. A string leaf matching a known credential pattern emits `source_raw_unredacted_secret` (warning) at the matching JSON pointer.
 - JSON integer numbers outside the IEEE-754 exact-integer range SHOULD be emitted as strings. Unsafe integer numbers emit `non_interoperable_number` (warning) at the offending JSON Pointer.
 - Privacy-sensitive tool arguments SHOULD NOT contain unredacted credentials. A string leaf in `mcp_call` / `web_fetch` `tool_call.payload.args.headers` or `shell_command` `tool_call.payload.args.command` matching a known credential pattern emits `tool_args_unredacted_secret` (warning) at the matching JSON pointer.
-- `source.raw.envelope_ref`, when set, MUST reference the `id` of an earlier entry in the same file (§10.7). Dangling or forward references are errors with code `source_raw_envelope_ref_unresolved` at `/source/raw/envelope_ref`.
-- Trail envelope position and uniqueness (§8):
-  - `envelope_not_at_line_1` (error): a `type:"trail"` record appears on a line other than line 1.
-  - `multiple_envelopes` (error): more than one envelope appears in the file.
-  - `missing_header_after_envelope` (error): an envelope at line 1 is not followed by a session header on line 2.
-  - `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent.name`.
+- `envelope_sessions_manifest_drift` (warning): the envelope's `sessions` manifest length disagrees with the number of session groups, or a manifest entry disagrees with the matching session header's `id` or `agent.name`.
 - Multi-segment consistency within one file (§9.5):
   - `duplicate_segment_seq` (warning): two groups share the same `(session_uid, segment.seq)` pair, treating missing `segment` as `seq: 1`.
   - `out_of_order_segment_seq` (warning): groups with the same `session_uid` appear with descending `segment.seq` in file order.
@@ -1868,7 +1934,7 @@ Minimal at-a-glance trail:
 
 ## Changelog
 
-### v0.1.0 (May 2026)
+### v0.1.0 (June 12, 2026)
 
 Initial public draft. v0.1.0 defines:
 

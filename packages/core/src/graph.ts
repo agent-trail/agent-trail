@@ -1,5 +1,6 @@
 import type { Diagnostic } from "./diagnostics.ts";
 import {
+  branchReferenceWarnings,
   childSessionLinkWarnings,
   crossGroupForkFromWarnings,
   envelopeRefWarnings,
@@ -56,6 +57,7 @@ export function validateTrailGraph(
     const groupHeaderId =
       typeof group.header.value.id === "string" ? group.header.value.id : undefined;
     diagnostics.push(...finalMessageIdWarnings(group.entries, groupIdLines, groupHeaderId));
+    diagnostics.push(...branchReferenceWarnings(group.entries, groupIdLines));
     diagnostics.push(...envelopeRefWarnings(group.entries, groupIdLines));
     diagnostics.push(...userQueryResponseWarnings(group.entries));
     diagnostics.push(...parseFidelityConsistencyWarnings(group.header, group.entries));

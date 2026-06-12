@@ -44,6 +44,7 @@ const packageFixtureRootUrl = new URL("fixtures/", packageConformanceUrl);
 const manifestUrl = new URL("manifest.json", fixtureRootUrl);
 const manifestSchemaUrl = new URL("manifest.schema.json", fixtureRootUrl);
 const readmeUrl = new URL("README.md", fixtureRootUrl);
+const specUrl = new URL("spec.md", rootUrl);
 
 const GENERATED_START = "<!-- conformance-manifest:start -->";
 const GENERATED_END = "<!-- conformance-manifest:end -->";
@@ -53,22 +54,31 @@ const CLASS_ORDER: Record<ConformanceClass, number> = { W: 0, R1: 1, R2: 2 };
 // this allowlist; manifest rows for those failures assert verdict and line only.
 const PORTABLE_CODES = new Set([
   "ambiguous_sequential_pairing",
+  "child_session_fork_from_mismatch",
+  "child_session_parent_link_mismatch",
+  "content_hash_invalid",
   "content_hash_mismatch",
+  "cross_group_fork_from_hash_mismatch",
   "duplicate_id",
   "duplicate_option_labels",
   "duplicate_segment_seq",
   "duplicate_tool_result",
+  "duplicate_user_query_question_id",
   "envelope_has_parent_id",
   "envelope_not_at_line_1",
   "envelope_sessions_manifest_drift",
+  "events_before_first_session_header",
+  "header_has_parent_id",
   "ill_formed_string",
   "missing_header",
   "missing_header_after_envelope",
   "multiple_envelopes",
-  "non_monotonic_event_ts",
   "non_interoperable_number",
+  "non_monotonic_event_ts",
   "out_of_order_segment_seq",
+  "out_of_order_session_headers",
   "parent_cycle",
+  "parse_fidelity_drift",
   "reader_tolerant_schema_version",
   "reader_tolerant_unknown_payload_field",
   "reader_tolerant_unknown_record",
@@ -79,9 +89,15 @@ const PORTABLE_CODES = new Set([
   "stream_open_with_terminal_event",
   "tool_args_unredacted_secret",
   "tool_result_semantic_conflict",
+  "unknown_abandoned_branch_id",
+  "unknown_branch_point_from_id",
   "unknown_final_message_id",
   "unknown_parent_id",
+  "unknown_user_query_answer_key",
+  "unknown_user_query_for_id",
   "unmatched_tool_call_at_eof",
+  "vcs_remote_url_with_credentials",
+  "vcs_revision_divergence",
 ]);
 
 const fail = (message: string): never => {
@@ -169,6 +185,37 @@ function assertPortableCodes(manifest: Manifest): void {
       `manifest.json includes non-portable diagnostic codes:\n${nonPortable
         .map(({ fixture, diagnostic, profile }) => `${fixture.path} ${profile} ${diagnostic.code}`)
         .join("\n")}`,
+    );
+  }
+}
+
+function assertPortableCodeRegistryMatchesSpec(spec: string): void {
+  const start = spec.indexOf("Portable diagnostic code registry:");
+  const end = spec.indexOf("#### Conformance suite", start);
+  if (start === -1 || end === -1) {
+    fail("Unable to find portable diagnostic code registry in spec.md.");
+  }
+
+  const registrySection = spec.slice(start, end);
+  const specCodes = new Set<string>();
+  for (const line of registrySection.split("\n")) {
+    const match = line.match(/^\| `([^`]+)` \|/);
+    if (match?.[1] !== undefined) {
+      specCodes.add(match[1]);
+    }
+  }
+
+  const missing = [...specCodes].filter((code) => !PORTABLE_CODES.has(code));
+  const extra = [...PORTABLE_CODES].filter((code) => !specCodes.has(code));
+  if (missing.length > 0 || extra.length > 0) {
+    fail(
+      [
+        "scripts/check-conformance.ts PORTABLE_CODES must match spec.md portable diagnostic registry.",
+        missing.length > 0 ? `Missing from script:\n${missing.join("\n")}` : undefined,
+        extra.length > 0 ? `Extra in script:\n${extra.join("\n")}` : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     );
   }
 }
@@ -326,7 +373,9 @@ const checkedManifest: Manifest =
   manifest ?? fail("Unable to read tests/fixtures/validation/manifest.json.");
 const manifestSchema = await readJson<unknown>(manifestSchemaUrl);
 const fixturePaths = await listFixturePaths();
+const spec = await readFile(specUrl, "utf8");
 
+assertPortableCodeRegistryMatchesSpec(spec);
 assertManifestSchema(checkedManifest, manifestSchema);
 assertSortedAndCovered(checkedManifest, fixturePaths);
 assertPortableCodes(checkedManifest);
