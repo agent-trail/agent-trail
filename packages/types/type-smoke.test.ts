@@ -65,6 +65,19 @@ test("Vcs.type accepts reserved and extension values", () => {
     type: "x-acme/fossil",
     revision: "abc123",
   } satisfies Vcs;
+  const unborn = {
+    type: "git",
+    revision: null,
+    branch: "main",
+  } satisfies Vcs;
+  const invalidUnbornHeadCommit = {
+    type: "git",
+    revision: null,
+    branch: "main",
+    head_commit: "abcdef0",
+  };
+  // @ts-expect-error writer schema rejects head_commit when revision is null.
+  const invalidUnbornHeadCommitCheck: Vcs = invalidUnbornHeadCommit;
   const bare = {
     // @ts-expect-error writer schema rejects bare unknown VCS types.
     type: "fossil",
@@ -73,6 +86,9 @@ test("Vcs.type accepts reserved and extension values", () => {
 
   expect(reserved.type).toBe("git");
   expect(extension.type).toBe("x-acme/fossil");
+  expect(unborn.revision).toBe(null);
+  expect(invalidUnbornHeadCommitCheck.head_commit).toBe("abcdef0");
+  expect(invalidUnbornHeadCommit.head_commit).toBe("abcdef0");
   expect(bare.type).toBe("fossil");
 });
 

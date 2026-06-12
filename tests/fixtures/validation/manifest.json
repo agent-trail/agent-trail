@@ -2218,12 +2218,6 @@
         "diagnostics": [
           {
             "line": 1
-          },
-          {
-            "line": 1,
-            "path": "",
-            "severity": "error",
-            "code": "missing_header"
           }
         ]
       },
@@ -2232,12 +2226,6 @@
         "diagnostics": [
           {
             "line": 1
-          },
-          {
-            "line": 1,
-            "path": "",
-            "severity": "error",
-            "code": "missing_header"
           }
         ]
       },

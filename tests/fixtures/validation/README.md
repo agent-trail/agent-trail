@@ -123,7 +123,7 @@ This section is generated from `manifest.json`; run `bun run sync:conformance` a
 - `invalid-schema/tool-result-truncated-missing-output-size.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-schema/user-message-missing-text.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-schema/user-message-non-string-text.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
-- `invalid-schema/vcs-null-revision-with-head-commit.trail.jsonl` — classes: W, R1, R2, strict: invalid with 2 assertion(s), tolerant: 2 diagnostic(s)
+- `invalid-schema/vcs-null-revision-with-head-commit.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 - `invalid-schema/vcs-null-revision-without-branch.trail.jsonl` — classes: W, R1, R2, strict: invalid with 1 assertion(s), tolerant: 1 diagnostic(s)
 
 ### reader-tolerant/

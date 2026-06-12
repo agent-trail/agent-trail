@@ -178,6 +178,36 @@ if (VCS_REVISION_GUARD_RE.test(generated)) {
     "generate-types: failed to locate the Vcs revision guard to post-process; check json-schema-to-typescript output shape.",
   );
 }
+const VCS_FULL_RE = /export type Vcs = Vcs1 & \{\n[\s\S]*?\n\};\nexport type Vcs1 =/;
+if (!VCS_FULL_RE.test(generated)) {
+  throw new Error(
+    "generate-types: failed to locate the full Vcs type to post-process; check json-schema-to-typescript output shape.",
+  );
+}
+const vcsCommon = [
+  `      type: ${vcsTypeReplacement};`,
+  "      remote_url?: string;",
+  "      worktree?: Worktree;",
+].join("\n");
+generated = generated.replace(
+  VCS_FULL_RE,
+  [
+    "export type Vcs =",
+    "  | (Vcs1 & {",
+    vcsCommon,
+    "      revision: string;",
+    "      branch?: string;",
+    "      head_commit?: string;",
+    "    })",
+    "  | (Vcs1 & {",
+    vcsCommon,
+    "      revision: null;",
+    "      branch: string;",
+    "      head_commit?: never;",
+    "    });",
+    "export type Vcs1 =",
+  ].join("\n"),
+);
 
 const userMessageOriginEnum = (
   schema as {

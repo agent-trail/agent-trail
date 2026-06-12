@@ -15,23 +15,23 @@ export type Iso8601 = string;
  * SHA-256 hash as lowercase hex (64 chars)
  */
 export type Sha256Hex = string;
-export type Vcs = Vcs1 & {
-  type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
-  revision: string | null;
-  /**
-   * Canonical remote URL for the working tree. Adapters MUST normalize before emission: strip embedded credentials, strip trailing .git for git URLs, and normalize SSH/HTTPS variants to a single canonical form (https://host/path).
-   */
-  remote_url?: string;
-  /**
-   * Active branch / bookmark / topic name the session is running on. For git, the short branch name (e.g., `feature/x`). Detached-HEAD sessions MAY omit this field.
-   */
-  branch?: string;
-  /**
-   * Commit hash at session start (lowercase hex, 7-64 chars). For git this is typically the same value as `revision`; the field exists as an explicit, version-control-neutral alias and survives across VCS migrations.
-   */
-  head_commit?: string;
-  worktree?: Worktree;
-};
+export type Vcs =
+  | (Vcs1 & {
+      type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
+      remote_url?: string;
+      worktree?: Worktree;
+      revision: string;
+      branch?: string;
+      head_commit?: string;
+    })
+  | (Vcs1 & {
+      type: "git" | "jj" | "hg" | "svn" | `x-${string}/${string}`;
+      remote_url?: string;
+      worktree?: Worktree;
+      revision: null;
+      branch: string;
+      head_commit?: never;
+    });
 export type Vcs1 =
   | {
       revision?: string;
