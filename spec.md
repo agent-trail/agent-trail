@@ -1812,7 +1812,7 @@ Portable diagnostic code registry:
 | `out_of_order_segment_seq` | warning | §9.5 / §18.4.2 |
 | `out_of_order_session_headers` | warning | §9.6.6 |
 | `parent_cycle` | error | §13.2 / §18.4.1 |
-| `parse_fidelity_drift` | error | §9.2 |
+| `parse_fidelity_drift` | error | §9.2 / §18.4.1 |
 | `reader_tolerant_schema_version` | warning | §6 / §18.2 |
 | `reader_tolerant_unknown_payload_field` | warning | §18.2 |
 | `reader_tolerant_unknown_record` | warning | §18.2 |
@@ -1860,8 +1860,8 @@ A v0.1.0-compliant trail file MUST also pass whole-file checks.
 
 If `content_hash` is present:
 
-8. The value is 64 hex characters (SHA-256). Invalid hash shape emits `content_hash_invalid` at `/content_hash`.
-9. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails with `content_hash_mismatch` at `/content_hash`. Reader-tolerant parsers MAY warn but MUST NOT abort.
+1. The value is 64 hex characters (SHA-256). Invalid hash shape emits `content_hash_invalid` at `/content_hash`.
+2. Strict validators recompute and verify per §7.3. On mismatch, strict validation fails with `content_hash_mismatch` at `/content_hash`. Reader-tolerant parsers MAY warn but MUST NOT abort.
 
 Additional whole-file errors:
 
