@@ -2212,6 +2212,30 @@
       ]
     },
     {
+      "path": "invalid-schema/vcs-null-revision-with-empty-branch.trail.jsonl",
+      "strict": {
+        "valid": false,
+        "diagnostics": [
+          {
+            "line": 1
+          }
+        ]
+      },
+      "tolerant": {
+        "clean": false,
+        "diagnostics": [
+          {
+            "line": 1
+          }
+        ]
+      },
+      "classes": [
+        "W",
+        "R1",
+        "R2"
+      ]
+    },
+    {
       "path": "invalid-schema/vcs-null-revision-with-head-commit.trail.jsonl",
       "strict": {
         "valid": false,
