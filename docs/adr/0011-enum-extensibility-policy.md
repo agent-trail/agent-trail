@@ -15,8 +15,8 @@ version bump for new values. In the current v0.1.0 schema, this includes event
 
 Descriptive state vocabulary accepts reserved values plus vendor-namespaced
 extensions of the form `x-<vendor>/<name>`. Bare unknown strings remain
-writer-strict errors. Readers treat unknown `x-*` values as opaque strings and
-pass them through.
+writer-strict errors. Readers treat unknown `x-<vendor>/<name>` values as
+opaque strings and pass them through.
 
 Current extensible vocabulary includes `scope`, `reason`, `trigger`, `origin`,
 `command_invoke.kind`, `command_invoke.via`, and `command_invoke.result_action`
@@ -24,9 +24,9 @@ slots that describe observed runtime state rather than dispatch shape. It also
 includes established extension surfaces such as `system_event.kind`, `vcs.type`,
 `session_metadata_update.field`, and custom `agent.name`.
 
-An `x-*` value observed across two or more adapters can be promoted into the
-reserved enum in a minor format bump. This follows the convention already stated
-for `system_event.kind` in spec section 10.3.
+An `x-<vendor>/<name>` value observed across two or more adapters can be
+promoted into the reserved enum in a minor format bump. This follows the
+convention already stated for `system_event.kind` in spec section 10.3.
 
 `parse_fidelity.termination_reason` and `session_terminated.reason` both refer
 to `#/$defs/sessionTerminationReason`. They open or close together by
@@ -55,7 +55,7 @@ normalization.
 - Writers must use `x-<vendor>/<name>` for non-reserved descriptive values and
   must not emit bare unknown strings.
 - Readers should not fail only because an otherwise valid descriptive enum uses
-  an unknown `x-*` value.
+  an unknown `x-<vendor>/<name>` value.
 - Future schema edits should keep shared definitions shared when two fields are
   intentionally coupled, as with `#/$defs/sessionTerminationReason`.
 
