@@ -1,4 +1,4 @@
-import type { JsonlRecord } from "@agent-trail/core";
+import { computeContentHash, type JsonlRecord, splitSessionGroups } from "@agent-trail/core";
 import { addMutationCount } from "./mutation-accounting.ts";
 import { maskSample } from "./rules.ts";
 import type { RedactionSummary } from "./types.ts";
@@ -69,6 +69,81 @@ export function resetContentHashes(records: JsonlRecord[]): void {
       value.content_hash = "<pending>";
     }
   }
+}
+
+export function normalizeLineageHashes(records: JsonlRecord[]): void {
+  const split = splitSessionGroups(records);
+  const sessionHashById = new Map<string, string>();
+  const segmentHashByUidSeq = new Map<string, string>();
+
+  for (let i = 0; i < split.groups.length; i += 1) {
+    const group = split.groups[i];
+    if (group === undefined) continue;
+    const digest = computeContentHash(records, { groupIndex: i });
+    const id = group.header.value.id;
+    if (typeof id === "string") {
+      sessionHashById.set(id, digest);
+    }
+    const sessionUid = group.header.value.session_uid;
+    if (typeof sessionUid === "string") {
+      segmentHashByUidSeq.set(
+        segmentKey(sessionUid, segmentSeq(group.header.value.segment)),
+        digest,
+      );
+    }
+  }
+
+  for (const group of split.groups) {
+    rewriteForkFrom(group.header.value, sessionHashById);
+    rewriteSegmentPrevHash(group.header.value, segmentHashByUidSeq);
+  }
+
+  if (split.envelope !== null) {
+    rewriteForkFrom(split.envelope.value, new Map());
+  }
+}
+
+function rewriteForkFrom(
+  value: Record<string, unknown>,
+  sessionHashById: Map<string, string>,
+): void {
+  const forkFrom = value.fork_from;
+  if (typeof forkFrom !== "object" || forkFrom === null) return;
+  const forkFromRecord = forkFrom as Record<string, unknown>;
+  const sessionId = forkFromRecord.session_id;
+  if (typeof sessionId === "string") {
+    const targetHash = sessionHashById.get(sessionId);
+    if (targetHash !== undefined) {
+      forkFromRecord.content_hash = targetHash;
+      return;
+    }
+  }
+  delete forkFromRecord.content_hash;
+}
+
+function rewriteSegmentPrevHash(
+  value: Record<string, unknown>,
+  segmentHashByUidSeq: Map<string, string>,
+): void {
+  const sessionUid = value.session_uid;
+  if (typeof sessionUid !== "string") return;
+  const segment = value.segment;
+  if (typeof segment !== "object" || segment === null) return;
+  const segmentRecord = segment as Record<string, unknown>;
+  const seq = segmentSeq(segmentRecord);
+  if (seq < 2) return;
+  const prevHash = segmentHashByUidSeq.get(segmentKey(sessionUid, seq - 1));
+  segmentRecord.prev_content_hash = prevHash ?? null;
+}
+
+function segmentSeq(segment: unknown): number {
+  if (typeof segment !== "object" || segment === null) return 1;
+  const seq = (segment as { seq?: unknown }).seq;
+  return typeof seq === "number" && Number.isInteger(seq) ? seq : 1;
+}
+
+function segmentKey(sessionUid: string, seq: number): string {
+  return `${sessionUid}\0${seq}`;
 }
 
 export function syncRawRecords(records: JsonlRecord[]): void {

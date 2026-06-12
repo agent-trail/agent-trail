@@ -1,5 +1,6 @@
 import { validateWriterStrictRecord } from "./ajv-validation.ts";
 import {
+  nonInteroperableNumberDiagnostics,
   sourceRawSecretDiagnostics,
   sourceRawSizeDiagnostics,
   toolArgsSecretDiagnostics,
@@ -39,11 +40,13 @@ function validateRecordForProfile(record: JsonlRecord, profile: ValidationProfil
   );
   const toolArgExtras = toolArgsSecretDiagnostics(record);
   const headerExtras = vcsRemoteUrlDiagnostics(record);
+  const numberExtras = nonInteroperableNumberDiagnostics(record);
 
   return baseDiagnosticsForProfile(record, profile)
     .concat(sourceRawExtras)
     .concat(toolArgExtras)
-    .concat(headerExtras);
+    .concat(headerExtras)
+    .concat(numberExtras);
 }
 
 export async function* validateWriterStrictSchemaJsonlStream(

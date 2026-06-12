@@ -7,6 +7,7 @@ import {
   nonMonotonicEventTsWarnings,
   outOfOrderSessionHeadersWarnings,
   parseFidelityConsistencyWarnings,
+  segmentSequenceWarnings,
   streamConsistencyWarnings,
   unmatchedToolCallWarnings,
   userQueryResponseWarnings,
@@ -66,6 +67,7 @@ export function validateTrailGraph(
   if (validGroups.length > 1) {
     diagnostics.push(...outOfOrderSessionHeadersWarnings(validGroups));
     diagnostics.push(...vcsRevisionDivergenceWarnings(validGroups));
+    diagnostics.push(...segmentSequenceWarnings(validGroups));
     diagnostics.push(...crossGroupForkFromWarnings(validGroups));
     diagnostics.push(...childSessionLinkWarnings(validGroups));
   }

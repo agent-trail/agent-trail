@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { type JsonlRecord, validateTrailString } from "@agent-trail/core";
+import { computeContentHash, type JsonlRecord, validateTrailString } from "@agent-trail/core";
 import { redactTrail } from "./redactor.ts";
 
 function record(line: number, value: Record<string, unknown>): JsonlRecord {
@@ -2680,6 +2680,76 @@ test("redactTrail resets content_hash to <pending> on every session header and t
   expect((out[0]?.value as { content_hash: string }).content_hash).toBe("<pending>");
   expect((out[1]?.value as { content_hash: string }).content_hash).toBe("<pending>");
   expect((out[3]?.value as { content_hash: string }).content_hash).toBe("<pending>");
+});
+
+test("redactTrail rewrites in-file fork_from and segment lineage hashes to redacted session hashes", () => {
+  const secret = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const sessionUid = "00000000-0000-4000-8000-000000000288";
+  const records: JsonlRecord[] = [
+    header({
+      id: "sess1",
+      session_uid: sessionUid,
+      segment: { seq: 1 },
+      content_hash: "a".repeat(64),
+    }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `parent ${secret}` },
+    }),
+    header({
+      id: "sess2",
+      session_uid: sessionUid,
+      segment: { seq: 2, prev_content_hash: "b".repeat(64) },
+      fork_from: { session_id: "sess1", content_hash: "c".repeat(64), entry_id: "evt1" },
+      content_hash: "d".repeat(64),
+    }),
+    record(4, {
+      type: "user_message",
+      id: "evt2",
+      ts: "2026-05-22T00:00:02.000Z",
+      payload: { text: "child" },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+  const parentHash = computeContentHash(out, { groupIndex: 0 });
+  const child = out[2]?.value as {
+    fork_from: { content_hash?: string };
+    segment: { prev_content_hash?: string | null };
+  };
+
+  expect(child.fork_from.content_hash).toBe(parentHash);
+  expect(child.segment.prev_content_hash).toBe(parentHash);
+});
+
+test("redactTrail drops external fork_from hashes and marks missing previous segment chains null", () => {
+  const secret = "sk-proj-AbCdEfGhIjKlMnOpQrStUv0123456789-_AbCdEfGhIjKlMnOpQrStUv0123456789";
+  const records: JsonlRecord[] = [
+    header({
+      id: "sess2",
+      session_uid: "00000000-0000-4000-8000-000000000289",
+      segment: { seq: 2, prev_content_hash: "a".repeat(64) },
+      fork_from: { session_id: "external-session", content_hash: "b".repeat(64), entry_id: "evt0" },
+      content_hash: "c".repeat(64),
+    }),
+    record(2, {
+      type: "agent_message",
+      id: "evt1",
+      ts: "2026-05-22T00:00:01.000Z",
+      payload: { text: `contains ${secret}` },
+    }),
+  ];
+
+  const { records: out } = redactTrail(records);
+  const value = out[0]?.value as {
+    fork_from: { session_id: string; entry_id: string; content_hash?: string };
+    segment: { prev_content_hash?: string | null };
+  };
+
+  expect(value.fork_from).toEqual({ session_id: "external-session", entry_id: "evt0" });
+  expect(value.segment.prev_content_hash).toBeNull();
 });
 
 test("redactTrail walks payload of unknown / forward-compatible event types", () => {
